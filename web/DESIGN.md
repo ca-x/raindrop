@@ -33,6 +33,8 @@ ASTRYX is the component source. Buttons, inputs, banners, navigation, dialogs, a
 
 Setup and login use a calm two-region composition on desktop: product context beside a focused form. Ready state uses one `AppShell`; future reader views use one responsive `Layout`. Sections are mostly cardless, with surface elevation reserved for forms and reading content.
 
+The reader keeps CommaFeed's efficiency grammar rather than its page shape: an unread-first source tree, a stable entry queue, fast keyboard traversal, snapshot-based bulk read actions, and non-disruptive new-entry notices. Raindrop modernizes this as a three-pane desktop workspace, a two-region medium layout, and single-task mobile routes with deep links and restored scroll anchors. AI summaries, translations, and plugin artifacts are secondary reader sidecars; original feed content remains the default and never waits on them.
+
 ## 6. Depth and elevation
 
 Depth comes from background lightness steps and a restrained shadow on the active form surface. Borders are dividers, not decoration. Glass blur and decorative gradients are excluded.
@@ -46,6 +48,8 @@ Depth comes from background lightness steps and a restrained shadow on the activ
 - Do not create local generic Button, Dialog, Selector, or input wrappers.
 - Do not compress desktop side panels into mobile.
 - Do not animate keyboard-driven navigation or routine list changes.
+- Do not automatically merge newly arrived entries into the active queue or move the current selection.
+- Do not make summary, translation, or plugin output a prerequisite for reading the original article.
 
 ## 8. Responsive behavior
 

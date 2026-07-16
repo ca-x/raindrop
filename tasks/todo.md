@@ -17,6 +17,8 @@
 - [ ] URL 安全、SSRF 防护、条件请求、解析、清洗和幂等插入。
 - [ ] 调度租约、退避、保留策略和刷新事件。
 - [ ] 订阅树、文章列表、阅读器、已读/未读/收藏。
+- [ ] CommaFeed 效率内核：All/Unread/Starred、J/K 与 N/P、批量已读快照、下一未读来源、来源内搜索和非打扰式新文章合并。
+- [ ] 列表重载与 Feed 网络抓取分离，queued/running/cooldown/partial failure 状态可见。
 
 ## 3. Multi-user organization
 
@@ -56,6 +58,9 @@
 ## 9. Product UX
 
 - [ ] ASTRYX `AppShell + Layout + TreeList + List/Item` 响应式三栏。
+- [ ] `>=1100px` 三栏、`720–1099px` 两区、`<720px` 单任务深链接路由，并恢复订阅树/列表/正文滚动锚点。
+- [ ] Reader 规范化实体状态保证树、列表、正文的已读/收藏/计数一致；新条目不自动重排当前队列。
+- [ ] 摘要/翻译/plugin artifact 作为非阻塞 sidecar，原文默认且始终可读。
 - [ ] light/dark/system、Kami 排版、中文/英文完整覆盖。
 - [ ] Emil motion、键盘、screen reader、reduced-motion 和移动端验证。
 
