@@ -1,13 +1,23 @@
 mod address_policy;
+mod decode;
 mod error;
+mod fetch;
 mod identity;
 mod model;
+mod resolver;
 mod schedule;
 mod url_policy;
+
+#[cfg(test)]
+mod test_support;
 
 pub use address_policy::AddressPolicy;
 pub use error::{
     AddressPolicyError, FeedUrlError, IdentityError, RetryAfterError, ScheduleError, ValidatorError,
+};
+pub use fetch::{
+    FeedFetchError, FeedFetchErrorKind, FeedTransport, FetchOutcome, FetchRequest,
+    FetchTimeoutStage, HttpFeedTransport, Nat64Mode,
 };
 pub use identity::{EntryIdentity, IdentityKind, StableEntryFields};
 pub use model::{OpaqueValidator, ReusableValidators, ValidatorSet};

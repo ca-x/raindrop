@@ -10,17 +10,22 @@ repository = "https://github.com/czyt/raindrop"
 [dependencies]
 anyhow = "1.0.103"
 argon2 = { version = "0.5.3", features = ["std"] }
+async-compression = { version = "0.4.42", default-features = false, features = ["tokio", "gzip", "zlib", "brotli"] }
+async-trait = "0.1.89"
 axum = { version = "0.8.9", features = ["json", "macros"] }
 base64 = "0.22.1"
 blake3 = "1.8.3"
 cookie = "0.18.1"
 constant_time_eq = "0.4.2"
 feedparser-rs = { version = "=0.5.5", default-features = false }
+futures-util = "0.3.32"
+hickory-resolver = { version = "=0.26.1", default-features = false, features = ["system-config", "tokio"] }
 http = { version = "1.4.2", default-features = false }
 httpdate = "1.0.3"
 ipnet = { version = "2.12.0", default-features = false }
 mime_guess = "2.0.5"
 rand_core = { version = "0.6.4", features = ["getrandom"] }
+reqwest = { version = "0.13.4", default-features = false, features = ["rustls", "stream"] }
 rust-embed = "8.12.0"
 sea-orm = { version = "1.1.19", default-features = false, features = ["macros", "runtime-tokio-rustls", "sqlx-mysql", "sqlx-postgres", "sqlx-sqlite", "with-time"] }
 sea-orm-migration = { version = "1.1.19", default-features = false, features = ["runtime-tokio-rustls", "sqlx-mysql", "sqlx-postgres", "sqlx-sqlite"] }
@@ -29,7 +34,7 @@ serde_json = "1.0.150"
 secrecy = "0.10.3"
 thiserror = "2.0.18"
 time = { version = "0.3.53", features = ["formatting", "serde"] }
-tokio = { version = "1.52.3", features = ["macros", "net", "rt-multi-thread", "signal"] }
+tokio = { version = "1.52.3", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 toml = "0.9.8"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
@@ -43,6 +48,7 @@ windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem"] }
 [dev-dependencies]
 http-body-util = "0.1.4"
 tempfile = "3.27.0"
+tokio = { version = "1.52.3", features = ["test-util"] }
 tower = { version = "0.5.3", features = ["util"] }
 
 [profile.release]
