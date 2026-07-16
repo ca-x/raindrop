@@ -1,6 +1,7 @@
 use std::{
     collections::VecDeque,
-    net::{IpAddr, SocketAddr},
+    future::pending,
+    net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -8,7 +9,12 @@ use std::{
 use async_trait::async_trait;
 use http::{HeaderMap, StatusCode};
 use time::OffsetDateTime;
-use tokio::time::Instant;
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpListener,
+    task::JoinHandle,
+    time::Instant,
+};
 
 use super::{
     AddressPolicy,
@@ -186,6 +192,37 @@ pub(super) fn snapshot(generation: u64) -> Arc<Nat64Snapshot> {
         valid_until: None,
         address_policy: AddressPolicy::public_only(),
     })
+}
+
+pub(super) struct StalledHttpServer {
+    address: SocketAddr,
+    task: JoinHandle<()>,
+}
+
+impl StalledHttpServer {
+    pub(super) async fn start(response_head: &'static [u8]) -> Self {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let task = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0_u8; 1024];
+            let _ = socket.read(&mut request).await.unwrap();
+            socket.write_all(response_head).await.unwrap();
+            pending::<()>().await;
+        });
+        tokio::task::yield_now().await;
+        Self { address, task }
+    }
+
+    pub(super) const fn address(&self) -> SocketAddr {
+        self.address
+    }
+}
+
+impl Drop for StalledHttpServer {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
 }
 
 #[derive(Clone, Copy)]

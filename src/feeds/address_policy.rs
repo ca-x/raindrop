@@ -177,7 +177,7 @@ fn overlaps_special_range(prefix: &Ipv6Net) -> bool {
         .any(|range| range.contains(&prefix.network()) || prefix.contains(&range.network()))
 }
 
-fn extract_rfc6052(address: Ipv6Addr, prefix_len: u8) -> Ipv4Addr {
+pub(super) fn extract_rfc6052(address: Ipv6Addr, prefix_len: u8) -> Ipv4Addr {
     let bits = u128::from(address);
     let embedded = match prefix_len {
         32 => (bits >> 64) as u32,

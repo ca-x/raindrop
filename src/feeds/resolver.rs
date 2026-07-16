@@ -1,6 +1,5 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashSet},
-    future::Future,
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
     sync::Arc,
     time::{Duration, Instant as StdInstant},
@@ -20,9 +19,11 @@ use hickory_resolver::{
 use ipnet::Ipv6Net;
 use thiserror::Error;
 use tokio::sync::{Mutex, RwLock};
-use tokio::time::{Instant, timeout_at};
+use tokio::time::Instant;
 
-use super::{AddressPolicy, AddressPolicyError};
+use super::{
+    AddressPolicy, AddressPolicyError, address_policy::extract_rfc6052, deadline::strict_timeout_at,
+};
 
 const DNS_TIMEOUT: Duration = Duration::from_secs(3);
 const IPV4ONLY_ARPA: &str = "ipv4only.arpa.";
@@ -145,6 +146,9 @@ fn collect_family_addresses(
 ) -> Result<(), DnsResolveError> {
     match result {
         Ok(lookup) => {
+            if lookup.answers().is_empty() {
+                return Err(DnsResolveError::Lookup);
+            }
             for record in lookup.answers() {
                 match (&record.data, record_type) {
                     (RData::A(address), RecordType::A) => addresses.push(IpAddr::V4(address.0)),
@@ -372,23 +376,15 @@ fn derive_nat64_prefixes(addresses: &[Ipv6Addr]) -> Result<Vec<Ipv6Net>, Nat64Di
         }
     }
 
-    let prefixes = complete.into_iter().collect::<Vec<_>>();
+    let prefixes = complete
+        .into_iter()
+        .filter(|prefix| {
+            prefix.prefix_len() != 96
+                || prefix.network() != Ipv6Addr::new(0x64, 0xff9b, 0, 0, 0, 0, 0, 0)
+        })
+        .collect::<Vec<_>>();
     AddressPolicy::with_nat64_prefixes(prefixes.iter().copied())?;
     Ok(prefixes)
-}
-
-fn extract_rfc6052(address: Ipv6Addr, prefix_len: u8) -> Ipv4Addr {
-    let bits = u128::from(address);
-    let embedded = match prefix_len {
-        32 => (bits >> 64) as u32,
-        40 => ((((bits >> 64) & 0x00ff_ffff) << 8) | ((bits >> 48) & 0xff)) as u32,
-        48 => ((((bits >> 64) & 0xffff) << 16) | ((bits >> 40) & 0xffff)) as u32,
-        56 => ((((bits >> 64) & 0xff) << 24) | ((bits >> 32) & 0x00ff_ffff)) as u32,
-        64 => ((bits >> 24) & u128::from(u32::MAX)) as u32,
-        96 => bits as u32,
-        _ => unreachable!("RFC 6052 prefix length is fixed"),
-    };
-    Ipv4Addr::from(embedded)
 }
 
 fn u_octet(address: Ipv6Addr) -> u8 {
@@ -406,28 +402,6 @@ fn absolute_name(host: &str) -> String {
 fn min_deadline(left: Instant, right: Instant) -> Instant {
     if left <= right { left } else { right }
 }
-
-async fn strict_timeout_at<F>(
-    deadline: Instant,
-    future: F,
-) -> Result<F::Output, StrictDeadlineElapsed>
-where
-    F: Future,
-{
-    if Instant::now() >= deadline {
-        return Err(StrictDeadlineElapsed);
-    }
-    let output = timeout_at(deadline, future)
-        .await
-        .map_err(|_| StrictDeadlineElapsed)?;
-    if Instant::now() >= deadline {
-        Err(StrictDeadlineElapsed)
-    } else {
-        Ok(output)
-    }
-}
-
-struct StrictDeadlineElapsed;
 
 #[derive(Clone)]
 pub(super) struct Nat64Snapshot {
@@ -501,24 +475,19 @@ impl Nat64Snapshots {
                 snapshot,
                 refresh,
             } => {
-                let now = Instant::now();
-                if now >= total_deadline {
-                    return Err(Nat64DiscoveryError::Deadline);
-                }
-                if let Some(current) = snapshot.read().await.clone()
-                    && !current.is_expired(now)
-                {
+                if let Some(current) = fresh_snapshot(snapshot, total_deadline).await? {
                     return Ok(current);
                 }
 
                 let _guard = strict_timeout_at(total_deadline, refresh.lock())
                     .await
                     .map_err(|_| Nat64DiscoveryError::Deadline)?;
-                let now = Instant::now();
-                if let Some(current) = snapshot.read().await.clone()
-                    && !current.is_expired(now)
-                {
+                if let Some(current) = fresh_snapshot(snapshot, total_deadline).await? {
                     return Ok(current);
+                }
+                let now = Instant::now();
+                if now >= total_deadline {
+                    return Err(Nat64DiscoveryError::Deadline);
                 }
                 let discovery_deadline = min_deadline(
                     total_deadline,
@@ -555,6 +524,18 @@ impl Nat64Snapshots {
     }
 }
 
+async fn fresh_snapshot(
+    snapshot: &RwLock<Option<Arc<Nat64Snapshot>>>,
+    total_deadline: Instant,
+) -> Result<Option<Arc<Nat64Snapshot>>, Nat64DiscoveryError> {
+    let current = snapshot.read().await.clone();
+    let now = Instant::now();
+    if now >= total_deadline {
+        return Err(Nat64DiscoveryError::Deadline);
+    }
+    Ok(current.filter(|current| !current.is_expired(now)))
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -581,8 +562,8 @@ mod tests {
 
     use super::{
         DnsResolveError, DnsResolver, ExplicitLookup, Nat64Discovery, Nat64DiscoveryError,
-        Nat64DiscoveryState, Nat64PrefixDiscovery, Nat64SnapshotMode, Nat64Snapshots,
-        SystemDnsResolver, SystemNat64PrefixDiscovery, derive_nat64_prefixes,
+        Nat64DiscoveryState, Nat64PrefixDiscovery, Nat64Snapshot, Nat64SnapshotMode,
+        Nat64Snapshots, SystemDnsResolver, SystemNat64PrefixDiscovery, derive_nat64_prefixes,
         parse_discovery_results,
     };
     use crate::feeds::test_support::FakeNat64Discovery;
@@ -698,13 +679,55 @@ mod tests {
     }
 
     #[test]
+    fn nat64_discovery_accepts_builtin_wkp_without_configuring_it() {
+        let wkp = "64:ff9b::/96".parse::<Ipv6Net>().unwrap();
+        let a = lookup_v4([super::WKA_170, super::WKA_171], 60);
+        let aaaa = lookup_v6(
+            [
+                synthesize(wkp, super::WKA_170),
+                synthesize(wkp, super::WKA_171),
+            ],
+            60,
+        );
+
+        let discovered = parse_discovery_results(Ok(a), Ok(aaaa)).unwrap();
+
+        assert_eq!(discovered.state, Nat64DiscoveryState::Present(Vec::new()));
+    }
+
+    #[test]
+    fn nat64_discovery_keeps_custom_prefix_alongside_builtin_wkp() {
+        let wkp = "64:ff9b::/96".parse::<Ipv6Net>().unwrap();
+        let custom = "2001:300::/96".parse::<Ipv6Net>().unwrap();
+        let a = lookup_v4([super::WKA_170, super::WKA_171], 60);
+        let aaaa = lookup_v6(
+            [
+                synthesize(wkp, super::WKA_170),
+                synthesize(wkp, super::WKA_171),
+                synthesize(custom, super::WKA_170),
+                synthesize(custom, super::WKA_171),
+            ],
+            60,
+        );
+
+        let discovered = parse_discovery_results(Ok(a), Ok(aaaa)).unwrap();
+
+        assert_eq!(discovered.state, Nat64DiscoveryState::Present(vec![custom]));
+    }
+
+    #[test]
     fn nat64_discovery_rejects_ambiguous_wka_mappings_and_negative_responses() {
-        let ambiguous = ["2001:c000:aa::", "2001:c000:ab::"]
-            .map(|raw| raw.parse::<std::net::Ipv6Addr>().unwrap());
-        assert!(matches!(
+        let complete = "2001:300::/96".parse::<Ipv6Net>().unwrap();
+        let unpaired = "2001:400::/96".parse::<Ipv6Net>().unwrap();
+        let ambiguous = [
+            synthesize(complete, super::WKA_170),
+            synthesize(complete, super::WKA_171),
+            synthesize(unpaired, super::WKA_170),
+        ];
+        assert_eq!(
             derive_nat64_prefixes(&ambiguous),
-            Err(Nat64DiscoveryError::AmbiguousAnswer | Nat64DiscoveryError::MalformedAnswer)
-        ));
+            Err(Nat64DiscoveryError::AmbiguousAnswer)
+        );
 
         let a = lookup_v4([super::WKA_170, super::WKA_171], 60);
         assert_eq!(
@@ -822,6 +845,25 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn system_user_dns_rejects_successful_empty_lookup_even_with_public_other_family() {
+        let public_v6 = "2606:4700:4700::1111"
+            .parse::<std::net::Ipv6Addr>()
+            .unwrap();
+        let lookup = Arc::new(ScriptedLookup::new(vec![
+            ScriptedLookupResult::Delayed(Duration::ZERO, Ok(lookup_v4([], 60))),
+            ScriptedLookupResult::Delayed(Duration::ZERO, Ok(lookup_v6([public_v6], 60))),
+        ]));
+        let resolver = SystemDnsResolver::with_lookup(lookup);
+
+        assert_eq!(
+            resolver
+                .resolve("feed.example", Instant::now() + Duration::from_secs(3),)
+                .await,
+            Err(DnsResolveError::Lookup)
+        );
+    }
+
     #[tokio::test(start_paused = true)]
     async fn nat64_refresh_lock_wait_rejects_the_total_deadline() {
         let discovery = Arc::new(FakeNat64Discovery::new(vec![Ok(Nat64Discovery {
@@ -850,6 +892,68 @@ mod tests {
             Err(error) => error,
         };
         assert_eq!(error, Nat64DiscoveryError::Deadline);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn nat64_snapshot_read_rejects_total_deadline_reached_while_waiting() {
+        let started = Instant::now();
+        let discovery = Arc::new(FakeNat64Discovery::new(vec![]));
+        let snapshots = Arc::new(Nat64Snapshots::automatic(discovery));
+        let Nat64SnapshotMode::Automatic { snapshot, .. } = &snapshots.mode else {
+            panic!("automatic snapshot mode");
+        };
+        let mut guard = snapshot.write().await;
+        *guard = Some(Arc::new(Nat64Snapshot {
+            generation: 1,
+            valid_until: Some(started + Duration::from_secs(60)),
+            address_policy: crate::feeds::AddressPolicy::public_only(),
+        }));
+        let waiter = tokio::spawn({
+            let snapshots = snapshots.clone();
+            async move { snapshots.current(started + Duration::from_secs(1)).await }
+        });
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_secs(1)).await;
+        drop(guard);
+
+        let error = match waiter.await.unwrap() {
+            Ok(_) => panic!("snapshot read at the total deadline must fail"),
+            Err(error) => error,
+        };
+        assert_eq!(error, Nat64DiscoveryError::Deadline);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn nat64_snapshot_read_refreshes_ttl_reached_while_waiting() {
+        let started = Instant::now();
+        let discovery = Arc::new(FakeNat64Discovery::new(vec![Ok(Nat64Discovery {
+            state: Nat64DiscoveryState::NotPresent,
+            valid_until: started + Duration::from_secs(10),
+        })]));
+        let snapshots = Arc::new(Nat64Snapshots::automatic(discovery.clone()));
+        let Nat64SnapshotMode::Automatic { snapshot, .. } = &snapshots.mode else {
+            panic!("automatic snapshot mode");
+        };
+        let mut guard = snapshot.write().await;
+        *guard = Some(Arc::new(Nat64Snapshot {
+            generation: 1,
+            valid_until: Some(started + Duration::from_secs(1)),
+            address_policy: crate::feeds::AddressPolicy::public_only(),
+        }));
+        let waiter = tokio::spawn({
+            let snapshots = snapshots.clone();
+            async move { snapshots.current(started + Duration::from_secs(30)).await }
+        });
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_secs(1)).await;
+        drop(guard);
+
+        let refreshed = waiter.await.unwrap().unwrap();
+        assert_eq!(
+            refreshed.valid_until,
+            Some(started + Duration::from_secs(10))
+        );
+        assert_eq!(discovery.calls(), 1);
     }
 
     #[tokio::test(start_paused = true)]

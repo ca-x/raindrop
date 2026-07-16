@@ -176,7 +176,7 @@ RED: installer and production client-builder seams did not exist; the active
   production client builder repeats the check. AWS-LC packages are absent from
   the locked active graph.
 
-### Final verification results
+### Verification results at `c9cca6d`
 
 ```text
 cargo fmt --check
@@ -224,7 +224,7 @@ The only known verification notice remains the repository's existing
 adapter timeout regression intentionally takes approximately one second; all
 other transport tests remain deterministic and network-independent.
 
-### Review ledger
+### Review round 1: preliminary completion review
 
 - Minor: there is no isolated-process regression that first installs a
   conflicting rustls provider. Rustls provider state is process-global and
@@ -233,5 +233,147 @@ other transport tests remain deterministic and network-independent.
 - Minor: the `--version` provider-free fast path is command-verified rather
   than covered by a dedicated subprocess regression.
 
-Neither limitation blocks Task 4: the independent final review reported zero
-Critical and zero Important findings and marked the code ready.
+This preliminary review reported zero Critical and zero Important findings and
+marked the code ready. The later formal Task 4 review below superseded that
+readiness decision.
+
+### Review round 2: formal Task 4 review
+
+The formal review at `c9cca6d` reported zero Critical, three Important, and four
+Minor findings and returned NOT READY. The parent explicitly excluded broader
+standards-axis expansion outside the Task 4 brief: Content-Length pre-rejection,
+default headers, a full production scripted-server matrix, public TLS/Decode
+classification, redirect-loop detection, and `cargo audit` were not added.
+
+#### RED evidence
+
+```text
+nat64_discovery_accepts_builtin_wkp_without_configuring_it
+nat64_discovery_keeps_custom_prefix_alongside_builtin_wkp
+RED: valid 64:ff9b::/96 discovery returned InvalidPrefix, both alone and with
+     a custom prefix
+
+system_user_dns_rejects_successful_empty_lookup_even_with_public_other_family
+RED: Ok(empty A Lookup) plus a public AAAA answer returned Ok([public IPv6])
+
+nat64_deadline_at_total_deadline_is_typed_as_total_timeout
+RED: Nat64DiscoveryError::Deadline at the total deadline returned
+     FeedFetchErrorKind::Nat64Discovery instead of Timeout/Total
+
+nat64_snapshot_read_rejects_total_deadline_reached_while_waiting
+RED: a reader blocked until exact total-deadline equality returned the cached
+     snapshot
+
+nat64_snapshot_read_refreshes_ttl_reached_while_waiting
+RED: a reader blocked until exact TTL equality returned the expired snapshot
+     instead of refreshing it
+
+nat64_discovery_rejects_ambiguous_wka_mappings_and_negative_responses
+RED after exact assertion: the old fixture produced MalformedAnswer rather
+     than AmbiguousAnswer
+```
+
+#### Round 2 changes
+
+- RFC 7050 discovery now treats the standard `64:ff9b::/96` WKP as valid
+  Present, while omitting it from the configured-prefix list because
+  `AddressPolicy` already unwraps it intrinsically. WKP-only and WKP-plus-custom
+  discovery have separate regressions.
+- System user DNS rejects a successful zero-answer Hickory `Lookup`; only
+  `NoRecordsFound` plus `NoError` represents an absent family.
+- Transport conversion maps `Nat64DiscoveryError::Deadline` to `Timeout/Total`
+  only when `now >= total_deadline`. The dedicated three-second RFC 7050
+  deadline remains `Nat64Discovery`.
+- Snapshot cache checks read the async `RwLock` first and then resample the
+  monotonic clock. Exact total-deadline equality rejects, and exact TTL equality
+  refreshes rather than returning a stale snapshot.
+- The ambiguous-answer fixture now contains one complete WKA pair plus an
+  unpaired mapping and asserts exactly `AmbiguousAnswer`.
+- The real TCP stalled-body fixture moved from `fetch.rs` into the reusable,
+  module-private `StalledHttpServer` test utility.
+- Separate integration-test processes now prove that a conflicting installed
+  rustls provider is rejected and that `--version` exits before invalid runtime
+  configuration is inspected.
+- Strict absolute timeout logic is shared through `feeds/deadline.rs`, and NAT64
+  discovery reuses the RFC 6052 extraction implemented by `AddressPolicy`.
+
+#### Focused GREEN evidence
+
+```text
+cargo test --locked builtin_wkp -- --nocapture
+PASS: 2 passed
+
+cargo test --locked system_user_dns_rejects_successful_empty_lookup_even_with_public_other_family -- --nocapture
+PASS: 1 passed
+
+cargo test --locked nat64_ -- --nocapture
+PASS: 17 resolver/fetch NAT64 tests plus 3 matching primitive tests
+
+cargo test --locked nat64_snapshot_read_ -- --nocapture
+PASS: 2 passed
+
+cargo test --locked nat64_discovery_rejects_ambiguous_wka_mappings_and_negative_responses -- --nocapture
+PASS: 1 passed
+
+cargo test --locked reqwest_executor_read_timeout_is_typed_as_body_idle -- --nocapture
+PASS: 1 passed
+
+cargo test --locked --test feed_tls_provider_conflict --test version_fast_path -- --nocapture
+PASS: 2 isolated integration targets
+
+cargo test --locked feeds:: -- --nocapture
+PASS: 55 passed, 0 failed
+```
+
+### Post-review final verification
+
+```text
+cargo fmt --check
+PASS
+
+cargo clippy --locked --all-targets --all-features -- -D warnings
+PASS
+
+cargo test --locked feeds:: -- --nocapture
+PASS: 55 passed, 0 failed
+
+cargo +1.94.0 test --locked feeds:: -- --nocapture
+PASS: 55 passed, 0 failed
+
+cargo test --locked --all-features
+PASS: 143 passed, 0 failed across unit/integration/doc targets
+
+cargo test --locked --test feed_tls_provider_conflict --test version_fast_path -- --nocapture
+PASS: 2 isolated integration targets
+
+cargo tree --locked -e features -i reqwest
+PASS: rustls-no-provider and stream only
+
+cargo tree --locked -e features -i rustls
+PASS: ring is the only crypto provider; reqwest supplies std/tls12
+
+cargo tree --locked -e features -i hickory-resolver
+PASS: system-config and tokio only
+
+! cargo tree --locked -i aws-lc-rs
+! cargo tree --locked -i aws-lc-sys
+PASS: neither package is present
+
+! cargo tree --locked -e features | rg \
+  'system-proxy|cookies|native-tls|http2|http3'
+PASS
+
+! cargo tree --locked -e features | rg \
+  'hickory-resolver feature "(dnssec|h3|https|quic|tls)[^"]*"'
+PASS
+
+cargo run --locked -- --version
+PASS: raindrop 0.1.0
+
+git diff --check
+PASS
+```
+
+The only remaining notice is the repository's existing
+`proc-macro-error2 v2.0.1` future-incompatibility warning. The real reqwest
+stalled-body regression intentionally takes approximately one second.

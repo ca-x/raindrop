@@ -32,11 +32,16 @@ security-critical facts verified against the exact pinned crate sources.
   search domains are not applied.
 - User-host A/AAAA absence is accepted only for `NoRecordsFound` with
   `response_code == NoError`; NXDOMAIN and all other rcodes fail closed rather
-  than becoming an empty address family.
+  than becoming an empty address family. `Ok(Lookup)` with no answer records is
+  malformed, not absence, and fails even when the other family is public.
 - Require verified A records containing both WKAs for both Present and
   NotPresent. Present validity is `min(A deadline, AAAA deadline)`; NotPresent
   validity is `min(A deadline, checked now + negative AAAA TTL)`. `now >=
   valid_until` is expired; refresh is on-demand single-flight before user DNS.
+  The standard `64:ff9b::/96` WKP is a valid Present discovery result, but it is
+  omitted from configured prefixes because `AddressPolicy` handles it before
+  configured RFC 6052 prefixes. After every async snapshot `RwLock` read,
+  resample the monotonic clock before testing total deadline or TTL equality.
 
 ## DNS pinning and reqwest 0.13.4
 
@@ -64,6 +69,9 @@ security-critical facts verified against the exact pinned crate sources.
 - Preserve reqwest body `is_timeout()` before stripping its URL. Classify that
   timeout using current deadline priority Total, then Hop, then BodyIdle;
   non-timeout body errors remain typed network failures.
+- At the transport boundary, map `Nat64DiscoveryError::Deadline` to
+  `Timeout/Total` only when `now >= total_deadline`; the dedicated three-second
+  RFC 7050 timeout remains the typed `Nat64Discovery` failure.
 - Do not call `Response::bytes()` or `read_to_end` before limits. Checked-add
   compressed chunks before append; reject before exceeding 2 MiB.
 

@@ -2,7 +2,6 @@ use std::{
     collections::HashSet,
     error::Error,
     fmt,
-    future::Future,
     net::{IpAddr, SocketAddr},
     sync::Arc,
     time::Duration,
@@ -19,12 +18,13 @@ use ipnet::Ipv6Net;
 use reqwest::redirect::Policy;
 use rustls::crypto::CryptoProvider;
 use time::OffsetDateTime;
-use tokio::time::{Instant, timeout_at};
+use tokio::time::Instant;
 use url::Url;
 
 use super::{
     AddressDecision, FeedUrlError, FeedUrlPolicy, NormalizedFeedUrl, OpaqueValidator, RetryAfter,
     ValidatorSet,
+    deadline::strict_timeout_at,
     decode::{DecodeError, MAX_COMPRESSED_BYTES, content_encoding, decode_document},
     resolver::{
         DnsResolveError, DnsResolver, Nat64DiscoveryError, Nat64Snapshot, Nat64Snapshots,
@@ -610,10 +610,16 @@ impl HttpFeedTransport {
         host: &str,
         total_deadline: Instant,
     ) -> Result<Arc<Nat64Snapshot>, FeedFetchError> {
-        self.snapshots
-            .current(total_deadline)
-            .await
-            .map_err(|_error| FeedFetchError::new(FeedFetchErrorKind::Nat64Discovery, host))
+        match self.snapshots.current(total_deadline).await {
+            Ok(snapshot) => Ok(snapshot),
+            Err(Nat64DiscoveryError::Deadline) if Instant::now() >= total_deadline => {
+                Err(FeedFetchError::timeout(host, FetchTimeoutStage::Total))
+            }
+            Err(_) => Err(FeedFetchError::new(
+                FeedFetchErrorKind::Nat64Discovery,
+                host,
+            )),
+        }
     }
 
     async fn resolve_approved(
@@ -1007,28 +1013,6 @@ fn min_three(first: Instant, second: Instant, third: Instant) -> Instant {
     first.min(second).min(third)
 }
 
-async fn strict_timeout_at<F>(
-    deadline: Instant,
-    future: F,
-) -> Result<F::Output, StrictDeadlineElapsed>
-where
-    F: Future,
-{
-    if Instant::now() >= deadline {
-        return Err(StrictDeadlineElapsed);
-    }
-    let output = timeout_at(deadline, future)
-        .await
-        .map_err(|_| StrictDeadlineElapsed)?;
-    if Instant::now() >= deadline {
-        Err(StrictDeadlineElapsed)
-    } else {
-        Ok(output)
-    }
-}
-
-struct StrictDeadlineElapsed;
-
 fn deadline_error(
     host: &str,
     deadline: Instant,
@@ -1065,12 +1049,7 @@ mod tests {
         HeaderMap, HeaderValue, StatusCode,
         header::{CONTENT_ENCODING, CONTENT_TYPE, ETAG, LAST_MODIFIED, LOCATION, RETRY_AFTER},
     };
-    use tokio::{
-        io::{AsyncReadExt, AsyncWriteExt},
-        net::TcpListener,
-        sync::Notify,
-        time::Instant,
-    };
+    use tokio::{sync::Notify, time::Instant};
 
     use super::{
         BODY_IDLE_TIMEOUT, DNS_TIMEOUT, FIRST_BYTE_TIMEOUT, FeedFetchError, FeedFetchErrorKind,
@@ -1080,10 +1059,14 @@ mod tests {
     };
     use crate::feeds::{
         FeedUrlPolicy, OpaqueValidator, ValidatorSet,
-        resolver::{Nat64Discovery, Nat64DiscoveryError, Nat64DiscoveryState, Nat64Snapshots},
+        resolver::{
+            Nat64Discovery, Nat64DiscoveryError, Nat64DiscoveryState, Nat64PrefixDiscovery,
+            Nat64Snapshot, Nat64Snapshots,
+        },
         test_support::{
             BodyStep, DnsReply, FakeDnsResolver, FakeNat64Discovery, PeerSpec, ResponseSpec,
-            ScriptedBody, ScriptedExecutor, ScriptedSnapshots, event_log, snapshot,
+            ScriptedBody, ScriptedExecutor, ScriptedSnapshots, StalledHttpServer, event_log,
+            snapshot,
         },
     };
 
@@ -1488,6 +1471,44 @@ mod tests {
         let events = events.lock().unwrap();
         assert_eq!(events[0], "discovery");
         assert_eq!(events[1], "dns");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn nat64_deadline_at_total_deadline_is_typed_as_total_timeout() {
+        let transport = transport(
+            Arc::new(FakeDnsResolver::new(vec![])),
+            Arc::new(TotalDeadlineSnapshots),
+            Arc::new(ScriptedExecutor::new(vec![])),
+        );
+
+        let error = transport
+            .fetch(request("https://feed.example/rss"))
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.kind(), FeedFetchErrorKind::Timeout);
+        assert_eq!(error.timeout_stage(), Some(FetchTimeoutStage::Total));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn nat64_three_second_discovery_deadline_remains_discovery_error() {
+        let started = Instant::now();
+        let snapshots = Arc::new(Nat64Snapshots::automatic(Arc::new(
+            ThreeSecondDeadlineDiscovery,
+        )));
+        let transport = transport(
+            Arc::new(FakeDnsResolver::new(vec![])),
+            snapshots,
+            Arc::new(ScriptedExecutor::new(vec![])),
+        );
+
+        let error = transport
+            .fetch(request("https://feed.example/rss"))
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.kind(), FeedFetchErrorKind::Nat64Discovery);
+        assert_eq!(Instant::now() - started, DNS_TIMEOUT);
     }
 
     #[tokio::test]
@@ -2041,19 +2062,11 @@ mod tests {
     #[tokio::test]
     async fn reqwest_executor_read_timeout_is_typed_as_body_idle() {
         super::install_ring_crypto_provider().unwrap();
-        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move {
-            let (mut socket, _) = listener.accept().await.unwrap();
-            let mut request = [0_u8; 1024];
-            let _ = socket.read(&mut request).await.unwrap();
-            socket
-                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\nConnection: close\r\n\r\n")
-                .await
-                .unwrap();
-            tokio::time::sleep(Duration::from_secs(60)).await;
-        });
-        tokio::task::yield_now().await;
+        let server = StalledHttpServer::start(
+            b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\nConnection: close\r\n\r\n",
+        )
+        .await;
+        let address = server.address();
         let executor =
             super::ReqwestExecutor::with_timeouts(Duration::from_secs(5), Duration::from_secs(1));
         let request = HttpExecuteRequest {
@@ -2080,7 +2093,6 @@ mod tests {
         )
         .await
         .unwrap_err();
-        server.abort();
 
         assert_eq!(error.timeout_stage(), Some(FetchTimeoutStage::BodyIdle));
     }
@@ -2180,6 +2192,29 @@ mod tests {
             .headers
             .insert(LOCATION, HeaderValue::from_str(location).unwrap());
         response
+    }
+
+    struct TotalDeadlineSnapshots;
+
+    #[async_trait]
+    impl super::SnapshotProvider for TotalDeadlineSnapshots {
+        async fn current(
+            &self,
+            total_deadline: Instant,
+        ) -> Result<Arc<Nat64Snapshot>, Nat64DiscoveryError> {
+            tokio::time::sleep_until(total_deadline).await;
+            Err(Nat64DiscoveryError::Deadline)
+        }
+    }
+
+    struct ThreeSecondDeadlineDiscovery;
+
+    #[async_trait]
+    impl Nat64PrefixDiscovery for ThreeSecondDeadlineDiscovery {
+        async fn discover(&self, deadline: Instant) -> Result<Nat64Discovery, Nat64DiscoveryError> {
+            tokio::time::sleep_until(deadline).await;
+            Err(Nat64DiscoveryError::Deadline)
+        }
     }
 
     struct ConnectTimeoutExecutor;
