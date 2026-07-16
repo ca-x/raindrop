@@ -116,14 +116,14 @@ async fn login(
     {
         return Err(ApiError::invalid_credentials());
     }
-    if !state.login_limiter.check() {
-        return Err(ApiError::rate_limited());
-    }
     let _authentication_permit = state
         .login_authentication_semaphore
         .clone()
         .try_acquire_owned()
         .map_err(|_| ApiError::rate_limited())?;
+    if !state.login_limiter.check() {
+        return Err(ApiError::rate_limited());
+    }
     let login_key = blake3::hash(request.login.trim().to_lowercase().as_bytes())
         .to_hex()
         .to_string();
@@ -437,6 +437,55 @@ mod tests {
             .await
             .expect("admitted request should complete");
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn authentication_concurrency_rejections_do_not_consume_the_global_fuse() {
+        let data = tempdir().expect("temporary directory should be created");
+        let database_url = format!(
+            "sqlite://{}?mode=rwc",
+            data.path().join("concurrency-fuse.db").display()
+        );
+        let database = connect(&DatabaseConfig::new(SecretString::from(database_url)))
+            .await
+            .expect("database should connect");
+        migrate(&database).await.expect("database should migrate");
+        let mut state = AppState::new(SetupService::ready(data.path(), None, database));
+        state.login_limiter = super::super::RateLimiter::new(1, Duration::from_secs(60));
+        let mut held = Vec::new();
+        for _ in 0..4 {
+            held.push(
+                state
+                    .login_authentication_semaphore
+                    .clone()
+                    .try_acquire_owned()
+                    .expect("four authentication permits should be available"),
+            );
+        }
+        let app = build_router(state);
+
+        for login in ["saturated-one", "saturated-two"] {
+            let response = app
+                .clone()
+                .oneshot(login_request(login, "wrong password value"))
+                .await
+                .expect("saturated request should complete");
+            assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        }
+
+        held.pop();
+        let response = app
+            .clone()
+            .oneshot(login_request("admitted", "wrong password value"))
+            .await
+            .expect("first admitted request should complete");
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+        let response = app
+            .oneshot(login_request("over-limit", "wrong password value"))
+            .await
+            .expect("over-limit request should complete");
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
     }
 
     #[tokio::test]
