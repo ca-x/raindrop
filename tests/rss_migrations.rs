@@ -1,7 +1,7 @@
 mod support;
 
 use raindrop::db::{
-    entities::{entry, entry_state, feed, rss_counter, subscription, user},
+    entities::{entry, entry_state, feed, feed_refresh_run, rss_counter, subscription, user},
     migrate, rollback,
 };
 use sea_orm::{
@@ -91,6 +91,26 @@ async fn rss_schema_contract(database_url: SecretString) {
     insert_user(&database, USER_B_ID, "reader-b").await;
     insert_feed(&database, ROUNDTRIP_AT).await;
     insert_subscription(&database, SUBSCRIPTION_A_ID, USER_A_ID, ROUNDTRIP_AT).await;
+    refresh_run_model(
+        "00000000-0000-4000-8000-000000000401",
+        FEED_ID,
+        Some(USER_A_ID),
+        "manual:stable-key",
+    )
+    .insert(&database)
+    .await
+    .expect("refresh run should insert");
+    assert!(
+        refresh_run_model(
+            "00000000-0000-4000-8000-000000000402",
+            FEED_ID,
+            Some(USER_A_ID),
+            "manual:stable-key",
+        )
+        .insert(&database)
+        .await
+        .is_err()
+    );
 
     let duplicate_subscription = subscription_model(
         "00000000-0000-4000-8000-000000000203",
@@ -107,7 +127,6 @@ async fn rss_schema_contract(database_url: SecretString) {
             .expect("feeds should count"),
         1
     );
-
     insert_entry(
         &database,
         ENTRY_A_ID,
@@ -186,6 +205,13 @@ async fn rss_schema_contract(database_url: SecretString) {
         .exec(&database)
         .await
         .expect("user A should delete");
+    let refresh_after_requester_delete =
+        feed_refresh_run::Entity::find_by_id("00000000-0000-4000-8000-000000000401")
+            .one(&database)
+            .await
+            .expect("refresh run should query after requester deletion")
+            .expect("refresh run should survive requester deletion");
+    assert_eq!(refresh_after_requester_delete.requested_by_user_id, None);
     assert_eq!(
         subscription::Entity::find()
             .filter(subscription::Column::UserId.eq(USER_A_ID))
@@ -236,6 +262,7 @@ async fn rss_schema_contract(database_url: SecretString) {
     if database.get_database_backend() == DatabaseBackend::MySql {
         assert_mysql_partial_index_reentry(&database).await;
     }
+    assert_refresh_run_constraints(&database).await;
     assert_counter_seed_reentry(&database).await;
 
     rollback(&database)
@@ -282,6 +309,106 @@ async fn assert_operational_timestamp_roundtrip(database: &DatabaseConnection) {
         .expect("entry state should exist");
     assert_eq!(state.starred_at, Some(ROUNDTRIP_AT));
     assert_eq!(state.updated_at, ROUNDTRIP_AT);
+
+    let refresh = feed_refresh_run::Entity::find_by_id("00000000-0000-4000-8000-000000000401")
+        .one(database)
+        .await
+        .expect("refresh timestamp should query")
+        .expect("refresh should exist");
+    assert_eq!(refresh.queued_at, ROUNDTRIP_AT);
+    assert_eq!(refresh.started_at, Some(ROUNDTRIP_AT));
+    assert_eq!(refresh.fetched_at, Some(ROUNDTRIP_AT));
+    assert_eq!(refresh.persisted_at, Some(ROUNDTRIP_AT));
+    assert_eq!(refresh.completed_at, Some(ROUNDTRIP_AT));
+    assert_eq!(refresh.retry_at, Some(ROUNDTRIP_AT));
+}
+
+fn refresh_run_model(
+    id: &str,
+    feed_id: &str,
+    requested_by_user_id: Option<&str>,
+    idempotency_key: &str,
+) -> feed_refresh_run::ActiveModel {
+    feed_refresh_run::ActiveModel {
+        id: Set(id.to_owned()),
+        feed_id: Set(feed_id.to_owned()),
+        requested_by_user_id: Set(requested_by_user_id.map(str::to_owned)),
+        trigger_kind: Set("MANUAL".to_owned()),
+        status: Set("RUNNING".to_owned()),
+        idempotency_key: Set(idempotency_key.to_owned()),
+        lease_token: Set(Some(2)),
+        commit_generation: Set(None),
+        queued_at: Set(ROUNDTRIP_AT),
+        started_at: Set(Some(ROUNDTRIP_AT)),
+        fetched_at: Set(Some(ROUNDTRIP_AT)),
+        persisted_at: Set(Some(ROUNDTRIP_AT)),
+        completed_at: Set(Some(ROUNDTRIP_AT)),
+        http_status: Set(Some(200)),
+        new_count: Set(3),
+        updated_count: Set(2),
+        dropped_count: Set(1),
+        error_code: Set(Some("ROUNDTRIP".to_owned())),
+        retry_at: Set(Some(ROUNDTRIP_AT)),
+    }
+}
+
+async fn assert_refresh_run_constraints(database: &DatabaseConnection) {
+    const SECOND_FEED_ID: &str = "00000000-0000-4000-8000-000000000102";
+    let original = feed::Entity::find_by_id(FEED_ID)
+        .one(database)
+        .await
+        .expect("source feed should query")
+        .expect("source feed should exist");
+    let mut second: feed::ActiveModel = original.into();
+    second.id = Set(SECOND_FEED_ID.to_owned());
+    second.normalized_url_hash = Set(HASH_C.to_owned());
+    second
+        .insert(database)
+        .await
+        .expect("second feed should insert");
+
+    refresh_run_model(
+        "00000000-0000-4000-8000-000000000402",
+        SECOND_FEED_ID,
+        None,
+        "manual:stable-key",
+    )
+    .insert(database)
+    .await
+    .expect("same idempotency key should be reusable for another feed");
+
+    let first = feed_refresh_run::Entity::find_by_id("00000000-0000-4000-8000-000000000401")
+        .one(database)
+        .await
+        .expect("first refresh should query")
+        .expect("first refresh should exist");
+    let mut first: feed_refresh_run::ActiveModel = first.into();
+    first.commit_generation = Set(Some(42));
+    first
+        .update(database)
+        .await
+        .expect("first generation should update");
+
+    let second_run = feed_refresh_run::Entity::find_by_id("00000000-0000-4000-8000-000000000402")
+        .one(database)
+        .await
+        .expect("second refresh should query")
+        .expect("second refresh should exist");
+    let mut second_run: feed_refresh_run::ActiveModel = second_run.into();
+    second_run.commit_generation = Set(Some(42));
+    assert!(second_run.update(database).await.is_err());
+
+    feed::Entity::delete_by_id(SECOND_FEED_ID)
+        .exec(database)
+        .await
+        .expect("second feed should delete");
+    assert!(
+        feed_refresh_run::Entity::find_by_id("00000000-0000-4000-8000-000000000402")
+            .one(database)
+            .await
+            .expect("cascaded refresh should query")
+            .is_none()
+    );
 }
 
 async fn assert_multiple_pool_connections_use_utc(database: &DatabaseConnection) {
@@ -400,6 +527,7 @@ async fn assert_operational_timestamp_schema(database: &DatabaseConnection) {
                  OR (table_name = 'subscriptions' AND column_name IN ('created_at','updated_at'))
                  OR (table_name = 'entries' AND column_name IN ('inserted_at','updated_at'))
                  OR (table_name = 'entry_states' AND column_name IN ('starred_at','updated_at'))
+                 OR (table_name = 'feed_refresh_runs' AND column_name IN ('queued_at','started_at','fetched_at','persisted_at','completed_at','retry_at'))
                )",
         ),
         DatabaseBackend::Postgres => Some(
@@ -412,6 +540,7 @@ async fn assert_operational_timestamp_schema(database: &DatabaseConnection) {
                  OR (table_name = 'subscriptions' AND column_name IN ('created_at','updated_at'))
                  OR (table_name = 'entries' AND column_name IN ('inserted_at','updated_at'))
                  OR (table_name = 'entry_states' AND column_name IN ('starred_at','updated_at'))
+                 OR (table_name = 'feed_refresh_runs' AND column_name IN ('queued_at','started_at','fetched_at','persisted_at','completed_at','retry_at'))
                )",
         ),
         DatabaseBackend::Sqlite => None,
@@ -429,7 +558,7 @@ async fn assert_operational_timestamp_schema(database: &DatabaseConnection) {
         let matching_count: i64 = row
             .try_get("", "matching_count")
             .expect("operational timestamp count should decode");
-        assert_eq!(matching_count, 15);
+        assert_eq!(matching_count, 21);
     }
 }
 
@@ -449,6 +578,10 @@ async fn assert_expected_indexes(database: &DatabaseConnection) {
         ("entries", "idx_entries_snapshot"),
         ("entry_states", "idx_states_feed_read"),
         ("entry_states", "idx_states_starred"),
+        ("feed_refresh_runs", "uq_refresh_runs_idem"),
+        ("feed_refresh_runs", "uq_refresh_runs_generation"),
+        ("feed_refresh_runs", "idx_refresh_runs_feed"),
+        ("feed_refresh_runs", "idx_refresh_runs_status"),
     ] {
         assert!(
             manager

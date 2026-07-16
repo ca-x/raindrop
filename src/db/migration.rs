@@ -39,6 +39,7 @@ impl MigratorTrait for Migrator {
             Box::new(rss::subscriptions::CreateSubscriptions),
             Box::new(rss::entries::CreateEntries),
             Box::new(rss::entry_states::CreateEntryStates),
+            Box::new(rss::refresh_runs::CreateRefreshRuns),
             Box::new(bootstrap_state::CreateBootstrapState),
         ]
     }

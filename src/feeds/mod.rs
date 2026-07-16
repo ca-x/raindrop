@@ -6,6 +6,8 @@ mod fetch;
 mod identity;
 mod model;
 mod parse;
+mod refresh;
+mod repository;
 mod resolver;
 mod schedule;
 mod url_policy;
@@ -27,6 +29,11 @@ pub use parse::{
     FeedParseError, FeedParseErrorKind, FeedParser, FetchedDocument, FetchedDocumentError,
     ParsedEnclosure, ParsedEntry, ParsedFeed, ParsedFeedVersion, ParsedSource,
 };
+pub use refresh::{
+    ClaimRequest, QueueRefreshRequest, RefreshClaim, RefreshCounts, RefreshFailure,
+    RefreshRepositoryError, RefreshRun, RefreshStatus, RefreshTrigger, UnknownRefreshValue,
+};
+pub use repository::FeedRepository;
 pub use schedule::{JitterSource, RefreshResult, RefreshSchedule, RetryAfter, ScheduleOutcome};
 pub use url_policy::{FeedUrlPolicy, NormalizedFeedUrl};
 

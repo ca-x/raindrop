@@ -1,6 +1,7 @@
 pub mod entry;
 pub mod entry_state;
 pub mod feed;
+pub mod feed_refresh_run;
 pub mod rss_counter;
 pub mod subscription;
 
