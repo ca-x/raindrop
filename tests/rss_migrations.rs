@@ -4,10 +4,11 @@ use raindrop::db::{
     migrate,
 };
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter,
+    ActiveModelTrait, ActiveValue::Set, ColumnTrait, DatabaseConnection, EntityTrait,
+    PaginatorTrait, QueryFilter,
 };
 use secrecy::SecretString;
-use tempfile::tempdir;
+use tempfile::{TempDir, tempdir};
 use time::{OffsetDateTime, macros::datetime};
 
 const USER_A_ID: &str = "00000000-0000-4000-8000-000000000001";
@@ -21,16 +22,30 @@ const HASH_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 const HASH_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const HASH_C: &str = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
 
-#[tokio::test]
-async fn sqlite_rss_migrations_are_idempotent_and_seed_generation() {
+struct SqliteFixture {
+    _data: TempDir,
+    database: DatabaseConnection,
+}
+
+async fn migrated_sqlite() -> SqliteFixture {
     let data = tempdir().expect("temporary directory should be created");
     let database_path = data.path().join("raindrop.db");
     let url = format!("sqlite://{}?mode=rwc", database_path.display());
     let database = connect(&DatabaseConfig::new(SecretString::from(url)))
         .await
         .expect("SQLite should connect");
-
     migrate(&database).await.expect("migration should pass");
+
+    SqliteFixture {
+        _data: data,
+        database,
+    }
+}
+
+#[tokio::test]
+async fn sqlite_rss_migrations_are_idempotent_and_seed_generation() {
+    let SqliteFixture { _data, database } = migrated_sqlite().await;
+
     migrate(&database)
         .await
         .expect("migration should be idempotent");
@@ -53,13 +68,7 @@ async fn sqlite_rss_migrations_are_idempotent_and_seed_generation() {
 
 #[tokio::test]
 async fn rss_schema_shares_feeds_but_rejects_duplicate_user_subscription() {
-    let data = tempdir().expect("temporary directory should be created");
-    let database_path = data.path().join("raindrop.db");
-    let url = format!("sqlite://{}?mode=rwc", database_path.display());
-    let database = connect(&DatabaseConfig::new(SecretString::from(url)))
-        .await
-        .expect("SQLite should connect");
-    migrate(&database).await.expect("migration should pass");
+    let SqliteFixture { _data, database } = migrated_sqlite().await;
 
     insert_user(&database, USER_A_ID, "reader-a").await;
     insert_user(&database, USER_B_ID, "reader-b").await;
@@ -94,13 +103,7 @@ async fn rss_schema_shares_feeds_but_rejects_duplicate_user_subscription() {
 
 #[tokio::test]
 async fn rss_state_foreign_keys_reject_cross_user_and_mismatched_entry_rows() {
-    let data = tempdir().expect("temporary directory should be created");
-    let database_path = data.path().join("raindrop.db");
-    let url = format!("sqlite://{}?mode=rwc", database_path.display());
-    let database = connect(&DatabaseConfig::new(SecretString::from(url)))
-        .await
-        .expect("SQLite should connect");
-    migrate(&database).await.expect("migration should pass");
+    let SqliteFixture { _data, database } = migrated_sqlite().await;
 
     insert_user(&database, USER_A_ID, "reader-a").await;
     insert_user(&database, USER_B_ID, "reader-b").await;
@@ -116,13 +119,7 @@ async fn rss_state_foreign_keys_reject_cross_user_and_mismatched_entry_rows() {
 
 #[tokio::test]
 async fn deleting_a_user_cascades_subscription_and_state_without_deleting_shared_feed_entries() {
-    let data = tempdir().expect("temporary directory should be created");
-    let database_path = data.path().join("raindrop.db");
-    let url = format!("sqlite://{}?mode=rwc", database_path.display());
-    let database = connect(&DatabaseConfig::new(SecretString::from(url)))
-        .await
-        .expect("SQLite should connect");
-    migrate(&database).await.expect("migration should pass");
+    let SqliteFixture { _data, database } = migrated_sqlite().await;
 
     insert_user(&database, USER_A_ID, "reader-a").await;
     insert_user(&database, USER_B_ID, "reader-b").await;
@@ -216,15 +213,15 @@ async fn insert_feed(database: &sea_orm::DatabaseConnection) {
         validator_url: Set(Some("https://cdn.example.com/feed.xml".to_owned())),
         etag: Set(Some("\"feed-v1\"".to_owned())),
         last_modified: Set(Some("Thu, 16 Jul 2026 12:00:00 GMT".to_owned())),
-        response_hash: Set(Some(HASH_B.to_owned())),
+        response_content_hash: Set(Some(HASH_B.to_owned())),
         entry_sequence_head: Set(1),
         last_attempt_at: Set(Some(NOW)),
         last_success_at: Set(Some(NOW)),
         last_changed_at: Set(Some(NOW)),
         next_fetch_at: Set(NOW + time::Duration::minutes(5)),
-        retry_after: Set(None),
-        failure_count: Set(0),
-        last_error: Set(None),
+        retry_after_at: Set(None),
+        consecutive_failures: Set(0),
+        last_error_code: Set(None),
         is_disabled: Set(false),
         orphaned_at: Set(None),
         lease_owner: Set(None),
@@ -263,12 +260,12 @@ async fn insert_entry(database: &sea_orm::DatabaseConnection) {
         feed_sequence: Set(1),
         ingest_generation: Set(1),
         identity_kind: Set("GUID".to_owned()),
-        identity_full: Set("urn:example:entry:1".to_owned()),
+        identity: Set("urn:example:entry:1".to_owned()),
         identity_hash: Set(HASH_B.to_owned()),
         canonical_url: Set(Some("https://example.com/articles/1".to_owned())),
         title: Set(Some("First entry".to_owned())),
         author: Set(Some("Example Author".to_owned())),
-        sanitized_content: Set(Some("<p>Safe content</p>".to_owned())),
+        sanitized_content: Set("<p>Safe content</p>".to_owned()),
         summary: Set(Some("Safe summary".to_owned())),
         published_at_us: Set(Some(1_768_472_800_000_000)),
         sort_at_us: Set(1_768_476_400_000_000),
@@ -276,9 +273,9 @@ async fn insert_entry(database: &sea_orm::DatabaseConnection) {
         updated_at: Set(NOW),
         source_content_hash: Set(HASH_C.to_owned()),
         content_hash: Set(HASH_C.to_owned()),
-        pipeline_version: Set(1),
-        direction: Set("LTR".to_owned()),
-        enclosure_json: Set("{\"version\":1,\"items\":[]}".to_owned()),
+        pipeline_version: Set("sanitize-v1".to_owned()),
+        direction: Set(Some("LTR".to_owned())),
+        enclosure_json: Set(Some("{\"version\":1,\"items\":[]}".to_owned())),
     }
     .insert(database)
     .await

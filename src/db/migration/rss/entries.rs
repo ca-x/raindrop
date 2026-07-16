@@ -25,10 +25,10 @@ impl MigrationTrait for CreateEntries {
                     )
                     .col(
                         ColumnDef::new(Entries::IdentityKind)
-                            .string_len(32)
+                            .string_len(16)
                             .not_null(),
                     )
-                    .col(ColumnDef::new(Entries::IdentityFull).text().not_null())
+                    .col(ColumnDef::new(Entries::Identity).text().not_null())
                     .col(
                         ColumnDef::new(Entries::IdentityHash)
                             .string_len(64)
@@ -37,7 +37,7 @@ impl MigrationTrait for CreateEntries {
                     .col(ColumnDef::new(Entries::CanonicalUrl).text().null())
                     .col(ColumnDef::new(Entries::Title).text().null())
                     .col(ColumnDef::new(Entries::Author).text().null())
-                    .col(ColumnDef::new(Entries::SanitizedContent).text().null())
+                    .col(ColumnDef::new(Entries::SanitizedContent).text().not_null())
                     .col(ColumnDef::new(Entries::Summary).text().null())
                     .col(ColumnDef::new(Entries::PublishedAtUs).big_integer().null())
                     .col(ColumnDef::new(Entries::SortAtUs).big_integer().not_null())
@@ -63,11 +63,11 @@ impl MigrationTrait for CreateEntries {
                     )
                     .col(
                         ColumnDef::new(Entries::PipelineVersion)
-                            .big_integer()
+                            .string_len(64)
                             .not_null(),
                     )
-                    .col(ColumnDef::new(Entries::Direction).string_len(16).not_null())
-                    .col(ColumnDef::new(Entries::EnclosureJson).text().not_null())
+                    .col(ColumnDef::new(Entries::Direction).string_len(8).null())
+                    .col(ColumnDef::new(Entries::EnclosureJson).text().null())
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk_entries_feed")
@@ -171,7 +171,7 @@ enum Entries {
     FeedSequence,
     IngestGeneration,
     IdentityKind,
-    IdentityFull,
+    Identity,
     IdentityHash,
     CanonicalUrl,
     Title,

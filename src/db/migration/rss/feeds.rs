@@ -23,7 +23,11 @@ impl MigrationTrait for CreateFeeds {
                     .col(ColumnDef::new(Feeds::ValidatorUrl).text().null())
                     .col(ColumnDef::new(Feeds::Etag).text().null())
                     .col(ColumnDef::new(Feeds::LastModified).text().null())
-                    .col(ColumnDef::new(Feeds::ResponseHash).string_len(64).null())
+                    .col(
+                        ColumnDef::new(Feeds::ResponseContentHash)
+                            .string_len(64)
+                            .null(),
+                    )
                     .col(
                         ColumnDef::new(Feeds::EntrySequenceHead)
                             .big_integer()
@@ -51,17 +55,17 @@ impl MigrationTrait for CreateFeeds {
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(Feeds::RetryAfter)
+                        ColumnDef::new(Feeds::RetryAfterAt)
                             .timestamp_with_time_zone()
                             .null(),
                     )
                     .col(
-                        ColumnDef::new(Feeds::FailureCount)
+                        ColumnDef::new(Feeds::ConsecutiveFailures)
                             .big_integer()
                             .not_null()
                             .default(0),
                     )
-                    .col(ColumnDef::new(Feeds::LastError).text().null())
+                    .col(ColumnDef::new(Feeds::LastErrorCode).string_len(64).null())
                     .col(
                         ColumnDef::new(Feeds::IsDisabled)
                             .boolean()
@@ -149,15 +153,15 @@ enum Feeds {
     ValidatorUrl,
     Etag,
     LastModified,
-    ResponseHash,
+    ResponseContentHash,
     EntrySequenceHead,
     LastAttemptAt,
     LastSuccessAt,
     LastChangedAt,
     NextFetchAt,
-    RetryAfter,
-    FailureCount,
-    LastError,
+    RetryAfterAt,
+    ConsecutiveFailures,
+    LastErrorCode,
     IsDisabled,
     OrphanedAt,
     LeaseOwner,
