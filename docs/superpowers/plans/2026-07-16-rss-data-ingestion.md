@@ -231,13 +231,35 @@ git commit -m "test: verify rss schema across databases"
 
 **Interfaces:**
 
-- `FeedUrlPolicy::new(allow_insecure_http: bool)` validates and normalizes absolute URLs up to 4,096 bytes.
-- `NormalizedFeedUrl` contains the full normalized URL, BLAKE3 hash, canonical host, scheme, and effective port; it never implements `Display` with query-bearing output.
-- `AddressPolicy::public_only()` returns `Allowed` only for globally routable unicast addresses and unwraps IPv4-mapped/transition forms before classification.
-- `EntryIdentity::from_parts(guid, canonical_url, stable_fields)` uses `GUID -> URL -> FINGERPRINT`; fetch time is never part of a fingerprint.
-- `ValidatorSet` is only reusable when its exact `validator_url` matches the request URL; validators are opaque header values.
-- `RefreshSchedule<J: JitterSource>::after_result(now, result, failures, retry_after: Option<RetryAfter>)` implements a 5-minute base, injected deterministic full jitter, and a 4-hour maximum.
-- `RetryAfter` is an already parsed absolute UTC instant. Parsing accepts delta-seconds and IMF-fixdate via `httpdate`; past dates become zero delay. The calculation is `min(max(jittered_backoff, retry_after_delay), 4 hours)`.
+- `FeedUrlPolicy::new(allow_insecure_http: bool)` validates and normalizes absolute URLs whose raw and normalized UTF-8 forms are each at most 4,096 bytes. It rejects raw C0/space/DEL and Unicode control characters before `url::Url` can trim them.
+- `NormalizedFeedUrl` owns the complete normalized URL, lower-case BLAKE3 hash, canonical host, scheme, and effective port. The complete URL field is private; public accessors expose only non-sensitive components, the transport gets a `pub(crate)` URL accessor, and the type implements neither `Display` nor `Serialize`. Custom `Debug` contains no path, query, fragment, or userinfo.
+- `AddressPolicy::public_only()` returns `Allowed` only for reviewed globally routable unicast addresses. `AddressPolicy::with_nat64_prefixes(...)` accepts only trusted, canonical, non-overlapping RFC 6052 `/32`, `/40`, `/48`, `/56`, `/64`, or `/96` prefixes contained in allowed native global-unicast space; invalid, special-range, host-bit-bearing, or ambiguous prefixes are typed constructor errors. IPv4-mapped/compatible, well-known NAT64, configured NAT64, 6to4, and both Teredo IPv4 components are unwrapped before the embedded addresses are classified.
+- `EntryIdentity::from_parts(guid, canonical_url, StableEntryFields)` uses `GUID -> URL -> FINGERPRINT`; fetch time and document position are never identity inputs. `StableEntryFields` has a fixed v1 byte grammar, and both the fallback fingerprint and final index hash use versioned BLAKE3 derive-key contexts with the identity kind included.
+- `ValidatorSet` is reusable only when its exact complete normalized `validator_url`, including query, matches the request URL. `OpaqueValidator` validates `http::HeaderValue`, accepts `1..=8,192` bytes, preserves arbitrary valid header bytes, stores canonical `v1:` URL-safe unpadded base64 in the existing database `TEXT` columns, marks reconstructed values sensitive, and always redacts `Debug`.
+- `RefreshSchedule<J: JitterSource>::after_result(now, previous_failures, result)` validates the signed persisted previous count and owns the increment/reset rule. `RefreshResult::Success` and `NotModified` carry no retry state; `TransientFailure` carries only an optional `RetryAfter`. It returns `ScheduleOutcome { next_at, consecutive_failures, retry_after_at }`.
+- `RetryAfter::parse(raw, received_at)` parses delta-seconds or any HTTP-date form accepted for compatibility by `httpdate` (IMF-fixdate, obsolete RFC 850, or asctime) into an absolute UTC instant. Delta-seconds are anchored to response receipt time; past dates become zero delay at scheduling time. The final delay is `min(max(full_jitter, retry_after_delay), 4 hours)`.
+
+**Task 3 internal design freeze (2026-07-16):**
+
+- Threat boundary: subscription URLs, DNS answers, redirects, publisher GUIDs/links, validators, dates, and stable entry text are attacker-controlled. The protected assets are loopback/private/metadata services, URL query tokens, validator bytes, stable entry identity, scheduler availability, and bounded memory/CPU.
+- URL normalization validates the raw bytes first, rejects every authority userinfo marker including an empty username, preserves duplicate query keys and their ordering without rebuilding through `query_pairs`, removes fragments/default ports/a single domain root dot, and rechecks the normalized byte length. After locked `url 2.5.8`/`idna 1.1.0` ASCII serialization, every domain label must be strict LDH, `1..=63` bytes, begin/end alphanumeric, contain no empty internal label, and the root-dot-free host is at most 253 bytes. IP literals bypass DNS-label checks. Non-standard IPv4 text such as `127.1`, `0x7f000001`, and `2130706433` must normalize before address classification and still be denied.
+- The fixed address policy is based on the IANA IPv4/IPv6 Special-Purpose Address Registry snapshot retrieved 2026-07-16. Native IPv4 denies `0.0.0.0/8`, `10.0.0.0/8`, `100.64.0.0/10`, `127.0.0.0/8`, `169.254.0.0/16`, `172.16.0.0/12`, `192.0.0.0/24`, `192.0.2.0/24`, `192.88.99.0/24`, `192.168.0.0/16`, `198.18.0.0/15`, `198.51.100.0/24`, `203.0.113.0/24`, `224.0.0.0/4`, and `240.0.0.0/4`; only the complement is allowed. Native IPv6 allows only `2000::/3`, then denies `2001::/23`, `2001:db8::/32`, and `3fff::/20`; transition forms are handled before this native rule.
+- IPv6 classification order is exact: IPv4-mapped/compatible; well-known `64:ff9b::/96`; validated configured RFC 6052 prefixes; 6to4 `2002::/16`; Teredo `2001::/32` with both server and inverted client IPv4 classified; unconditional deny for local-use `64:ff9b:1::/48`; fixed special/native IPv6 rules. A configured prefix must be canonical (`network == supplied address`), must not overlap another configured prefix or any mapped/WKP/local-use/6to4/Teredo/fixed-deny range, and must be contained in the allowed native IPv6 set.
+- RFC 6052 extraction is fixed by prefix length: `/32` uses bits `32..64`; `/40` uses `40..64 + 72..80`; `/48` uses `48..64 + 72..88`; `/56` uses `56..64 + 72..96`; `/64` uses `72..104`; `/96` uses `96..128`. For `/32` through `/64`, candidate-address bits `64..72` are the `u` octet and must be zero; a matching prefix with non-zero `u` is denied rather than reclassified as native IPv6. A supplied `/96` prefix itself must also have bits `64..72 == 0` or construction fails. Suffix bits after the embedded IPv4 do not affect classification.
+- Custom DNS64/NAT64 cannot be inferred from an arbitrary `IpAddr`. Task 4 uses a separate `Nat64PrefixDiscovery` seam, not `lookup_host`, to issue explicit A and AAAA queries for the absolute FQDN `ipv4only.arpa.` and return answer records, DNS response class, and validity deadline. Default mode is automatic: only `NOERROR` A answers containing both `192.0.0.170` and `192.0.0.171` plus an explicit `NOERROR/NODATA` AAAA response establish cached `NotPresent`; valid synthesized AAAA establish `Present(prefixes)`. NXDOMAIN, SERVFAIL, REFUSED, timeout, filtered/missing response, zero/missing TTL, malformed/ambiguous WKA mapping, or prefix-validation failure are typed fail-closed states. An operator may instead supply validated static prefixes or explicitly opt out for a known non-DNS64 network.
+- Automatic discovery caches an immutable `{ generation, valid_until, address_policy }` snapshot until the minimum positive DNS validity deadline, refreshes before expiry through a single-flight path, and blocks all user-controlled fetches once the snapshot expires until refresh succeeds. Prefix changes replace the complete snapshot atomically and increment generation. Attacker-controlled hostnames never provide prefixes, and discovery must complete before their DNS resolution begins.
+- Every redirect hop captures the current snapshot generation/deadline before user-host DNS. After DNS returns and again immediately before the pinned executor starts, the transport atomically rechecks that the same generation is still current and unexpired. If either check fails, all DNS results are discarded, discovery is refreshed, and that hostname is resolved again under the replacement snapshot. At most two snapshot-change replays are allowed per hop before `Nat64Unstable`; replays share the original DNS, hop, and 30-second total deadlines. No address from a stale generation can reach connect.
+- Opaque GUIDs are Unicode-whitespace trimmed and otherwise preserved, with raw and normalized identity capped at 64 KiB. A raw value beginning with HTTP(S) syntax that contains userinfo is rejected rather than downgraded to opaque. Absolute credential-free HTTP(S) GUIDs and canonical URLs use a dedicated identity URL normalizer that always accepts HTTP/HTTPS independently of feed-fetch policy, never fetches them, preserves query ordering, removes fragments, and caps normalized URLs at 4,096 bytes. Empty normalized GUIDs are absent.
+- Stable text normalization trims leading/trailing `char::is_whitespace`, collapses each internal Unicode-whitespace run to one ASCII space, preserves case and all other UTF-8 scalars, performs no NFC/NFKC normalization, maps empty results to `None`, and caps title/author at 64 KiB. `StableEntryFields` encodes normalized title, author, source `published_at_us`, normalized first enclosure URL, and a 32-byte sanitized-content hash. The content hash field is present only when all first four fields are absent.
+- The fingerprint v1 bytes are `RDFP 00 01`, followed in tag order `01=title`, `02=author`, `03=published_at_us`, `04=first_enclosure_url`, `05=content_hash`. Every field is `tag:u8 || present:u8 || len:u32be || value`; absent is `present=0,len=0`, strings are normalized UTF-8, the date is 8-byte two's-complement big-endian, and the content hash is 32 raw bytes. `None` and normalized empty are identical. Fingerprint inputs use derive-key context `raindrop.entry-fingerprint.v1`; the full `FINGERPRINT` identity is the lower-case 64-character digest hex.
+- The final index bytes are `RDIX 00 01 || kind:u8 || identity_len:u32be || identity_utf8`, where `01=GUID`, `02=URL`, `03=FINGERPRINT` and database strings are exactly `GUID/URL/FINGERPRINT`. The index hash uses derive-key context `raindrop.entry-identity-index.v1`. A persistence hit compares both `(identity_kind, identity)`, not only the text value.
+- Golden vectors are normative: GUID `tag:example.com,2026:42` index bytes `52444958000101000000177461673a6578616d706c652e636f6d2c323032363a3432` hash `e697b4d9b1ce018d8e0ed595b79680c41fdde20685bac778a96724b6380cc13f`; URL `https://example.com/post?a=1&a=2` index bytes `524449580001020000002068747470733a2f2f6578616d706c652e636f6d2f706f73743f613d3126613d32` hash `2d2ef85d39b2644f36462c9e4dd119525683d248e66273bcaea04000f8ad9857`.
+- Ordinary fingerprint inputs title `Hello world`, author `Alice`, published `1700000000123456`, no enclosure/content encode as `52444650000101010000000b48656c6c6f20776f726c64020100000005416c69636503010000000800060a2418202240040000000000050000000000`; fingerprint `a0b3e922878ae50dae0e706b4a43aea8438d740ff478a047eb05e869296160ed`; final index hash `2ecb60b16bd41841bd5403adeb3a146ce9304a1fb904a26ac4549849b762788e`. Content-only `[0x11;32]` encodes as `5244465000010100000000000200000000000300000000000400000000000501000000201111111111111111111111111111111111111111111111111111111111111111`; fingerprint `a483e2c16d043f36aa56e3a6c203a76e5e340a4f0713a2632d8cb9f7b1cfc0e3`; final index hash `393eaf5d121df51cc2f4817011fd3e0d593da32a6ac542663c354ce08985d65d`.
+- Fallback identity is explicitly best-effort: a correction/addition to title, author, publication time, or enclosure changes the fingerprint; a content-only edit changes its fallback identity. Task 7's in-place content-update guarantee therefore applies only to GUID/URL identities or unchanged fingerprint inputs, and tests preserve this distinction instead of hiding it.
+- Validator storage is exactly `v1:` plus `base64::engine::general_purpose::URL_SAFE_NO_PAD` of the original header bytes. Decode rejects unknown versions, padding, whitespace, non-URL-safe alphabet, non-canonical encodings whose re-encoding differs, decoded length outside `1..=8,192`, and bytes rejected by `HeaderValue::from_bytes`; all are typed errors. `OpaqueValidator` marks the first response `HeaderValue` sensitive at construction, and every reconstructed/accessed/cloned `HeaderValue` remains sensitive. Task 7's three-backend persistence contract writes, reloads, decodes, and byte-compares a non-UTF-8 validator.
+- `JitterSource` is exactly `fn sample_inclusive_us(&mut self, upper_bound_us: u64) -> u64`; an output above the bound is a typed error. `previous_failures` is a persisted `i64` validated as non-negative for every result. Success and 304 reset it to zero and schedule exactly `now + 5 minutes`. Transient failure saturating-adds one to `i64::MAX`; counts `1..=6` use `5 minutes * 2^(n-1)`, and `n >= 7` uses the four-hour upper bound without shifting. Full jitter is inclusive `[0, upper_bound]`.
+- `RetryAfter::parse(&HeaderValue, received_at)` trims HTTP optional whitespace, accepts ASCII delta digits or the three `httpdate` date forms, and stores a UTC absolute instant. Non-ASCII/invalid syntax and decimal overflow past `u64` are typed errors. A valid delta that cannot be added exactly saturates the retry instant to `OffsetDateTime::MAX`; past dates contribute zero delay. Scheduling uses `min(max(jitter_delay, retry_at-now), 4 hours)`, checked-adds the chosen delay to UTC `now`, and returns typed `TimeOverflow` rather than wrapping.
+- Only feed-domain and transport/log DTOs promise redacted formatting. SeaORM-generated database models retain macro-provided `Debug` and must never be passed to logs or error payloads; the plan does not claim that their generated formatting is mechanically secret-safe.
 
 - [ ] **Step 1: Write failing table-driven primitive tests**
 
@@ -245,12 +267,14 @@ Cover:
 
 ```text
 HTTPS normalization: host case, IDNA, root dot, default port, empty path, fragment removal, duplicate query preservation
-Rejection: credentials, controls, oversized input, relative/network-path URL, unsupported scheme, malformed port
+Rejection: empty userinfo, credentials, raw controls/spaces, raw/normalized oversize, invalid DNS labels, relative/network-path URL, unsupported scheme, malformed port
 HTTP matrix: default reject; explicit insecure policy accepts HTTP; HTTPS-to-HTTP redirect rejects
-Addresses: private, loopback, link-local, CGNAT, metadata, documentation, multicast, unspecified, reserved, IPv4-mapped IPv6, NAT64/6to4/Teredo embedding denied IPv4
-Identity: opaque GUID, URL GUID normalization, canonical URL fallback, deterministic fingerprint fallback, fetch-time independence
-Validators: same exact URL allowed; changed final URL or origin does not reuse
-Schedule: success/304 reset; transient exponential backoff with deterministic jitter; Retry-After delta/date/past/skew cases bounded to 4 hours
+Addresses: every exact fixed CIDR boundary, non-standard IPv4 URL text, public positive cases, classification priority, IPv4-mapped/compatible, well-known/configured NAT64, 6to4, and Teredo with both public-allow/private-deny embedded cases
+RFC6052: standard vectors for all six prefix lengths, non-canonical/ULA/special/overlapping prefixes, candidate non-zero u octet, `/96` prefix non-zero u octet, suffix variation, WKP/local-use/6to4/Teredo priority
+Identity: opaque GUID, URL GUID normalization, credential-like URL rejection, canonical URL fallback, exact v1 encoded bytes, normative golden hashes, concatenation ambiguity, all field normalization boundaries, fetch-time/document-order independence, accepted fallback-change degradation
+Validators: same exact URL allowed; changed query/final URL/origin rejected; non-UTF-8 HeaderValue bytes round-trip through canonical `v1:` URL-safe unpadded base64; unknown/corrupt/non-canonical storage; 1/8192/8193-byte boundaries; sensitive HeaderValue and Debug redaction
+Schedule: negative/zero/max previous counts; success/304 exact reset; first/sixth/seventh/max transient bounds; inclusive deterministic jitter; invalid jitter; Retry-After delta/three HTTP-date forms/past/skew/u64 overflow/valid-add overflow; checked next-time overflow; 4-hour cap
+Redaction: query token, URL GUID, validator bytes, and raw URL never appear in Debug or typed error chains
 ```
 
 - [ ] **Step 2: Run the tests and verify missing modules fail**
@@ -284,7 +308,7 @@ pub enum AddressDecision {
 }
 ```
 
-Add `ipnet = "2.12.0"` and `httpdate = "1.0.3"`. Normalization removes fragments/default ports/root dot, preserves query ordering, rejects credentials, and hashes the complete normalized URL. URL-bearing types use custom redacted `Debug` and do not expose query/token text. Address ranges are a fixed, reviewed CIDR table backed by `ipnet`; tests name every denied class. Fingerprints use a domain-separated BLAKE3 hasher and normalized stable text.
+Add `ipnet = { version = "2.12.0", default-features = false }`, `httpdate = "1.0.3"`, and direct `http = { version = "1.4.2", default-features = false }`; reuse the existing direct `base64` dependency. Do not add direct `idna`. Normalization, address classification, validator storage encoding, identity encoding, retry parsing, and scheduling stay in separate focused files with explicit error enums. The lockfile diff should add only the root direct-dependency edges and `ipnet`; existing locked `url 2.5.8`, `idna 1.1.0`, `http 1.4.2`, `httpdate 1.0.3`, and `blake3 1.8.5` remain authoritative.
 
 - [ ] **Step 4: Verify primitives**
 
@@ -292,6 +316,7 @@ Add `ipnet = "2.12.0"` and `httpdate = "1.0.3"`. Normalization removes fragments
 cargo fmt --check
 cargo clippy --locked --all-targets --all-features -- -D warnings
 cargo test --locked --test feed_primitives -- --nocapture
+cargo +1.94.0 test --locked --test feed_primitives -- --nocapture
 ```
 
 Expected: PASS.
@@ -320,8 +345,9 @@ git commit -m "feat: define safe feed primitives"
 **Interfaces:**
 
 - Add `reqwest = { version = "0.13.4", default-features = false, features = ["rustls", "stream"] }`.
-- Add `async-trait = "0.1.89"`, `async-compression = { version = "0.4.42", default-features = false, features = ["tokio", "gzip", "zlib", "brotli"] }`, and `futures-util = "0.3.32"`. Add Tokio `time`; add Tokio `test-util` for unit tests without changing production behavior.
-- `#[async_trait::async_trait] trait DnsResolver: Send + Sync` returns all A/AAAA `IpAddr` values under a 3-second deadline. Production uses Tokio lookup; tests inject a fake resolver.
+- Add `async-trait = "0.1.89"`, `async-compression = { version = "0.4.42", default-features = false, features = ["tokio", "gzip", "zlib", "brotli"] }`, `futures-util = "0.3.32"`, and `hickory-resolver = { version = "=0.26.1", default-features = false, features = ["system-config", "tokio"] }`. Hickory 0.26.1 has MSRV 1.88 and supplies explicit record-type lookup, DNS message/rcode inspection, and `Lookup::valid_until`; no DNS-over-TLS/HTTPS/QUIC/DNSSEC feature is enabled. Add Tokio production features `sync` and `time`; add Tokio `test-util` for unit tests without changing production behavior.
+- `#[async_trait::async_trait] trait DnsResolver: Send + Sync` returns all explicit A/AAAA `IpAddr` values for attacker-controlled hosts under a 3-second deadline. Production uses the system-configured Hickory resolver; tests inject a fake resolver.
+- A separate `#[async_trait::async_trait] trait Nat64PrefixDiscovery: Send + Sync` returns typed `Present`, `NotPresent`, or error plus a monotonic validity deadline from explicit `ipv4only.arpa.` A/AAAA queries. Its dedicated system-configured Hickory resolver uses `ResolveHosts::Never`, `cache_size=0`, `attempts=1`, leaves all positive/negative TTL min/max options unset, and never shares the user-host resolver cache. A and AAAA execute concurrently inside one three-second timeout and any fetch-triggered refresh is also bounded by the remaining 30-second total deadline. Positive lookups use `Lookup::valid_until()`. An absent AAAA is accepted only from `NetError::Dns(DnsError::NoRecordsFound(no_records))` with `response_code == NoError` and `negative_ttl == Some(nonzero)`; its deadline uses checked `Instant::checked_add` and overflow rejects. NXDOMAIN and missing/zero negative TTL are errors. Automatic, static-prefix, and explicit-disabled modes follow the Task 3 state machine. The production transport owns one atomic discovery snapshot, refreshes it single-flight before expiry, and refuses user-controlled DNS/fetch after expiry until refresh succeeds.
 - Public `#[async_trait::async_trait] trait FeedTransport: Send + Sync { async fn fetch(&self, request: FetchRequest) -> Result<FetchOutcome, FeedFetchError>; }` is the injection seam used by later domain/integration tests. Production `HttpFeedTransport` owns private async `DnsResolver` and per-hop async `HttpExecutor` seams; unit tests inject fakes without exposing a runtime loopback bypass.
 - Each hop builds a short-lived reqwest client with `redirect(Policy::none())`, `no_proxy()`, `no_gzip()`, `no_brotli()`, `no_deflate()`, `no_zstd()`, 5-second connect timeout, 10-second read-idle timeout, remaining hop/total deadlines, and `resolve_to_addrs(host, approved_socket_addrs)`.
 - At most 16 DNS results and five redirects. Any denied address rejects the whole set. Every redirect repeats URL/DNS/address validation and never forwards validators across a changed validator URL.
@@ -343,6 +369,14 @@ redirects_revalidate_private_targets_and_stop_after_five_hops()
 https_redirect_cannot_downgrade_to_http()
 validators_are_sent_only_to_the_exact_validator_url()
 not_modified_does_not_read_or_parse_a_body()
+nat64_absence_requires_verified_a_and_nodata_aaaa()
+nat64_discovery_covers_all_six_prefix_lengths_and_multiple_prefixes()
+nat64_discovery_rejects_ambiguous_wka_mappings_and_negative_responses()
+nat64_snapshot_refreshes_by_ttl_and_blocks_fetch_when_expired()
+nat64_discovery_completes_before_user_controlled_dns()
+nat64_snapshot_change_during_user_dns_discards_and_reresolves()
+nat64_discovery_bypasses_hosts_and_response_cache()
+nat64_a_and_aaaa_share_one_three_second_deadline()
 compressed_and_decoded_limits_stop_streaming()
 brotli_gzip_and_deflate_decode_within_budget()
 timeouts_share_one_total_refresh_deadline()
@@ -359,7 +393,7 @@ Define `FeedTransport`, `FetchRequest`, `FetchOutcome`, typed errors, private re
 
 - [ ] **Step 3: Implement one RED/GREEN behavior slice at a time**
 
-Implement in this order, running the named unit test after each slice: DNS classify/pin; one-hop 200/304; peer verification; manual 301/302/303/307/308; validator scoping; first-byte/body-idle/hop/total deadlines; raw byte cap; gzip; Brotli; zlib-wrapped deflate; ratio/decoded cap; error redaction. Do not enable reqwest `default`, `system-proxy`, `cookies`, compression, native TLS, HTTP/2, or HTTP/3 features. `Location` may be relative and is resolved against the current URL before full revalidation.
+Implement in this order, running the named unit test after each slice: dedicated no-hosts/no-cache Hickory discovery resolver and concurrent explicit A/AAAA seam; Nat64 automatic/static/disabled modes; verified A plus checked negative-TTL AAAA absence; all six RFC 7050 prefix derivations and multiple prefixes; malformed/negative/ambiguous discovery; atomic generation snapshot publication; TTL single-flight refresh and expiry fetch gate; discovery-before-user-DNS ordering; generation/deadline recheck after user DNS and before executor with bounded re-resolve; user-host DNS classify/pin; one-hop 200/304; peer verification; manual 301/302/303/307/308; validator scoping; first-byte/body-idle/hop/total deadlines; raw byte cap; gzip; Brotli; zlib-wrapped deflate; ratio/decoded cap; error redaction. Do not enable reqwest `default`, `system-proxy`, `cookies`, compression, native TLS, HTTP/2, or HTTP/3 features. `Location` may be relative and is resolved against the current URL before full revalidation.
 
 Decoded bodies remain bytes; do not create an unbounded `String`. Invalid header values are not reflected in errors. Diagnostics contain feed ID/host/status/counts only, never full URL query, validator, or body.
 
@@ -367,7 +401,9 @@ Decoded bodies remain bytes; do not create an unbounded `String`. Invalid header
 
 ```bash
 cargo tree --locked -e features -i reqwest
+cargo tree --locked -e features -i hickory-resolver
 ! cargo tree --locked -e features | rg 'system-proxy|cookies|native-tls|http3'
+! cargo tree --locked -e features | rg 'hickory-resolver feature "(dnssec|h3|https|quic|tls)[^"]*"'
 cargo fmt --check
 cargo clippy --locked --all-targets --all-features -- -D warnings
 cargo test --locked feeds:: -- --nocapture
@@ -414,6 +450,7 @@ git commit -m "feat: fetch feeds through pinned transport"
 - `sanitize_entry_html(base_url, input) -> SanitizedContent` removes scripts/styles/forms/frames/SVG/MathML, event handlers, style/class/id/data attributes, unsafe schemes, `srcset`, and tracking attributes.
 - Anchors retain only safe HTTP(S) hrefs. Images become inert records that retain safe original URL metadata and alt/width/height but no active remote `src`.
 - Content hash is calculated after sanitization. Publisher-only tracking/style changes do not create a content update.
+- Parser mapping first produces owned `EntryIdentityInputs`, not final identities. After relative links are resolved and HTML is sanitized/content-hashed, identity folding constructs `EntryIdentity`, so the content-only fallback has its required sanitized hash. Duplicate arbitration happens only after this final folding.
 
 - [ ] **Step 1: Add deterministic fixtures and failing golden tests**
 
@@ -443,7 +480,7 @@ Define `FetchedDocument`, `ParsedFeed`, `ParsedEntry`, `SanitizedContent`, and t
 
 - [ ] **Step 3: Implement one corpus behavior at a time**
 
-Implement and run focused RED/GREEN tests in this order: MIME sniff and encoding conversion; XML DTD/entity/depth/event/attribute budgets; feedparser-rs limit/bozo mapping; RSS 2.0; Atom/xml:base; RSS 1.0/RDF; JSON Feed; identity folding; per-field/total/enclosure budgets; sanitizer allowlist; inert images; stable sanitized hash. MIME handling accepts XML/JSON Feed MIME directly. `text/plain`, `text/html`, and `application/octet-stream` parse only when BOM/whitespace-stripped body sniff begins with XML/RSS/Atom/RDF or a JSON object. Binary/image/audio/video/PDF bodies reject.
+Implement and run focused RED/GREEN tests in this order: MIME sniff and encoding conversion; XML DTD/entity/depth/event/attribute budgets; feedparser-rs limit/bozo mapping; RSS 2.0; Atom/xml:base; RSS 1.0/RDF; JSON Feed; per-field/total/enclosure budgets; sanitizer allowlist; inert images; stable sanitized hash; final identity folding and within-document duplicate arbitration. MIME handling accepts XML/JSON Feed MIME directly. `text/plain`, `text/html`, and `application/octet-stream` parse only when BOM/whitespace-stripped body sniff begins with XML/RSS/Atom/RDF or a JSON object. Binary/image/audio/video/PDF bodies reject.
 
 Feed mapping resolves relative links against `xml:base` or final response URL, then restricts them to credential-free HTTP(S) and removes fragments. Duplicate identities within one document choose the newer source timestamp, then stable document order.
 
@@ -524,13 +561,15 @@ git commit -m "feat: fence feed refresh claims"
 
 - Modify: `src/feeds/repository.rs`
 - Modify: `src/feeds/refresh.rs`
+- Modify: `tests/support/database.rs`
 - Create: `tests/feed_entry_persistence.rs`
 
 **Interfaces:**
 
 - A persist transaction first verifies database-clock owner/token fencing, then compares existing identities, increments `INGEST_GENERATION` only when at least one new entry exists, allocates monotonic feed sequences, updates changed content, updates Feed/run state, and releases the lease.
-- `(feed_id, identity_hash)` is final duplicate arbitration; a hit compares the full identity and returns `IdentityHashCollision` if different.
+- `(feed_id, identity_hash)` is final duplicate arbitration; a hit compares both persisted `identity_kind` and full `identity`, and returns `IdentityHashCollision` if either differs.
 - Existing rows preserve ID, inserted time, ingest generation, feed sequence, and sort key. Tracking-only sanitized equality avoids a large-field rewrite. `sort_at_us` is derived from checked `published_at_us` or insertion time once and never changes.
+- `PersistFeed` owns the exact final validator URL plus optional `OpaqueValidator` ETag/Last-Modified values. The same feed transaction encodes them to canonical storage text; repository readback decodes them before the next fetch. Corrupt/unknown validator storage is a typed repository error and is never forwarded as a header.
 - Backend-specific exact unique-conflict/upsert functions are private. Broad MySQL `INSERT IGNORE` is forbidden. Transaction retry reuses parsed content and never repeats network I/O.
 
 - [ ] **Step 1: Add one compiling persist input/output seam**
@@ -539,7 +578,7 @@ Define owned `PersistFeed`, `PersistEntry`, and `PersistResult` types. Begin wit
 
 - [ ] **Step 2: Implement behavioral slices**
 
-Run RED/GREEN cycles for: first 60 inserts; second identical refresh inserts zero; tracking-only change updates zero; real content change updates one without changing identity fields/state; concurrent persists leave one identity row; all new rows share one generation and monotonic sequences; no-new-entry refresh does not increment the counter; a stale token writes nothing.
+Run RED/GREEN cycles for: first 60 inserts; second identical refresh inserts zero; tracking-only change updates zero; a real content change under GUID/URL or unchanged fingerprint inputs updates one without changing identity fields/state; accepted content-only/title/date/enclosure fallback changes insert a new identity; concurrent persists leave one identity row; both kind/text are checked on hash collision; non-UTF-8 validator bytes survive database store/reload/decode on all three backends; all new rows share one generation and monotonic sequences; no-new-entry refresh does not increment the counter; a stale token writes nothing.
 
 - [ ] **Step 3: Verify persistence**
 
@@ -691,6 +730,6 @@ git commit -m "test: verify rss ingestion end to end"
 
 - Spec coverage: this plan covers portable Feed/Subscription/Entry/EntryState storage, three-database schema contracts, safe URL fetching, conditional requests, parsing, sanitization, idempotent insertion, fenced refresh persistence, lifecycle outbox records, minimal production subscribe/list/detail domain seams, deterministic fixtures, and the required IT Home live smoke. Subscription HTTP routes, scheduler workers, categories, retention, OPML, and Reader UI intentionally remain in later independently runnable plans.
 - DDIA: shared records, sparse user state, stable snapshot generation, feed sequence, unique constraints, fencing token, short transactions, database-as-record-system, and at-least-once outbox semantics are explicit.
-- Security: every external boundary has limits and abuse tests; automatic proxy/redirect/decompression are disabled; DNS is pinned; XML and HTML are treated as hostile; logs and errors do not expose URL query, validators, body, or secrets.
+- Security: every external boundary has limits and abuse tests; automatic proxy/redirect/decompression are disabled; DNS is pinned; custom NAT64 is discovered through a trusted RFC 7050 path; XML and HTML are treated as hostile; feed-domain/transport logs and errors do not expose URL query, validators, body, or secrets, and ORM models never cross the logging boundary.
 - Type consistency: Task 1 produces entities verified across backends by Task 2; Task 3 produces URL/identity/schedule types consumed by Task 4 and later repositories; Task 4 produces bounded documents consumed by Task 5; Task 5 produces validated parsed content consumed by Tasks 7 and 9; Task 6 produces fenced refresh claims; Task 7 persists entries/generations; Task 8 records lifecycle events; Task 9 composes the stable transport/domain/query interfaces.
 - Unresolved-marker scan: clean; later subsystems are named as explicit exclusions.
