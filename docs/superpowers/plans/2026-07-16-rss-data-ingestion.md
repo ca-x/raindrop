@@ -53,7 +53,7 @@
 - `rss_counters`: `key VARCHAR(32)` primary key, `value BIGINT NOT NULL`; migration inserts `INGEST_GENERATION=0` idempotently.
 - `feeds`: `id VARCHAR(36)`; `source_url/normalized_url/fetch_url TEXT`; `normalized_url_hash VARCHAR(64)`; nullable `validator_url/etag/last_modified TEXT`; nullable `response_content_hash VARCHAR(64)`; `entry_sequence_head BIGINT`; nullable `last_attempt_at/last_success_at/last_changed_at`; non-null `next_fetch_at`; nullable `retry_after_at`; `consecutive_failures BIGINT`; nullable `last_error_code VARCHAR(64)`; `is_disabled`; nullable `orphaned_at/lease_owner/lease_until`; monotonic `lease_token BIGINT`; non-null `created_at/updated_at`.
 - `subscriptions`: UUID-string `id`, `user_id`, `feed_id`, display override/position, `start_sequence`, `read_through_sequence`, `state_revision`, created/updated timestamps. Unique `(user_id, feed_id)`.
-- `entries`: `id/feed_id VARCHAR(36)`; immutable `feed_sequence/ingest_generation BIGINT`; `identity_kind VARCHAR(16)`, full `identity TEXT`, `identity_hash VARCHAR(64)`; nullable canonical URL/title/author/summary; non-null `sanitized_content TEXT`, whose application-level payload becomes a versioned typed content envelope before first entry persistence; nullable untrusted UTC Unix-microsecond `published_at_us BIGINT`; immutable `sort_at_us BIGINT`; non-null inserted/updated operational timestamps; `source_content_hash/content_hash VARCHAR(64)`; `pipeline_version VARCHAR(64)`; nullable `direction VARCHAR(8)` and nullable versioned `enclosure_json TEXT`. Task 7 appends the monotonic MySQL width correction before values can exceed base `TEXT`.
+- `entries`: `id/feed_id VARCHAR(36)`; immutable `feed_sequence/ingest_generation BIGINT`; `identity_kind VARCHAR(16)`, full `identity TEXT`, `identity_hash VARCHAR(64)`; nullable canonical URL/title/author/summary; non-null `sanitized_content TEXT`; nullable untrusted UTC Unix-microsecond `published_at_us BIGINT`; immutable `sort_at_us BIGINT`; non-null inserted/updated operational timestamps; `source_content_hash/content_hash VARCHAR(64)`; `pipeline_version VARCHAR(64)`; nullable `direction VARCHAR(8)` and nullable versioned `enclosure_json TEXT`.
 - `entry_states`: primary key `(user_id, entry_id)` plus redundant immutable `feed_id/feed_sequence`, nullable `read_override`, starred fields, revision, updated time. Composite foreign keys require an owned subscription and the matching entry tuple.
 - All hashes are lower-case 64-character BLAKE3 hex. IDs are lower-case UUID strings of length 36. JSON remains versioned `TEXT`; no native DB enums/UUID/JSON or partial indexes.
 
@@ -597,10 +597,6 @@ git commit -m "feat: fence feed refresh claims"
 
 - Modify: `src/feeds/repository.rs`
 - Modify: `src/feeds/refresh.rs`
-- Modify: `src/db/migration.rs`
-- Modify: `src/db/migration/rss/mod.rs`
-- Create: `src/db/migration/rss/content_widths.rs`
-- Modify: `tests/rss_migrations.rs`
 - Modify: `tests/support/database.rs`
 - Create: `tests/feed_entry_persistence.rs`
 
@@ -609,9 +605,6 @@ git commit -m "feat: fence feed refresh claims"
 - A persist transaction first verifies database-clock owner/token fencing, then compares existing identities, increments `INGEST_GENERATION` only when at least one new entry exists, allocates monotonic feed sequences, updates changed content, updates Feed/run state, and releases the lease.
 - `(feed_id, identity_hash)` is final duplicate arbitration; a hit compares both persisted `identity_kind` and full `identity`, and returns `IdentityHashCollision` if either differs.
 - Existing rows preserve ID, inserted time, ingest generation, feed sequence, and sort key. Tracking-only sanitized equality avoids a large-field rewrite. `sort_at_us` is derived from checked `published_at_us` or insertion time once and never changes.
-- `PersistEntry` owns typed `SanitizedContent`. Storage centrally encodes exact prefix `rdsc:v1:` followed by fixed-field-order compact JSON `{"version":1,"html":...,"inert_images":[...]}`; every image record includes its unique ordered `image_index`. Unknown prefix/version, malformed JSON, duplicate/out-of-order image indexes, a DOM/index mismatch, or an envelope over 4 MiB is a typed repository-corruption/limit error. No Task 5 rows predate this format, so there is no implicit legacy unprefixed HTML path. APIs decode to typed `{ html, inertImages }` and never return the storage envelope directly.
-- The content-width migration is monotonic and backend-aware. MySQL widens `sanitized_content` to `LONGTEXT` and `identity/title/author/summary/enclosure_json` to `MEDIUMTEXT`; SQLite/PostgreSQL need no physical alteration. The MySQL down path never shrinks live columns and risk truncation. Three-backend tests round-trip values above 64 KiB, a near-limit content envelope, and 256 KiB enclosure JSON.
-- Semantic hashes cover final HTML only, never the storage envelope or inert-image source URLs. Row equality compares all canonical fields and exact envelope bytes: inert-image-URL-only changes refresh the envelope without counting as semantic content changes; source hash, final hash, pipeline version, metadata fields, and enclosures are compared independently. Equal content hashes with different final HTML return a typed integrity collision.
 - `PersistFeed` owns the exact final validator URL plus optional `OpaqueValidator` ETag/Last-Modified values. The same feed transaction encodes them to canonical storage text; repository readback decodes them before the next fetch. Corrupt/unknown validator storage is a typed repository error and is never forwarded as a header.
 - Backend-specific exact unique-conflict/upsert functions are private. Broad MySQL `INSERT IGNORE` is forbidden. Transaction retry reuses parsed content and never repeats network I/O.
 
@@ -621,7 +614,7 @@ Define owned `PersistFeed`, `PersistEntry`, and `PersistResult` types. Begin wit
 
 - [ ] **Step 2: Implement behavioral slices**
 
-Run RED/GREEN cycles for: first 60 inserts; second identical refresh inserts zero; tracking-only semantic equality updates zero; inert-image-URL-only change refreshes the envelope without a semantic update; source/final hashes remain distinct and update independently; same content hash with different final HTML rejects; a real content change under GUID/URL or unchanged fingerprint inputs updates one without changing identity fields/state; accepted content-only/title/date/enclosure fallback changes insert a new identity; concurrent persists leave one identity row; both kind/text are checked on hash collision; canonical content envelope encode/decode rejects corrupt versions and round-trips exact image indexes; non-UTF-8 validator bytes survive database store/reload/decode on all three backends; all new rows share one generation and monotonic sequences; no-new-entry refresh does not increment the counter; a stale token writes nothing.
+Run RED/GREEN cycles for: first 60 inserts; second identical refresh inserts zero; tracking-only change updates zero; a real content change under GUID/URL or unchanged fingerprint inputs updates one without changing identity fields/state; accepted content-only/title/date/enclosure fallback changes insert a new identity; concurrent persists leave one identity row; both kind/text are checked on hash collision; non-UTF-8 validator bytes survive database store/reload/decode on all three backends; all new rows share one generation and monotonic sequences; no-new-entry refresh does not increment the counter; a stale token writes nothing.
 
 - [ ] **Step 3: Verify persistence**
 
@@ -636,7 +629,7 @@ RAINDROP_TEST_MYSQL_URL="$MYSQL_TEST_URL" cargo test --locked --test feed_entry_
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/db src/feeds tests/rss_migrations.rs tests/support tests/feed_entry_persistence.rs
+git add src/feeds tests/feed_entry_persistence.rs
 git commit -m "feat: persist feed entries idempotently"
 ```
 
@@ -706,7 +699,6 @@ git commit -m "feat: record feed lifecycle events"
 - `FeedService<T: FeedTransport>` composes URL policy, injected transport, parser/sanitizer, repository, and refresh scheduler. Callers receive typed subscription/refresh/query DTOs; no caller handles raw HTTP or database entities.
 - `subscribe(user_id, SubscribeInput { url }) -> Result<SubscriptionDto, FeedServiceError>` creates/reuses the shared Feed, creates the user-owned Subscription with start/read-through equal to the current feed head, and queues/executes a `SUBSCRIBE` refresh through the same refresh path.
 - `EntryRepository::list_for_user(user_id, ListEntriesQuery) -> Result<EntryPage, RepositoryError>` uses subscription joins and a versioned base64url cursor containing `v=1`, `filter_hash`, `snapshot_generation`, `sort_at_us`, and `entry_id`. `get_detail_for_user(user_id, entry_id)` must join a Subscription; opaque entry IDs never authorize access.
-- Entry detail returns typed `{ html, inertImages }` only after the ownership join and canonical content-envelope decode. List DTOs never expose publisher image URLs. The frontend may activate an image only through an explicit user action and must never bulk-restore publisher URLs as `src` during render.
 - The deterministic E2E path injects a fake `FeedTransport` that returns the synthetic 60-item bounded document: subscribe -> parse -> sanitize -> persist -> user-scoped list/detail DTO -> second refresh idempotency. It does not require a production loopback bypass.
 - The IT Home smoke is `#[ignore]`, also checks `RAINDROP_LIVE_RSS_SMOKE=1`, uses a temporary SQLite database and at most two requests to `https://www.ithome.com/rss/`, passes the original response through the production charset conversion/preflight/feedparser-rs path without ad hoc whitespace or structural rewriting, and never fetches article pages/images.
 - Live smoke hard assertions are successful secure parse, 50..=100 entries, unique identities, safe sanitized content, list/detail visibility, and second-refresh database deduplication. Current 60-item size, Brotli ratio, and Last-Modified/304 are diagnostic expectations, not permanent exact values.

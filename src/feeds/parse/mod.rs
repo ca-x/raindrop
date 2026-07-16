@@ -143,7 +143,13 @@ impl Default for WorkerHooks {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Condvar, Mutex as StdMutex};
+    use std::{
+        sync::{
+            Condvar, Mutex as StdMutex,
+            atomic::{AtomicUsize, Ordering},
+        },
+        time::Duration,
+    };
 
     use super::*;
     use crate::feeds::{FeedUrlPolicy, FetchOutcome};
@@ -162,6 +168,20 @@ mod tests {
             last_modified: None,
         })
         .expect("document")
+    }
+
+    fn retained_body_document() -> FetchedDocument {
+        let mut document = document();
+        document.body = vec![b'x'; 1024 * 1024];
+        document
+    }
+
+    struct DropProbe(Arc<AtomicUsize>);
+
+    impl Drop for DropProbe {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
     }
 
     #[tokio::test]
@@ -201,18 +221,33 @@ mod tests {
         for handle in &handles {
             handle.abort();
         }
-        let busy = FeedParser
-            .parse(document())
-            .await
-            .expect_err("both permits remain held");
-        assert_eq!(busy.kind(), FeedParseErrorKind::ParserBusy);
-        for _ in 0..32 {
-            let busy = FeedParser
-                .parse(document())
-                .await
-                .expect_err("saturation fails fast without a retained-body queue");
-            assert_eq!(busy.kind(), FeedParseErrorKind::ParserBusy);
+        const BUSY_CALLERS: usize = 64;
+        let start = Arc::new(tokio::sync::Barrier::new(BUSY_CALLERS + 1));
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let mut busy_handles = Vec::with_capacity(BUSY_CALLERS);
+        for _ in 0..BUSY_CALLERS {
+            let start = start.clone();
+            let dropped = dropped.clone();
+            busy_handles.push(tokio::spawn(async move {
+                let _drop_probe = DropProbe(dropped);
+                let document = retained_body_document();
+                start.wait().await;
+                FeedParser.parse(document).await
+            }));
         }
+        start.wait().await;
+        tokio::time::timeout(Duration::from_secs(1), async {
+            for handle in busy_handles {
+                let error = handle
+                    .await
+                    .expect("busy caller task completes")
+                    .expect_err("saturation fails fast without a retained-body queue");
+                assert_eq!(error.kind(), FeedParseErrorKind::ParserBusy);
+            }
+        })
+        .await
+        .expect("all simultaneous busy callers return promptly");
+        assert_eq!(dropped.load(Ordering::SeqCst), BUSY_CALLERS);
 
         let (lock, condition) = &*gate;
         *lock.lock().expect("gate lock") = true;

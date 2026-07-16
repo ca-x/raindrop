@@ -8,13 +8,9 @@ use html5ever::{
     },
 };
 use http::HeaderValue;
-use raindrop::{
-    content::{SanitizeError, sanitize_entry_html},
-    feeds::{
-        FeedParseError, FeedParseErrorKind, FeedParser, FeedUrlPolicy, FetchOutcome,
-        FetchedDocument, FetchedDocumentError, IdentityKind, OpaqueValidator, ParsedFeed,
-        ParsedFeedVersion,
-    },
+use raindrop::feeds::{
+    FeedParseError, FeedParseErrorKind, FeedParser, FeedUrlPolicy, FetchOutcome, FetchedDocument,
+    FetchedDocumentError, IdentityKind, OpaqueValidator, ParsedFeed, ParsedFeedVersion,
 };
 
 static PARSER_MUTEX: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -216,6 +212,34 @@ async fn mime_sniff_mismatch_and_hard_deny_matrix_is_fail_closed() {
 }
 
 #[tokio::test]
+async fn sniff_accepts_legal_xml_prologs_and_qualified_feed_roots() {
+    for body in [
+        br#"<!-- legal leading comment --><?probe ok?><rss version="2.0"><channel><title>x</title></channel></rss>"#.as_slice(),
+        br#"<?probe ok?><atom:feed xmlns:atom="http://www.w3.org/2005/Atom"><title>x</title><id>x</id><updated>2026-07-16T00:00:00Z</updated></atom:feed>"#.as_slice(),
+    ] {
+        parse(fetched(body, None))
+            .await
+            .expect("legal XML prolog and qualified feed root sniff as XML");
+    }
+
+    let non_feed = br#"<!-- legal leading comment --><html><body>x</body></html>"#;
+    assert_eq!(
+        parse(fetched(non_feed, None))
+            .await
+            .expect_err("tolerated MIME does not classify a non-feed root")
+            .kind(),
+        FeedParseErrorKind::UnsupportedContentType
+    );
+    assert_eq!(
+        parse(fetched(non_feed, Some("application/xml")))
+            .await
+            .expect_err("direct XML classifies a non-feed root as a mismatch")
+            .kind(),
+        FeedParseErrorKind::MimeMismatch
+    );
+}
+
+#[tokio::test]
 async fn strict_charset_failures_are_typed() {
     let unknown = parse(fetched(
         RSS_60,
@@ -362,6 +386,80 @@ async fn xml_entities_roots_structure_and_bases_are_strict() {
             .await
             .expect_err("unsafe XML rejects");
         assert_eq!(error.kind(), *kind);
+    }
+}
+
+#[tokio::test]
+async fn cdata_is_confined_to_the_root_and_xml_10_legal_characters() {
+    for body in [
+        "<![CDATA[outside]]><rss version=\"2.0\"><channel><title>x</title></channel></rss>"
+            .to_owned(),
+        "<rss version=\"2.0\"><channel><title><![CDATA[illegal\u{000b}character]]></title></channel></rss>"
+            .to_owned(),
+    ] {
+        let error = parse(fetched(body, Some("application/rss+xml")))
+            .await
+            .expect_err("invalid CDATA rejects");
+        assert_eq!(error.kind(), FeedParseErrorKind::MalformedXml);
+    }
+}
+
+#[tokio::test]
+async fn extension_and_empty_entries_cannot_shift_xml_sidecar_ordinals() {
+    let extension = br#"
+        <feed xmlns="http://www.w3.org/2005/Atom" xmlns:ext="urn:example:extension">
+          <title>x</title><id>x</id><updated>2026-07-16T00:00:00Z</updated>
+          <ext:entry xml:base="https://attacker.example/"><ext:link href="poison"/></ext:entry>
+          <entry xml:base="https://good.example/posts/">
+            <id>real</id><title>real</title><updated>2026-07-16T00:00:00Z</updated>
+            <link rel="alternate" href="one"/>
+          </entry>
+        </feed>
+    "#;
+    let parsed = parse(fetched(extension, Some("application/atom+xml")))
+        .await
+        .expect("extension local names do not enter the sidecar");
+    assert_eq!(parsed.entries().len(), 1);
+    assert_eq!(
+        parsed.entries()[0].canonical_url(),
+        Some("https://good.example/posts/one")
+    );
+
+    let empty = br#"
+        <feed xmlns="http://www.w3.org/2005/Atom">
+          <title>x</title><id>x</id><updated>2026-07-16T00:00:00Z</updated>
+          <entry xml:base="https://attacker.example/"/>
+          <entry xml:base="https://good.example/posts/">
+            <id>real</id><title>real</title><updated>2026-07-16T00:00:00Z</updated>
+            <content type="html" xml:base="../assets/">&lt;img src="image.jpg" alt="real"&gt;</content>
+            <link rel="enclosure" href="audio.mp3" type="audio/mpeg"/>
+          </entry>
+        </feed>
+    "#;
+    let parsed = parse(fetched(empty, Some("application/atom+xml")))
+        .await
+        .expect("self-closing empty entries do not enter the sidecar");
+    let entry = &parsed.entries()[0];
+    assert_eq!(
+        entry.content().images()[0].source_url(),
+        "https://good.example/assets/image.jpg"
+    );
+    assert_eq!(
+        entry.enclosures()[0].url(),
+        "https://good.example/posts/audio.mp3"
+    );
+}
+
+#[tokio::test]
+async fn xml_sidecar_and_parser_collection_mismatches_fail_closed() {
+    for body in [
+        br#"<feed xmlns="http://www.w3.org/2005/Atom"><title>x</title><id>x</id><updated>2026-07-16T00:00:00Z</updated><link/><entry><id>x</id><updated>2026-07-16T00:00:00Z</updated></entry></feed>"#.as_slice(),
+        br#"<rss version="2.0"><channel><title>x</title><item><guid isPermaLink="false">x</guid><enclosure/></item></channel></rss>"#.as_slice(),
+    ] {
+        let error = parse(fetched(body, Some("application/xml")))
+            .await
+            .expect_err("sidecar and parser collection mismatch rejects");
+        assert_eq!(error.kind(), FeedParseErrorKind::ParserFailure);
     }
 }
 
@@ -542,6 +640,23 @@ async fn parser_sentinels_prevent_text_content_enclosure_and_entry_truncation() 
 }
 
 #[tokio::test]
+async fn summary_limit_is_enforced_even_when_content_wins_selection() {
+    let feed = |summary_len: usize| {
+        format!(
+            "<feed xmlns=\"http://www.w3.org/2005/Atom\"><title>x</title><id>x</id><updated>2026-07-16T00:00:00Z</updated><entry><id>x</id><title>x</title><updated>2026-07-16T00:00:00Z</updated><summary>{}</summary><content type=\"text\">small</content></entry></feed>",
+            "s".repeat(summary_len)
+        )
+    };
+    parse(fetched(feed(1024 * 1024), Some("application/atom+xml")))
+        .await
+        .expect("exactly 1 MiB summary is accepted when content wins");
+    let error = parse(fetched(feed(1024 * 1024 + 1), Some("application/atom+xml")))
+        .await
+        .expect_err("1 MiB + 1 summary rejects even when content wins");
+    assert_eq!(error.kind(), FeedParseErrorKind::ContentTooLong);
+}
+
+#[tokio::test]
 async fn json_n_plus_one_and_depth_prechecks_reject_before_parser_truncation() {
     let item = |content_len: usize| {
         serde_json::json!({
@@ -592,6 +707,172 @@ async fn json_n_plus_one_and_depth_prechecks_reject_before_parser_truncation() {
         .await
         .expect_err("JSON depth rejects");
     assert_eq!(error.kind(), FeedParseErrorKind::DepthLimit);
+}
+
+#[tokio::test]
+async fn json_feed_version_and_attachment_types_are_strict() {
+    for value in [
+        serde_json::json!({"title":"x","items":[]}),
+        serde_json::json!({"version":null,"title":"x","items":[]}),
+        serde_json::json!({"version":"https://jsonfeed.org/version/9","title":"x","items":[]}),
+    ] {
+        let error = parse(fetched(value.to_string(), Some("application/json")))
+            .await
+            .expect_err("missing or invalid JSON Feed version rejects");
+        assert_eq!(error.kind(), FeedParseErrorKind::UnsupportedVersion);
+    }
+
+    for attachment in [
+        serde_json::json!({"url":null,"mime_type":"audio/mpeg"}),
+        serde_json::json!({"url":"https://example.test/a","mime_type":1}),
+        serde_json::json!({"url":"https://example.test/a","title":false}),
+        serde_json::json!({"url":"https://example.test/a","size_in_bytes":-1}),
+        serde_json::json!({"url":"https://example.test/a","size_in_bytes":1.5}),
+        serde_json::json!({"url":"https://example.test/a","duration_in_seconds":"1"}),
+    ] {
+        let value = serde_json::json!({
+            "version":"https://jsonfeed.org/version/1.1",
+            "title":"x",
+            "items":[{"id":"x","content_text":"x","attachments":[attachment]}]
+        });
+        let error = parse(fetched(value.to_string(), Some("application/json")))
+            .await
+            .expect_err("wrong attachment field type rejects");
+        assert_eq!(error.kind(), FeedParseErrorKind::MalformedJson);
+    }
+
+    let legacy_author = serde_json::json!({
+        "version":"https://jsonfeed.org/version/1.1",
+        "title":"x",
+        "author":{"name":7},
+        "items":[]
+    });
+    assert_eq!(
+        parse(fetched(legacy_author.to_string(), Some("application/json")))
+            .await
+            .expect_err("legacy singular author fields are strict")
+            .kind(),
+        FeedParseErrorKind::MalformedJson
+    );
+}
+
+#[tokio::test]
+async fn json_feed_collection_and_string_boundaries_are_independent() {
+    let authors = |count: usize| {
+        (0..count)
+            .map(|index| serde_json::json!({"name":format!("author-{index}")}))
+            .collect::<Vec<_>>()
+    };
+    let hubs = |count: usize| {
+        (0..count)
+            .map(|index| {
+                serde_json::json!({
+                    "type":"WebSub",
+                    "url":format!("https://hub.example.test/{index}")
+                })
+            })
+            .collect::<Vec<_>>()
+    };
+    let tags = |count: usize| {
+        (0..count)
+            .map(|index| serde_json::Value::String(format!("tag-{index}")))
+            .collect::<Vec<_>>()
+    };
+
+    for value in [
+        serde_json::json!({
+            "version":"https://jsonfeed.org/version/1.1",
+            "title":"x",
+            "authors":authors(256),
+            "items":[{"id":"x","content_text":"x"}]
+        }),
+        serde_json::json!({
+            "version":"https://jsonfeed.org/version/1.1",
+            "title":"x",
+            "hubs":hubs(256),
+            "items":[]
+        }),
+        serde_json::json!({
+            "version":"https://jsonfeed.org/version/1.1",
+            "title":"x",
+            "items":[{"id":"x","content_text":"x","authors":authors(256),"tags":tags(256)}]
+        }),
+    ] {
+        parse(fetched(value.to_string(), Some("application/json")))
+            .await
+            .expect("exact collection limits are accepted independently");
+    }
+
+    for value in [
+        serde_json::json!({
+            "version":"https://jsonfeed.org/version/1.1",
+            "title":"x",
+            "authors":authors(257),
+            "items":[]
+        }),
+        serde_json::json!({
+            "version":"https://jsonfeed.org/version/1.1",
+            "title":"x",
+            "hubs":hubs(257),
+            "items":[]
+        }),
+        serde_json::json!({
+            "version":"https://jsonfeed.org/version/1.1",
+            "title":"x",
+            "items":[{"id":"x","content_text":"x","authors":authors(257)}]
+        }),
+        serde_json::json!({
+            "version":"https://jsonfeed.org/version/1.1",
+            "title":"x",
+            "items":[{"id":"x","content_text":"x","tags":tags(257)}]
+        }),
+    ] {
+        assert_eq!(
+            parse(fetched(value.to_string(), Some("application/json")))
+                .await
+                .expect_err("N + 1 JSON collection rejects before parser truncation")
+                .kind(),
+            FeedParseErrorKind::ParserFailure
+        );
+    }
+
+    for value in [
+        serde_json::json!({
+            "version":"https://jsonfeed.org/version/1.1",
+            "title":"x",
+            "authors":null,
+            "items":[]
+        }),
+        serde_json::json!({
+            "version":"https://jsonfeed.org/version/1.1",
+            "title":"x",
+            "hubs":{},
+            "items":[]
+        }),
+        serde_json::json!({
+            "version":"https://jsonfeed.org/version/1.1",
+            "title":"x",
+            "items":[{"id":"x","content_html":7}]
+        }),
+        serde_json::json!({
+            "version":"https://jsonfeed.org/version/1.1",
+            "title":"x",
+            "items":[{"id":"x","content_text":"x","authors":"author"}]
+        }),
+        serde_json::json!({
+            "version":"https://jsonfeed.org/version/1.1",
+            "title":"x",
+            "items":[{"id":"x","content_text":"x","tags":["ok",9]}]
+        }),
+    ] {
+        assert_eq!(
+            parse(fetched(value.to_string(), Some("application/json")))
+                .await
+                .expect_err("wrong JSON collection or string type rejects")
+                .kind(),
+            FeedParseErrorKind::MalformedJson
+        );
+    }
 }
 
 #[tokio::test]
@@ -670,52 +951,46 @@ async fn malicious_html_is_inert_and_image_metadata_stays_out_of_band() {
     assert_eq!(image.height(), Some(360));
 }
 
-#[test]
-fn sanitizer_enforces_image_and_final_html_budgets() {
-    let base = "https://example.test/";
-    let accepted = format!(
-        "<img src='/x' alt='{}' width='16384' height='1'>",
-        "a".repeat(4096)
-    );
-    assert!(sanitize_entry_html(base, &accepted).is_ok());
-
-    let alt = format!("<img src='/x' alt='{}'>", "a".repeat(4097));
-    assert_eq!(
-        sanitize_entry_html(base, &alt).expect_err("alt cap"),
-        SanitizeError::ImageAltTooLong { bytes: 4097 }
-    );
-    for dimension in ["0", "16385", "not-a-number"] {
-        let html = format!("<img src='/x' width='{dimension}'>");
-        assert_eq!(
-            sanitize_entry_html(base, &html).expect_err("dimension cap"),
-            SanitizeError::ImageDimensionInvalid
-        );
-    }
-    let images = (0..257)
-        .map(|index| format!("<img src='/images/{index}.jpg' alt='{index}'>"))
+#[tokio::test]
+async fn sanitizer_removes_namespaced_and_legacy_fetch_attributes() {
+    let attributes = [
+        "src",
+        "srcset",
+        "href",
+        "xlink:href",
+        "poster",
+        "background",
+        "action",
+        "formaction",
+        "cite",
+        "ping",
+        "usemap",
+        "profile",
+        "manifest",
+        "archive",
+        "codebase",
+        "data",
+        "icon",
+        "longdesc",
+        "lowsrc",
+        "dynsrc",
+    ];
+    let poisoned = attributes
+        .iter()
+        .map(|attribute| format!(" {attribute}='https://fetch.example.test/{attribute}'"))
         .collect::<String>();
-    assert_eq!(
-        sanitize_entry_html(base, &images).expect_err("image count"),
-        SanitizeError::TooManyImages { count: 257 }
+    let html = format!(
+        "<a href='https://safe.example.test/' xlink:href='https://fetch.example.test/xlink' ping='https://fetch.example.test/ping'>safe</a><div{poisoned}>x</div><img src='https://safe.example.test/image.jpg' srcset='https://fetch.example.test/2x 2x' longdesc='https://fetch.example.test/longdesc' lowsrc='https://fetch.example.test/lowsrc' dynsrc='https://fetch.example.test/dynsrc' usemap='#map'><blockquote cite='https://fetch.example.test/cite'>q</blockquote><form action='https://fetch.example.test/action'><button formaction='https://fetch.example.test/formaction'>x</button></form><video poster='https://fetch.example.test/poster'></video><object data='https://fetch.example.test/data' codebase='https://fetch.example.test/codebase' archive='https://fetch.example.test/archive'></object><svg><image href='https://fetch.example.test/svg' xlink:href='https://fetch.example.test/xlink-svg'/></svg><math href='https://fetch.example.test/math'></math>"
     );
-    let metadata = (0..65)
-        .map(|index| {
-            format!(
-                "<img src='https://img.example.test/{}/{}' alt='{index}'>",
-                "x".repeat(4_000),
-                index
-            )
-        })
-        .collect::<String>();
-    assert!(matches!(
-        sanitize_entry_html(base, &metadata),
-        Err(SanitizeError::ImageMetadataTooLarge { .. })
-    ));
-    let oversized = format!("<p>{}</p>", "x".repeat(1024 * 1024));
-    assert!(matches!(
-        sanitize_entry_html(base, &oversized),
-        Err(SanitizeError::FinalHtmlTooLong { .. })
-    ));
+    let feed = format!(
+        "<rss version=\"2.0\"><channel><title>x</title><link>https://example.test/</link><item><guid>x</guid><description><![CDATA[{html}]]></description></item></channel></rss>"
+    );
+    let parsed = parse(fetched(feed, Some("application/rss+xml")))
+        .await
+        .expect("legacy fetch attributes sanitize");
+    let sanitized = parsed.entries()[0].content().html();
+    assert!(sanitized.contains("href=\"https://safe.example.test/\""));
+    assert_no_fetch_capable_dom_attributes(sanitized);
 }
 
 #[tokio::test]
@@ -834,9 +1109,15 @@ impl TokenSink for AttributeSink {
             && tag.kind == StartTag
         {
             for attribute in tag.attrs {
+                let local = attribute.name.local.to_string();
+                let name = attribute
+                    .name
+                    .prefix
+                    .as_ref()
+                    .map_or_else(|| local.clone(), |prefix| format!("{prefix}:{local}"));
                 self.attributes
                     .borrow_mut()
-                    .push((tag.name.to_string(), attribute.name.local.to_string()));
+                    .push((tag.name.to_string(), name));
             }
         }
         TokenSinkResult::Continue
@@ -856,10 +1137,11 @@ fn assert_no_fetch_capable_dom_attributes(html: &str) {
     tokenizer.end();
     for (tag, attribute) in tokenizer.sink.attributes.into_inner() {
         let allowed_anchor = tag == "a" && attribute == "href";
+        let local = attribute.rsplit(':').next().unwrap_or(&attribute);
         assert!(
             allowed_anchor
                 || !matches!(
-                    attribute.as_str(),
+                    local,
                     "src"
                         | "srcset"
                         | "poster"
@@ -867,6 +1149,17 @@ fn assert_no_fetch_capable_dom_attributes(html: &str) {
                         | "ping"
                         | "action"
                         | "formaction"
+                        | "cite"
+                        | "usemap"
+                        | "profile"
+                        | "manifest"
+                        | "archive"
+                        | "codebase"
+                        | "data"
+                        | "icon"
+                        | "longdesc"
+                        | "lowsrc"
+                        | "dynsrc"
                         | "href"
                 ),
             "fetch-capable {tag}[{attribute}] remained"

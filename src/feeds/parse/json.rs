@@ -17,10 +17,14 @@ pub(crate) fn preflight(input: &str) -> Result<PreflightedJson, FeedParseError> 
     let object = value
         .as_object()
         .ok_or_else(|| FeedParseError::new(FeedParseErrorKind::MimeMismatch))?;
-    let version = object
-        .get("version")
-        .and_then(Value::as_str)
-        .ok_or_else(|| FeedParseError::new(FeedParseErrorKind::MimeMismatch))?;
+    let version = match object.get("version") {
+        Some(Value::String(version)) => version.as_str(),
+        Some(_) => return Err(FeedParseError::new(FeedParseErrorKind::UnsupportedVersion)),
+        None if looks_like_json_feed(object) => {
+            return Err(FeedParseError::new(FeedParseErrorKind::UnsupportedVersion));
+        }
+        None => return Err(FeedParseError::new(FeedParseErrorKind::MimeMismatch)),
+    };
     if !matches!(
         version,
         "https://jsonfeed.org/version/1" | "https://jsonfeed.org/version/1.1"
@@ -54,6 +58,9 @@ pub(crate) fn preflight(input: &str) -> Result<PreflightedJson, FeedParseError> 
         for author in authors {
             check_author(author)?;
         }
+    }
+    if let Some(author) = object.get("author") {
+        check_author(author)?;
     }
     if let Some(hubs) = object.get("hubs").and_then(Value::as_array) {
         for hub in hubs {
@@ -100,6 +107,26 @@ pub(crate) fn preflight(input: &str) -> Result<PreflightedJson, FeedParseError> 
     Ok(PreflightedJson { parser_bytes })
 }
 
+fn looks_like_json_feed(object: &serde_json::Map<String, Value>) -> bool {
+    [
+        "title",
+        "home_page_url",
+        "feed_url",
+        "description",
+        "user_comment",
+        "next_url",
+        "icon",
+        "favicon",
+        "authors",
+        "author",
+        "language",
+        "items",
+        "hubs",
+    ]
+    .iter()
+    .any(|field| object.contains_key(*field))
+}
+
 fn check_item(item: &Value) -> Result<(), FeedParseError> {
     let object = item
         .as_object()
@@ -139,6 +166,9 @@ fn check_item(item: &Value) -> Result<(), FeedParseError> {
             check_author(author)?;
         }
     }
+    if let Some(author) = object.get("author") {
+        check_author(author)?;
+    }
     if let Some(tags) = object.get("tags").and_then(Value::as_array) {
         for tag in tags {
             check_optional_string(
@@ -160,22 +190,15 @@ fn check_item(item: &Value) -> Result<(), FeedParseError> {
             let attachment = attachment
                 .as_object()
                 .ok_or_else(|| FeedParseError::new(FeedParseErrorKind::MalformedJson))?;
-            for field in [
-                "url",
-                "mime_type",
-                "title",
-                "duration_in_seconds",
-                "size_in_bytes",
-            ] {
-                if let Some(value) = attachment.get(field)
-                    && value.is_string()
-                {
-                    check_optional_string(
-                        Some(value),
-                        MAX_CONTENT_BYTES,
-                        FeedParseErrorKind::ContentTooLong,
-                    )?;
-                }
+            for field in ["url", "mime_type", "title"] {
+                check_optional_string(
+                    attachment.get(field),
+                    MAX_CONTENT_BYTES,
+                    FeedParseErrorKind::ContentTooLong,
+                )?;
+            }
+            for field in ["duration_in_seconds", "size_in_bytes"] {
+                check_optional_nonnegative_integer(attachment.get(field))?;
             }
         }
     }
@@ -226,6 +249,16 @@ fn check_optional_string(
     } else {
         Ok(())
     }
+}
+
+fn check_optional_nonnegative_integer(value: Option<&Value>) -> Result<(), FeedParseError> {
+    let Some(value) = value else {
+        return Ok(());
+    };
+    value
+        .as_u64()
+        .map(|_| ())
+        .ok_or_else(|| FeedParseError::new(FeedParseErrorKind::MalformedJson))
 }
 
 fn check_depth(value: &Value, depth: usize) -> Result<(), FeedParseError> {

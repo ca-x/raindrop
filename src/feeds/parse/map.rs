@@ -60,9 +60,19 @@ pub(crate) fn map_feed(
             .with_count(parsed.entries.len())
             .with_format(version));
     }
+    if let Some(preflight) = xml {
+        if preflight.entries.len() != parsed.entries.len() {
+            return Err(FeedParseError::new(FeedParseErrorKind::ParserFailure)
+                .with_count(preflight.entries.len()));
+        }
+        if preflight.feed_link_count != parsed.feed.links.len() {
+            return Err(FeedParseError::new(FeedParseErrorKind::ParserFailure)
+                .with_count(preflight.feed_link_count));
+        }
+    }
     let title = normalize_text(parsed.feed.title.as_deref());
     check_title(title.as_deref())?;
-    let feed_base = xml.map_or(final_url, |preflight| preflight.feed_base.as_str());
+    let feed_base = xml.map_or(final_url, |preflight| preflight.feed_base.as_ref());
     let canonical_url = xml
         .and_then(|preflight| preflight.feed_link.as_deref())
         .or(parsed.feed.link.as_deref())
@@ -72,7 +82,7 @@ pub(crate) fn map_feed(
         .into_iter()
         .enumerate()
         .map(|(index, entry)| {
-            let entry_preflight = xml.and_then(|preflight| preflight.entries.get(index));
+            let entry_preflight = xml.map(|preflight| &preflight.entries[index]);
             map_entry(entry, feed_base, entry_preflight, index)
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -107,8 +117,17 @@ fn map_entry(
     entry_preflight: Option<&EntryPreflight>,
     document_index: usize,
 ) -> Result<ParsedEntryCandidate, FeedParseError> {
+    if let Some(preflight) = entry_preflight
+        && (preflight.content_count != entry.content.len()
+            || preflight.enclosure_urls.len() != entry.enclosures.len()
+            || !entry_link_count_matches(preflight, &entry))
+    {
+        return Err(
+            FeedParseError::new(FeedParseErrorKind::ParserFailure).with_count(document_index)
+        );
+    }
     let entry_base =
-        entry_preflight.map_or(feed_base, |preflight| preflight.effective_base.as_str());
+        entry_preflight.map_or(feed_base, |preflight| preflight.effective_base.as_ref());
     let feedparser_rs::Entry {
         id,
         title,
@@ -152,6 +171,13 @@ fn map_entry(
         .or(link.as_deref())
         .and_then(|raw| normalize_url(raw, entry_base));
 
+    if let Some(summary) = summary.as_ref()
+        && summary.len() > MAX_CONTENT_BYTES
+    {
+        return Err(
+            FeedParseError::new(FeedParseErrorKind::ContentTooLong).with_bytes(summary.len())
+        );
+    }
     let summary_for_field = summary.clone();
     let (raw_content, content_base) = if content.is_empty() {
         let summary_content = summary.clone().unwrap_or_default();
@@ -170,8 +196,9 @@ fn map_entry(
         let base = if let Some(preflight) = entry_preflight {
             preflight
                 .summary_base
-                .clone()
-                .or_else(|| Some(preflight.effective_base.clone()))
+                .as_ref()
+                .map(ToString::to_string)
+                .or_else(|| Some(preflight.effective_base.to_string()))
         } else {
             summary_detail
                 .and_then(|detail| detail.base)
@@ -208,18 +235,14 @@ fn map_entry(
             }
         }
         if let Some(preflight) = entry_preflight {
-            if preflight
-                .content_bases
-                .windows(2)
-                .any(|bases| bases[0] != bases[1])
-            {
+            if preflight.content_base_conflict {
                 return Err(FeedParseError::new(FeedParseErrorKind::InvalidUrl));
             }
             base = preflight
-                .content_bases
-                .first()
-                .cloned()
-                .or_else(|| Some(preflight.effective_base.clone()));
+                .content_base
+                .as_ref()
+                .map(ToString::to_string)
+                .or_else(|| Some(preflight.effective_base.to_string()));
         } else if base.is_none() {
             base = Some(entry_base.to_owned());
         }
@@ -269,6 +292,15 @@ fn map_entry(
         enclosures,
         document_index,
     })
+}
+
+fn entry_link_count_matches(preflight: &EntryPreflight, entry: &feedparser_rs::Entry) -> bool {
+    if preflight.link_count == entry.links.len() {
+        return true;
+    }
+    // feedparser-rs can synthesize one alternate Link from an RSS GUID or Atom ID.
+    // The sidecar counts only source link/enclosure elements.
+    entry.id.is_some() && entry.links.len() == preflight.link_count.saturating_add(1)
 }
 
 fn check_title(title: Option<&str>) -> Result<(), FeedParseError> {

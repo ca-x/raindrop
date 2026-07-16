@@ -90,7 +90,7 @@ impl fmt::Debug for SanitizedContent {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum SanitizeError {
+pub(crate) enum SanitizeError {
     FinalHtmlTooLong { bytes: usize },
     TooManyImages { count: usize },
     ImageAltTooLong { bytes: usize },
@@ -116,7 +116,10 @@ impl fmt::Display for SanitizeError {
 
 impl Error for SanitizeError {}
 
-pub fn sanitize_entry_html(base_url: &str, input: &str) -> Result<SanitizedContent, SanitizeError> {
+pub(crate) fn sanitize_entry_html(
+    base_url: &str,
+    input: &str,
+) -> Result<SanitizedContent, SanitizeError> {
     let with_sources = sanitize_html(base_url, input, true);
     validate_image_metadata(&with_sources)?;
     let source_images = extract_images(&with_sources);
@@ -201,4 +204,57 @@ fn canonical_metadata_bytes(images: &[InertImage]) -> usize {
             .saturating_add(1 + usize::from(image.width.is_some()) * 4)
             .saturating_add(1 + usize::from(image.height.is_some()) * 4)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sanitizer_enforces_image_and_final_html_budgets() {
+        let base = "https://example.test/";
+        let accepted = format!(
+            "<img src='/x' alt='{}' width='16384' height='1'>",
+            "a".repeat(4096)
+        );
+        assert!(sanitize_entry_html(base, &accepted).is_ok());
+
+        let alt = format!("<img src='/x' alt='{}'>", "a".repeat(4097));
+        assert_eq!(
+            sanitize_entry_html(base, &alt).expect_err("alt cap"),
+            SanitizeError::ImageAltTooLong { bytes: 4097 }
+        );
+        for dimension in ["0", "16385", "not-a-number"] {
+            let html = format!("<img src='/x' width='{dimension}'>");
+            assert_eq!(
+                sanitize_entry_html(base, &html).expect_err("dimension cap"),
+                SanitizeError::ImageDimensionInvalid
+            );
+        }
+        let images = (0..257)
+            .map(|index| format!("<img src='/images/{index}.jpg' alt='{index}'>"))
+            .collect::<String>();
+        assert_eq!(
+            sanitize_entry_html(base, &images).expect_err("image count"),
+            SanitizeError::TooManyImages { count: 257 }
+        );
+        let metadata = (0..65)
+            .map(|index| {
+                format!(
+                    "<img src='https://img.example.test/{}/{}' alt='{index}'>",
+                    "x".repeat(4_000),
+                    index
+                )
+            })
+            .collect::<String>();
+        assert!(matches!(
+            sanitize_entry_html(base, &metadata),
+            Err(SanitizeError::ImageMetadataTooLarge { .. })
+        ));
+        let oversized = format!("<p>{}</p>", "x".repeat(1024 * 1024));
+        assert!(matches!(
+            sanitize_entry_html(base, &oversized),
+            Err(SanitizeError::FinalHtmlTooLong { .. })
+        ));
+    }
 }
