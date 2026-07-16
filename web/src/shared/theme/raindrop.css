@@ -23,6 +23,7 @@
     --duration-fast: 140ms;
     --duration-medium: 240ms;
     --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+    --ease-standard: cubic-bezier(0.32, 0.72, 0, 1);
   }
 }
 
@@ -42,9 +43,26 @@ body {
 }
 
 .raindrop-auth-frame {
-  min-block-size: 100%;
+  display: grid;
+  grid-template-columns: minmax(280px, 0.8fr) minmax(440px, 1fr);
+  align-items: center;
+  gap: clamp(40px, 7vw, 96px);
+  inline-size: min(1180px, 100%);
+  block-size: 100%;
+  min-block-size: 0;
+  margin-inline: auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: max(24px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right))
     max(24px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
+}
+
+.raindrop-auth-context {
+  max-inline-size: 480px;
+}
+
+.raindrop-auth-form {
+  min-inline-size: 0;
 }
 
 .raindrop-auth-card {
@@ -55,13 +73,79 @@ body {
   font-family: Charter, "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", Georgia, serif;
 }
 
+.raindrop-brand-mark {
+  display: block;
+  flex: 0 0 auto;
+  object-fit: contain;
+}
+
+.raindrop-mobile-ready {
+  min-block-size: 100%;
+  padding-inline: env(safe-area-inset-left) env(safe-area-inset-right);
+  padding-block-end: env(safe-area-inset-bottom);
+  overflow: hidden;
+}
+
+.raindrop-mobile-header {
+  padding-block-start: env(safe-area-inset-top);
+}
+
+.raindrop-mobile-navigation {
+  --size-element-md: 44px;
+}
+
+.raindrop-mobile-task {
+  flex: 1;
+  min-block-size: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.raindrop-pressable {
+  transition: transform 140ms var(--ease-out);
+}
+
+.raindrop-pressable:active {
+  transform: scale(0.97) !important;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .raindrop-auth-card:hover {
+    box-shadow: 0 20px 58px -34px color-mix(in oklch, var(--color-text-primary) 40%, transparent);
+  }
+}
+
 @media (max-width: 719px) {
   .raindrop-auth-frame {
-    align-items: stretch;
-    padding-inline: max(16px, env(safe-area-inset-left));
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    gap: 0;
+    padding-block: max(16px, env(safe-area-inset-top))
+      max(16px, env(safe-area-inset-bottom));
+    padding-inline: max(16px, env(safe-area-inset-left))
+      max(16px, env(safe-area-inset-right));
+  }
+
+  .raindrop-auth-context {
+    display: none;
+  }
+
+  .raindrop-auth-form {
+    min-block-size: 100%;
+    align-items: start;
   }
 
   .raindrop-auth-card {
     box-shadow: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .raindrop-pressable {
+    transition-property: opacity, color;
+  }
+
+  .raindrop-pressable:active {
+    transform: none !important;
   }
 }

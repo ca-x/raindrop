@@ -3,8 +3,10 @@ import { Banner } from "@astryxdesign/core/Banner"
 import { Center } from "@astryxdesign/core/Center"
 import { Spinner } from "@astryxdesign/core/Spinner"
 import { useLingui } from "@lingui/react"
+import { useState } from "react"
 
 import { LoginPage } from "../features/auth/LoginPage"
+import type { SessionResponse } from "../features/auth/session"
 import { ReadyPage } from "../features/reader/ReadyPage"
 import { SetupPage } from "../features/setup/SetupPage"
 import { useInitialAppState } from "./useInitialAppState"
@@ -12,6 +14,9 @@ import { useInitialAppState } from "./useInitialAppState"
 export function App() {
   const { i18n } = useLingui()
   const state = useInitialAppState()
+  const [override, setOverride] = useState<
+    { phase: "login" } | { phase: "ready"; session: SessionResponse } | null
+  >(null)
 
   if (state.status === "loading") {
     return (
@@ -35,12 +40,28 @@ export function App() {
     )
   }
 
+  if (override?.phase === "login") {
+    return <LoginPage onAuthenticated={(session) => setOverride({ phase: "ready", session })} />
+  }
+  if (override?.phase === "ready") {
+    return <ReadyPage session={override.session} onLoggedOut={() => setOverride({ phase: "login" })} />
+  }
+
   switch (state.value.phase) {
     case "setup":
-      return <SetupPage />
+      return (
+        <SetupPage onAuthenticated={(session) => setOverride({ phase: "ready", session })} />
+      )
     case "login":
-      return <LoginPage />
+      return (
+        <LoginPage onAuthenticated={(session) => setOverride({ phase: "ready", session })} />
+      )
     case "ready":
-      return <ReadyPage />
+      return (
+        <ReadyPage
+          session={state.value.session}
+          onLoggedOut={() => setOverride({ phase: "login" })}
+        />
+      )
   }
 }
