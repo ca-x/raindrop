@@ -6,7 +6,7 @@
 
 **Architecture:** The relational database remains the record system. Feeds and entries are shared globally; subscriptions and sparse entry state are user-owned. Network, decompression, parsing, sanitization, and synchronous content processing happen outside database transactions. Short transactions use unique constraints, monotonic feed sequences, a global ingest generation, and lease fencing tokens for idempotent persistence.
 
-**Tech Stack:** Rust 1.94, Axum 0.8, Tokio 1.52, SeaORM/sea-orm-migration declared as 1.1.19 and locked to 1.1.20, reqwest 0.13.4 with `rustls-no-provider` and stream plus direct rustls ring, feedparser-rs 0.5.5 without its default `http` feature, quick-xml 0.41.0, ammonia 4.1.3, async-compression 0.4.42, ipnet 2.12.0, BLAKE3, SQLite/PostgreSQL/MySQL.
+**Tech Stack:** Rust 1.94, Axum 0.8, Tokio 1.52, SeaORM/sea-orm-migration declared as 1.1.19 and locked to 1.1.20, reqwest 0.13.4 with `rustls-no-provider` and stream plus direct rustls ring, feedparser-rs =0.5.5 without its default `http` feature, quick-xml =0.41.0, ammonia =4.1.3, encoding_rs =0.8.35, html5ever =0.39.0, mime =0.3.17, async-compression 0.4.42, ipnet 2.12.0, BLAKE3, SQLite/PostgreSQL/MySQL.
 
 ## Global Constraints
 
@@ -437,9 +437,20 @@ git commit -m "feat: fetch feeds through pinned transport"
 
 - Modify: `Cargo.toml`
 - Modify: `Cargo.lock`
-- Create: `src/feeds/parse.rs`
+- Create: `src/feeds/parse/mod.rs`
+- Create: `src/feeds/parse/types.rs`
+- Create: `src/feeds/parse/mime.rs`
+- Create: `src/feeds/parse/encoding.rs`
+- Create: `src/feeds/parse/xml.rs`
+- Create: `src/feeds/parse/json.rs`
+- Create: `src/feeds/parse/map.rs`
+- Create: `src/feeds/parse/finalize.rs`
 - Create: `src/content/mod.rs`
-- Create: `src/content/sanitize.rs`
+- Create: `src/content/sanitize/mod.rs`
+- Create: `src/content/sanitize/policy.rs`
+- Create: `src/content/sanitize/images.rs`
+- Create: `src/content/sanitize/hash.rs`
+- Modify: `src/feeds/mod.rs`
 - Modify: `src/lib.rs`
 - Create: `tests/fixtures/rss_2_60_items.xml`
 - Create: `tests/fixtures/atom_mixed.xml`
@@ -454,18 +465,26 @@ git commit -m "feat: fetch feeds through pinned transport"
 
 **Interfaces:**
 
-- Confirm the already-adopted `feedparser-rs = { version = "=0.5.5", default-features = false }`; add direct `quick-xml = "0.41.0"` and `ammonia = "4.1.3"`. The exact parser pin and committed lockfile prevent an unreviewed 0.5.x behavior change, and the optional `http` feature stays absent so it cannot bypass the pinned transport.
-- Decode the bounded body with `feedparser_rs::util::encoding::detect_encoding_with_hint(raw, content_type)` plus `convert_to_utf8`; conversion errors are typed rejects rather than lossy fallback. For XML, `preflight_xml(&str) -> PreflightedXml` fully consumes to EOF, rejects DTD/ENTITY, nesting deeper than 128, more than 1,000,000 XML events, more than 256 attributes on one element, and any single attribute value over 64 KiB. Its parser bytes are the strictly converted UTF-8 bytes with only a leading BOM and XML declaration removed; it must not reserialize events, reorder attributes, collapse whitespace, decode entities, or rewrite CDATA. `parse_with_limits` receives that representation, preventing a stale ISO-8859-1/Windows-1252 declaration from causing a second decode. JSON Feed bypasses XML preflight but receives the same strictly converted UTF-8/body budgets.
-- `FeedParser::parse(FetchedDocument) -> Result<ParsedFeed, FeedParseError>` is async and uses one process-wide `Arc<Semaphore>` with exactly two permits. It acquires an `OwnedSemaphorePermit` and moves that permit into the `spawn_blocking` closure, so caller cancellation cannot release capacity while blocking parsing still runs; the closure drops the permit only after parsing and mapping finish. Join and semaphore-closure failures are typed. It calls `feedparser_rs::parse_with_limits` with 10 MiB input, 5,000 entries, depth 128, 1 MiB parser text, 64 enclosures, and 64 KiB attribute limits, then enforces title at 64 KiB, all normalized entry text at 16 MiB, and canonical enclosure JSON at 256 KiB. RSS 0.90/0.91/0.92/1.0/2.0, Atom 0.3/1.0, and JSON Feed 1.0/1.1 remain supported within the DTD/ENTITY-free security profile. `FeedVersion::Unknown`, every `bozo=true`, and every nonempty `bozo_exception` reject with a typed error; the warning allowlist is empty. Missing source dates remain `published_at_us=None`.
-- Do not use `feedparser_rs::parse_url`, `FeedHttpClient`, or its generic sanitizer helpers. Parser values are untrusted structure only; immediately map them to owned Raindrop types, revalidate all resolved links against the final response URL, and sanitize entry HTML with Raindrop's explicit ammonia policy.
-- `sanitize_entry_html(base_url, input) -> SanitizedContent` removes scripts/styles/forms/frames/SVG/MathML, event handlers, style/class/id/data attributes, unsafe schemes, `srcset`, and tracking attributes.
-- Anchors retain only safe HTTP(S) hrefs. Images become inert records that retain safe original URL metadata and alt/width/height but no active remote `src`.
-- Content hash is calculated after sanitization. Publisher-only tracking/style changes do not create a content update.
-- Parser mapping first produces owned `EntryIdentityInputs`, not final identities. After relative links are resolved and HTML is sanitized/content-hashed, identity folding constructs `EntryIdentity`, so the content-only fallback has its required sanitized hash. Duplicate arbitration happens only after this final folding.
+- Keep `feedparser-rs = { version = "=0.5.5", default-features = false }` parser-only. Add exact direct pins `quick-xml = "=0.41.0"`, `ammonia = "=4.1.3"`, `encoding_rs = "=0.8.35"`, `html5ever = "=0.39.0"`, and `mime = "=0.3.17"`; each is already present in the locked graph. Never use `parse_url`, `FeedHttpClient`, `ParseOptions`, parser-owned HTTP, or feedparser-rs sanitizer helpers.
+- `FetchedDocument::try_from(FetchOutcome)` accepts only `Document`, consumes the final `NormalizedFeedUrl`, bounded decoded body, Content-Type, ETag, and Last-Modified, and preserves them for later persistence. A 304 never enters the parser.
+- `FeedParser::parse(FetchedDocument) -> Result<ParsedFeed, FeedParseError>` is async and uses one process-wide `Arc<Semaphore>` with exactly two permits. Capacity acquisition is fail-fast with `try_acquire_owned`: no queue of retained 10 MiB documents is allowed. The owned permit, body, URL, and validators move into one `spawn_blocking` closure and remain held through preflight, parser mapping, both sanitizer passes, final identity folding, and duplicate arbitration. Aborting the awaiter does not release capacity before the closure exits. Busy, closed semaphore, and worker panic are distinct typed errors.
+- MIME is parsed strictly. Direct XML MIME is `application/rss+xml`, `application/atom+xml`, `application/rdf+xml`, `application/xml`, or `text/xml`; direct JSON MIME is `application/feed+json` or `application/json`. Missing MIME, `text/plain`, `text/html`, and `application/octet-stream` require decoded safe sniffing. `image/*`, `audio/*`, `video/*`, PDF, and every unsupported MIME reject even when their body mimics a feed. A direct XML/JSON MIME that disagrees with the decoded body returns `MimeMismatch`. Duplicate or malformed charset parameters reject.
+- Encoding precedence is BOM, then HTTP charset, then a syntactically valid leading XML declaration, then UTF-8. Every explicit label is validated with `encoding_rs`; unknown labels and UTF-32 are typed rejects. Conversion is strict and may not emit U+FFFD. Both the transport body and converted UTF-8 are capped at 10 MiB. The selected original encoding is recorded separately because feedparser-rs will see normalized UTF-8.
+- XML preflight fully consumes EOF with quick-xml checks enabled. It permits at most depth 128, 1,000,000 non-EOF events, 256 attributes per element including namespace attributes, and 64 KiB raw value per attribute. It requires exactly one root, rejects malformed/truncated XML, duplicate attributes, any `DOCTYPE`, and every named entity except the five XML predefined entities; valid numeric references remain allowed. It removes only a leading BOM and the single leading XML declaration by byte offset, never reserializes, normalizes whitespace, reorders attributes, or rewrites CDATA/entity spelling.
+- JSON Feed receives a strict structural precheck before feedparser-rs: top-level object, supported version shape, at most 5,000 items, at most 64 attachments per item, bounded nesting, and N/N+1 string/collection checks for every persisted field so upstream silent truncation cannot become accepted data.
+- Build `ParserLimits` explicitly rather than inheriting `strict()`. The domain caps are 10 MiB input, 5,000 entries, depth 128, 1 MiB per parser text value, 64 content blocks/enclosures where applicable, 64 KiB attributes, 64 KiB title, 16 MiB total normalized entry text, and 256 KiB canonical enclosure JSON. Upstream paths that silently truncate use cap+1 sentinels, including 1 MiB+1 text bytes and 65 enclosures/content blocks, followed by typed domain post-checks. `Unknown`, `bozo=true`, or a nonempty bozo exception always rejects; exception text is never exposed.
+- Supported formats are RSS 0.90, RSS 0.91 Userland without DTD, RSS 0.92, RSS 1.0/RDF, RSS 2.0, Atom 0.3/1.0, and JSON Feed 1.0/1.1. DTD-bearing RSS 0.91 Netscape is deliberately unsupported and returns `DoctypeForbidden`.
+- Parser types are immediately copied into owned `ParsedEntryCandidate` values. Content blocks take precedence over summary; multiple blocks join with a literal `\n`; plain text is HTML-escaped before sanitization. Display date is `published.or(updated)`; duplicate arbitration time is `updated.or(published)`; parsing never reads the current time.
+- Every feed, entry, anchor, image, and enclosure URL is revalidated as credential-free HTTP(S), normalized with fragments removed, and resolved against the field's valid xml:base or final response URL. An explicitly invalid xml:base invalidates that relative URL rather than silently falling back. Protocol-relative URLs are accepted only after resolution against a valid HTTP(S) base.
+- `sanitize_entry_html` uses an explicit ammonia allowlist. It removes scripts, styles, forms, frames, objects, embeds, SVG, MathML, templates, event handlers, style/class/id/publisher data attributes, `srcset`, `ping`, referrer and every fetch-capable attribute not explicitly owned by Raindrop. Anchors retain only safe absolute HTTP(S) hrefs. Images retain alt and bounded positive width/height in final HTML but no `src`, `srcset`, empty source, poster, background, or SVG href. Safe original image URLs are ordered out-of-band `InertImage` records extracted with html5ever; publisher URLs are never hidden in `data-*` HTML attributes.
+- Hashes are frozen. `source_document_hash` is ordinary BLAKE3 over the exact transport-decoded bytes before charset conversion. `source_content_hash` uses derive-key context `raindrop.entry-source-content.v1` over a v1 tag/length frame containing core-sanitized HTML. After the future content-processing insertion point, content is sanitized again and `content_hash` uses `raindrop.entry-content.v1` over the same frame grammar and final HTML bytes. Inert image source URLs are excluded from both semantic hashes; alt/width/height remain represented by final HTML. With no plugins the framed payloads are equal, while domain-separated digests remain intentionally distinct.
+- The internal order is fixed as: `FetchedDocument -> MIME/encoding/preflight/parser -> ParsedEntryCandidate -> core sanitize/normalize -> source_content_hash -> content-processing insertion point -> second sanitize/normalize -> content_hash -> host-owned EntryIdentity -> duplicate arbitration -> ParsedEntry`. Task 5 uses a concrete no-processor path, not an empty public plugin trait. Candidates, identity inputs, document index, and arbitration time remain `pub(crate)`; plugins will never be allowed to set GUID, canonical URL, identity kind/hash, or database ID.
+- Duplicate folding groups by identity index hash and then compares identity kind plus full identity. A hash match with different full identity returns `IdentityHashCollision`. Newer arbitration time wins; `Some` wins over `None`; ties retain the first document slot even when its value is replaced.
+- `FeedParseError` is layered into content-type, encoding, XML, parser, limit, normalize, sanitize, identity, capacity, and worker categories. Public Debug/Display exposes only stable category, format, count, byte length, and hash presence; it never includes body text, publisher HTML, bozo exception, validator, or full URL/query.
 
 - [ ] **Step 1: Add deterministic fixtures and failing golden tests**
 
-The 60-item fixture is synthetic, not a copy of current IT Home content. It contains fixed timestamps, unique GUIDs, escaped HTML descriptions, relative/absolute links, remote images, and tracking attributes. Manifest fields are `format`, `expectedEntries`, `expectedIdentityHashes`, `expectedDecodedHash`, `requiredSanitizedSnippets`, and `forbiddenSanitizedSnippets`.
+The 60-item fixture is synthetic, not a copy of current IT Home content. It contains fixed timestamps, unique GUIDs, escaped HTML descriptions, relative/absolute links, remote images, and tracking attributes. The versioned manifest groups expectations by file and records ordered identity kind/full value/index hash/content hash plus fixed raw and decoded hashes. The Windows-1252 fixture is binary and has a fixed raw BLAKE3 so editors cannot silently rewrite it.
 
 Required tests:
 
@@ -473,27 +492,28 @@ Required tests:
 RSS 2.0 fixture parses exactly 60 stable identities
 Atom xml:base and published/updated map correctly
 RSS 1.0/RDF and JSON Feed fixtures map through the same owned domain contract
-HTTP charset and XML declaration precedence decode a non-UTF-8 fixture exactly once without mojibake
-duplicate/missing GUIDs follow deterministic identity precedence
-DOCTYPE/entity/deep/truncated XML and every bozo result reject without panic or partial persistence
-preflight removes only BOM/XML declaration and preserves whitespace, CDATA, entity text, element order, and attributes byte-for-byte
-aborting two parser awaiters does not admit a third call until both blocking closures release their owned permits
-wrong-but-tolerated MIME parses only after safe body sniff
-malicious HTML loses scripts/events/styles/forms/frames/SVG/unsafe URLs
-remote image HTML is inert and cannot initiate a request
-tracking-only changes produce the same sanitized content hash
-single-title, single-content, total-normalized-content, attribute, event, enclosure-count, and enclosure-JSON budgets reject with typed errors
+RSS 0.91 Userland passes while DTD-bearing Netscape rejects
+BOM, HTTP charset, and XML declaration precedence decode once; unknown, duplicate, malformed, UTF-32, lossy, and expanded-over-limit encodings reject
+missing/tolerated MIME requires sniff; direct MIME mismatch and hard-deny MIME reject even with a feed-shaped body
+preflight preserves parser bytes exactly while allowing predefined/numeric references and rejecting custom entities, DTD, malformed attributes, multiple roots, deep/event/attribute/value limits, and truncation
+JSON and XML N/N+1 sentinels prove 1 MiB/1 MiB+1 text, 64/65 enclosures, 64/65 content blocks, and 5,000/5,001 entries cannot be silently truncated
+duplicate/missing GUIDs follow deterministic identity precedence; hash collision rejects; newer updated wins and ties keep the first slot
+plain text containing markup is escaped, while malicious HTML loses scripts/events/styles/forms/frames/SVG/MathML/unsafe URLs
+the sanitized DOM has no fetch-capable attribute and every inert image record keeps the correctly paired safe URL/alt/width/height out of band
+tracking/style/image-source-only changes keep the same semantic hash while real content changes do not
+single-title, total-normalized-content, image-count/metadata, enclosure-count, and canonical enclosure-JSON budgets reject with typed errors
+two started blocking closures keep both permits after awaiter abort; a third call returns ParserBusy until those closures really exit
+many concurrent calls fail fast and do not form an unbounded retained-body queue
+all parse errors redact full URL query, body, HTML, validator, and parser exception text
 ```
 
 - [ ] **Step 2: Add compiling parser/sanitizer interfaces**
 
-Define `FetchedDocument`, `ParsedFeed`, `ParsedEntry`, `SanitizedContent`, and typed preflight/parse/sanitize errors so the first golden test compiles and fails on behavior.
+Define `FetchedDocument`, `ParsedSource`, `ParsedFeed`, `ParsedEntry`, `ParsedEnclosure`, `SanitizedContent`, `InertImage`, `ParsedFeedVersion`, and typed preflight/parse/sanitize errors. Crate types do not cross the public seam.
 
 - [ ] **Step 3: Implement one corpus behavior at a time**
 
-Implement and run focused RED/GREEN tests in this order: MIME sniff and encoding conversion; XML DTD/entity/depth/event/attribute budgets; feedparser-rs limit/bozo mapping; RSS 2.0; Atom/xml:base; RSS 1.0/RDF; JSON Feed; per-field/total/enclosure budgets; sanitizer allowlist; inert images; stable sanitized hash; final identity folding and within-document duplicate arbitration. MIME handling accepts XML/JSON Feed MIME directly. `text/plain`, `text/html`, and `application/octet-stream` parse only when BOM/whitespace-stripped body sniff begins with XML/RSS/Atom/RDF or a JSON object. Binary/image/audio/video/PDF bodies reject.
-
-Feed mapping resolves relative links against `xml:base` or final response URL, then restricts them to credential-free HTTP(S) and removes fragments. Duplicate identities within one document choose the newer source timestamp, then stable document order.
+Implement focused RED/GREEN slices in this order: typed interfaces; MIME/strict charset; XML preflight; JSON precheck; feedparser limits/bozo/version mapping; RSS 2.0; Atom/xml:base; RSS 1.0/RDF; JSON Feed; owned field and enclosure budgets; plain-text escaping; sanitizer allowlist; inert images; semantic hashes; final identity folding; collision-safe duplicate arbitration; semaphore cancellation/fail-fast behavior; redaction.
 
 - [ ] **Step 4: Verify corpus and dependency graph**
 
@@ -503,9 +523,11 @@ cargo tree --locked -p feedparser-rs@0.5.5 -e features
 cargo fmt --check
 cargo clippy --locked --all-targets --all-features -- -D warnings
 cargo test --locked --test feed_parse_sanitize -- --nocapture
+cargo +1.94.0 test --locked --test feed_parse_sanitize -- --nocapture
+cargo test --locked --all-features
 ```
 
-Expected: PASS; one quick-xml 0.41 line is shared by the direct preflight and feedparser-rs, ammonia is shared by the parser dependency graph and Raindrop sanitizer, and feedparser-rs has no `http`/reqwest feature path.
+Expected: PASS; exactly one quick-xml 0.41, ammonia 4.1.3, encoding_rs 0.8.35, html5ever 0.39.0, and mime 0.3.17 node is shared by direct Raindrop use and the existing graph. feedparser-rs has no `http`/reqwest feature path.
 
 - [ ] **Step 5: Commit**
 
