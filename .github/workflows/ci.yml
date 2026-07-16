@@ -166,7 +166,7 @@ jobs:
         run: cargo test --locked --test rss_migrations mysql -- --nocapture --test-threads=1
 
       - name: Run Rust tests
-        run: cargo test --locked --all-features
+        run: env -u RAINDROP_TEST_POSTGRES_URL -u RAINDROP_TEST_MYSQL_URL cargo test --locked --all-features
 
   rust-current-stable:
     name: Rust current-stable compatibility
