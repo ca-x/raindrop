@@ -1,0 +1,170 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_TERM_COLOR: always
+  NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
+  NPM_CONFIG_REPLACE_REGISTRY_HOST: always
+
+jobs:
+  supply-chain:
+    name: Supply-chain audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version: 26.4.0
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Verify npm version
+        run: test "$(npm --version)" = "12.0.1"
+
+      - name: Install locked web dependencies without scripts
+        run: npm --prefix web ci --ignore-scripts
+
+      - name: Audit known vulnerabilities
+        run: npm --prefix web audit --audit-level=high
+
+      - name: Verify registry signatures
+        run: npm --prefix web audit signatures
+
+  web:
+    name: ASTRYX web
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version: 26.4.0
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Verify npm version
+        run: test "$(npm --version)" = "12.0.1"
+
+      - name: Install locked web dependencies without scripts
+        run: npm --prefix web ci --ignore-scripts
+
+      - name: Check ASTRYX package interface
+        run: npm --prefix web run astryx:check
+
+      - name: Type-check web application
+        run: npm --prefix web run typecheck
+
+      - name: Run Vitest suite
+        run: npm --prefix web run test:ci
+
+      - name: Build production web bundle
+        run: npm --prefix web run build
+
+  rust:
+    name: Rust foundation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable snapshot
+        with:
+          toolchain: 1.94.0
+          components: clippy, rustfmt
+
+      - name: Restore Cargo cache
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        with:
+          path: |
+            ~/.cargo/git/db
+            ~/.cargo/registry/cache
+            ~/.cargo/registry/index
+            ~/.cargo/registry/src
+            target
+          key: ${{ runner.os }}-cargo-rust-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+
+      - name: Check Rust formatting
+        run: cargo fmt --check
+
+      - name: Run Clippy
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings
+
+      - name: Run Rust tests
+        run: cargo test --locked --all-features
+
+  release-e2e:
+    name: Release embedding and E2E
+    needs: [supply-chain, web, rust]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version: 26.4.0
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable snapshot
+        with:
+          toolchain: 1.94.0
+
+      - name: Restore Cargo cache
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        with:
+          path: |
+            ~/.cargo/git/db
+            ~/.cargo/registry/cache
+            ~/.cargo/registry/index
+            ~/.cargo/registry/src
+            target
+          key: ${{ runner.os }}-cargo-release-e2e-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+
+      - name: Verify npm version
+        run: test "$(npm --version)" = "12.0.1"
+
+      - name: Install locked web dependencies without scripts
+        run: npm --prefix web ci --ignore-scripts
+
+      - name: Install locked Playwright Chromium
+        run: npm --prefix web run test:e2e:install-browser -- --with-deps
+
+      - name: Run committed release and E2E gate
+        run: npm --prefix web run test:e2e
+
+      - name: Confirm lockfiles stayed frozen
+        run: git diff --exit-code -- Cargo.lock web/package-lock.json
+
+      - name: Verify release version
+        run: ./target/release/raindrop --version

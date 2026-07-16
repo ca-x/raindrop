@@ -2,19 +2,20 @@
 
 ## 1. Foundation/bootstrap
 
-- [ ] Rust 2024/Axum/SeaORM 工程与 ASTRYX 0.1.6 React/Vite 工程可构建。
-- [ ] Web 生产资源嵌入 Rust binary，并提供 SPA fallback 和安全响应头。
-- [ ] 配置实现 defaults < TOML < `RAINDROP_*`，非法值失败且不泄漏秘密。
-- [ ] SQLite 默认连接、WAL 设置、基础 users/roles/sessions 迁移完成。
-- [ ] 一次性 setup token、数据库检查、原子配置写入和管理员创建完成。
-- [ ] 本地 Argon2id 登录、服务端会话、CSRF 和 logout 完成。
-- [ ] `zh-CN`/`en` 设置/登录/已初始化页面使用 ASTRYX 组件完成。
-- [ ] Rust、前端和端到端 foundation 验证通过。
+- [x] Rust 2024/Axum/SeaORM 工程与 ASTRYX 0.1.6 React/Vite 工程可构建。
+- [x] Web 生产资源嵌入 Rust binary，并提供 SPA fallback 和安全响应头。
+- [x] 配置实现 defaults < TOML < `RAINDROP_*`，非法值失败且不泄漏秘密。
+- [x] SQLite 默认连接、WAL 设置、基础 users/roles/sessions 迁移完成。
+- [x] 一次性 setup token、数据库检查、原子配置写入和管理员创建完成。
+- [x] 本地 Argon2id 登录、服务端会话、CSRF 和 logout 完成。
+- [x] `zh-CN`/`en` 设置/登录/已初始化页面使用 ASTRYX 组件完成。
+- [x] Rust、前端和端到端 foundation 验证通过。
 
 ## 2. RSS core
 
 - [ ] Feed/subscription/entry/entry_state schema 与三数据库迁移。
 - [ ] URL 安全、SSRF 防护、条件请求、解析、清洗和幂等插入。
+- [ ] 将 `https://www.ithome.com/rss/` 作为 opt-in/live smoke，覆盖真实抓取、RSS 2.0 解析、HTML 清洗、`60-item` 级入库、二次刷新幂等无重复，以及列表/正文展示；live smoke 与确定性 CI fixture 分开。
 - [ ] 调度租约、退避、保留策略和刷新事件。
 - [ ] 订阅树、文章列表、阅读器、已读/未读/收藏。
 - [ ] CommaFeed 效率内核：All/Unread/Starred、J/K 与 N/P、批量已读快照、下一未读来源、来源内搜索和非打扰式新文章合并。
