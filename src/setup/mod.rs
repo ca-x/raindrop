@@ -1,3 +1,3 @@
 mod service;
 
-pub use service::{SetupCompleteInput, SetupError, SetupService};
+pub use service::{SetupAdminInput, SetupCompleteInput, SetupError, SetupMode, SetupService};

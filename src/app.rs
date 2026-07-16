@@ -2,7 +2,7 @@ use axum::{Json, Router, extract::FromRef, routing::get};
 use serde::Serialize;
 
 use crate::{
-    api::{self, RateLimiter},
+    api::{self, AccountThrottle, RateLimiter},
     auth::SessionService,
     setup::SetupService,
     web,
@@ -12,7 +12,8 @@ use crate::{
 pub struct AppState {
     pub version: &'static str,
     pub(crate) setup: SetupService,
-    pub(crate) login_limiter: RateLimiter,
+    pub(crate) login_source_limiter: RateLimiter,
+    pub(crate) login_account_throttle: AccountThrottle,
     pub(crate) setup_limiter: RateLimiter,
 }
 
@@ -22,7 +23,17 @@ impl AppState {
         Self {
             version: env!("CARGO_PKG_VERSION"),
             setup,
-            login_limiter: RateLimiter::new(10, std::time::Duration::from_secs(15 * 60), 10_000),
+            login_source_limiter: RateLimiter::new(
+                10,
+                std::time::Duration::from_secs(15 * 60),
+                10_000,
+            ),
+            login_account_throttle: AccountThrottle::new(
+                std::time::Duration::from_secs(15 * 60),
+                std::time::Duration::from_millis(5),
+                std::time::Duration::from_millis(100),
+                10_000,
+            ),
             setup_limiter: RateLimiter::new(30, std::time::Duration::from_secs(15 * 60), 1),
         }
     }

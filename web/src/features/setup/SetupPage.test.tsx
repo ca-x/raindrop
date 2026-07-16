@@ -19,7 +19,7 @@ describe("Setup flow", () => {
     vi.stubGlobal("fetch", fetchMock)
     fetchMock.mockReset()
     fetchMock.mockResolvedValueOnce(
-      jsonResponse({ status: "SETUP_REQUIRED", version: "0.1.0" }),
+      jsonResponse({ status: "SETUP_REQUIRED", version: "0.1.0", setupMode: "FULL" }),
     )
   })
 
@@ -169,6 +169,36 @@ describe("Setup flow", () => {
       expect(source).not.toMatch(/shared\/components\/(Button|Dialog|Input)/)
     }
   })
+
+  it.each([
+    [1280, 800],
+    [390, 844],
+    [360, 800],
+  ])(
+    "renders managed administrator-only setup without database controls at %ix%i",
+    async (width, height) => {
+      setTestViewport(width, height)
+      fetchMock.mockReset()
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse({
+          status: "SETUP_REQUIRED",
+          version: "0.1.0",
+          setupMode: "ADMIN_ONLY",
+        }),
+      )
+
+      renderApp()
+
+      expect(
+        await screen.findByRole("heading", { name: "创建管理员" }),
+      ).toBeVisible()
+      expect(screen.getByLabelText(/设置令牌/)).toBeVisible()
+      expect(screen.queryByLabelText(/数据库 URL/)).not.toBeInTheDocument()
+      expect(screen.queryByRole("radio", { name: "SQLite" })).not.toBeInTheDocument()
+      expect(screen.queryByRole("button", { name: "返回数据库" })).not.toBeInTheDocument()
+      expect(screen.getByText("1 / 1")).toBeVisible()
+    },
+  )
 })
 
 function renderApp() {

@@ -6,12 +6,12 @@ use secrecy::{ExposeSecret, SecretString};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use crate::db::entities::{user, user_role};
+use crate::db::entities::{bootstrap_state, user, user_role};
 
 use super::{
     model::{
-        AuthenticateError, CreateAdminError, CreateAdminInput, LoginIdentifier, Role, User,
-        UsernameError,
+        AuthenticateError, CreateAdminError, CreateAdminInput, EmailError, LoginIdentifier, Role,
+        User, UsernameError,
     },
     password::PasswordService,
 };
@@ -40,6 +40,7 @@ pub async fn create_admin(
     if input.password.expose_secret().len() < 12 {
         return Err(CreateAdminError::InvalidPassword);
     }
+    let email = normalize_optional_email(input.email)?;
     if username_exists(database, &normalized_username).await? {
         return Err(CreateAdminError::UsernameTaken);
     }
@@ -48,8 +49,28 @@ pub async fn create_admin(
         .hash(&input.password)
         .map_err(CreateAdminError::Password)?;
     let id = Uuid::new_v4().to_string();
-    let email = input.email.and_then(normalize_optional_email);
     let transaction = database.begin().await.map_err(CreateAdminError::Database)?;
+    if let Err(error) = (bootstrap_state::ActiveModel {
+        id: Set(1),
+        administrator_user_id: Set(id.clone()),
+    })
+    .insert(&transaction)
+    .await
+    {
+        transaction
+            .rollback()
+            .await
+            .map_err(CreateAdminError::Database)?;
+        if bootstrap_state::Entity::find_by_id(1)
+            .one(database)
+            .await
+            .map_err(CreateAdminError::Database)?
+            .is_some()
+        {
+            return Err(CreateAdminError::AlreadyClaimed);
+        }
+        return Err(CreateAdminError::Database(error));
+    }
     let inserted = user::ActiveModel {
         id: Set(id.clone()),
         username: Set(input.username.trim().to_owned()),
@@ -92,6 +113,17 @@ pub async fn create_admin(
         is_disabled: false,
         roles: vec![Role::Admin, Role::User],
     })
+}
+
+pub(crate) fn validate_create_admin_input(
+    input: &CreateAdminInput,
+) -> Result<(), CreateAdminError> {
+    normalize_username(&input.username)?;
+    if input.password.expose_secret().len() < 12 {
+        return Err(CreateAdminError::InvalidPassword);
+    }
+    normalize_optional_email(input.email.clone())?;
+    Ok(())
 }
 
 pub async fn authenticate(
@@ -198,7 +230,31 @@ const fn role_name(role: Role) -> &'static str {
     }
 }
 
-fn normalize_optional_email(value: String) -> Option<String> {
+fn normalize_optional_email(value: Option<String>) -> Result<Option<String>, EmailError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
     let trimmed = value.trim();
-    (!trimmed.is_empty()).then(|| trimmed.to_lowercase())
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    if trimmed.len() > 320
+        || trimmed
+            .chars()
+            .any(|character| character.is_whitespace() || character.is_control())
+    {
+        return Err(EmailError);
+    }
+    let mut parts = trimmed.split('@');
+    let local = parts.next().unwrap_or_default();
+    let domain = parts.next().unwrap_or_default();
+    if parts.next().is_some()
+        || local.is_empty()
+        || domain.is_empty()
+        || local.len() > 64
+        || domain.len() > 255
+    {
+        return Err(EmailError);
+    }
+    Ok(Some(trimmed.to_lowercase()))
 }

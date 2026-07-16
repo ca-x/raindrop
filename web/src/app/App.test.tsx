@@ -23,7 +23,7 @@ describe("App bootstrap routing", () => {
   ] as const)("renders setup in %s", async (locale, heading) => {
     activateLocale(locale)
     fetchMock.mockResolvedValueOnce(
-      jsonResponse({ status: "SETUP_REQUIRED", version: "0.1.0" }),
+      jsonResponse({ status: "SETUP_REQUIRED", version: "0.1.0", setupMode: "FULL" }),
     )
 
     render(

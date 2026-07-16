@@ -15,7 +15,8 @@ import { BrandMark } from "../../shared/brand/BrandMark"
 import { LocaleSwitch } from "../../shared/i18n/LocaleSwitch"
 import type { SessionResponse } from "../auth/session"
 import { AdminStep } from "./AdminStep"
-import { checkDatabase, completeSetup } from "./api"
+import type { SetupMode } from "../../app/bootstrap"
+import { checkDatabase, completeAdminSetup, completeSetup } from "./api"
 import { DatabaseStep } from "./DatabaseStep"
 import { login } from "../auth/api"
 import {
@@ -27,13 +28,16 @@ import {
 } from "./model"
 
 interface SetupPageProps {
+  mode: SetupMode
   onAuthenticated: (session: SessionResponse) => void
   onLoginRequired: () => void
 }
 
-export function SetupPage({ onAuthenticated, onLoginRequired }: SetupPageProps) {
+export function SetupPage({ mode, onAuthenticated, onLoginRequired }: SetupPageProps) {
   const { i18n } = useLingui()
-  const [step, setStep] = useState<SetupStep>("database")
+  const [step, setStep] = useState<SetupStep>(
+    mode === "ADMIN_ONLY" ? "admin" : "database",
+  )
   const [values, setValues] = useState<SetupValues>(initialSetupValues)
   const [fields, setFields] = useState<Record<string, string>>({})
   const [error, setError] = useState<"database" | "complete" | null>(null)
@@ -59,13 +63,13 @@ export function SetupPage({ onAuthenticated, onLoginRequired }: SetupPageProps) 
 
   const submitAdmin = async () => {
     if (isLoading) return
-    const nextFields = validateAdmin(values)
+    const nextFields = validateAdmin(values, mode === "ADMIN_ONLY")
     setFields(nextFields)
     if (Object.keys(nextFields).length) return
     setError(null)
     setIsLoading(true)
     try {
-      await completeSetup(values)
+      await (mode === "ADMIN_ONLY" ? completeAdminSetup(values) : completeSetup(values))
     } catch (cause) {
       setError("complete")
       mergeApiFields(cause, setFields)
@@ -118,8 +122,8 @@ export function SetupPage({ onAuthenticated, onLoginRequired }: SetupPageProps) 
                 </Stack>
                 <ProgressBar
                   label={i18n._("setup.progress")}
-                  value={step === "database" ? 1 : 2}
-                  max={2}
+                  value={mode === "ADMIN_ONLY" ? 1 : step === "database" ? 1 : 2}
+                  max={mode === "ADMIN_ONLY" ? 1 : 2}
                   hasValueLabel
                   formatValueLabel={(value, max) => `${value} / ${max}`}
                 />
@@ -147,12 +151,17 @@ export function SetupPage({ onAuthenticated, onLoginRequired }: SetupPageProps) 
                     fields={fields}
                     isLoading={isLoading}
                     onChange={setValues}
-                    onBack={() => {
-                      if (isLoading) return
-                      setFields({})
-                      setError(null)
-                      setStep("database")
-                    }}
+                    showToken={mode === "ADMIN_ONLY"}
+                    onBack={
+                      mode === "FULL"
+                        ? () => {
+                            if (isLoading) return
+                            setFields({})
+                            setError(null)
+                            setStep("database")
+                          }
+                        : undefined
+                    }
                     onSubmit={submitAdmin}
                   />
                 )}

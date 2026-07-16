@@ -14,7 +14,8 @@ interface AdminStepProps {
   fields: Record<string, string>
   isLoading: boolean
   onChange: (next: SetupValues) => void
-  onBack: () => void
+  onBack?: () => void
+  showToken?: boolean
   onSubmit: () => void
 }
 
@@ -24,6 +25,7 @@ export function AdminStep({
   isLoading,
   onChange,
   onBack,
+  showToken = false,
   onSubmit,
 }: AdminStepProps) {
   const { i18n } = useLingui()
@@ -43,6 +45,21 @@ export function AdminStep({
           </Text>
         </Stack>
         <FormLayout>
+          {showToken ? (
+            <TextInput
+              label={i18n._("setup.token")}
+              description={i18n._("setup.tokenDescription")}
+              type="password"
+              value={values.token}
+              onChange={(token) => onChange({ ...values, token })}
+              htmlName="setupToken"
+              isRequired
+              isDisabled={isLoading}
+              width="100%"
+              style={{ minHeight: 44 }}
+              status={fieldStatus(fields.token, i18n._("setup.required"))}
+            />
+          ) : null}
           <TextInput
             label={i18n._("setup.username")}
             value={values.username}
@@ -81,14 +98,16 @@ export function AdminStep({
           />
         </FormLayout>
         <Stack direction="horizontal" gap={2} justify="end" wrap="wrap">
-          <Button
-            type="button"
-            label={i18n._("setup.back")}
-            variant="secondary"
-            onClick={onBack}
-            isDisabled={isLoading}
-            style={{ minHeight: 44 }}
-          />
+          {onBack ? (
+            <Button
+              type="button"
+              label={i18n._("setup.back")}
+              variant="secondary"
+              onClick={onBack}
+              isDisabled={isLoading}
+              style={{ minHeight: 44 }}
+            />
+          ) : null}
           <Button
             type="submit"
             label={i18n._("setup.complete")}

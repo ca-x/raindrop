@@ -4,7 +4,7 @@ import type { SetupValues } from "./model"
 
 interface DatabaseCheckResponse {
   status: "OK"
-  databaseKind: "SQLITE" | "POSTGRES" | "MYSQL"
+  databaseKind: "SQLITE" | "POSTGRESQL" | "MYSQL"
 }
 
 interface SetupCompleteResponse {
@@ -37,12 +37,28 @@ export async function completeSetup(values: SetupValues): Promise<SetupCompleteR
   return response
 }
 
+export async function completeAdminSetup(
+  values: SetupValues,
+): Promise<SetupCompleteResponse> {
+  const response = await apiRequest("/api/v1/setup/admin", {
+    method: "POST",
+    headers: { "x-setup-token": values.token },
+    body: JSON.stringify({
+      username: values.username,
+      password: values.password,
+      email: values.email || null,
+    }),
+  })
+  if (!isSetupCompleteResponse(response)) throw invalidResponseError()
+  return response
+}
+
 function isDatabaseCheckResponse(value: unknown): value is DatabaseCheckResponse {
   if (!isRecord(value)) return false
   return (
     value.status === "OK" &&
     (value.databaseKind === "SQLITE" ||
-      value.databaseKind === "POSTGRES" ||
+      value.databaseKind === "POSTGRESQL" ||
       value.databaseKind === "MYSQL")
   )
 }

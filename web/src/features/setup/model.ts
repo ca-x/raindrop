@@ -32,8 +32,12 @@ export function validateDatabase(values: SetupValues): Record<string, string> {
   return fields
 }
 
-export function validateAdmin(values: SetupValues): Record<string, string> {
+export function validateAdmin(
+  values: SetupValues,
+  requireToken = false,
+): Record<string, string> {
   const fields: Record<string, string> = {}
+  if (requireToken && !values.token.trim()) fields.token = "required"
   const username = values.username.trim()
   const usernameLength = [...username].length
   if (

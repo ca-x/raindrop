@@ -1,10 +1,12 @@
 import { isSessionResponse, type SessionResponse } from "../features/auth/session"
 
 export type BootstrapStatus = "SETUP_REQUIRED" | "READY"
+export type SetupMode = "FULL" | "ADMIN_ONLY"
 
 export interface BootstrapResponse {
   status: BootstrapStatus
   version: string
+  setupMode?: SetupMode
 }
 
 export type InitialAppState =
@@ -48,9 +50,11 @@ async function getJson(url: string, signal: AbortSignal): Promise<unknown> {
 
 function isBootstrapResponse(value: unknown): value is BootstrapResponse {
   if (!isRecord(value)) return false
+  if (typeof value.version !== "string") return false
+  if (value.status === "READY") return value.setupMode === undefined
   return (
-    (value.status === "SETUP_REQUIRED" || value.status === "READY") &&
-    typeof value.version === "string"
+    value.status === "SETUP_REQUIRED" &&
+    (value.setupMode === "FULL" || value.setupMode === "ADMIN_ONLY")
   )
 }
 

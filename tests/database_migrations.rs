@@ -1,7 +1,7 @@
 use raindrop::db::{
     DatabaseConfig, connect,
-    entities::{session, user, user_role},
-    migrate,
+    entities::{bootstrap_state, session, user, user_role},
+    migrate, rollback,
 };
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait,
@@ -123,4 +123,111 @@ async fn sqlite_identity_migrations_are_idempotent_and_enforce_constraints() {
             .expect("sessions should count"),
         0
     );
+}
+
+#[tokio::test]
+async fn migrations_support_up_down_up_and_restore_foreign_key_behavior() {
+    let data = tempdir().expect("temporary directory should be created");
+    let url = format!(
+        "sqlite://{}?mode=rwc",
+        data.path().join("rollback.db").display()
+    );
+    let database = connect(&DatabaseConfig::new(SecretString::from(url)))
+        .await
+        .expect("SQLite should connect");
+
+    migrate(&database).await.expect("migration up should pass");
+    rollback(&database)
+        .await
+        .expect("migration down should pass");
+    migrate(&database)
+        .await
+        .expect("migration recreation should pass");
+
+    let now = OffsetDateTime::now_utc();
+    let user_id = Uuid::new_v4().to_string();
+    user::ActiveModel {
+        id: Set(user_id.clone()),
+        username: Set("Reader".to_owned()),
+        normalized_username: Set("reader".to_owned()),
+        email: Set(None),
+        password_hash: Set("test-hash".to_owned()),
+        is_disabled: Set(false),
+        created_at: Set(now),
+        last_login_at: Set(None),
+    }
+    .insert(&database)
+    .await
+    .expect("user should insert after recreation");
+    user_role::ActiveModel {
+        user_id: Set(user_id.clone()),
+        role: Set("ADMIN".to_owned()),
+    }
+    .insert(&database)
+    .await
+    .expect("role should insert after recreation");
+    user::Entity::delete_by_id(&user_id)
+        .exec(&database)
+        .await
+        .expect("user should delete");
+    assert_eq!(
+        user_role::Entity::find()
+            .filter(user_role::Column::UserId.eq(&user_id))
+            .count(&database)
+            .await
+            .expect("roles should count"),
+        0
+    );
+}
+
+#[tokio::test]
+async fn bootstrap_state_migration_backfills_an_existing_user_claim() {
+    let data = tempdir().expect("temporary directory should be created");
+    let url = format!(
+        "sqlite://{}?mode=rwc",
+        data.path().join("bootstrap-backfill.db").display()
+    );
+    let database = connect(&DatabaseConfig::new(SecretString::from(url)))
+        .await
+        .expect("SQLite should connect");
+    migrate(&database).await.expect("migration should pass");
+
+    let user_id = Uuid::new_v4().to_string();
+    user::ActiveModel {
+        id: Set(user_id.clone()),
+        username: Set("Existing".to_owned()),
+        normalized_username: Set("existing".to_owned()),
+        email: Set(None),
+        password_hash: Set("test-hash".to_owned()),
+        is_disabled: Set(false),
+        created_at: Set(OffsetDateTime::now_utc()),
+        last_login_at: Set(None),
+    }
+    .insert(&database)
+    .await
+    .expect("existing user should insert");
+    database
+        .execute(Statement::from_string(
+            sea_orm::DatabaseBackend::Sqlite,
+            "DROP TABLE bootstrap_state".to_owned(),
+        ))
+        .await
+        .expect("bootstrap table should drop");
+    database
+        .execute(Statement::from_string(
+            sea_orm::DatabaseBackend::Sqlite,
+            "DELETE FROM seaql_migrations WHERE version = 'bootstrap_state'".to_owned(),
+        ))
+        .await
+        .expect("bootstrap migration marker should clear");
+
+    migrate(&database)
+        .await
+        .expect("bootstrap migration should reapply");
+    let claim = bootstrap_state::Entity::find_by_id(1)
+        .one(&database)
+        .await
+        .expect("claim should load")
+        .expect("claim should exist");
+    assert_eq!(claim.administrator_user_id, user_id);
 }

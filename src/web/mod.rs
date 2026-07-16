@@ -226,12 +226,15 @@ fn is_content_hashed_asset(key: &str) -> bool {
     let Some((stem, _extension)) = file_name.rsplit_once('.') else {
         return false;
     };
-    stem.rsplit_once('-').is_some_and(|(_name, hash)| {
-        hash.len() == VITE_HASH_LENGTH
-            && hash
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
-    })
+    if stem.len() <= VITE_HASH_LENGTH + 1 {
+        return false;
+    }
+    let (name_and_separator, hash) = stem.split_at(stem.len() - VITE_HASH_LENGTH);
+    name_and_separator.ends_with('-')
+        && name_and_separator.len() > 1
+        && hash
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
 }
 
 #[cfg(not(debug_assertions))]
@@ -284,6 +287,7 @@ mod tests {
     fn immutable_cache_requires_an_exact_vite_hash_segment() {
         assert!(is_content_hashed_asset("assets/index-CvRIp8H1.js"));
         assert!(is_content_hashed_asset("assets/index-COyQDe_A.css"));
+        assert!(is_content_hashed_asset("assets/index-DMaGHT-s.js"));
         assert!(!is_content_hashed_asset("assets/index-production.js"));
         assert!(!is_content_hashed_asset("assets/index-CvRIp8H.js"));
         assert!(!is_content_hashed_asset("assets/index-CvRIp8H12.js"));

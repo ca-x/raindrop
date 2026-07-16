@@ -1,4 +1,7 @@
-use axum::{body::Body, http::Request};
+use axum::{
+    body::Body,
+    http::{Request, header},
+};
 use http_body_util::BodyExt;
 use raindrop::app::{AppState, build_router};
 use tower::ServiceExt;
@@ -16,6 +19,8 @@ async fn live_health_returns_ok() {
         .expect("router should respond");
 
     assert_eq!(response.status(), 200);
+    assert!(response.headers().get(header::CACHE_CONTROL).is_none());
+    assert!(response.headers().get(header::PRAGMA).is_none());
     let body = response
         .into_body()
         .collect()

@@ -1,10 +1,10 @@
 use std::path::PathBuf;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use raindrop::{
     app::{AppState, build_router},
     auth::{CreateAdminInput, PasswordService, create_admin},
-    config::{BootstrapMode, ConfigArgs, SystemEnv, load},
+    config::{BootstrapMode, ConfigArgs, SystemEnv, load, new_setup_token},
     db::{DatabaseConfig, connect, entities::user, migrate},
     setup::SetupService,
 };
@@ -53,17 +53,13 @@ async fn main() -> Result<()> {
             migrate(&database)
                 .await
                 .context("failed to migrate the configured database")?;
-            if user::Entity::find()
+            let user_count = user::Entity::find()
                 .count(&database)
                 .await
-                .context("failed to inspect configured users")?
-                == 0
+                .context("failed to inspect configured users")?;
+            if user_count == 0
+                && let Some(admin) = bootstrap_admin
             {
-                let Some(admin) = bootstrap_admin else {
-                    bail!(
-                        "the configured database has no users; set the complete RAINDROP_BOOTSTRAP_ADMIN_* variables"
-                    );
-                };
                 create_admin(
                     &database,
                     &PasswordService::default(),
@@ -76,7 +72,19 @@ async fn main() -> Result<()> {
                 .await
                 .context("failed to create the bootstrap administrator")?;
             }
-            SetupService::ready(data_dir, public_url, database)
+            let token = new_setup_token();
+            let setup = SetupService::from_configured_database(
+                data_dir,
+                token.clone(),
+                public_url,
+                database,
+            )
+            .await
+            .context("failed to inspect configured bootstrap state")?;
+            if setup.setup_mode() == Some(raindrop::setup::SetupMode::AdminOnly) {
+                eprintln!("Raindrop setup token: {}", token.expose_secret());
+            }
+            setup
         }
     };
     let listener = TcpListener::bind(address)
@@ -84,10 +92,14 @@ async fn main() -> Result<()> {
         .with_context(|| format!("failed to bind Raindrop to {address}"))?;
 
     info!(%address, version = env!("CARGO_PKG_VERSION"), "Raindrop listening");
-    axum::serve(listener, build_router(AppState::new(setup)))
-        .with_graceful_shutdown(shutdown_signal())
-        .await
-        .context("Raindrop HTTP server failed")?;
+    axum::serve(
+        listener,
+        build_router(AppState::new(setup))
+            .into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await
+    .context("Raindrop HTTP server failed")?;
 
     Ok(())
 }

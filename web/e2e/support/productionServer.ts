@@ -28,6 +28,7 @@ export interface StartProductionServerOptions {
   temporaryRootParent?: string
   environment?: NodeJS.ProcessEnv
   timeouts?: Partial<ServerTimeouts>
+  managedDatabase?: boolean
 }
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url))
@@ -52,13 +53,18 @@ export async function startProductionServer(
       join(options.temporaryRootParent ?? tmpdir(), "raindrop-e2e-"),
     )
     const dataDir = join(root, "data")
-    await mkdir(dataDir, { recursive: true })
+    if (options.managedDatabase) await mkdir(dataDir, { recursive: true })
     const port = await reservePort()
     baseURL = `http://127.0.0.1:${port}`
     try {
       child = spawn(executable, [], {
         cwd: root,
-        env: isolatedEnvironment(options.environment ?? process.env, dataDir, port),
+        env: isolatedEnvironment(
+          options.environment ?? process.env,
+          dataDir,
+          port,
+          options.managedDatabase ?? false,
+        ),
         stdio: ["ignore", "pipe", "pipe"],
       })
     } catch {
@@ -108,6 +114,7 @@ function isolatedEnvironment(
   source: NodeJS.ProcessEnv,
   dataDir: string,
   port: number,
+  managedDatabase: boolean,
 ): NodeJS.ProcessEnv {
   const environment = Object.fromEntries(
     Object.entries(source).filter(([name]) => !name.startsWith("RAINDROP_")),
@@ -116,6 +123,9 @@ function isolatedEnvironment(
     ...environment,
     RAINDROP_BIND: `127.0.0.1:${port}`,
     RAINDROP_DATA_DIR: dataDir,
+    ...(managedDatabase
+      ? { RAINDROP_DATABASE_URL: `sqlite://${join(dataDir, "managed.db")}?mode=rwc` }
+      : {}),
     RUST_LOG: "error",
   }
 }

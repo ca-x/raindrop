@@ -4,6 +4,23 @@ pub mod feed;
 pub mod rss_counter;
 pub mod subscription;
 
+pub mod bootstrap_state {
+    use sea_orm::entity::prelude::*;
+
+    #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
+    #[sea_orm(table_name = "bootstrap_state")]
+    pub struct Model {
+        #[sea_orm(primary_key, auto_increment = false)]
+        pub id: i32,
+        pub administrator_user_id: String,
+    }
+
+    #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+    pub enum Relation {}
+
+    impl ActiveModelBehavior for ActiveModel {}
+}
+
 pub mod user {
     use sea_orm::entity::prelude::*;
     use time::OffsetDateTime;

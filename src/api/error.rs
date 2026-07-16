@@ -160,6 +160,16 @@ impl ApiError {
     }
 
     #[must_use]
+    pub fn email_invalid() -> Self {
+        Self::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "VALIDATION_ERROR",
+            "Request validation failed",
+        )
+        .with_field("email", "Email address is invalid")
+    }
+
+    #[must_use]
     pub fn internal() -> Self {
         Self::new(
             StatusCode::INTERNAL_SERVER_ERROR,

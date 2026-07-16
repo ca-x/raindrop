@@ -3,10 +3,15 @@ use sea_orm_migration::prelude::*;
 
 use super::DbError;
 
+mod bootstrap_state;
 mod rss;
 
 pub async fn migrate(database: &DatabaseConnection) -> Result<(), DbError> {
     Migrator::up(database, None).await.map_err(DbError::from)
+}
+
+pub async fn rollback(database: &DatabaseConnection) -> Result<(), DbError> {
+    Migrator::down(database, None).await.map_err(DbError::from)
 }
 
 struct Migrator;
@@ -21,6 +26,7 @@ impl MigratorTrait for Migrator {
             Box::new(rss::subscriptions::CreateSubscriptions),
             Box::new(rss::entries::CreateEntries),
             Box::new(rss::entry_states::CreateEntryStates),
+            Box::new(bootstrap_state::CreateBootstrapState),
         ]
     }
 }

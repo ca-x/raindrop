@@ -71,7 +71,7 @@ pub fn load(args: &ConfigArgs, env: &impl EnvSource) -> Result<LoadedConfig, Con
         BootstrapMode::Ready
     } else {
         BootstrapMode::SetupRequired {
-            token: secret(generate_setup_token()),
+            token: new_setup_token(),
         }
     };
 
@@ -102,9 +102,12 @@ fn load_file(path: &Path) -> Result<(FileConfig, Option<std::path::PathBuf>), Co
         path: path.to_owned(),
         source,
     })?;
-    let file = toml::from_str(&content).map_err(|source| ConfigError::ParseFile {
-        path: path.to_owned(),
-        source,
+    let file = toml::from_str(&content).map_err(|mut source| {
+        source.set_input(None);
+        ConfigError::ParseFile {
+            path: path.to_owned(),
+            source,
+        }
     })?;
     Ok((file, Some(path.to_owned())))
 }
@@ -179,10 +182,10 @@ fn load_bootstrap_admin(
     }))
 }
 
-fn generate_setup_token() -> String {
-    format!(
+pub fn new_setup_token() -> secrecy::SecretString {
+    secret(format!(
         "rd_setup_{}{}",
         Uuid::new_v4().simple(),
         Uuid::new_v4().simple()
-    )
+    ))
 }

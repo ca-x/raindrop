@@ -21,7 +21,9 @@ describe("Setup recovery and mobile targets", () => {
   it("moves to normal login when completion succeeds but automatic login fails", async () => {
     const user = userEvent.setup()
     fetchMock
-      .mockResolvedValueOnce(jsonResponse({ status: "SETUP_REQUIRED", version: "0.1.0" }))
+      .mockResolvedValueOnce(
+        jsonResponse({ status: "SETUP_REQUIRED", version: "0.1.0", setupMode: "FULL" }),
+      )
       .mockResolvedValueOnce(jsonResponse({ status: "OK", databaseKind: "SQLITE" }))
       .mockResolvedValueOnce(jsonResponse({ status: "READY", user: publicUser }))
       .mockResolvedValueOnce(jsonResponse({ error: { code: "INVALID_CREDENTIALS" } }, 401))
@@ -51,7 +53,7 @@ describe("Setup recovery and mobile targets", () => {
   ])("exposes 44px setup targets at %ix%i", async (width, height) => {
     setTestViewport(width, height)
     fetchMock.mockResolvedValueOnce(
-      jsonResponse({ status: "SETUP_REQUIRED", version: "0.1.0" }),
+      jsonResponse({ status: "SETUP_REQUIRED", version: "0.1.0", setupMode: "FULL" }),
     )
     renderApp()
 

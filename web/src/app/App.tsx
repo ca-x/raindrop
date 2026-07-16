@@ -60,6 +60,7 @@ export function App() {
     case "setup":
       return (
         <SetupPage
+          mode={state.value.bootstrap.setupMode!}
           onAuthenticated={(session) => setOverride({ phase: "ready", session })}
           onLoginRequired={() => setOverride({ phase: "login" })}
         />

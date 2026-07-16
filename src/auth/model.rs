@@ -54,14 +54,22 @@ pub enum UsernameError {
     InvalidCharacter,
 }
 
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[error("email must be a valid unquoted address of at most 320 bytes")]
+pub struct EmailError;
+
 #[derive(Debug, thiserror::Error)]
 pub enum CreateAdminError {
     #[error(transparent)]
     InvalidUsername(#[from] UsernameError),
+    #[error(transparent)]
+    InvalidEmail(#[from] EmailError),
     #[error("password must contain at least 12 bytes")]
     InvalidPassword,
     #[error("username is already taken")]
     UsernameTaken,
+    #[error("the first administrator has already been claimed")]
+    AlreadyClaimed,
     #[error("password hashing failed")]
     Password(#[source] crate::auth::password::PasswordError),
     #[error("database operation failed")]

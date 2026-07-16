@@ -21,7 +21,7 @@ export default defineConfig({
   projects: [
     {
       name: "desktop-production",
-      testMatch: /setup-login\.spec\.ts/,
+      testMatch: /(setup-login|admin-only-setup)\.spec\.ts/,
       use: { viewport: { width: 1280, height: 800 } },
     },
     {
@@ -30,7 +30,7 @@ export default defineConfig({
     },
     {
       name: "mobile-390x844",
-      testMatch: /mobile-foundation\.spec\.ts/,
+      testMatch: /(mobile-foundation|admin-only-setup)\.spec\.ts/,
       use: {
         viewport: { width: 390, height: 844 },
         deviceScaleFactor: 1,
@@ -40,7 +40,7 @@ export default defineConfig({
     },
     {
       name: "mobile-360x800",
-      testMatch: /mobile-foundation\.spec\.ts/,
+      testMatch: /(mobile-foundation|admin-only-setup)\.spec\.ts/,
       use: {
         viewport: { width: 360, height: 800 },
         deviceScaleFactor: 1,
