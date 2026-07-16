@@ -1,0 +1,168 @@
+use sea_orm_migration::prelude::*;
+
+#[derive(DeriveMigrationName)]
+pub struct CreateFeeds;
+
+#[async_trait::async_trait]
+impl MigrationTrait for CreateFeeds {
+    async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .create_table(
+                Table::create()
+                    .table(Feeds::Table)
+                    .if_not_exists()
+                    .col(ColumnDef::new(Feeds::Id).string_len(36).primary_key())
+                    .col(ColumnDef::new(Feeds::SourceUrl).text().not_null())
+                    .col(ColumnDef::new(Feeds::NormalizedUrl).text().not_null())
+                    .col(
+                        ColumnDef::new(Feeds::NormalizedUrlHash)
+                            .string_len(64)
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(Feeds::FetchUrl).text().not_null())
+                    .col(ColumnDef::new(Feeds::ValidatorUrl).text().null())
+                    .col(ColumnDef::new(Feeds::Etag).text().null())
+                    .col(ColumnDef::new(Feeds::LastModified).text().null())
+                    .col(ColumnDef::new(Feeds::ResponseHash).string_len(64).null())
+                    .col(
+                        ColumnDef::new(Feeds::EntrySequenceHead)
+                            .big_integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(Feeds::LastAttemptAt)
+                            .timestamp_with_time_zone()
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(Feeds::LastSuccessAt)
+                            .timestamp_with_time_zone()
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(Feeds::LastChangedAt)
+                            .timestamp_with_time_zone()
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(Feeds::NextFetchAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(Feeds::RetryAfter)
+                            .timestamp_with_time_zone()
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(Feeds::FailureCount)
+                            .big_integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(ColumnDef::new(Feeds::LastError).text().null())
+                    .col(
+                        ColumnDef::new(Feeds::IsDisabled)
+                            .boolean()
+                            .not_null()
+                            .default(false),
+                    )
+                    .col(
+                        ColumnDef::new(Feeds::OrphanedAt)
+                            .timestamp_with_time_zone()
+                            .null(),
+                    )
+                    .col(ColumnDef::new(Feeds::LeaseOwner).string_len(128).null())
+                    .col(
+                        ColumnDef::new(Feeds::LeaseToken)
+                            .big_integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(Feeds::LeaseUntil)
+                            .timestamp_with_time_zone()
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(Feeds::CreatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(Feeds::UpdatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        if !manager.has_index("feeds", "uq_feeds_url_hash").await? {
+            manager
+                .create_index(
+                    Index::create()
+                        .name("uq_feeds_url_hash")
+                        .table(Feeds::Table)
+                        .col(Feeds::NormalizedUrlHash)
+                        .unique()
+                        .if_not_exists()
+                        .to_owned(),
+                )
+                .await?;
+        }
+        if !manager.has_index("feeds", "idx_feeds_due").await? {
+            manager
+                .create_index(
+                    Index::create()
+                        .name("idx_feeds_due")
+                        .table(Feeds::Table)
+                        .col(Feeds::IsDisabled)
+                        .col(Feeds::NextFetchAt)
+                        .col(Feeds::LeaseUntil)
+                        .col(Feeds::Id)
+                        .if_not_exists()
+                        .to_owned(),
+                )
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .drop_table(Table::drop().table(Feeds::Table).if_exists().to_owned())
+            .await
+    }
+}
+
+#[derive(DeriveIden)]
+enum Feeds {
+    Table,
+    Id,
+    SourceUrl,
+    NormalizedUrl,
+    NormalizedUrlHash,
+    FetchUrl,
+    ValidatorUrl,
+    Etag,
+    LastModified,
+    ResponseHash,
+    EntrySequenceHead,
+    LastAttemptAt,
+    LastSuccessAt,
+    LastChangedAt,
+    NextFetchAt,
+    RetryAfter,
+    FailureCount,
+    LastError,
+    IsDisabled,
+    OrphanedAt,
+    LeaseOwner,
+    LeaseToken,
+    LeaseUntil,
+    CreatedAt,
+    UpdatedAt,
+}

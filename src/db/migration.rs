@@ -3,6 +3,8 @@ use sea_orm_migration::prelude::*;
 
 use super::DbError;
 
+mod rss;
+
 pub async fn migrate(database: &DatabaseConnection) -> Result<(), DbError> {
     Migrator::up(database, None).await.map_err(DbError::from)
 }
@@ -12,7 +14,14 @@ struct Migrator;
 #[async_trait::async_trait]
 impl MigratorTrait for Migrator {
     fn migrations() -> Vec<Box<dyn MigrationTrait>> {
-        vec![Box::new(CreateIdentityTables)]
+        vec![
+            Box::new(CreateIdentityTables),
+            Box::new(rss::counters::CreateRssCounters),
+            Box::new(rss::feeds::CreateFeeds),
+            Box::new(rss::subscriptions::CreateSubscriptions),
+            Box::new(rss::entries::CreateEntries),
+            Box::new(rss::entry_states::CreateEntryStates),
+        ]
     }
 }
 

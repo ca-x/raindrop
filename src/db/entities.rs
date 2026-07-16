@@ -1,3 +1,9 @@
+pub mod entry;
+pub mod entry_state;
+pub mod feed;
+pub mod rss_counter;
+pub mod subscription;
+
 pub mod user {
     use sea_orm::entity::prelude::*;
     use time::OffsetDateTime;
