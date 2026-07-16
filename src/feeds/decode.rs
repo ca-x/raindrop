@@ -108,6 +108,7 @@ where
             return Err(DecodeError::ExpansionRatio);
         }
         decoded.extend_from_slice(&buffer[..read]);
+        tokio::task::yield_now().await;
     }
 }
 

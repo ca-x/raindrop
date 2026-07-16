@@ -23,6 +23,9 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    raindrop::feeds::install_ring_crypto_provider()
+        .context("failed to install the required ring TLS crypto provider")?;
+
     init_tracing();
 
     let loaded = load(

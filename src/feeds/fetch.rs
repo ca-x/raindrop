@@ -2,6 +2,7 @@ use std::{
     collections::HashSet,
     error::Error,
     fmt,
+    future::Future,
     net::{IpAddr, SocketAddr},
     sync::Arc,
     time::Duration,
@@ -16,6 +17,7 @@ use http::{
 };
 use ipnet::Ipv6Net;
 use reqwest::redirect::Policy;
+use rustls::crypto::CryptoProvider;
 use time::OffsetDateTime;
 use tokio::time::{Instant, timeout_at};
 use url::Url;
@@ -44,6 +46,48 @@ pub enum Nat64Mode {
     Automatic,
     Disabled,
     Static(Vec<Ipv6Net>),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+#[error("the process TLS crypto provider conflicts with the required ring provider")]
+pub struct CryptoProviderError;
+
+pub fn install_ring_crypto_provider() -> Result<(), CryptoProviderError> {
+    let ring = rustls::crypto::ring::default_provider();
+    if let Some(installed) = CryptoProvider::get_default() {
+        return same_crypto_provider(installed, &ring)
+            .then_some(())
+            .ok_or(CryptoProviderError);
+    }
+    match ring.install_default() {
+        Ok(()) => Ok(()),
+        Err(_) => CryptoProvider::get_default()
+            .is_some_and(|installed| {
+                same_crypto_provider(installed, &rustls::crypto::ring::default_provider())
+            })
+            .then_some(())
+            .ok_or(CryptoProviderError),
+    }
+}
+
+fn same_crypto_provider(installed: &CryptoProvider, expected: &CryptoProvider) -> bool {
+    installed.cipher_suites == expected.cipher_suites
+        && installed.kx_groups.len() == expected.kx_groups.len()
+        && installed
+            .kx_groups
+            .iter()
+            .zip(&expected.kx_groups)
+            .all(|(installed, expected)| std::ptr::eq(*installed, *expected))
+        && std::ptr::eq(
+            installed.signature_verification_algorithms.all,
+            expected.signature_verification_algorithms.all,
+        )
+        && std::ptr::eq(
+            installed.signature_verification_algorithms.mapping,
+            expected.signature_verification_algorithms.mapping,
+        )
+        && std::ptr::eq(installed.secure_random, expected.secure_random)
+        && std::ptr::eq(installed.key_provider, expected.key_provider)
 }
 
 pub struct FetchRequest {
@@ -319,6 +363,8 @@ impl HttpFeedTransport {
         url_policy: FeedUrlPolicy,
         mode: Nat64Mode,
     ) -> Result<Self, FeedFetchError> {
+        install_ring_crypto_provider()
+            .map_err(|_| FeedFetchError::new(FeedFetchErrorKind::Configuration, "tls-provider"))?;
         let resolver = SystemDnsResolver::new()
             .map_err(|_| FeedFetchError::new(FeedFetchErrorKind::Configuration, "system-dns"))?;
         let snapshots = match mode {
@@ -339,7 +385,7 @@ impl HttpFeedTransport {
             url_policy,
             resolver: Arc::new(resolver),
             snapshots: Arc::new(snapshots),
-            executor: Arc::new(ReqwestExecutor),
+            executor: Arc::new(ReqwestExecutor::production()),
         })
     }
 
@@ -407,6 +453,13 @@ impl HttpFeedTransport {
                     continue;
                 }
 
+                let before_executor = self.current_snapshot(host, total_deadline).await?;
+                if !snapshot.same_version(&before_executor) {
+                    consume_replay(&mut replays, host)?;
+                    snapshot = before_executor;
+                    continue;
+                }
+
                 let reusable = validators
                     .as_ref()
                     .and_then(|set| set.for_request(&current_url));
@@ -416,15 +469,8 @@ impl HttpFeedTransport {
                     approved: approved.clone(),
                     if_none_match: reusable.and_then(|headers| headers.etag()),
                     if_modified_since: reusable.and_then(|headers| headers.last_modified()),
-                    request_timeout: remaining_until(host, hop_deadline.min(total_deadline))?,
+                    request_timeout: remaining_request_budget(host, hop_deadline, total_deadline)?,
                 };
-
-                let before_executor = self.current_snapshot(host, total_deadline).await?;
-                if !snapshot.same_version(&before_executor) {
-                    consume_replay(&mut replays, host)?;
-                    snapshot = before_executor;
-                    continue;
-                }
 
                 let first_byte_deadline = min_three(
                     checked_deadline(host, total_deadline, FIRST_BYTE_TIMEOUT)?,
@@ -432,7 +478,7 @@ impl HttpFeedTransport {
                     total_deadline,
                 );
                 let response =
-                    timeout_at(first_byte_deadline, self.executor.execute(execute_request))
+                    strict_timeout_at(first_byte_deadline, self.executor.execute(execute_request))
                         .await
                         .map_err(|_| {
                             deadline_error(
@@ -444,6 +490,9 @@ impl HttpFeedTransport {
                             )
                         })?
                         .map_err(|error| match error {
+                            ExecuteError::Configuration => {
+                                FeedFetchError::new(FeedFetchErrorKind::Configuration, host)
+                            }
                             ExecuteError::Reqwest(error) => FeedFetchError::reqwest(host, error),
                             ExecuteError::ConnectTimeout => {
                                 if Instant::now() >= total_deadline {
@@ -484,9 +533,22 @@ impl HttpFeedTransport {
                     let compressed =
                         collect_body(response.body.as_mut(), host, hop_deadline, total_deadline)
                             .await?;
-                    let document = decode_document(encoding, compressed).await.map_err(
-                        |_error: DecodeError| FeedFetchError::new(FeedFetchErrorKind::Decode, host),
-                    )?;
+                    let decode_deadline = hop_deadline.min(total_deadline);
+                    let document =
+                        strict_timeout_at(decode_deadline, decode_document(encoding, compressed))
+                            .await
+                            .map_err(|_| {
+                                deadline_error(
+                                    host,
+                                    decode_deadline,
+                                    hop_deadline,
+                                    total_deadline,
+                                    FetchTimeoutStage::Hop,
+                                )
+                            })?
+                            .map_err(|_error: DecodeError| {
+                                FeedFetchError::new(FeedFetchErrorKind::Decode, host)
+                            })?;
                     return Ok(FetchOutcome::Document {
                         url: current_url,
                         document,
@@ -566,7 +628,7 @@ impl HttpFeedTransport {
         let raw = if let Ok(address) = host.parse::<IpAddr>() {
             vec![address]
         } else {
-            timeout_at(dns_deadline, self.resolver.resolve(host, dns_deadline))
+            strict_timeout_at(dns_deadline, self.resolver.resolve(host, dns_deadline))
                 .await
                 .map_err(|_| {
                     deadline_error(
@@ -578,9 +640,13 @@ impl HttpFeedTransport {
                     )
                 })?
                 .map_err(|error| match error {
-                    DnsResolveError::Deadline => {
-                        FeedFetchError::timeout(host, FetchTimeoutStage::Dns)
-                    }
+                    DnsResolveError::Deadline => deadline_error(
+                        host,
+                        dns_deadline,
+                        hop_deadline,
+                        total_deadline,
+                        FetchTimeoutStage::Dns,
+                    ),
                     DnsResolveError::Lookup => FeedFetchError::new(FeedFetchErrorKind::Dns, host),
                 })?
         };
@@ -653,6 +719,7 @@ pub(super) struct HttpResponse {
 }
 
 pub(super) enum ExecuteError {
+    Configuration,
     Reqwest(reqwest::Error),
     ConnectTimeout,
     FirstByteTimeout,
@@ -660,6 +727,7 @@ pub(super) enum ExecuteError {
 
 pub(super) enum BodyError {
     Reqwest(reqwest::Error),
+    Timeout,
     #[cfg(test)]
     Other,
 }
@@ -674,24 +742,49 @@ pub(super) trait HttpBody: Send {
     async fn next_chunk(&mut self) -> Result<Option<Vec<u8>>, BodyError>;
 }
 
-struct ReqwestExecutor;
+struct ReqwestExecutor {
+    connect_timeout: Duration,
+    read_timeout: Duration,
+}
 
-#[async_trait]
-impl HttpExecutor for ReqwestExecutor {
-    async fn execute(&self, request: HttpExecuteRequest) -> Result<HttpResponse, ExecuteError> {
-        let client = reqwest::Client::builder()
+impl ReqwestExecutor {
+    const fn production() -> Self {
+        Self {
+            connect_timeout: CONNECT_TIMEOUT,
+            read_timeout: BODY_IDLE_TIMEOUT,
+        }
+    }
+
+    #[cfg(test)]
+    const fn with_timeouts(connect_timeout: Duration, read_timeout: Duration) -> Self {
+        Self {
+            connect_timeout,
+            read_timeout,
+        }
+    }
+
+    fn build_client(&self, request: &HttpExecuteRequest) -> Result<reqwest::Client, ExecuteError> {
+        install_ring_crypto_provider().map_err(|_| ExecuteError::Configuration)?;
+        reqwest::Client::builder()
             .redirect(Policy::none())
             .no_proxy()
             .no_gzip()
             .no_brotli()
             .no_deflate()
             .no_zstd()
-            .connect_timeout(CONNECT_TIMEOUT)
-            .read_timeout(BODY_IDLE_TIMEOUT)
+            .connect_timeout(self.connect_timeout)
+            .read_timeout(self.read_timeout)
             .timeout(request.request_timeout)
             .resolve_to_addrs(&request.host, &request.approved)
             .build()
-            .map_err(|error| ExecuteError::Reqwest(error.without_url()))?;
+            .map_err(|error| ExecuteError::Reqwest(error.without_url()))
+    }
+}
+
+#[async_trait]
+impl HttpExecutor for ReqwestExecutor {
+    async fn execute(&self, request: HttpExecuteRequest) -> Result<HttpResponse, ExecuteError> {
+        let client = self.build_client(&request)?;
         let mut builder = client.get(&request.url);
         if let Some(value) = request.if_none_match {
             builder = builder.header(IF_NONE_MATCH, value);
@@ -729,7 +822,13 @@ impl HttpBody for ReqwestBody {
             .chunk()
             .await
             .map(|chunk| chunk.map(|bytes| bytes.to_vec()))
-            .map_err(|error| BodyError::Reqwest(error.without_url()))
+            .map_err(|error| {
+                if error.is_timeout() {
+                    BodyError::Timeout
+                } else {
+                    BodyError::Reqwest(error.without_url())
+                }
+            })
     }
 }
 
@@ -753,7 +852,7 @@ async fn collect_body(
             return Err(FeedFetchError::timeout(host, FetchTimeoutStage::BodyIdle));
         }
         let deadline = min_three(idle_deadline, hop_deadline, total_deadline);
-        let chunk = timeout_at(deadline, body.next_chunk())
+        let chunk = strict_timeout_at(deadline, body.next_chunk())
             .await
             .map_err(|_| {
                 deadline_error(
@@ -766,6 +865,9 @@ async fn collect_body(
             })?
             .map_err(|error| match error {
                 BodyError::Reqwest(error) => FeedFetchError::reqwest(host, error),
+                BodyError::Timeout => {
+                    body_timeout_error(host, idle_deadline, hop_deadline, total_deadline)
+                }
                 #[cfg(test)]
                 BodyError::Other => FeedFetchError::new(FeedFetchErrorKind::Network, host),
             })?;
@@ -788,6 +890,24 @@ async fn collect_body(
         compressed.extend_from_slice(&chunk);
         idle_deadline = checked_deadline(host, total_deadline, BODY_IDLE_TIMEOUT)?;
     }
+}
+
+fn body_timeout_error(
+    host: &str,
+    idle_deadline: Instant,
+    hop_deadline: Instant,
+    total_deadline: Instant,
+) -> FeedFetchError {
+    let now = Instant::now();
+    let stage = [
+        (total_deadline, FetchTimeoutStage::Total),
+        (hop_deadline, FetchTimeoutStage::Hop),
+        (idle_deadline, FetchTimeoutStage::BodyIdle),
+    ]
+    .into_iter()
+    .find_map(|(deadline, stage)| (now >= deadline).then_some(stage))
+    .unwrap_or(FetchTimeoutStage::BodyIdle);
+    FeedFetchError::timeout(host, stage)
 }
 
 fn single_header(headers: &HeaderMap, name: http::header::HeaderName) -> Option<&HeaderValue> {
@@ -863,16 +983,51 @@ fn checked_deadline(
         .ok_or_else(|| FeedFetchError::timeout(host, FetchTimeoutStage::Total))
 }
 
-fn remaining_until(host: &str, deadline: Instant) -> Result<Duration, FeedFetchError> {
+fn remaining_request_budget(
+    host: &str,
+    hop_deadline: Instant,
+    total_deadline: Instant,
+) -> Result<Duration, FeedFetchError> {
+    let deadline = hop_deadline.min(total_deadline);
     deadline
         .checked_duration_since(Instant::now())
         .filter(|remaining| !remaining.is_zero())
-        .ok_or_else(|| FeedFetchError::timeout(host, FetchTimeoutStage::Total))
+        .ok_or_else(|| {
+            deadline_error(
+                host,
+                deadline,
+                hop_deadline,
+                total_deadline,
+                FetchTimeoutStage::Hop,
+            )
+        })
 }
 
 fn min_three(first: Instant, second: Instant, third: Instant) -> Instant {
     first.min(second).min(third)
 }
+
+async fn strict_timeout_at<F>(
+    deadline: Instant,
+    future: F,
+) -> Result<F::Output, StrictDeadlineElapsed>
+where
+    F: Future,
+{
+    if Instant::now() >= deadline {
+        return Err(StrictDeadlineElapsed);
+    }
+    let output = timeout_at(deadline, future)
+        .await
+        .map_err(|_| StrictDeadlineElapsed)?;
+    if Instant::now() >= deadline {
+        Err(StrictDeadlineElapsed)
+    } else {
+        Ok(output)
+    }
+}
+
+struct StrictDeadlineElapsed;
 
 fn deadline_error(
     host: &str,
@@ -895,22 +1050,33 @@ fn deadline_error(
 mod tests {
     use std::{
         error::Error as _,
+        io,
         net::{IpAddr, Ipv4Addr, SocketAddr},
-        sync::Arc,
+        sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        },
         time::Duration,
     };
 
     use async_trait::async_trait;
+    use futures_util::stream;
     use http::{
-        HeaderValue, StatusCode,
+        HeaderMap, HeaderValue, StatusCode,
         header::{CONTENT_ENCODING, CONTENT_TYPE, ETAG, LAST_MODIFIED, LOCATION, RETRY_AFTER},
     };
-    use tokio::time::Instant;
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::TcpListener,
+        sync::Notify,
+        time::Instant,
+    };
 
     use super::{
-        FeedFetchError, FeedFetchErrorKind, FeedTransport, FetchOutcome, FetchRequest,
-        FetchTimeoutStage, HOP_TIMEOUT, HttpExecuteRequest, HttpExecutor, HttpFeedTransport,
-        HttpResponse, MAX_COMPRESSED_BYTES,
+        BODY_IDLE_TIMEOUT, DNS_TIMEOUT, FIRST_BYTE_TIMEOUT, FeedFetchError, FeedFetchErrorKind,
+        FeedTransport, FetchOutcome, FetchRequest, FetchTimeoutStage, HOP_TIMEOUT, HttpBody,
+        HttpExecuteRequest, HttpExecutor, HttpFeedTransport, HttpResponse, MAX_COMPRESSED_BYTES,
+        ReqwestBody,
     };
     use crate::feeds::{
         FeedUrlPolicy, OpaqueValidator, ValidatorSet,
@@ -1443,6 +1609,90 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    async fn decoding_obeys_the_absolute_hop_deadline_while_in_progress() {
+        let decode_start = Arc::new(Notify::new());
+        let transport = HttpFeedTransport::with_parts(
+            FeedUrlPolicy::new(false),
+            Arc::new(FakeDnsResolver::new(vec![DnsReply::addresses(vec![
+                PUBLIC_IP,
+            ])])),
+            stable_snapshots(),
+            Arc::new(DecodeDeadlineExecutor {
+                decode_start: decode_start.clone(),
+                bytes: MAX_COMPRESSED_BYTES,
+            }),
+        );
+        let advance = tokio::spawn(async move {
+            decode_start.notified().await;
+            tokio::time::advance(HOP_TIMEOUT).await;
+        });
+
+        let error = transport
+            .fetch(request("https://feed.example/rss"))
+            .await
+            .unwrap_err();
+        advance.await.unwrap();
+        assert_eq!(error.timeout_stage(), Some(FetchTimeoutStage::Hop));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn decode_completion_at_exact_deadline_is_rejected() {
+        let decode_start = Arc::new(Notify::new());
+        let transport = HttpFeedTransport::with_parts(
+            FeedUrlPolicy::new(false),
+            Arc::new(FakeDnsResolver::new(vec![DnsReply::addresses(vec![
+                PUBLIC_IP,
+            ])])),
+            stable_snapshots(),
+            Arc::new(DecodeDeadlineExecutor {
+                decode_start: decode_start.clone(),
+                bytes: 1,
+            }),
+        );
+        let advance = tokio::spawn(async move {
+            decode_start.notified().await;
+            tokio::time::advance(HOP_TIMEOUT).await;
+        });
+
+        let error = transport
+            .fetch(request("https://feed.example/rss"))
+            .await
+            .unwrap_err();
+        advance.await.unwrap();
+        assert_eq!(error.timeout_stage(), Some(FetchTimeoutStage::Hop));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn decoding_distinguishes_the_absolute_total_deadline() {
+        let decode_start = Arc::new(Notify::new());
+        let transport = HttpFeedTransport::with_parts(
+            FeedUrlPolicy::new(false),
+            Arc::new(FakeDnsResolver::new(
+                (0..3)
+                    .map(|_| DnsReply::addresses(vec![PUBLIC_IP]))
+                    .collect(),
+            )),
+            stable_snapshots(),
+            Arc::new(TotalDecodeDeadlineExecutor {
+                calls: AtomicUsize::new(0),
+                decode_start: decode_start.clone(),
+            }),
+        );
+        let advance = tokio::spawn(async move {
+            decode_start.notified().await;
+            tokio::task::yield_now().await;
+            tokio::time::advance(Duration::from_secs(12)).await;
+        });
+
+        let error = transport
+            .fetch(request("https://feed.example/rss"))
+            .await
+            .unwrap_err();
+        advance.await.unwrap();
+        assert_eq!(error.timeout_stage(), Some(FetchTimeoutStage::Total));
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn timeouts_share_one_total_refresh_deadline() {
         let dns = Arc::new(FakeDnsResolver::new(
             (0..5)
@@ -1484,6 +1734,25 @@ mod tests {
         assert_eq!(error.timeout_stage(), Some(FetchTimeoutStage::FirstByte));
     }
 
+    #[tokio::test(start_paused = true)]
+    async fn first_byte_completion_at_exact_deadline_is_rejected() {
+        let mut response = ResponseSpec::new(StatusCode::OK);
+        response.delay = FIRST_BYTE_TIMEOUT;
+        let transport = transport(
+            Arc::new(FakeDnsResolver::new(vec![DnsReply::addresses(vec![
+                PUBLIC_IP,
+            ])])),
+            stable_snapshots(),
+            Arc::new(ScriptedExecutor::new(vec![response])),
+        );
+
+        let error = transport
+            .fetch(request("https://feed.example/rss"))
+            .await
+            .unwrap_err();
+        assert_eq!(error.timeout_stage(), Some(FetchTimeoutStage::FirstByte));
+    }
+
     #[tokio::test]
     async fn connect_timeout_is_distinct_from_first_byte_timeout() {
         let transport = HttpFeedTransport::with_parts(
@@ -1499,6 +1768,17 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(error.timeout_stage(), Some(FetchTimeoutStage::Connect));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn expired_hop_request_budget_is_not_mislabeled_as_total() {
+        let error = super::remaining_request_budget(
+            "feed.example",
+            Instant::now(),
+            Instant::now() + Duration::from_secs(1),
+        )
+        .unwrap_err();
+        assert_eq!(error.timeout_stage(), Some(FetchTimeoutStage::Hop));
     }
 
     #[tokio::test(start_paused = true)]
@@ -1544,6 +1824,116 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(error.timeout_stage(), Some(FetchTimeoutStage::BodyIdle));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn reqwest_body_timeout_preserves_typed_body_idle_classification() {
+        let stream = stream::once(async {
+            Err::<Vec<u8>, _>(io::Error::new(io::ErrorKind::TimedOut, "timed out"))
+        });
+        let response = http::Response::new(reqwest::Body::wrap_stream(stream)).into();
+        let mut body = ReqwestBody { response };
+        let now = Instant::now();
+
+        let error = super::collect_body(
+            &mut body,
+            "feed.example",
+            now + HOP_TIMEOUT,
+            now + Duration::from_secs(30),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(error.timeout_stage(), Some(FetchTimeoutStage::BodyIdle));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn body_chunk_at_exact_idle_deadline_is_rejected() {
+        let mut response = ResponseSpec::new(StatusCode::OK);
+        response.body = ScriptedBody::new(vec![
+            BodyStep::delayed_chunk(BODY_IDLE_TIMEOUT, b"late".to_vec()),
+            BodyStep::end(),
+        ])
+        .0;
+        let transport = transport(
+            Arc::new(FakeDnsResolver::new(vec![DnsReply::addresses(vec![
+                PUBLIC_IP,
+            ])])),
+            stable_snapshots(),
+            Arc::new(ScriptedExecutor::new(vec![response])),
+        );
+
+        let error = transport
+            .fetch(request("https://feed.example/rss"))
+            .await
+            .unwrap_err();
+        assert_eq!(error.timeout_stage(), Some(FetchTimeoutStage::BodyIdle));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn body_end_at_exact_idle_deadline_is_rejected() {
+        let mut response = ResponseSpec::new(StatusCode::OK);
+        response.body = ScriptedBody::new(vec![BodyStep::delayed_end(BODY_IDLE_TIMEOUT)]).0;
+        let transport = transport(
+            Arc::new(FakeDnsResolver::new(vec![DnsReply::addresses(vec![
+                PUBLIC_IP,
+            ])])),
+            stable_snapshots(),
+            Arc::new(ScriptedExecutor::new(vec![response])),
+        );
+
+        let error = transport
+            .fetch(request("https://feed.example/rss"))
+            .await
+            .unwrap_err();
+        assert_eq!(error.timeout_stage(), Some(FetchTimeoutStage::BodyIdle));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn user_dns_completion_at_exact_deadline_is_rejected() {
+        let executor = Arc::new(ScriptedExecutor::new(vec![]));
+        let transport = transport(
+            Arc::new(FakeDnsResolver::new(vec![DnsReply::delayed(
+                DNS_TIMEOUT,
+                vec![PUBLIC_IP],
+            )])),
+            stable_snapshots(),
+            executor.clone(),
+        );
+
+        let error = transport
+            .fetch(request("https://feed.example/rss"))
+            .await
+            .unwrap_err();
+        assert_eq!(error.timeout_stage(), Some(FetchTimeoutStage::Dns));
+        assert!(executor.requests().is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn deadline_ties_prioritize_total_then_hop_then_stage() {
+        let deadline = Instant::now();
+        assert_eq!(
+            super::deadline_error(
+                "feed.example",
+                deadline,
+                deadline,
+                deadline,
+                FetchTimeoutStage::Dns,
+            )
+            .timeout_stage(),
+            Some(FetchTimeoutStage::Total)
+        );
+        assert_eq!(
+            super::deadline_error(
+                "feed.example",
+                deadline,
+                deadline,
+                deadline + Duration::from_secs(1),
+                FetchTimeoutStage::Dns,
+            )
+            .timeout_stage(),
+            Some(FetchTimeoutStage::Hop)
+        );
     }
 
     #[tokio::test(start_paused = true)]
@@ -1604,6 +1994,7 @@ mod tests {
 
     #[test]
     fn reqwest_errors_do_not_expose_url_queries_in_debug_or_display() {
+        super::install_ring_crypto_provider().unwrap();
         let source = reqwest::Client::new()
             .get("https://example.com:bad/rss?token=supersecret")
             .build()
@@ -1618,6 +2009,80 @@ mod tests {
             assert!(!rendered.contains("supersecret"));
             assert!(!rendered.contains("?token="));
         }
+    }
+
+    #[test]
+    fn production_client_builds_after_idempotent_ring_provider_installation() {
+        super::install_ring_crypto_provider().unwrap();
+        super::install_ring_crypto_provider().unwrap();
+        let request = HttpExecuteRequest {
+            url: "https://feed.example/rss".to_owned(),
+            host: "feed.example".to_owned(),
+            approved: vec![SocketAddr::new(PUBLIC_IP, 443)],
+            if_none_match: None,
+            if_modified_since: None,
+            request_timeout: HOP_TIMEOUT,
+        };
+
+        assert!(
+            super::ReqwestExecutor::production()
+                .build_client(&request)
+                .is_ok()
+        );
+
+        let mut modified = rustls::crypto::ring::default_provider();
+        modified.cipher_suites.clear();
+        assert!(!super::same_crypto_provider(
+            rustls::crypto::CryptoProvider::get_default().unwrap(),
+            &modified,
+        ));
+    }
+
+    #[tokio::test]
+    async fn reqwest_executor_read_timeout_is_typed_as_body_idle() {
+        super::install_ring_crypto_provider().unwrap();
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0_u8; 1024];
+            let _ = socket.read(&mut request).await.unwrap();
+            socket
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\nConnection: close\r\n\r\n")
+                .await
+                .unwrap();
+            tokio::time::sleep(Duration::from_secs(60)).await;
+        });
+        tokio::task::yield_now().await;
+        let executor =
+            super::ReqwestExecutor::with_timeouts(Duration::from_secs(5), Duration::from_secs(1));
+        let request = HttpExecuteRequest {
+            url: format!("http://timeout.test:{}/", address.port()),
+            host: "timeout.test".to_owned(),
+            approved: vec![address],
+            if_none_match: None,
+            if_modified_since: None,
+            request_timeout: Duration::from_secs(30),
+        };
+        let mut response = match executor.execute(request).await {
+            Ok(response) => response,
+            Err(super::ExecuteError::Configuration) => panic!("TLS provider configuration"),
+            Err(super::ExecuteError::Reqwest(error)) => panic!("reqwest error: {error}"),
+            Err(super::ExecuteError::ConnectTimeout) => panic!("connect timeout"),
+            Err(super::ExecuteError::FirstByteTimeout) => panic!("first-byte timeout"),
+        };
+        let now = Instant::now();
+        let error = super::collect_body(
+            response.body.as_mut(),
+            "timeout.test",
+            now + HOP_TIMEOUT,
+            now + Duration::from_secs(30),
+        )
+        .await
+        .unwrap_err();
+        server.abort();
+
+        assert_eq!(error.timeout_stage(), Some(FetchTimeoutStage::BodyIdle));
     }
 
     #[tokio::test]
@@ -1718,6 +2183,83 @@ mod tests {
     }
 
     struct ConnectTimeoutExecutor;
+
+    struct DecodeDeadlineBody {
+        bytes: Option<Vec<u8>>,
+        decode_start: Arc<Notify>,
+    }
+
+    struct DecodeDeadlineExecutor {
+        decode_start: Arc<Notify>,
+        bytes: usize,
+    }
+
+    struct TotalDecodeDeadlineExecutor {
+        calls: AtomicUsize,
+        decode_start: Arc<Notify>,
+    }
+
+    #[async_trait]
+    impl HttpExecutor for DecodeDeadlineExecutor {
+        async fn execute(
+            &self,
+            request: HttpExecuteRequest,
+        ) -> Result<HttpResponse, super::ExecuteError> {
+            Ok(HttpResponse {
+                status: StatusCode::OK,
+                headers: HeaderMap::new(),
+                peer: request.approved.first().copied(),
+                received_at: time::OffsetDateTime::now_utc(),
+                body: Box::new(DecodeDeadlineBody {
+                    bytes: Some(vec![b'x'; self.bytes]),
+                    decode_start: self.decode_start.clone(),
+                }),
+            })
+        }
+    }
+
+    #[async_trait]
+    impl HttpExecutor for TotalDecodeDeadlineExecutor {
+        async fn execute(
+            &self,
+            request: HttpExecuteRequest,
+        ) -> Result<HttpResponse, super::ExecuteError> {
+            let call = self.calls.fetch_add(1, Ordering::SeqCst);
+            if call < 2 {
+                tokio::time::sleep(Duration::from_secs(9)).await;
+                let mut headers = HeaderMap::new();
+                headers.insert(LOCATION, HeaderValue::from_static("/next"));
+                return Ok(HttpResponse {
+                    status: StatusCode::FOUND,
+                    headers,
+                    peer: request.approved.first().copied(),
+                    received_at: time::OffsetDateTime::now_utc(),
+                    body: Box::new(ScriptedBody::empty()),
+                });
+            }
+            Ok(HttpResponse {
+                status: StatusCode::OK,
+                headers: HeaderMap::new(),
+                peer: request.approved.first().copied(),
+                received_at: time::OffsetDateTime::now_utc(),
+                body: Box::new(DecodeDeadlineBody {
+                    bytes: Some(vec![b'x'; MAX_COMPRESSED_BYTES]),
+                    decode_start: self.decode_start.clone(),
+                }),
+            })
+        }
+    }
+
+    #[async_trait]
+    impl HttpBody for DecodeDeadlineBody {
+        async fn next_chunk(&mut self) -> Result<Option<Vec<u8>>, super::BodyError> {
+            if self.bytes.is_some() {
+                return Ok(self.bytes.take());
+            }
+            self.decode_start.notify_one();
+            Ok(None)
+        }
+    }
 
     #[async_trait]
     impl HttpExecutor for ConnectTimeoutExecutor {

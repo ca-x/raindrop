@@ -16,8 +16,8 @@ pub use error::{
     AddressPolicyError, FeedUrlError, IdentityError, RetryAfterError, ScheduleError, ValidatorError,
 };
 pub use fetch::{
-    FeedFetchError, FeedFetchErrorKind, FeedTransport, FetchOutcome, FetchRequest,
-    FetchTimeoutStage, HttpFeedTransport, Nat64Mode,
+    CryptoProviderError, FeedFetchError, FeedFetchErrorKind, FeedTransport, FetchOutcome,
+    FetchRequest, FetchTimeoutStage, HttpFeedTransport, Nat64Mode, install_ring_crypto_provider,
 };
 pub use identity::{EntryIdentity, IdentityKind, StableEntryFields};
 pub use model::{OpaqueValidator, ReusableValidators, ValidatorSet};

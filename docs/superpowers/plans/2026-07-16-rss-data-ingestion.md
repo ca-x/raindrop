@@ -6,7 +6,7 @@
 
 **Architecture:** The relational database remains the record system. Feeds and entries are shared globally; subscriptions and sparse entry state are user-owned. Network, decompression, parsing, sanitization, and synchronous content processing happen outside database transactions. Short transactions use unique constraints, monotonic feed sequences, a global ingest generation, and lease fencing tokens for idempotent persistence.
 
-**Tech Stack:** Rust 1.94, Axum 0.8, Tokio 1.52, SeaORM/sea-orm-migration declared as 1.1.19 and locked to 1.1.20, reqwest 0.13.4 with rustls and stream only, feedparser-rs 0.5.5 without its default `http` feature, quick-xml 0.41.0, ammonia 4.1.3, async-compression 0.4.42, ipnet 2.12.0, BLAKE3, SQLite/PostgreSQL/MySQL.
+**Tech Stack:** Rust 1.94, Axum 0.8, Tokio 1.52, SeaORM/sea-orm-migration declared as 1.1.19 and locked to 1.1.20, reqwest 0.13.4 with `rustls-no-provider` and stream plus direct rustls ring, feedparser-rs 0.5.5 without its default `http` feature, quick-xml 0.41.0, ammonia 4.1.3, async-compression 0.4.42, ipnet 2.12.0, BLAKE3, SQLite/PostgreSQL/MySQL.
 
 ## Global Constraints
 
@@ -344,7 +344,7 @@ git commit -m "feat: define safe feed primitives"
 
 **Interfaces:**
 
-- Add `reqwest = { version = "0.13.4", default-features = false, features = ["rustls", "stream"] }`.
+- Add `reqwest = { version = "0.13.4", default-features = false, features = ["rustls-no-provider", "stream"] }` and `rustls = { version = "0.23.42", default-features = false, features = ["ring"] }`. Install the exact ring process provider after the `--version` fast path and before tracing/config/database work, repeat the idempotent check before production reqwest client build, fail hard on a conflicting provider, and keep AWS-LC unreachable.
 - Add `async-trait = "0.1.89"`, `async-compression = { version = "0.4.42", default-features = false, features = ["tokio", "gzip", "zlib", "brotli"] }`, `futures-util = "0.3.32"`, and `hickory-resolver = { version = "=0.26.1", default-features = false, features = ["system-config", "tokio"] }`. Hickory 0.26.1 has MSRV 1.88 and supplies explicit record-type lookup, DNS message/rcode inspection, and `Lookup::valid_until`; no DNS-over-TLS/HTTPS/QUIC/DNSSEC feature is enabled. Add Tokio production features `sync` and `time`; add Tokio `test-util` for unit tests without changing production behavior.
 - `#[async_trait::async_trait] trait DnsResolver: Send + Sync` returns all explicit A/AAAA `IpAddr` values for attacker-controlled hosts under a 3-second deadline. Production uses the system-configured Hickory resolver; tests inject a fake resolver.
 - A separate `#[async_trait::async_trait] trait Nat64PrefixDiscovery: Send + Sync` returns typed `Present`, `NotPresent`, or error plus a monotonic validity deadline from explicit `ipv4only.arpa.` A/AAAA queries. Its dedicated system-configured Hickory resolver uses `ResolveHosts::Never`, `cache_size=0`, `attempts=1`, leaves all positive/negative TTL min/max options unset, and never shares the user-host resolver cache. A and AAAA execute concurrently inside one three-second timeout and any fetch-triggered refresh is also bounded by the remaining 30-second total deadline. Both outcomes require an A `NOERROR` answer containing both WKAs. `Present` uses the minimum A/AAAA `Lookup::valid_until()`; `NotPresent` requires `NetError::Dns(DnsError::NoRecordsFound(no_records))` with `response_code == NoError` and `negative_ttl == Some(nonzero)`, and uses the minimum A deadline and checked `now + negative_ttl`. NXDOMAIN, missing/zero TTL, overflow, malformed answers, and every other response are errors. Automatic, static-prefix, and explicit-disabled modes follow the Task 3 state machine. The production transport owns one atomic `{ generation, valid_until, address_policy }` snapshot; `now >= valid_until` is expired, and the first fetch at/after expiry refreshes single-flight before any user-controlled DNS. A failed expired refresh blocks the fetch. Same-policy TTL renewal may preserve generation while publishing a new deadline; policy changes increment generation.
@@ -406,7 +406,10 @@ Decoded bodies remain bytes; do not create an unbounded `String`. Invalid header
 
 ```bash
 cargo tree --locked -e features -i reqwest
+cargo tree --locked -e features -i rustls
 cargo tree --locked -e features -i hickory-resolver
+! cargo tree --locked -i aws-lc-rs
+! cargo tree --locked -i aws-lc-sys
 ! cargo tree --locked -e features | rg 'system-proxy|cookies|native-tls|http2|http3'
 ! cargo tree --locked -e features | rg 'hickory-resolver feature "(dnssec|h3|https|quic|tls)[^"]*"'
 cargo fmt --check
@@ -414,7 +417,7 @@ cargo clippy --locked --all-targets --all-features -- -D warnings
 cargo test --locked feeds:: -- --nocapture
 ```
 
-Expected: PASS; tree shows rustls/stream and only Brotli/gzip/zlib codecs, without system proxy, cookie jar, native-tls, or HTTP/3.
+Expected: PASS; tree shows reqwest `rustls-no-provider`/stream, one rustls ring provider, and only Brotli/gzip/zlib codecs, without AWS-LC, system proxy, cookie jar, native-tls, or HTTP/3.
 
 - [ ] **Step 5: Commit**
 

@@ -1,5 +1,6 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashSet},
+    future::Future,
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
     sync::Arc,
     time::{Duration, Instant as StdInstant},
@@ -106,6 +107,11 @@ impl SystemDnsResolver {
             lookup: Arc::new(resolver),
         })
     }
+
+    #[cfg(test)]
+    fn with_lookup(lookup: Arc<dyn ExplicitLookup>) -> Self {
+        Self { lookup }
+    }
 }
 
 #[async_trait]
@@ -116,7 +122,7 @@ impl DnsResolver for SystemDnsResolver {
         }
         let fqdn = absolute_name(host);
         let lookup = self.lookup.clone();
-        let pair = timeout_at(deadline, async move {
+        let pair = strict_timeout_at(deadline, async move {
             tokio::join!(
                 lookup.lookup(&fqdn, RecordType::A),
                 lookup.lookup(&fqdn, RecordType::AAAA)
@@ -150,7 +156,11 @@ fn collect_family_addresses(
             }
             Ok(())
         }
-        Err(NetError::Dns(DnsError::NoRecordsFound(_))) => Ok(()),
+        Err(NetError::Dns(DnsError::NoRecordsFound(no_records)))
+            if no_records.response_code == ResponseCode::NoError =>
+        {
+            Ok(())
+        }
         Err(_) => Err(DnsResolveError::Lookup),
     }
 }
@@ -201,7 +211,7 @@ impl Nat64PrefixDiscovery for SystemNat64PrefixDiscovery {
                 .ok_or(Nat64DiscoveryError::Deadline)?,
         );
         let lookup = self.lookup.clone();
-        let (a_result, aaaa_result) = timeout_at(query_deadline, async move {
+        let (a_result, aaaa_result) = strict_timeout_at(query_deadline, async move {
             tokio::join!(
                 lookup.lookup(IPV4ONLY_ARPA, RecordType::A),
                 lookup.lookup(IPV4ONLY_ARPA, RecordType::AAAA)
@@ -397,6 +407,28 @@ fn min_deadline(left: Instant, right: Instant) -> Instant {
     if left <= right { left } else { right }
 }
 
+async fn strict_timeout_at<F>(
+    deadline: Instant,
+    future: F,
+) -> Result<F::Output, StrictDeadlineElapsed>
+where
+    F: Future,
+{
+    if Instant::now() >= deadline {
+        return Err(StrictDeadlineElapsed);
+    }
+    let output = timeout_at(deadline, future)
+        .await
+        .map_err(|_| StrictDeadlineElapsed)?;
+    if Instant::now() >= deadline {
+        Err(StrictDeadlineElapsed)
+    } else {
+        Ok(output)
+    }
+}
+
+struct StrictDeadlineElapsed;
+
 #[derive(Clone)]
 pub(super) struct Nat64Snapshot {
     pub(super) generation: u64,
@@ -479,7 +511,7 @@ impl Nat64Snapshots {
                     return Ok(current);
                 }
 
-                let _guard = timeout_at(total_deadline, refresh.lock())
+                let _guard = strict_timeout_at(total_deadline, refresh.lock())
                     .await
                     .map_err(|_| Nat64DiscoveryError::Deadline)?;
                 let now = Instant::now();
@@ -548,8 +580,9 @@ mod tests {
     use tokio::time::Instant;
 
     use super::{
-        ExplicitLookup, Nat64Discovery, Nat64DiscoveryError, Nat64DiscoveryState,
-        Nat64PrefixDiscovery, Nat64Snapshots, SystemNat64PrefixDiscovery, derive_nat64_prefixes,
+        DnsResolveError, DnsResolver, ExplicitLookup, Nat64Discovery, Nat64DiscoveryError,
+        Nat64DiscoveryState, Nat64PrefixDiscovery, Nat64SnapshotMode, Nat64Snapshots,
+        SystemDnsResolver, SystemNat64PrefixDiscovery, derive_nat64_prefixes,
         parse_discovery_results,
     };
     use crate::feeds::test_support::FakeNat64Discovery;
@@ -684,6 +717,37 @@ mod tests {
         );
     }
 
+    #[test]
+    fn user_dns_accepts_only_noerror_nodata_as_an_empty_family() {
+        for response_code in [ResponseCode::NXDomain, ResponseCode::ServFail] {
+            let mut addresses = Vec::new();
+            assert_eq!(
+                super::collect_family_addresses(
+                    Err(no_records(RecordType::A, response_code, Some(30))),
+                    RecordType::A,
+                    &mut addresses,
+                ),
+                Err(super::DnsResolveError::Lookup)
+            );
+            assert!(addresses.is_empty());
+        }
+
+        let mut addresses = Vec::new();
+        assert_eq!(
+            super::collect_family_addresses(
+                Err(no_records(
+                    RecordType::AAAA,
+                    ResponseCode::NoError,
+                    Some(30),
+                )),
+                RecordType::AAAA,
+                &mut addresses,
+            ),
+            Ok(())
+        );
+        assert!(addresses.is_empty());
+    }
+
     #[tokio::test(start_paused = true)]
     async fn nat64_a_and_aaaa_share_one_three_second_deadline() {
         let lookup = Arc::new(ScriptedLookup::new(vec![
@@ -701,6 +765,91 @@ mod tests {
             Nat64DiscoveryError::Deadline
         );
         assert_eq!(Instant::now(), deadline - Duration::from_secs(27));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn nat64_discovery_completion_at_exact_deadline_is_rejected() {
+        let lookup = Arc::new(ScriptedLookup::new(vec![
+            ScriptedLookupResult::Delayed(
+                Duration::from_secs(3),
+                Ok(lookup_v4([super::WKA_170, super::WKA_171], 60)),
+            ),
+            ScriptedLookupResult::Delayed(
+                Duration::from_secs(3),
+                Err(no_records(
+                    RecordType::AAAA,
+                    ResponseCode::NoError,
+                    Some(60),
+                )),
+            ),
+        ]));
+        let resolver = TokioResolver::builder_tokio().unwrap().build().unwrap();
+        let discovery = SystemNat64PrefixDiscovery::with_lookup(resolver, lookup);
+
+        assert_eq!(
+            discovery
+                .discover(Instant::now() + Duration::from_secs(30))
+                .await
+                .unwrap_err(),
+            Nat64DiscoveryError::Deadline
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn system_user_dns_completion_at_exact_deadline_is_rejected() {
+        let lookup = Arc::new(ScriptedLookup::new(vec![
+            ScriptedLookupResult::Delayed(
+                Duration::from_secs(3),
+                Ok(lookup_v4([std::net::Ipv4Addr::new(8, 8, 8, 8)], 60)),
+            ),
+            ScriptedLookupResult::Delayed(
+                Duration::from_secs(3),
+                Err(no_records(
+                    RecordType::AAAA,
+                    ResponseCode::NoError,
+                    Some(60),
+                )),
+            ),
+        ]));
+        let resolver = SystemDnsResolver::with_lookup(lookup);
+
+        assert_eq!(
+            resolver
+                .resolve("feed.example", Instant::now() + Duration::from_secs(3),)
+                .await
+                .unwrap_err(),
+            DnsResolveError::Deadline
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn nat64_refresh_lock_wait_rejects_the_total_deadline() {
+        let discovery = Arc::new(FakeNat64Discovery::new(vec![Ok(Nat64Discovery {
+            state: Nat64DiscoveryState::NotPresent,
+            valid_until: Instant::now() + Duration::from_secs(60),
+        })]));
+        let snapshots = Arc::new(Nat64Snapshots::automatic(discovery));
+        let Nat64SnapshotMode::Automatic { refresh, .. } = &snapshots.mode else {
+            panic!("automatic snapshot mode");
+        };
+        let guard = refresh.lock().await;
+        let waiter = tokio::spawn({
+            let snapshots = snapshots.clone();
+            async move {
+                snapshots
+                    .current(Instant::now() + Duration::from_secs(1))
+                    .await
+            }
+        });
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_secs(1)).await;
+        drop(guard);
+
+        let error = match waiter.await.unwrap() {
+            Ok(_) => panic!("refresh lock completion at the deadline must fail"),
+            Err(error) => error,
+        };
+        assert_eq!(error, Nat64DiscoveryError::Deadline);
     }
 
     #[tokio::test(start_paused = true)]
