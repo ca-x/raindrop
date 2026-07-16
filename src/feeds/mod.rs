@@ -5,6 +5,7 @@ mod error;
 mod fetch;
 mod identity;
 mod model;
+mod parse;
 mod resolver;
 mod schedule;
 mod url_policy;
@@ -22,6 +23,10 @@ pub use fetch::{
 };
 pub use identity::{EntryIdentity, IdentityKind, StableEntryFields};
 pub use model::{OpaqueValidator, ReusableValidators, ValidatorSet};
+pub use parse::{
+    FeedParseError, FeedParseErrorKind, FeedParser, FetchedDocument, FetchedDocumentError,
+    ParsedEnclosure, ParsedEntry, ParsedFeed, ParsedFeedVersion, ParsedSource,
+};
 pub use schedule::{JitterSource, RefreshResult, RefreshSchedule, RetryAfter, ScheduleOutcome};
 pub use url_policy::{FeedUrlPolicy, NormalizedFeedUrl};
 

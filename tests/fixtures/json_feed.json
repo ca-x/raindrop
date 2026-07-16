@@ -1,0 +1,17 @@
+{
+  "version": "https://jsonfeed.org/version/1.1",
+  "title": "JSON fixture",
+  "home_page_url": "https://json.example.test/",
+  "feed_url": "https://json.example.test/feed.json",
+  "items": [
+    {
+      "id": "json-entry-one",
+      "url": "https://json.example.test/items/one#fragment",
+      "title": "JSON one",
+      "content_html": "<p>JSON <img src=\"https://img.example.test/json.jpg?track=1\" alt=\"JSON\" width=\"200\" height=\"100\"></p>",
+      "date_published": "2026-07-16T12:00:00Z",
+      "date_modified": "2026-07-16T13:00:00Z",
+      "attachments": [{"url":"https://cdn.example.test/audio.mp3#x","mime_type":"audio/mpeg","size_in_bytes":1234,"duration_in_seconds":42,"title":"Audio"}]
+    }
+  ]
+}

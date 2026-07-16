@@ -2051,6 +2051,7 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 name = "raindrop"
 version = "0.1.0"
 dependencies = [
+ "ammonia",
  "anyhow",
  "argon2",
  "async-compression",
@@ -2060,14 +2061,18 @@ dependencies = [
  "blake3",
  "constant_time_eq",
  "cookie",
+ "encoding_rs",
  "feedparser-rs",
  "futures-util",
  "hickory-resolver",
+ "html5ever",
  "http",
  "http-body-util",
  "httpdate",
  "ipnet",
+ "mime",
  "mime_guess",
+ "quick-xml",
  "rand_core 0.6.4",
  "reqwest",
  "rust-embed",

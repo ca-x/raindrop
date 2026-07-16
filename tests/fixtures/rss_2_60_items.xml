@@ -1,0 +1,428 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Raindrop deterministic sixty</title>
+    <link>https://example.test/</link>
+    <description>Synthetic fixture</description>
+    <item>
+      <guid isPermaLink="false">fixture-guid-01</guid>
+      <title>Fixture item 01</title>
+      <link>articles/01#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-01" onclick="evil()"&gt;Stable body 01 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/01.jpg?tracker=01" alt="Image 01" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>01 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-02</guid>
+      <title>Fixture item 02</title>
+      <link>https://example.test/articles/02#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-02" onclick="evil()"&gt;Stable body 02 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/02.jpg?tracker=02" alt="Image 02" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>02 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-03</guid>
+      <title>Fixture item 03</title>
+      <link>articles/03#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-03" onclick="evil()"&gt;Stable body 03 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/03.jpg?tracker=03" alt="Image 03" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>03 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-04</guid>
+      <title>Fixture item 04</title>
+      <link>https://example.test/articles/04#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-04" onclick="evil()"&gt;Stable body 04 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/04.jpg?tracker=04" alt="Image 04" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>04 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-05</guid>
+      <title>Fixture item 05</title>
+      <link>articles/05#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-05" onclick="evil()"&gt;Stable body 05 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/05.jpg?tracker=05" alt="Image 05" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>05 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-06</guid>
+      <title>Fixture item 06</title>
+      <link>https://example.test/articles/06#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-06" onclick="evil()"&gt;Stable body 06 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/06.jpg?tracker=06" alt="Image 06" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>06 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-07</guid>
+      <title>Fixture item 07</title>
+      <link>articles/07#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-07" onclick="evil()"&gt;Stable body 07 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/07.jpg?tracker=07" alt="Image 07" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>07 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-08</guid>
+      <title>Fixture item 08</title>
+      <link>https://example.test/articles/08#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-08" onclick="evil()"&gt;Stable body 08 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/08.jpg?tracker=08" alt="Image 08" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>08 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-09</guid>
+      <title>Fixture item 09</title>
+      <link>articles/09#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-09" onclick="evil()"&gt;Stable body 09 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/09.jpg?tracker=09" alt="Image 09" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>09 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-10</guid>
+      <title>Fixture item 10</title>
+      <link>https://example.test/articles/10#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-10" onclick="evil()"&gt;Stable body 10 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/10.jpg?tracker=10" alt="Image 10" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>10 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-11</guid>
+      <title>Fixture item 11</title>
+      <link>articles/11#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-11" onclick="evil()"&gt;Stable body 11 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/11.jpg?tracker=11" alt="Image 11" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>11 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-12</guid>
+      <title>Fixture item 12</title>
+      <link>https://example.test/articles/12#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-12" onclick="evil()"&gt;Stable body 12 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/12.jpg?tracker=12" alt="Image 12" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>12 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-13</guid>
+      <title>Fixture item 13</title>
+      <link>articles/13#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-13" onclick="evil()"&gt;Stable body 13 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/13.jpg?tracker=13" alt="Image 13" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>13 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-14</guid>
+      <title>Fixture item 14</title>
+      <link>https://example.test/articles/14#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-14" onclick="evil()"&gt;Stable body 14 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/14.jpg?tracker=14" alt="Image 14" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>14 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-15</guid>
+      <title>Fixture item 15</title>
+      <link>articles/15#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-15" onclick="evil()"&gt;Stable body 15 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/15.jpg?tracker=15" alt="Image 15" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>15 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-16</guid>
+      <title>Fixture item 16</title>
+      <link>https://example.test/articles/16#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-16" onclick="evil()"&gt;Stable body 16 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/16.jpg?tracker=16" alt="Image 16" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>16 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-17</guid>
+      <title>Fixture item 17</title>
+      <link>articles/17#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-17" onclick="evil()"&gt;Stable body 17 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/17.jpg?tracker=17" alt="Image 17" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>17 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-18</guid>
+      <title>Fixture item 18</title>
+      <link>https://example.test/articles/18#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-18" onclick="evil()"&gt;Stable body 18 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/18.jpg?tracker=18" alt="Image 18" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>18 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-19</guid>
+      <title>Fixture item 19</title>
+      <link>articles/19#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-19" onclick="evil()"&gt;Stable body 19 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/19.jpg?tracker=19" alt="Image 19" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>19 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-20</guid>
+      <title>Fixture item 20</title>
+      <link>https://example.test/articles/20#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-20" onclick="evil()"&gt;Stable body 20 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/20.jpg?tracker=20" alt="Image 20" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>20 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-21</guid>
+      <title>Fixture item 21</title>
+      <link>articles/21#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-21" onclick="evil()"&gt;Stable body 21 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/21.jpg?tracker=21" alt="Image 21" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>21 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-22</guid>
+      <title>Fixture item 22</title>
+      <link>https://example.test/articles/22#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-22" onclick="evil()"&gt;Stable body 22 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/22.jpg?tracker=22" alt="Image 22" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>22 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-23</guid>
+      <title>Fixture item 23</title>
+      <link>articles/23#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-23" onclick="evil()"&gt;Stable body 23 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/23.jpg?tracker=23" alt="Image 23" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>23 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-24</guid>
+      <title>Fixture item 24</title>
+      <link>https://example.test/articles/24#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-24" onclick="evil()"&gt;Stable body 24 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/24.jpg?tracker=24" alt="Image 24" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>24 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-25</guid>
+      <title>Fixture item 25</title>
+      <link>articles/25#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-25" onclick="evil()"&gt;Stable body 25 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/25.jpg?tracker=25" alt="Image 25" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>25 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-26</guid>
+      <title>Fixture item 26</title>
+      <link>https://example.test/articles/26#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-26" onclick="evil()"&gt;Stable body 26 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/26.jpg?tracker=26" alt="Image 26" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>26 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-27</guid>
+      <title>Fixture item 27</title>
+      <link>articles/27#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-27" onclick="evil()"&gt;Stable body 27 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/27.jpg?tracker=27" alt="Image 27" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>27 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-28</guid>
+      <title>Fixture item 28</title>
+      <link>https://example.test/articles/28#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-28" onclick="evil()"&gt;Stable body 28 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/28.jpg?tracker=28" alt="Image 28" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>28 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-29</guid>
+      <title>Fixture item 29</title>
+      <link>articles/29#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-29" onclick="evil()"&gt;Stable body 29 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/29.jpg?tracker=29" alt="Image 29" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>29 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-30</guid>
+      <title>Fixture item 30</title>
+      <link>https://example.test/articles/30#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-30" onclick="evil()"&gt;Stable body 30 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/30.jpg?tracker=30" alt="Image 30" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>30 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-31</guid>
+      <title>Fixture item 31</title>
+      <link>articles/31#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-31" onclick="evil()"&gt;Stable body 31 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/31.jpg?tracker=31" alt="Image 31" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>31 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-32</guid>
+      <title>Fixture item 32</title>
+      <link>https://example.test/articles/32#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-32" onclick="evil()"&gt;Stable body 32 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/32.jpg?tracker=32" alt="Image 32" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>32 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-33</guid>
+      <title>Fixture item 33</title>
+      <link>articles/33#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-33" onclick="evil()"&gt;Stable body 33 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/33.jpg?tracker=33" alt="Image 33" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>33 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-34</guid>
+      <title>Fixture item 34</title>
+      <link>https://example.test/articles/34#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-34" onclick="evil()"&gt;Stable body 34 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/34.jpg?tracker=34" alt="Image 34" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>34 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-35</guid>
+      <title>Fixture item 35</title>
+      <link>articles/35#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-35" onclick="evil()"&gt;Stable body 35 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/35.jpg?tracker=35" alt="Image 35" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>35 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-36</guid>
+      <title>Fixture item 36</title>
+      <link>https://example.test/articles/36#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-36" onclick="evil()"&gt;Stable body 36 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/36.jpg?tracker=36" alt="Image 36" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>36 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-37</guid>
+      <title>Fixture item 37</title>
+      <link>articles/37#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-37" onclick="evil()"&gt;Stable body 37 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/37.jpg?tracker=37" alt="Image 37" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>37 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-38</guid>
+      <title>Fixture item 38</title>
+      <link>https://example.test/articles/38#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-38" onclick="evil()"&gt;Stable body 38 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/38.jpg?tracker=38" alt="Image 38" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>38 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-39</guid>
+      <title>Fixture item 39</title>
+      <link>articles/39#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-39" onclick="evil()"&gt;Stable body 39 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/39.jpg?tracker=39" alt="Image 39" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>39 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-40</guid>
+      <title>Fixture item 40</title>
+      <link>https://example.test/articles/40#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-40" onclick="evil()"&gt;Stable body 40 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/40.jpg?tracker=40" alt="Image 40" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>40 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-41</guid>
+      <title>Fixture item 41</title>
+      <link>articles/41#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-41" onclick="evil()"&gt;Stable body 41 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/41.jpg?tracker=41" alt="Image 41" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>41 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-42</guid>
+      <title>Fixture item 42</title>
+      <link>https://example.test/articles/42#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-42" onclick="evil()"&gt;Stable body 42 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/42.jpg?tracker=42" alt="Image 42" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>42 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-43</guid>
+      <title>Fixture item 43</title>
+      <link>articles/43#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-43" onclick="evil()"&gt;Stable body 43 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/43.jpg?tracker=43" alt="Image 43" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>43 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-44</guid>
+      <title>Fixture item 44</title>
+      <link>https://example.test/articles/44#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-44" onclick="evil()"&gt;Stable body 44 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/44.jpg?tracker=44" alt="Image 44" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>44 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-45</guid>
+      <title>Fixture item 45</title>
+      <link>articles/45#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-45" onclick="evil()"&gt;Stable body 45 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/45.jpg?tracker=45" alt="Image 45" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>45 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-46</guid>
+      <title>Fixture item 46</title>
+      <link>https://example.test/articles/46#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-46" onclick="evil()"&gt;Stable body 46 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/46.jpg?tracker=46" alt="Image 46" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>46 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-47</guid>
+      <title>Fixture item 47</title>
+      <link>articles/47#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-47" onclick="evil()"&gt;Stable body 47 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/47.jpg?tracker=47" alt="Image 47" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>47 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-48</guid>
+      <title>Fixture item 48</title>
+      <link>https://example.test/articles/48#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-48" onclick="evil()"&gt;Stable body 48 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/48.jpg?tracker=48" alt="Image 48" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>48 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-49</guid>
+      <title>Fixture item 49</title>
+      <link>articles/49#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-49" onclick="evil()"&gt;Stable body 49 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/49.jpg?tracker=49" alt="Image 49" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>49 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-50</guid>
+      <title>Fixture item 50</title>
+      <link>https://example.test/articles/50#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-50" onclick="evil()"&gt;Stable body 50 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/50.jpg?tracker=50" alt="Image 50" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>50 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-51</guid>
+      <title>Fixture item 51</title>
+      <link>articles/51#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-51" onclick="evil()"&gt;Stable body 51 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/51.jpg?tracker=51" alt="Image 51" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>51 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-52</guid>
+      <title>Fixture item 52</title>
+      <link>https://example.test/articles/52#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-52" onclick="evil()"&gt;Stable body 52 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/52.jpg?tracker=52" alt="Image 52" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>52 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-53</guid>
+      <title>Fixture item 53</title>
+      <link>articles/53#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-53" onclick="evil()"&gt;Stable body 53 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/53.jpg?tracker=53" alt="Image 53" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>53 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-54</guid>
+      <title>Fixture item 54</title>
+      <link>https://example.test/articles/54#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-54" onclick="evil()"&gt;Stable body 54 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/54.jpg?tracker=54" alt="Image 54" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>54 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-55</guid>
+      <title>Fixture item 55</title>
+      <link>articles/55#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-55" onclick="evil()"&gt;Stable body 55 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/55.jpg?tracker=55" alt="Image 55" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>55 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-56</guid>
+      <title>Fixture item 56</title>
+      <link>https://example.test/articles/56#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-56" onclick="evil()"&gt;Stable body 56 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/56.jpg?tracker=56" alt="Image 56" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>56 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-57</guid>
+      <title>Fixture item 57</title>
+      <link>articles/57#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-57" onclick="evil()"&gt;Stable body 57 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/57.jpg?tracker=57" alt="Image 57" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>57 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-58</guid>
+      <title>Fixture item 58</title>
+      <link>https://example.test/articles/58#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-58" onclick="evil()"&gt;Stable body 58 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/58.jpg?tracker=58" alt="Image 58" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>58 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-59</guid>
+      <title>Fixture item 59</title>
+      <link>articles/59#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-59" onclick="evil()"&gt;Stable body 59 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/59.jpg?tracker=59" alt="Image 59" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>59 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <guid isPermaLink="false">fixture-guid-60</guid>
+      <title>Fixture item 60</title>
+      <link>https://example.test/articles/60#publisher-fragment</link>
+      <description>&lt;p class="publisher" style="color:red" data-track="item-60" onclick="evil()"&gt;Stable body 60 &lt;strong&gt;detail&lt;/strong&gt; &lt;img src="https://img.example.test/60.jpg?tracker=60" alt="Image 60" width="640" height="360" srcset="https://evil.test/2x 2x"&gt;&lt;/p&gt;</description>
+      <pubDate>60 Jul 2026 12:00:00 GMT</pubDate>
+    </item>
+  </channel>
+</rss>

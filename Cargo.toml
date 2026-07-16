@@ -8,6 +8,7 @@ description = "A self-hosted, multi-user RSS reader"
 repository = "https://github.com/czyt/raindrop"
 
 [dependencies]
+ammonia = "=4.1.3"
 anyhow = "1.0.103"
 argon2 = { version = "0.5.3", features = ["std"] }
 async-compression = { version = "0.4.42", default-features = false, features = ["tokio", "gzip", "zlib", "brotli"] }
@@ -17,13 +18,17 @@ base64 = "0.22.1"
 blake3 = "1.8.3"
 cookie = "0.18.1"
 constant_time_eq = "0.4.2"
+encoding_rs = "=0.8.35"
 feedparser-rs = { version = "=0.5.5", default-features = false }
 futures-util = "0.3.32"
 hickory-resolver = { version = "=0.26.1", default-features = false, features = ["system-config", "tokio"] }
 http = { version = "1.4.2", default-features = false }
+html5ever = "=0.39.0"
 httpdate = "1.0.3"
 ipnet = { version = "2.12.0", default-features = false }
+mime = "=0.3.17"
 mime_guess = "2.0.5"
+quick-xml = "=0.41.0"
 rand_core = { version = "0.6.4", features = ["getrandom"] }
 reqwest = { version = "0.13.4", default-features = false, features = ["rustls-no-provider", "stream"] }
 rust-embed = "8.12.0"
