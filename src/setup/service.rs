@@ -21,7 +21,11 @@ use crate::{
         validate_create_admin_input,
     },
     config::DatabaseKind,
-    db::{DatabaseConfig, DbError, connect, entities::user, migrate},
+    db::{
+        DatabaseConfig, DbError, connect,
+        entities::{bootstrap_state, user},
+        migrate,
+    },
 };
 
 #[derive(Clone)]
@@ -103,15 +107,12 @@ impl SetupService {
         public_url: Option<Url>,
         database: DatabaseConnection,
     ) -> Result<Self, SetupError> {
-        let users = user::Entity::find()
-            .count(&database)
-            .await
-            .map_err(DbError::from)
-            .map_err(SetupError::Database)?;
-        if users == 0 {
-            Ok(Self::admin_only(data_dir, token, public_url, database))
-        } else {
-            Ok(Self::ready(data_dir, public_url, database))
+        match inspect_bootstrap_state(&database).await? {
+            ConfiguredBootstrapState::Empty => {
+                Ok(Self::admin_only(data_dir, token, public_url, database))
+            }
+            ConfiguredBootstrapState::Ready => Ok(Self::ready(data_dir, public_url, database)),
+            ConfiguredBootstrapState::Inconsistent => Err(SetupError::InconsistentBootstrap),
         }
     }
 
@@ -216,31 +217,44 @@ impl SetupService {
 
         let database = connect_database(input.database_url.expose_secret()).await?;
         migrate(&database).await.map_err(SetupError::Database)?;
-        if user::Entity::find()
-            .count(&database)
-            .await
-            .map_err(DbError::from)
-            .map_err(SetupError::Database)?
-            > 0
-        {
-            return Err(SetupError::AlreadyComplete);
+        match inspect_bootstrap_state(&database).await? {
+            ConfiguredBootstrapState::Empty => {}
+            ConfiguredBootstrapState::Ready => return Err(SetupError::AlreadyComplete),
+            ConfiguredBootstrapState::Inconsistent => {
+                return Err(SetupError::InconsistentBootstrap);
+            }
         }
 
-        let temporary_path = self.write_temporary_config(&input.database_url)?;
-
-        if let Err(source) = fs::rename(&temporary_path, &self.inner.config_path) {
-            let _ = fs::remove_file(&temporary_path);
-            return Err(SetupError::WriteConfig(source));
+        let mut temporary = self.write_temporary_config(&input.database_url)?;
+        let inject_directory_sync_failure =
+            self.inner.fail_directory_sync.swap(false, Ordering::AcqRel);
+        #[cfg(unix)]
+        let durable_result = if inject_directory_sync_failure {
+            durable_replace_with_directory_sync_failure(
+                temporary.path(),
+                &self.inner.config_path,
+                &self.inner.data_dir,
+            )
+        } else {
+            durable_replace(
+                temporary.path(),
+                &self.inner.config_path,
+                &self.inner.data_dir,
+            )
+        };
+        #[cfg(not(unix))]
+        let durable_result = {
+            let _ = inject_directory_sync_failure;
+            durable_replace(
+                temporary.path(),
+                &self.inner.config_path,
+                &self.inner.data_dir,
+            )
+        };
+        if let Err(failure) = durable_result {
+            return Err(temporary.cleanup_after_failure(failure));
         }
-
-        if self.inner.fail_directory_sync.swap(false, Ordering::AcqRel) {
-            return Err(SetupError::WriteConfig(io::Error::other(
-                "injected directory synchronization failure",
-            )));
-        }
-        if let Err(source) = sync_directory(&self.inner.data_dir) {
-            return Err(SetupError::WriteConfig(source));
-        }
+        temporary.disarm();
         self.inner.sessions.attach_database(database.clone());
         self.inner.mode.store(MODE_ADMIN_ONLY, Ordering::Release);
         if self
@@ -283,8 +297,15 @@ impl SetupService {
                 Ok(admin)
             }
             Err(CreateAdminError::AlreadyClaimed) => {
-                self.inner.mode.store(MODE_READY, Ordering::Release);
-                Err(SetupError::AlreadyComplete)
+                match inspect_bootstrap_state(database).await? {
+                    ConfiguredBootstrapState::Ready => {
+                        self.inner.mode.store(MODE_READY, Ordering::Release);
+                        Err(SetupError::AlreadyComplete)
+                    }
+                    ConfiguredBootstrapState::Empty | ConfiguredBootstrapState::Inconsistent => {
+                        Err(SetupError::InconsistentBootstrap)
+                    }
+                }
             }
             Err(error) => Err(SetupError::CreateAdmin(error)),
         }
@@ -298,7 +319,10 @@ impl SetupService {
         }
     }
 
-    fn write_temporary_config(&self, database_url: &SecretString) -> Result<PathBuf, SetupError> {
+    fn write_temporary_config(
+        &self,
+        database_url: &SecretString,
+    ) -> Result<TemporaryConfig, SetupError> {
         fs::create_dir_all(&self.inner.data_dir).map_err(SetupError::WriteConfig)?;
         let mut config = if self.inner.config_path.exists() {
             let content =
@@ -320,12 +344,48 @@ impl SetupService {
             .data_dir
             .join(format!(".config.toml.{}.tmp", Uuid::new_v4().simple()));
         let mut file = private_file(&temporary_path).map_err(SetupError::WriteConfig)?;
-        file.write_all(encoded.as_bytes())
-            .and_then(|()| file.sync_all())
-            .map_err(SetupError::WriteConfig)?;
-        ensure_private_permissions(&temporary_path).map_err(SetupError::WriteConfig)?;
-        Ok(temporary_path)
+        let mut temporary = TemporaryConfig::new(temporary_path);
+        if let Err(source) = file.write_all(encoded.as_bytes()) {
+            drop(file);
+            return Err(
+                temporary.cleanup_after_failure(ConfigFailure::new(ConfigOperation::Write, source))
+            );
+        }
+        drop(file);
+        if let Err(source) = ensure_private_permissions(temporary.path()) {
+            return Err(temporary
+                .cleanup_after_failure(ConfigFailure::new(ConfigOperation::Permissions, source)));
+        }
+        Ok(temporary)
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConfiguredBootstrapState {
+    Empty,
+    Ready,
+    Inconsistent,
+}
+
+async fn inspect_bootstrap_state(
+    database: &DatabaseConnection,
+) -> Result<ConfiguredBootstrapState, SetupError> {
+    let users = user::Entity::find()
+        .count(database)
+        .await
+        .map_err(DbError::from)
+        .map_err(SetupError::Database)?;
+    let has_claim = bootstrap_state::Entity::find_by_id(1)
+        .one(database)
+        .await
+        .map_err(DbError::from)
+        .map_err(SetupError::Database)?
+        .is_some();
+    Ok(match (users, has_claim) {
+        (0, false) => ConfiguredBootstrapState::Empty,
+        (1.., true) => ConfiguredBootstrapState::Ready,
+        _ => ConfiguredBootstrapState::Inconsistent,
+    })
 }
 
 pub struct SetupCompleteInput {
@@ -351,6 +411,8 @@ pub enum SetupError {
     NotReady,
     #[error("setup operation is not available in the current mode")]
     WrongMode,
+    #[error("configured bootstrap state is inconsistent")]
+    InconsistentBootstrap,
     #[error("database URL is invalid")]
     InvalidDatabase,
     #[error("database is unavailable")]
@@ -415,13 +477,216 @@ fn ensure_private_permissions(path: &Path) -> io::Result<()> {
     Ok(())
 }
 
-fn sync_directory(path: &Path) -> io::Result<()> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConfigOperation {
+    Write,
+    Sync,
+    Permissions,
+    Replace,
+    #[cfg(unix)]
+    DirectorySync,
+    #[cfg(not(any(unix, windows)))]
+    Unsupported,
+}
+
+impl std::fmt::Display for ConfigOperation {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = match self {
+            Self::Write => "write",
+            Self::Sync => "sync",
+            Self::Permissions => "permissions",
+            Self::Replace => "replace",
+            #[cfg(unix)]
+            Self::DirectorySync => "directory sync",
+            #[cfg(not(any(unix, windows)))]
+            Self::Unsupported => "unsupported platform",
+        };
+        formatter.write_str(name)
+    }
+}
+
+#[derive(Debug)]
+struct ConfigFailure {
+    operation: ConfigOperation,
+    source: io::Error,
+}
+
+impl ConfigFailure {
+    fn new(operation: ConfigOperation, source: io::Error) -> Self {
+        Self { operation, source }
+    }
+
+    fn into_redacted_io(self) -> io::Error {
+        io::Error::new(
+            self.source.kind(),
+            format!(
+                "configuration {} failed ({:?})",
+                self.operation,
+                self.source.kind()
+            ),
+        )
+    }
+}
+
+impl std::fmt::Display for ConfigFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "configuration {} failed ({:?})",
+            self.operation,
+            self.source.kind()
+        )
+    }
+}
+
+struct TemporaryConfig {
+    path: PathBuf,
+    armed: bool,
+}
+
+impl TemporaryConfig {
+    fn new(path: PathBuf) -> Self {
+        Self { path, armed: true }
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+
+    fn cleanup_after_failure(&mut self, failure: ConfigFailure) -> SetupError {
+        match fs::remove_file(&self.path) {
+            Ok(()) => {
+                self.disarm();
+                SetupError::WriteConfig(failure.into_redacted_io())
+            }
+            Err(cleanup) if cleanup.kind() == io::ErrorKind::NotFound => {
+                self.disarm();
+                SetupError::WriteConfig(failure.into_redacted_io())
+            }
+            Err(cleanup) => SetupError::WriteConfig(io::Error::new(
+                failure.source.kind(),
+                format!(
+                    "configuration {} failed ({:?}); cleanup failed ({:?})",
+                    failure.operation,
+                    failure.source.kind(),
+                    cleanup.kind()
+                ),
+            )),
+        }
+    }
+}
+
+impl Drop for TemporaryConfig {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = fs::remove_file(&self.path);
+        }
+    }
+}
+
+fn durable_replace(temp: &Path, config: &Path, data_dir: &Path) -> Result<(), ConfigFailure> {
+    sync_temporary_config(temp)?;
+
     #[cfg(unix)]
     {
-        File::open(path)?.sync_all()?;
+        replace_and_sync_directory(temp, config, data_dir, sync_directory)
     }
-    #[cfg(not(unix))]
-    let _ = path;
+    #[cfg(windows)]
+    {
+        let _ = data_dir;
+        replace_windows(temp, config)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (config, data_dir);
+        Err(ConfigFailure::new(
+            ConfigOperation::Unsupported,
+            io::Error::new(
+                io::ErrorKind::Unsupported,
+                "durable configuration replacement is unsupported on this platform",
+            ),
+        ))
+    }
+}
+
+fn sync_temporary_config(temp: &Path) -> Result<(), ConfigFailure> {
+    File::open(temp)
+        .and_then(|file| file.sync_all())
+        .map_err(|source| ConfigFailure::new(ConfigOperation::Sync, source))
+}
+
+#[cfg(unix)]
+fn replace_and_sync_directory(
+    temp: &Path,
+    config: &Path,
+    data_dir: &Path,
+    sync: impl FnOnce(&Path) -> io::Result<()>,
+) -> Result<(), ConfigFailure> {
+    fs::rename(temp, config)
+        .map_err(|source| ConfigFailure::new(ConfigOperation::Replace, source))?;
+    sync(data_dir).map_err(|source| ConfigFailure::new(ConfigOperation::DirectorySync, source))
+}
+
+#[cfg(unix)]
+fn durable_replace_with_directory_sync_failure(
+    temp: &Path,
+    config: &Path,
+    data_dir: &Path,
+) -> Result<(), ConfigFailure> {
+    sync_temporary_config(temp)?;
+    replace_and_sync_directory(temp, config, data_dir, |_| {
+        Err(io::Error::other(
+            "injected directory synchronization failure",
+        ))
+    })
+}
+
+#[cfg(unix)]
+fn sync_directory(path: &Path) -> io::Result<()> {
+    File::open(path)?.sync_all()
+}
+
+#[cfg(windows)]
+fn replace_windows(temp: &Path, config: &Path) -> Result<(), ConfigFailure> {
+    use std::os::windows::ffi::OsStrExt;
+
+    use windows_sys::Win32::Storage::FileSystem::{
+        MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW,
+    };
+
+    fn wide_path(path: &Path) -> io::Result<Vec<u16>> {
+        let mut encoded = path.as_os_str().encode_wide().collect::<Vec<_>>();
+        if encoded.contains(&0) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "configuration path contains an embedded null",
+            ));
+        }
+        encoded.push(0);
+        Ok(encoded)
+    }
+
+    let temp =
+        wide_path(temp).map_err(|source| ConfigFailure::new(ConfigOperation::Replace, source))?;
+    let config =
+        wide_path(config).map_err(|source| ConfigFailure::new(ConfigOperation::Replace, source))?;
+    let replaced = unsafe {
+        MoveFileExW(
+            temp.as_ptr(),
+            config.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if replaced == 0 {
+        return Err(ConfigFailure::new(
+            ConfigOperation::Replace,
+            io::Error::last_os_error(),
+        ));
+    }
     Ok(())
 }
 
@@ -540,6 +805,7 @@ mod tests {
             .expect_err("directory sync failure should abort before administrator commit");
         assert!(matches!(error, SetupError::WriteConfig(_)));
         assert_eq!(setup.setup_mode(), Some(SetupMode::Full));
+        assert!(temporary_config_paths(data.path()).is_empty());
         assert!(matches!(
             setup
                 .complete_admin(
@@ -573,5 +839,107 @@ mod tests {
         .await
         .expect("persisted config should restart in a recoverable mode");
         assert_eq!(restarted.setup_mode(), Some(SetupMode::AdminOnly));
+    }
+
+    #[tokio::test]
+    async fn deleting_the_claimed_administrator_does_not_reopen_bootstrap() {
+        let data = tempdir().expect("temporary directory should be created");
+        let database_url = format!(
+            "sqlite://{}?mode=rwc",
+            data.path().join("deleted-admin.db").display()
+        );
+        let setup = SetupService::required(
+            data.path(),
+            SecretString::from("rd_setup_deleted_admin_token".to_owned()),
+            None,
+        );
+        let admin = setup
+            .complete(
+                "rd_setup_deleted_admin_token",
+                SetupCompleteInput {
+                    database_url: SecretString::from(database_url.clone()),
+                    username: "Reader".to_owned(),
+                    password: SecretString::from("correct horse battery staple".to_owned()),
+                    email: None,
+                },
+            )
+            .await
+            .expect("administrator should be created");
+        let database = setup.database().expect("database should be attached");
+        user::Entity::delete_by_id(admin.id)
+            .exec(&database)
+            .await
+            .expect("administrator should be deleted");
+
+        let error = match SetupService::from_configured_database(
+            data.path(),
+            SecretString::from("unused-token".to_owned()),
+            None,
+            database,
+        )
+        .await
+        {
+            Ok(_) => panic!("a retained claim without users must be inconsistent"),
+            Err(error) => error,
+        };
+        assert!(matches!(error, SetupError::InconsistentBootstrap));
+        assert_eq!(
+            error.to_string(),
+            "configured bootstrap state is inconsistent"
+        );
+    }
+
+    #[test]
+    fn durable_replace_reports_the_failed_platform_operation_without_paths() {
+        let data = tempdir().expect("temporary directory should be created");
+        let missing = data.path().join("secret-database-url.tmp");
+        let error = durable_replace(&missing, &data.path().join("config.toml"), data.path())
+            .expect_err("missing temporary file should fail");
+
+        assert_eq!(error.operation, ConfigOperation::Sync);
+        assert_eq!(error.source.kind(), io::ErrorKind::NotFound);
+        assert!(!error.to_string().contains("secret-database-url"));
+        assert!(
+            !error
+                .to_string()
+                .contains(&data.path().display().to_string())
+        );
+    }
+
+    #[test]
+    fn cleanup_failure_error_is_redacted_and_records_both_operation_classes() {
+        let data = tempdir().expect("temporary directory should be created");
+        let temporary_path = data.path().join(".config.toml.database-url-sentinel.tmp");
+        fs::create_dir(&temporary_path).expect("cleanup-blocking directory should be created");
+        fs::write(temporary_path.join("child"), b"sentinel")
+            .expect("cleanup-blocking child should be written");
+        let mut temporary = TemporaryConfig::new(temporary_path.clone());
+
+        let error = temporary.cleanup_after_failure(ConfigFailure::new(
+            ConfigOperation::Write,
+            io::Error::other("database-url-sentinel"),
+        ));
+        let message = match error {
+            SetupError::WriteConfig(source) => source.to_string(),
+            other => panic!("unexpected cleanup error: {other}"),
+        };
+
+        assert!(message.contains("write"));
+        assert!(message.contains("cleanup"));
+        assert!(!message.contains("database-url-sentinel"));
+        assert!(!message.contains(&temporary_path.display().to_string()));
+    }
+
+    fn temporary_config_paths(data_dir: &Path) -> Vec<PathBuf> {
+        fs::read_dir(data_dir)
+            .expect("data directory should be readable")
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with(".config.toml.") && name.ends_with(".tmp"))
+            })
+            .collect()
     }
 }

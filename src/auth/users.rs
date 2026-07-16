@@ -238,14 +238,18 @@ fn normalize_optional_email(value: Option<String>) -> Result<Option<String>, Ema
     if trimmed.is_empty() {
         return Ok(None);
     }
-    if trimmed.len() > 320
+    if !trimmed.is_ascii()
         || trimmed
             .chars()
             .any(|character| character.is_whitespace() || character.is_control())
     {
         return Err(EmailError);
     }
-    let mut parts = trimmed.split('@');
+    let normalized = trimmed.to_ascii_lowercase();
+    if normalized.len() > 320 {
+        return Err(EmailError);
+    }
+    let mut parts = normalized.split('@');
     let local = parts.next().unwrap_or_default();
     let domain = parts.next().unwrap_or_default();
     if parts.next().is_some()
@@ -256,5 +260,5 @@ fn normalize_optional_email(value: Option<String>) -> Result<Option<String>, Ema
     {
         return Err(EmailError);
     }
-    Ok(Some(trimmed.to_lowercase()))
+    Ok(Some(normalized))
 }

@@ -136,6 +136,25 @@ jobs:
       - name: Check current stable compatibility
         run: cargo check --locked --all-targets --all-features
 
+  rust-windows:
+    name: Rust Windows durable replace
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable snapshot
+        with:
+          toolchain: 1.94.0
+          targets: x86_64-pc-windows-msvc
+
+      - name: Compile Windows durable replacement path
+        run: cargo check --locked --target x86_64-pc-windows-msvc
+
   release-e2e:
     name: Release embedding and E2E
     needs: [supply-chain, web, rust]

@@ -1,12 +1,11 @@
-use std::{net::SocketAddr, time::Duration};
+use std::time::Duration;
 
 use axum::{
     Json, Router,
-    extract::{DefaultBodyLimit, FromRequestParts, State, connect_info::ConnectInfo},
+    extract::{DefaultBodyLimit, State},
     http::{
         HeaderMap, HeaderValue, StatusCode,
         header::{CACHE_CONTROL, PRAGMA, SET_COOKIE},
-        request::Parts,
     },
     middleware,
     response::{IntoResponse, Response},
@@ -105,14 +104,10 @@ struct SessionResponse {
 
 async fn login(
     State(state): State<AppState>,
-    PeerAddress(peer): PeerAddress,
     ApiJson(request): ApiJson<LoginRequest>,
 ) -> Result<Response, ApiError> {
     if !state.setup.is_ready() {
         return Err(ApiError::setup_required());
-    }
-    if !state.login_source_limiter.check(&peer.ip().to_string()) {
-        return Err(ApiError::rate_limited());
     }
     if request.login.trim().is_empty()
         || request.login.len() > 320
@@ -121,6 +116,14 @@ async fn login(
     {
         return Err(ApiError::invalid_credentials());
     }
+    if !state.login_limiter.check() {
+        return Err(ApiError::rate_limited());
+    }
+    let _authentication_permit = state
+        .login_authentication_semaphore
+        .clone()
+        .try_acquire_owned()
+        .map_err(|_| ApiError::rate_limited())?;
     let login_key = blake3::hash(request.login.trim().to_lowercase().as_bytes())
         .to_hex()
         .to_string();
@@ -158,23 +161,6 @@ async fn login(
         expires_at: format_time(created.expires_at)?,
     };
     Ok(([(SET_COOKIE, cookie.to_string())], Json(response)).into_response())
-}
-
-struct PeerAddress(SocketAddr);
-
-impl<S> FromRequestParts<S> for PeerAddress
-where
-    S: Send + Sync,
-{
-    type Rejection = ApiError;
-
-    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        parts
-            .extensions
-            .get::<ConnectInfo<SocketAddr>>()
-            .map(|ConnectInfo(address)| Self(*address))
-            .ok_or_else(ApiError::internal)
-    }
 }
 
 async fn session(
@@ -229,7 +215,7 @@ async fn database_check(
 ) -> Result<Json<DatabaseCheckResponse>, ApiError> {
     let token = setup_token(&headers)?;
     state.setup.require_token(token).map_err(map_setup_error)?;
-    if !state.setup_limiter.check("authorized-setup") {
+    if !state.setup_limiter.check() {
         return Err(ApiError::rate_limited());
     }
     let kind = state
@@ -266,7 +252,7 @@ async fn setup_complete(
 ) -> Result<Json<SetupCompleteResponse>, ApiError> {
     let token = setup_token(&headers)?;
     state.setup.require_token(token).map_err(map_setup_error)?;
-    if !state.setup_limiter.check("authorized-setup") {
+    if !state.setup_limiter.check() {
         return Err(ApiError::rate_limited());
     }
     let user = state
@@ -303,7 +289,7 @@ async fn setup_admin(
 ) -> Result<Json<SetupCompleteResponse>, ApiError> {
     let token = setup_token(&headers)?;
     state.setup.require_token(token).map_err(map_setup_error)?;
-    if !state.setup_limiter.check("authorized-setup") {
+    if !state.setup_limiter.check() {
         return Err(ApiError::rate_limited());
     }
     let user = state
@@ -339,6 +325,7 @@ fn map_setup_error(error: SetupError) -> ApiError {
     match error {
         SetupError::Unauthorized => ApiError::setup_token_required(),
         SetupError::AlreadyComplete => ApiError::setup_already_complete(),
+        SetupError::InconsistentBootstrap => ApiError::internal(),
         SetupError::InvalidDatabase | SetupError::Database(_) => ApiError::database_url_invalid(),
         SetupError::CreateAdmin(CreateAdminError::InvalidUsername(_)) => {
             ApiError::username_invalid("Username must contain 3 to 64 non-space characters")
@@ -389,5 +376,113 @@ const fn database_kind_name(kind: DatabaseKind) -> &'static str {
         DatabaseKind::Sqlite => "SQLITE",
         DatabaseKind::Postgres => "POSTGRESQL",
         DatabaseKind::MySql => "MYSQL",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use axum::{
+        body::Body,
+        http::{Method, Request},
+    };
+    use secrecy::SecretString;
+    use serde_json::json;
+    use tempfile::tempdir;
+    use tower::ServiceExt;
+
+    use crate::{
+        app::{AppState, build_router},
+        db::{DatabaseConfig, connect, migrate},
+        setup::SetupService,
+    };
+
+    use super::*;
+
+    #[tokio::test]
+    async fn authentication_concurrency_saturation_rejects_without_queueing() {
+        let data = tempdir().expect("temporary directory should be created");
+        let database_url = format!(
+            "sqlite://{}?mode=rwc",
+            data.path().join("concurrency.db").display()
+        );
+        let database = connect(&DatabaseConfig::new(SecretString::from(database_url)))
+            .await
+            .expect("database should connect");
+        migrate(&database).await.expect("database should migrate");
+        let state = AppState::new(SetupService::ready(data.path(), None, database));
+        let mut held = Vec::new();
+        for _ in 0..4 {
+            held.push(
+                state
+                    .login_authentication_semaphore
+                    .clone()
+                    .try_acquire_owned()
+                    .expect("four authentication permits should be available"),
+            );
+        }
+        let app = build_router(state);
+
+        let response = app
+            .clone()
+            .oneshot(login_request("missing", "wrong password value"))
+            .await
+            .expect("saturated request should complete");
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+
+        held.pop();
+        let response = app
+            .oneshot(login_request("missing", "wrong password value"))
+            .await
+            .expect("admitted request should complete");
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn structurally_invalid_login_does_not_consume_the_expensive_authentication_fuse() {
+        let data = tempdir().expect("temporary directory should be created");
+        let database_url = format!(
+            "sqlite://{}?mode=rwc",
+            data.path().join("validation-budget.db").display()
+        );
+        let database = connect(&DatabaseConfig::new(SecretString::from(database_url)))
+            .await
+            .expect("database should connect");
+        migrate(&database).await.expect("database should migrate");
+        let mut state = AppState::new(SetupService::ready(data.path(), None, database));
+        state.login_limiter = super::super::RateLimiter::new(1, Duration::from_secs(60));
+        let app = build_router(state);
+
+        let response = app
+            .clone()
+            .oneshot(login_request("missing", ""))
+            .await
+            .expect("invalid request should complete");
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+        let response = app
+            .clone()
+            .oneshot(login_request("missing", "wrong password value"))
+            .await
+            .expect("first expensive request should complete");
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+        let response = app
+            .oneshot(login_request("another", "wrong password value"))
+            .await
+            .expect("second expensive request should complete");
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    fn login_request(login: &str, password: &str) -> Request<Body> {
+        Request::builder()
+            .method(Method::POST)
+            .uri("/api/v1/auth/login")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                json!({ "login": login, "password": password }).to_string(),
+            ))
+            .expect("request should build")
     }
 }

@@ -8,41 +8,35 @@ use std::{
 pub(crate) struct RateLimiter {
     max_attempts: usize,
     window: Duration,
-    max_keys: usize,
-    attempts: Arc<Mutex<HashMap<String, VecDeque<Instant>>>>,
+    attempts: Arc<Mutex<VecDeque<Instant>>>,
 }
 
 impl RateLimiter {
-    pub(crate) fn new(max_attempts: usize, window: Duration, max_keys: usize) -> Self {
+    pub(crate) fn new(max_attempts: usize, window: Duration) -> Self {
         Self {
             max_attempts,
             window,
-            max_keys,
-            attempts: Arc::new(Mutex::new(HashMap::new())),
+            attempts: Arc::new(Mutex::new(VecDeque::new())),
         }
     }
 
-    pub(crate) fn check(&self, key: &str) -> bool {
-        let now = Instant::now();
+    pub(crate) fn check(&self) -> bool {
+        self.check_at(Instant::now())
+    }
+
+    fn check_at(&self, now: Instant) -> bool {
         let cutoff = now.checked_sub(self.window).unwrap_or(now);
         let mut attempts = self
             .attempts
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        attempts.retain(|_, values| {
-            while values.front().is_some_and(|value| *value <= cutoff) {
-                values.pop_front();
-            }
-            !values.is_empty()
-        });
-        if !attempts.contains_key(key) && attempts.len() >= self.max_keys {
+        while attempts.front().is_some_and(|value| *value <= cutoff) {
+            attempts.pop_front();
+        }
+        if attempts.len() >= self.max_attempts {
             return false;
         }
-        let values = attempts.entry(key.to_owned()).or_default();
-        if values.len() >= self.max_attempts {
-            return false;
-        }
-        values.push_back(now);
+        attempts.push_back(now);
         true
     }
 }
@@ -143,13 +137,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn source_capacity_is_bounded_and_fails_closed_for_new_peers() {
-        let limiter = RateLimiter::new(2, Duration::from_secs(60), 1);
+    fn global_fuse_rejects_after_the_exact_threshold_and_expires_by_window() {
+        let window = Duration::from_secs(60);
+        let limiter = RateLimiter::new(2, window);
+        let start = Instant::now();
 
-        assert!(limiter.check("192.0.2.1"));
-        assert!(!limiter.check("192.0.2.2"));
-        assert!(limiter.check("192.0.2.1"));
-        assert!(!limiter.check("192.0.2.1"));
+        assert!(limiter.check_at(start));
+        assert!(limiter.check_at(start));
+        assert!(!limiter.check_at(start));
+        assert!(limiter.check_at(start + window));
     }
 
     #[test]

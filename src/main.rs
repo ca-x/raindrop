@@ -5,10 +5,9 @@ use raindrop::{
     app::{AppState, build_router},
     auth::{CreateAdminInput, PasswordService, create_admin},
     config::{BootstrapMode, ConfigArgs, SystemEnv, load, new_setup_token},
-    db::{DatabaseConfig, connect, entities::user, migrate},
+    db::{DatabaseConfig, connect, migrate},
     setup::SetupService,
 };
-use sea_orm::{EntityTrait, PaginatorTrait};
 use secrecy::ExposeSecret;
 use tokio::net::TcpListener;
 use tracing::info;
@@ -53,11 +52,16 @@ async fn main() -> Result<()> {
             migrate(&database)
                 .await
                 .context("failed to migrate the configured database")?;
-            let user_count = user::Entity::find()
-                .count(&database)
-                .await
-                .context("failed to inspect configured users")?;
-            if user_count == 0
+            let token = new_setup_token();
+            let mut setup = SetupService::from_configured_database(
+                data_dir.clone(),
+                token.clone(),
+                public_url.clone(),
+                database.clone(),
+            )
+            .await
+            .context("failed to inspect configured bootstrap state")?;
+            if setup.setup_mode() == Some(raindrop::setup::SetupMode::AdminOnly)
                 && let Some(admin) = bootstrap_admin
             {
                 create_admin(
@@ -71,16 +75,17 @@ async fn main() -> Result<()> {
                 )
                 .await
                 .context("failed to create the bootstrap administrator")?;
+                setup = SetupService::from_configured_database(
+                    data_dir,
+                    token.clone(),
+                    public_url,
+                    database,
+                )
+                .await
+                .context(
+                    "failed to inspect configured bootstrap state after administrator creation",
+                )?;
             }
-            let token = new_setup_token();
-            let setup = SetupService::from_configured_database(
-                data_dir,
-                token.clone(),
-                public_url,
-                database,
-            )
-            .await
-            .context("failed to inspect configured bootstrap state")?;
             if setup.setup_mode() == Some(raindrop::setup::SetupMode::AdminOnly) {
                 eprintln!("Raindrop setup token: {}", token.expose_secret());
             }

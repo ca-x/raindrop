@@ -25,7 +25,7 @@
 | `RAINDROP_SESSION_SECRET` | `session_secret` | 未设置。设置后至少 32 字节，否则启动失败。当前 foundation 会加载并脱敏该值，但浏览器会话令牌仍由系统随机源独立生成，因此交互式设置不要求提供此变量。 |
 | `RAINDROP_BOOTSTRAP_ADMIN_USERNAME` | `bootstrap_admin.username` | 未设置。与管理员密码成组使用；空数据库初始化时不能为空，最终用户名必须为 3 到 64 个非空白、非控制字符。 |
 | `RAINDROP_BOOTSTRAP_ADMIN_PASSWORD` | `bootstrap_admin.password` | 未设置。与管理员用户名成组使用，至少 12 字节。 |
-| `RAINDROP_BOOTSTRAP_ADMIN_EMAIL` | `bootstrap_admin.email` | 未设置。可选；首尾空白会被移除，空值按未提供处理。非空值最多 320 字节、只能有一个 `@`、local/domain 都不能为空且分别最多 64/255 字节，并拒绝空白与控制字符。该保守的未加引号地址子集不覆盖 RFC 的 quoted local-part 或全部国际化形式。 |
+| `RAINDROP_BOOTSTRAP_ADMIN_EMAIL` | `bootstrap_admin.email` | 未设置。可选；首尾空白会被移除，空值按未提供处理。非空值仅接受 ASCII，转为小写后最多 320 字节、只能有一个 `@`、local/domain 都不能为空且分别最多 64/255 字节，并拒绝空白与控制字符。该保守的未加引号地址子集不覆盖 RFC 的 quoted local-part 或国际化地址。 |
 
 `RUST_LOG` 由 `tracing` 读取，不属于 `RAINDROP_*` 配置。未设置时使用 `raindrop=info,tower_http=info`。
 
@@ -65,9 +65,9 @@ chmod 700 /var/lib/raindrop
 
 setup token 不会通过 bootstrap API 返回。服务只保留 token 的 BLAKE3 哈希用于比较。完成设置前重启会生成新 token；完成后 `database_url` 已写入配置，后续启动不会再生成 token。
 
-设置向导先验证管理员字段，再在数据目录中创建同目录临时文件，写入并 `fsync` 后，在 Unix 上设置为 `0600`，再重命名为 `config.toml` 并同步目录。重命名与目录同步是 durable boundary，发生在管理员数据库事务提交之前。重命名失败只删除临时文件；目录同步失败不会提交管理员，也不会假定配置已经持久化。
+设置向导先验证管理员字段，再在数据目录中创建同目录临时文件；写入失败后会尽力删除该秘密临时文件。Unix 会以 `0600` 创建文件、同步临时文件、同目录重命名为 `config.toml`，再打开并 `fsync` 父目录。Windows 会同步临时文件，并通过 `MoveFileExW(MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)` 执行同目录 write-through 替换。这些平台支持的 durable boundary 都发生在管理员数据库事务提交之前；替换或持久化失败不会提交管理员。
 
-durable boundary 成功后，配置不再被删除或回滚。若管理员密码哈希或数据库事务随后失败，当前进程保持 `ADMIN_ONLY`，可以使用同一 setup token 调用 `/api/v1/setup/admin` 重试。崩溃重启时，持久配置加零用户确定进入 `ADMIN_ONLY`；首管理员事务已经提交则进入 `READY`。非 Unix 平台没有 POSIX `0600`/`0700`，需要使用平台 ACL 保护数据目录和配置文件。
+durable boundary 成功后，配置不再被删除或回滚。若管理员密码哈希或数据库事务随后失败，当前进程保持 `ADMIN_ONLY`，可以使用同一 setup token 调用 `/api/v1/setup/admin` 重试。崩溃重启时，只有“零用户且无 bootstrap claim”会进入 `ADMIN_ONLY`；用户与 singleton claim 同时存在才进入 `READY`。claim 与用户数量不一致是显式启动错误，删除已认领管理员不会重新开放 bootstrap。Windows 没有 POSIX `0600`/`0700`，需要使用平台 ACL 保护数据目录和配置文件；当前不支持的其他非 Unix/非 Windows 目标会在 durable boundary 失败关闭。
 
 向导只新增或更新 `database_url`，已有 TOML 字段会保留。数据库 URL 以明文保存在 `config.toml`，文件权限和备份访问控制仍由管理员负责。
 
@@ -106,7 +106,7 @@ mysql://raindrop:REPLACE_PASSWORD@db.example.internal/raindrop
 - 把 `public_url` 设置为浏览器访问的外部 HTTPS URL。
 - 让代理把浏览器使用的外部 `Host` 传给 Raindrop，包括非默认端口。
 - 不要依赖 `X-Forwarded-Proto` 自动开启 `Secure`；当前实现不从 forwarded headers 推导 cookie 属性。
-- 登录硬限流只使用 Raindrop TCP listener 看到的真实 peer IP；在配置可信代理之前，`X-Forwarded-For` 与 `Forwarded` 不参与限流键。
+- 在配置可信代理之前，登录不从 TCP peer、`X-Forwarded-For` 或 `Forwarded` 派生硬预算。进程使用无客户端键表的 15 分钟全局安全熔断器，并限制同时进行的昂贵认证操作；账户维度只增加 5–100 ms 的软延迟，不会硬锁账户。
 - 修改请求带有 `Origin` 时，Raindrop 会比较 `Origin` 与收到的 `Host`。代理若把 `Host` 改成内部地址，CSRF 校验会拒绝请求。
 
 若外部站点使用 HTTPS 但 `public_url` 未设置或仍是 `http://`，浏览器会收到不带 `Secure` 的 session cookie。

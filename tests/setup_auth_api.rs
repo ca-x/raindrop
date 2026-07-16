@@ -514,7 +514,7 @@ async fn malformed_json_uses_the_uniform_validation_error_contract() {
 }
 
 #[tokio::test]
-async fn repeated_login_attempts_are_rate_limited_with_a_stable_error_contract() {
+async fn more_than_ten_successful_logins_from_one_peer_are_not_proxy_locked() {
     let data = tempdir().expect("temporary directory should be created");
     let setup_token = "rd_setup_rate_limit_test_token";
     let database_url = format!(
@@ -543,15 +543,15 @@ async fn repeated_login_attempts_are_rate_limited_with_a_stable_error_contract()
     assert_eq!(response.status(), StatusCode::OK);
 
     let peer = "192.0.2.10:41000".parse().expect("peer should parse");
-    for attempt in 0..10 {
+    for attempt in 0..11 {
         let response = app
             .clone()
             .oneshot(api_request_from(
                 Method::POST,
                 "/api/v1/auth/login",
                 Some(json!({
-                    "login": format!("missing-{attempt}"),
-                    "password": "wrong password value"
+                    "login": "reader",
+                    "password": "correct horse battery staple"
                 })),
                 None,
                 peer,
@@ -559,6 +559,66 @@ async fn repeated_login_attempts_are_rate_limited_with_a_stable_error_contract()
             ))
             .await
             .expect("login request should complete");
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "attempt {attempt} was unexpectedly denied"
+        );
+    }
+}
+
+#[tokio::test]
+async fn rotating_peers_and_structurally_invalid_requests_cannot_exhaust_login_capacity() {
+    let data = tempdir().expect("temporary directory should be created");
+    let setup_token = "rd_setup_rotating_peer_test_token";
+    let database_url = format!(
+        "sqlite://{}?mode=rwc",
+        data.path().join("rotating-peer.db").display()
+    );
+    let app = build_router(AppState::new(SetupService::required(
+        data.path(),
+        SecretString::from(setup_token.to_owned()),
+        None,
+    )));
+    let response = app
+        .clone()
+        .oneshot(api_request(
+            Method::POST,
+            "/api/v1/setup/complete",
+            Some(json!({
+                "databaseUrl": database_url,
+                "username": "Reader",
+                "password": "correct horse battery staple"
+            })),
+            Some(setup_token),
+        ))
+        .await
+        .expect("setup request should complete");
+    assert_eq!(response.status(), StatusCode::OK);
+
+    for attempt in 0..10_001_u32 {
+        let octets = [
+            10,
+            ((attempt >> 16) & 0xff) as u8,
+            ((attempt >> 8) & 0xff) as u8,
+            (attempt & 0xff) as u8,
+        ];
+        let peer = SocketAddr::from((octets, 40_000));
+        let response = app
+            .clone()
+            .oneshot(api_request_from(
+                Method::POST,
+                "/api/v1/auth/login",
+                Some(json!({
+                    "login": format!("missing-{attempt}"),
+                    "password": ""
+                })),
+                None,
+                peer,
+                Some(&format!("198.51.{}.{}", attempt / 256, attempt % 256)),
+            ))
+            .await
+            .expect("invalid login request should complete");
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 
@@ -567,18 +627,16 @@ async fn repeated_login_attempts_are_rate_limited_with_a_stable_error_contract()
             Method::POST,
             "/api/v1/auth/login",
             Some(json!({
-                "login": "another-missing-account",
-                "password": "wrong password value"
+                "login": "reader",
+                "password": "correct horse battery staple"
             })),
             None,
-            peer,
+            "203.0.113.250:41000".parse().expect("peer should parse"),
             Some("203.0.113.250"),
         ))
         .await
         .expect("login request should complete");
-    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
-    let body = response_json(response).await;
-    assert_eq!(body["error"]["code"], "RATE_LIMITED");
+    assert_eq!(response.status(), StatusCode::OK);
 }
 
 #[tokio::test]
@@ -706,6 +764,7 @@ async fn invalid_administrator_email_is_a_redacted_field_validation_error() {
         format!("reader@{}", "d".repeat(256)),
         format!("{}@example.com", "x".repeat(310)),
         "reader@exam\u{0007}ple.com".to_owned(),
+        "\u{0130}@example.com".to_owned(),
     ];
 
     for (index, email) in invalid_emails.into_iter().enumerate() {
@@ -873,7 +932,7 @@ async fn every_auth_and_setup_response_disables_caching_including_rejections() {
         )
         .await
         .expect("missing peer request should complete");
-    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(response.status(), StatusCode::OK);
     assert_sensitive_cache_headers(&response);
 
     let response = app
