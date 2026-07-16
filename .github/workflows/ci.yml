@@ -85,6 +85,34 @@ jobs:
     name: Rust foundation
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: raindrop_test
+          POSTGRES_USER: raindrop
+          POSTGRES_PASSWORD: raindrop
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -U raindrop -d raindrop_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: raindrop_test
+          MYSQL_USER: raindrop
+          MYSQL_PASSWORD: raindrop
+          MYSQL_ROOT_PASSWORD: raindrop-root
+        ports:
+          - 3306/tcp
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 --silent"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 24
     steps:
       - name: Check out source
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
@@ -113,6 +141,19 @@ jobs:
 
       - name: Run Clippy
         run: cargo clippy --locked --all-targets --all-features -- -D warnings
+
+      - name: Verify RSS schema on SQLite
+        run: cargo test --locked --test rss_migrations sqlite -- --nocapture --test-threads=1
+
+      - name: Verify RSS schema on PostgreSQL
+        env:
+          RAINDROP_TEST_POSTGRES_URL: postgres://raindrop:raindrop@127.0.0.1:${{ job.services.postgres.ports[5432] }}/raindrop_test
+        run: cargo test --locked --test rss_migrations postgres -- --nocapture --test-threads=1
+
+      - name: Verify RSS schema on MySQL
+        env:
+          RAINDROP_TEST_MYSQL_URL: mysql://raindrop:raindrop@127.0.0.1:${{ job.services.mysql.ports[3306] }}/raindrop_test
+        run: cargo test --locked --test rss_migrations mysql -- --nocapture --test-threads=1
 
       - name: Run Rust tests
         run: cargo test --locked --all-features

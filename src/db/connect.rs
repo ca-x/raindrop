@@ -1,8 +1,7 @@
 use std::time::Duration;
 
-use sea_orm::{
-    ConnectOptions, ConnectionTrait, Database, DatabaseBackend, DatabaseConnection, Statement,
-};
+use sea_orm::sqlx::sqlite::{SqliteJournalMode, SqliteSynchronous};
+use sea_orm::{ConnectOptions, Database, DatabaseConnection};
 use secrecy::{ExposeSecret, SecretString};
 
 #[derive(Debug)]
@@ -34,6 +33,7 @@ impl From<sea_orm::DbErr> for DbError {
 pub async fn connect(config: &DatabaseConfig) -> Result<DatabaseConnection, DbError> {
     let url = config.url.expose_secret();
     let is_sqlite = url.starts_with("sqlite:");
+    let is_file_sqlite = is_sqlite && !url.contains(":memory:") && !url.contains("mode=memory");
     if !is_sqlite
         && !url.starts_with("postgres:")
         && !url.starts_with("postgresql:")
@@ -51,34 +51,23 @@ pub async fn connect(config: &DatabaseConfig) -> Result<DatabaseConnection, DbEr
         .idle_timeout(Duration::from_secs(300))
         .sqlx_logging(false);
 
-    let database = Database::connect(options).await?;
     if is_sqlite {
-        configure_sqlite(&database, url).await?;
-    }
-    Ok(database)
-}
-
-async fn configure_sqlite(database: &DatabaseConnection, url: &str) -> Result<(), DbError> {
-    for pragma in [
-        "PRAGMA foreign_keys = ON",
-        "PRAGMA busy_timeout = 5000",
-        "PRAGMA synchronous = NORMAL",
-    ] {
-        database
-            .execute(Statement::from_string(
-                DatabaseBackend::Sqlite,
-                pragma.to_owned(),
-            ))
-            .await?;
+        options.map_sqlx_sqlite_opts(move |options| {
+            let options = options
+                .foreign_keys(true)
+                .busy_timeout(Duration::from_secs(5))
+                .synchronous(SqliteSynchronous::Normal);
+            if is_file_sqlite {
+                options.journal_mode(SqliteJournalMode::Wal)
+            } else {
+                options
+            }
+        });
+    } else if url.starts_with("postgres:") || url.starts_with("postgresql:") {
+        options.map_sqlx_postgres_opts(|options| options.options([("timezone", "UTC")]));
+    } else {
+        options.map_sqlx_mysql_opts(|options| options.timezone(Some("+00:00".to_owned())));
     }
 
-    if !url.contains(":memory:") && !url.contains("mode=memory") {
-        database
-            .execute(Statement::from_string(
-                DatabaseBackend::Sqlite,
-                "PRAGMA journal_mode = WAL".to_owned(),
-            ))
-            .await?;
-    }
-    Ok(())
+    Database::connect(options).await.map_err(DbError::from)
 }

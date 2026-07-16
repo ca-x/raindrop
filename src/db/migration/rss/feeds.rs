@@ -1,5 +1,7 @@
 use sea_orm_migration::prelude::*;
 
+use super::super::operational_timestamp;
+
 #[derive(DeriveMigrationName)]
 pub struct CreateFeeds;
 
@@ -34,31 +36,11 @@ impl MigrationTrait for CreateFeeds {
                             .not_null()
                             .default(0),
                     )
-                    .col(
-                        ColumnDef::new(Feeds::LastAttemptAt)
-                            .timestamp_with_time_zone()
-                            .null(),
-                    )
-                    .col(
-                        ColumnDef::new(Feeds::LastSuccessAt)
-                            .timestamp_with_time_zone()
-                            .null(),
-                    )
-                    .col(
-                        ColumnDef::new(Feeds::LastChangedAt)
-                            .timestamp_with_time_zone()
-                            .null(),
-                    )
-                    .col(
-                        ColumnDef::new(Feeds::NextFetchAt)
-                            .timestamp_with_time_zone()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(Feeds::RetryAfterAt)
-                            .timestamp_with_time_zone()
-                            .null(),
-                    )
+                    .col(operational_timestamp(manager, Feeds::LastAttemptAt).null())
+                    .col(operational_timestamp(manager, Feeds::LastSuccessAt).null())
+                    .col(operational_timestamp(manager, Feeds::LastChangedAt).null())
+                    .col(operational_timestamp(manager, Feeds::NextFetchAt).not_null())
+                    .col(operational_timestamp(manager, Feeds::RetryAfterAt).null())
                     .col(
                         ColumnDef::new(Feeds::ConsecutiveFailures)
                             .big_integer()
@@ -72,11 +54,7 @@ impl MigrationTrait for CreateFeeds {
                             .not_null()
                             .default(false),
                     )
-                    .col(
-                        ColumnDef::new(Feeds::OrphanedAt)
-                            .timestamp_with_time_zone()
-                            .null(),
-                    )
+                    .col(operational_timestamp(manager, Feeds::OrphanedAt).null())
                     .col(ColumnDef::new(Feeds::LeaseOwner).string_len(128).null())
                     .col(
                         ColumnDef::new(Feeds::LeaseToken)
@@ -84,21 +62,9 @@ impl MigrationTrait for CreateFeeds {
                             .not_null()
                             .default(0),
                     )
-                    .col(
-                        ColumnDef::new(Feeds::LeaseUntil)
-                            .timestamp_with_time_zone()
-                            .null(),
-                    )
-                    .col(
-                        ColumnDef::new(Feeds::CreatedAt)
-                            .timestamp_with_time_zone()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(Feeds::UpdatedAt)
-                            .timestamp_with_time_zone()
-                            .not_null(),
-                    )
+                    .col(operational_timestamp(manager, Feeds::LeaseUntil).null())
+                    .col(operational_timestamp(manager, Feeds::CreatedAt).not_null())
+                    .col(operational_timestamp(manager, Feeds::UpdatedAt).not_null())
                     .to_owned(),
             )
             .await?;

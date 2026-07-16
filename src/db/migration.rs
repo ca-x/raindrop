@@ -1,4 +1,4 @@
-use sea_orm::DatabaseConnection;
+use sea_orm::{DatabaseConnection, DbBackend};
 use sea_orm_migration::prelude::*;
 
 use super::DbError;
@@ -12,6 +12,19 @@ pub async fn migrate(database: &DatabaseConnection) -> Result<(), DbError> {
 
 pub async fn rollback(database: &DatabaseConnection) -> Result<(), DbError> {
     Migrator::down(database, None).await.map_err(DbError::from)
+}
+
+pub(super) fn operational_timestamp<T>(manager: &SchemaManager<'_>, name: T) -> ColumnDef
+where
+    T: IntoIden,
+{
+    let mut column = ColumnDef::new(name);
+    if manager.get_database_backend() == DbBackend::MySql {
+        column.custom(Alias::new("datetime(6)"));
+    } else {
+        column.timestamp_with_time_zone();
+    }
+    column
 }
 
 struct Migrator;

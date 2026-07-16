@@ -1,5 +1,7 @@
 use sea_orm_migration::prelude::*;
 
+use super::super::operational_timestamp;
+
 #[derive(DeriveMigrationName)]
 pub struct CreateSubscriptions;
 
@@ -51,16 +53,8 @@ impl MigrationTrait for CreateSubscriptions {
                             .not_null()
                             .default(0),
                     )
-                    .col(
-                        ColumnDef::new(Subscriptions::CreatedAt)
-                            .timestamp_with_time_zone()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(Subscriptions::UpdatedAt)
-                            .timestamp_with_time_zone()
-                            .not_null(),
-                    )
+                    .col(operational_timestamp(manager, Subscriptions::CreatedAt).not_null())
+                    .col(operational_timestamp(manager, Subscriptions::UpdatedAt).not_null())
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk_subscriptions_user")

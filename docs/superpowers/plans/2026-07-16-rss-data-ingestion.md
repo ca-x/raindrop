@@ -156,6 +156,11 @@ git commit -m "feat: add rss record schema"
 **Files:**
 
 - Modify: `src/db/connect.rs`
+- Modify: `src/db/migration.rs`
+- Modify: `src/db/migration/rss/feeds.rs`
+- Modify: `src/db/migration/rss/subscriptions.rs`
+- Modify: `src/db/migration/rss/entries.rs`
+- Modify: `src/db/migration/rss/entry_states.rs`
 - Modify: `tests/rss_migrations.rs`
 - Create: `tests/support/mod.rs`
 - Create: `tests/support/database.rs`
@@ -167,6 +172,8 @@ git commit -m "feat: add rss record schema"
 - One `rss_schema_contract(database_url)` test body runs against mandatory temporary SQLite and opt-in `RAINDROP_TEST_POSTGRES_URL` / `RAINDROP_TEST_MYSQL_URL` connections.
 - CI provides PostgreSQL and MySQL services and runs the same contract for both; local developers may omit those environment variables.
 - Connection initialization configures every future pool connection at handshake: `map_sqlx_postgres_opts(|opts| opts.options([("timezone", "UTC")]))` and `map_sqlx_mysql_opts(|opts| opts.timezone(Some("+00:00".to_owned())))`. Tests acquire more than one pool connection and verify UTC/microsecond round trips for operational `OffsetDateTime` fields.
+- SQLite connection initialization also uses `map_sqlx_sqlite_opts` for `foreign_keys`, a five-second `busy_timeout`, `synchronous=NORMAL`, and file-only WAL. With its pool limit of one, the contract closes the first acquisition and verifies a replacement connection inherits the same options.
+- Backend-aware RSS migration columns preserve operational timestamp precision and range: MySQL uses explicit `DATETIME(6)`, PostgreSQL uses `TIMESTAMPTZ`, and SQLite keeps the existing portable timestamp type. Roundtrip fixtures are exactly microsecond-aligned; a later repository write helper truncates arbitrary operational timestamps to microseconds before persistence.
 - Untrusted source dates remain `published_at_us: Option<i64>` and never enter MySQL `TIMESTAMP`. Parsing rejects values outside signed Unix-microsecond representation; display conversion is outside SQL.
 - MySQL migration reentry is proven by a partial-state contract: precreate a target table/index state, rerun the corresponding migration path, and assert all expected named indexes/seed rows exist without broad `INSERT IGNORE`.
 - `INGEST_GENERATION` seed uses an exact primary-key conflict path and validates an existing row's value/type; unrelated database errors remain visible.
@@ -177,11 +184,11 @@ Move fixed user/feed/subscription/entry/state setup into `tests/support/database
 
 - [ ] **Step 2: Add failing UTC/range/reentry cases**
 
-Add exact cases for operational timestamp UTC microsecond roundtrip, publisher dates before 1970 and after 2038 through `published_at_us`, MySQL case-insensitive collation not merging different full identities after hash lookup, and partial index/seed migration recovery.
+Add exact cases for operational timestamp UTC microsecond roundtrip, publisher dates before 1970 and after 2038 through `published_at_us`, different full identities with different hashes coexisting under MySQL case-insensitive collation while the same hash remains unique, and partial index/seed migration recovery. Full-value comparison after hash lookup and typed hash-collision rejection remain Task 3/7 ingestion behavior.
 
 - [ ] **Step 3: Configure backend sessions and portable migration reentry**
 
-Configure PostgreSQL/MySQL connect options before pool creation so every newly opened connection receives UTC settings; a one-time post-connect `SET` is insufficient. Never include a database URL in logs/errors. Update migration helpers so standalone named indexes call `has_index` before creation where required and the counter seed handles only the exact primary-key conflict.
+Configure SQLite/PostgreSQL/MySQL connect options before pool creation so every newly opened connection receives its required session settings; one-time post-connect `PRAGMA`/`SET` statements are insufficient. Never include a database URL in logs/errors. Update migration helpers so standalone named indexes call `has_index` before creation where required and the counter seed handles only the exact primary-key conflict.
 
 - [ ] **Step 4: Add CI services and run all three contracts**
 
@@ -189,8 +196,8 @@ Run locally for SQLite, then in CI with PostgreSQL/MySQL service URLs:
 
 ```bash
 cargo test --locked --test rss_migrations -- --nocapture
-RAINDROP_TEST_POSTGRES_URL="$POSTGRES_TEST_URL" cargo test --locked --test rss_migrations postgres -- --nocapture
-RAINDROP_TEST_MYSQL_URL="$MYSQL_TEST_URL" cargo test --locked --test rss_migrations mysql -- --nocapture
+RAINDROP_TEST_POSTGRES_URL="$POSTGRES_TEST_URL" cargo test --locked --test rss_migrations postgres -- --nocapture --test-threads=1
+RAINDROP_TEST_MYSQL_URL="$MYSQL_TEST_URL" cargo test --locked --test rss_migrations mysql -- --nocapture --test-threads=1
 cargo fmt --check
 cargo clippy --locked --all-targets --all-features -- -D warnings
 ```
@@ -200,7 +207,7 @@ Expected: the same contract passes on all three backends without printing connec
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/db/connect.rs tests/rss_migrations.rs tests/support .github/workflows/ci.yml docs/configuration.md
+git add src/db/connect.rs src/db/migration.rs src/db/migration/rss tests/rss_migrations.rs tests/support .github/workflows/ci.yml docs/configuration.md docs/superpowers/plans/2026-07-16-rss-data-ingestion.md
 git commit -m "test: verify rss schema across databases"
 ```
 

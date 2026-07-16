@@ -1,5 +1,7 @@
 use sea_orm_migration::prelude::*;
 
+use super::super::operational_timestamp;
+
 #[derive(DeriveMigrationName)]
 pub struct CreateEntryStates;
 
@@ -38,22 +40,14 @@ impl MigrationTrait for CreateEntryStates {
                             .not_null()
                             .default(false),
                     )
-                    .col(
-                        ColumnDef::new(EntryStates::StarredAt)
-                            .timestamp_with_time_zone()
-                            .null(),
-                    )
+                    .col(operational_timestamp(manager, EntryStates::StarredAt).null())
                     .col(
                         ColumnDef::new(EntryStates::Revision)
                             .big_integer()
                             .not_null()
                             .default(0),
                     )
-                    .col(
-                        ColumnDef::new(EntryStates::UpdatedAt)
-                            .timestamp_with_time_zone()
-                            .not_null(),
-                    )
+                    .col(operational_timestamp(manager, EntryStates::UpdatedAt).not_null())
                     .primary_key(
                         Index::create()
                             .name("pk_entry_states")

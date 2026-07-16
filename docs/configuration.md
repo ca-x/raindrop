@@ -95,7 +95,25 @@ mysql://raindrop:REPLACE_PASSWORD@db.example.internal/raindrop
 
 文件 SQLite 连接会启用外键、5 秒 busy timeout、`synchronous=NORMAL` 和 WAL，连接池上限为 1。内存 SQLite 不启用 WAL。
 
+这些 SQLite 选项在每次连接握手时配置，而不是只对启动时取得的第一条连接执行一次 `PRAGMA`。PostgreSQL 连接同样在握手时设置 `timezone=UTC`，MySQL 连接设置 `time_zone=+00:00`，因此连接池以后新建的连接也使用 UTC 会话。
+
+RSS operational 时间列在 PostgreSQL 使用 `TIMESTAMPTZ`，在 MySQL 使用 `DATETIME(6)`，以同时保留微秒精度并避开 MySQL `TIMESTAMP` 的 2038 范围。发布者提供的源日期不会写入这些列，而是以可空的有符号 Unix 微秒 `BIGINT` 保存；它可以表示 1970 年以前和 2038 年以后的值。
+
 不要把 SQLite 数据库、`-wal` 或 `-shm` 文件放在 NFS、SMB/CIFS、SSHFS 等网络文件系统上。WAL 依赖可靠的共享内存和文件锁；网络存储无法保证这些语义时，可能导致启动失败、锁异常或数据损坏。需要网络存储或多节点访问时，使用 PostgreSQL 或 MySQL。
+
+### RSS 跨数据库合同测试
+
+`tests/rss_migrations.rs` 总是使用临时文件运行 SQLite 合同。若要在本地验证 PostgreSQL 或 MySQL，可分别设置 `RAINDROP_TEST_POSTGRES_URL`、`RAINDROP_TEST_MYSQL_URL`。它们必须指向专用、可丢弃的测试数据库：测试会回滚已有 Raindrop migrations、重建 schema，并验证迁移重入行为，不应指向开发或生产数据。
+
+```bash
+RAINDROP_TEST_POSTGRES_URL='postgres://USER:PASSWORD@127.0.0.1/raindrop_test' \
+  cargo test --locked --test rss_migrations postgres -- --nocapture --test-threads=1
+
+RAINDROP_TEST_MYSQL_URL='mysql://USER:PASSWORD@127.0.0.1/raindrop_test' \
+  cargo test --locked --test rss_migrations mysql -- --nocapture --test-threads=1
+```
+
+未设置相应变量时，该 backend 合同会明确标记为跳过；测试输出不会回显数据库 URL。CI 使用一次性的 PostgreSQL/MySQL service 数据库，并串行运行三个 backend 合同。
 
 ## Session cookie 与反向代理
 

@@ -32,6 +32,24 @@ impl MigrationTrait for CreateRssCounters {
             )
             .await?;
 
+        let backend = manager.get_database_backend();
+        let generation_query = Query::select()
+            .column(RssCounters::Value)
+            .from(RssCounters::Table)
+            .and_where(Expr::col(RssCounters::Key).eq("INGEST_GENERATION"))
+            .to_owned();
+        let generation = manager
+            .get_connection()
+            .query_one(backend.build(&generation_query))
+            .await?
+            .ok_or_else(|| DbErr::Migration("INGEST_GENERATION seed row is missing".to_owned()))?;
+        let value: i64 = generation.try_get("", "value")?;
+        if value < 0 {
+            return Err(DbErr::Migration(
+                "INGEST_GENERATION must be a non-negative BIGINT".to_owned(),
+            ));
+        }
+
         Ok(())
     }
 

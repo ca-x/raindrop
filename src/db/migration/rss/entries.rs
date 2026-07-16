@@ -1,5 +1,7 @@
 use sea_orm_migration::prelude::*;
 
+use super::super::operational_timestamp;
+
 #[derive(DeriveMigrationName)]
 pub struct CreateEntries;
 
@@ -41,16 +43,8 @@ impl MigrationTrait for CreateEntries {
                     .col(ColumnDef::new(Entries::Summary).text().null())
                     .col(ColumnDef::new(Entries::PublishedAtUs).big_integer().null())
                     .col(ColumnDef::new(Entries::SortAtUs).big_integer().not_null())
-                    .col(
-                        ColumnDef::new(Entries::InsertedAt)
-                            .timestamp_with_time_zone()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(Entries::UpdatedAt)
-                            .timestamp_with_time_zone()
-                            .not_null(),
-                    )
+                    .col(operational_timestamp(manager, Entries::InsertedAt).not_null())
+                    .col(operational_timestamp(manager, Entries::UpdatedAt).not_null())
                     .col(
                         ColumnDef::new(Entries::SourceContentHash)
                             .string_len(64)
