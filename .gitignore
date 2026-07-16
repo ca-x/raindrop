@@ -22,3 +22,18 @@ target
 
 # Local feature worktrees
 .worktrees/
+
+# Runtime data and local configuration
+data/
+.env
+.env.*
+!.env.example
+
+# Web build and test output
+web/node_modules/
+web/dist/
+web/playwright-report/
+web/test-results/
+
+# OS metadata
+.DS_Store
