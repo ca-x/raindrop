@@ -91,6 +91,50 @@ async fn hashed_javascript_asset_has_mime_and_immutable_cache_headers() {
 
 #[tokio::test]
 #[cfg(not(debug_assertions))]
+async fn head_reports_the_get_representation_length_without_a_body() {
+    let router = build_router(AppState::for_test());
+    let index = router
+        .clone()
+        .oneshot(Request::get("/").body(Body::empty()).unwrap())
+        .await
+        .unwrap()
+        .into_body()
+        .collect()
+        .await
+        .unwrap()
+        .to_bytes();
+    let script_path = embedded_script_path(std::str::from_utf8(&index).unwrap());
+
+    for (path, expected_length) in [
+        ("/", index.len()),
+        (script_path, asset_length(&router, script_path).await),
+    ] {
+        let response = router
+            .clone()
+            .oneshot(Request::head(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+        assert_eq!(
+            response.headers()[header::CONTENT_LENGTH],
+            expected_length.to_string(),
+            "{path}"
+        );
+        assert!(
+            response
+                .into_body()
+                .collect()
+                .await
+                .unwrap()
+                .to_bytes()
+                .is_empty()
+        );
+    }
+}
+
+#[tokio::test]
+#[cfg(not(debug_assertions))]
 async fn unknown_non_api_route_falls_back_to_uncached_spa_html() {
     let response = build_router(AppState::for_test())
         .oneshot(
@@ -186,6 +230,49 @@ async fn asset_keys_reject_traversal_and_never_fall_back_to_spa_html() {
 }
 
 #[tokio::test]
+#[cfg(not(debug_assertions))]
+async fn unsafe_paths_are_rejected_before_any_namespace_or_spa_fallback() {
+    for path in [
+        "/%2e%2e/secret",
+        "/reader%5csecret",
+        "/foo/../secret",
+        "/assets%2f..%2findex.html",
+        "/api%2fv1%2fhealth%2flive",
+    ] {
+        let response = build_router(AppState::for_test())
+            .oneshot(Request::get(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        assert!(!body.windows(15).any(|window| window == b"<div id=\"root\""));
+    }
+}
+
+#[tokio::test]
+#[cfg(not(debug_assertions))]
+async fn safe_percent_encoded_text_still_reaches_the_spa() {
+    for path in [
+        "/reader/caf%C3%A9",
+        "/%E9%98%85%E8%AF%BB/%E6%9C%AA%E8%AF%BB",
+        "/reader/version%2E1",
+    ] {
+        let response = build_router(AppState::for_test())
+            .oneshot(Request::get(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+        assert_eq!(
+            response.headers()[header::CONTENT_TYPE],
+            "text/html; charset=utf-8",
+            "{path}"
+        );
+    }
+}
+
+#[tokio::test]
 #[cfg(debug_assertions)]
 async fn debug_router_points_to_vite_without_a_production_bundle() {
     let response = build_router(AppState::for_test())
@@ -215,4 +302,19 @@ fn embedded_script_path(html: &str) -> &str {
         .expect("Vite index should reference a module script")
         .1;
     path.split_once('"').unwrap().0
+}
+
+#[cfg(not(debug_assertions))]
+async fn asset_length(router: &axum::Router, path: &str) -> usize {
+    router
+        .clone()
+        .oneshot(Request::get(path).body(Body::empty()).unwrap())
+        .await
+        .unwrap()
+        .into_body()
+        .collect()
+        .await
+        .unwrap()
+        .to_bytes()
+        .len()
 }

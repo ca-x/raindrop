@@ -60,14 +60,25 @@ test("mobile setup and authenticated shell preserve touch, keyboard, and history
   await page.getByRole("button", { name: "Close navigation" }).tap()
   await expect(page.getByRole("dialog", { name: "Open menu" })).not.toBeVisible()
 
-  await page.goto(`${server.baseURL}/library`, { waitUntil: "domcontentloaded" })
+  const authenticatedIdentity = page
+    .getByTestId("mobile-ready-page")
+    .getByText(credentials.username, { exact: true })
+  await expect(page).toHaveURL(`${server.baseURL}/`)
+  await expect(authenticatedIdentity).toBeVisible()
+
+  await page.evaluate(() => {
+    window.history.pushState({ route: "library" }, "", "/library")
+  })
+  await expect(page).toHaveURL(`${server.baseURL}/library`)
   await expect(
     page.getByRole("heading", { name: "Your reading space is ready" }),
   ).toBeVisible()
-  await page.goBack({ waitUntil: "domcontentloaded" })
+  await page.goBack()
+  await expect(page).toHaveURL(`${server.baseURL}/`)
   await expect(
     page.getByRole("heading", { name: "Your reading space is ready" }),
   ).toBeVisible()
+  await expect(authenticatedIdentity).toBeVisible()
 })
 
 async function expectNoHorizontalScroll(page: Page): Promise<void> {

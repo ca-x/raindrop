@@ -2,7 +2,7 @@
 mod assets;
 
 use axum::{
-    body::Body,
+    body::{Body, Bytes},
     http::{HeaderValue, Method, StatusCode, Uri, header},
     response::{IntoResponse, Response},
 };
@@ -15,6 +15,8 @@ const HTML_CACHE_CONTROL: &str = "no-cache, no-store, must-revalidate";
 const IMMUTABLE_CACHE_CONTROL: &str = "public, max-age=31536000, immutable";
 #[cfg(not(debug_assertions))]
 const SHORT_ASSET_CACHE_CONTROL: &str = "public, max-age=3600";
+#[cfg(not(debug_assertions))]
+const VITE_HASH_LENGTH: usize = 8;
 
 #[cfg(debug_assertions)]
 const DEVELOPMENT_PAGE: &str = r#"<!doctype html>
@@ -24,6 +26,9 @@ const DEVELOPMENT_PAGE: &str = r#"<!doctype html>
 </html>"#;
 
 pub async fn serve(method: Method, uri: Uri) -> Response {
+    if !is_safe_request_path(uri.path()) {
+        return not_found();
+    }
     if is_api_path(uri.path()) {
         let mut response = ApiError::not_found().into_response();
         response
@@ -41,7 +46,7 @@ pub async fn serve(method: Method, uri: Uri) -> Response {
     }
 
     #[cfg(debug_assertions)]
-    let body = DEVELOPMENT_PAGE.as_bytes().to_vec();
+    let body = Bytes::from_static(DEVELOPMENT_PAGE.as_bytes());
 
     #[cfg(not(debug_assertions))]
     if is_asset_path(uri.path()) {
@@ -49,21 +54,74 @@ pub async fn serve(method: Method, uri: Uri) -> Response {
     }
 
     #[cfg(not(debug_assertions))]
-    let Some(body) = assets::get("index.html").map(std::borrow::Cow::into_owned) else {
+    let Some(body) = assets::get("index.html").map(embedded_bytes) else {
         return not_found();
     };
 
-    let body = if method == Method::HEAD {
-        Body::empty()
-    } else {
-        Body::from(body)
-    };
-    response(
+    representation_response(
         StatusCode::OK,
         "text/html; charset=utf-8",
         HTML_CACHE_CONTROL,
+        &method,
         body,
     )
+}
+
+fn is_safe_request_path(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    if bytes.first() != Some(&b'/') {
+        return false;
+    }
+
+    let mut segment = Vec::new();
+    let mut index = 1;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'/' => {
+                if is_dot_segment(&segment) {
+                    return false;
+                }
+                segment.clear();
+                index += 1;
+            }
+            b'\\' => return false,
+            b'%' => {
+                let Some(decoded) = decode_percent_byte(bytes, index) else {
+                    return false;
+                };
+                if matches!(decoded, b'/' | b'\\') || decoded.is_ascii_control() {
+                    return false;
+                }
+                segment.push(decoded);
+                index += 3;
+            }
+            byte => {
+                segment.push(byte);
+                index += 1;
+            }
+        }
+    }
+
+    !is_dot_segment(&segment)
+}
+
+fn decode_percent_byte(bytes: &[u8], index: usize) -> Option<u8> {
+    let high = hex_value(*bytes.get(index + 1)?)?;
+    let low = hex_value(*bytes.get(index + 2)?)?;
+    Some((high << 4) | low)
+}
+
+const fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn is_dot_segment(segment: &[u8]) -> bool {
+    segment == b"." || segment == b".."
 }
 
 fn is_api_path(path: &str) -> bool {
@@ -108,21 +166,38 @@ fn response(
     response
 }
 
+fn representation_response(
+    status: StatusCode,
+    content_type: &str,
+    cache_control: &'static str,
+    method: &Method,
+    representation: Bytes,
+) -> Response {
+    let length = representation.len();
+    let body = if method == Method::HEAD {
+        Body::empty()
+    } else {
+        Body::from(representation)
+    };
+    let mut response = response(status, content_type, cache_control, body);
+    response.headers_mut().insert(
+        header::CONTENT_LENGTH,
+        HeaderValue::from_str(&length.to_string())
+            .expect("content length must be a valid header value"),
+    );
+    response
+}
+
 #[cfg(not(debug_assertions))]
 fn embedded_asset(method: Method, path: &str) -> Response {
     let Some(key) = safe_asset_key(path) else {
         return not_found();
     };
-    let Some(body) = assets::get(key).map(std::borrow::Cow::into_owned) else {
+    let Some(body) = assets::get(key).map(embedded_bytes) else {
         return not_found();
     };
     let content_type = content_type(key);
-    let body = if method == Method::HEAD {
-        Body::empty()
-    } else {
-        Body::from(body)
-    };
-    response(
+    representation_response(
         StatusCode::OK,
         &content_type,
         if is_content_hashed_asset(key) {
@@ -130,8 +205,17 @@ fn embedded_asset(method: Method, path: &str) -> Response {
         } else {
             SHORT_ASSET_CACHE_CONTROL
         },
+        &method,
         body,
     )
+}
+
+#[cfg(not(debug_assertions))]
+fn embedded_bytes(data: std::borrow::Cow<'static, [u8]>) -> Bytes {
+    match data {
+        std::borrow::Cow::Borrowed(bytes) => Bytes::from_static(bytes),
+        std::borrow::Cow::Owned(bytes) => Bytes::from(bytes),
+    }
 }
 
 #[cfg(not(debug_assertions))]
@@ -143,7 +227,7 @@ fn is_content_hashed_asset(key: &str) -> bool {
         return false;
     };
     stem.rsplit_once('-').is_some_and(|(_name, hash)| {
-        hash.len() >= 8
+        hash.len() == VITE_HASH_LENGTH
             && hash
                 .bytes()
                 .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
@@ -183,7 +267,6 @@ fn content_type(path: &str) -> String {
     }
 }
 
-#[cfg(not(debug_assertions))]
 fn not_found() -> Response {
     response(
         StatusCode::NOT_FOUND,
@@ -191,4 +274,19 @@ fn not_found() -> Response {
         "no-store",
         Body::from("Not found"),
     )
+}
+
+#[cfg(all(test, not(debug_assertions)))]
+mod tests {
+    use super::is_content_hashed_asset;
+
+    #[test]
+    fn immutable_cache_requires_an_exact_vite_hash_segment() {
+        assert!(is_content_hashed_asset("assets/index-CvRIp8H1.js"));
+        assert!(is_content_hashed_asset("assets/index-COyQDe_A.css"));
+        assert!(!is_content_hashed_asset("assets/index-production.js"));
+        assert!(!is_content_hashed_asset("assets/index-CvRIp8H.js"));
+        assert!(!is_content_hashed_asset("assets/index-CvRIp8H12.js"));
+        assert!(!is_content_hashed_asset("assets/index-CvRIp8H!.js"));
+    }
 }

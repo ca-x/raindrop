@@ -1,6 +1,6 @@
 import { defineConfig } from "@playwright/test"
 
-const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ?? "/usr/bin/chromium"
+const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE
 
 export default defineConfig({
   testDir: "./e2e",
@@ -12,7 +12,7 @@ export default defineConfig({
   reporter: [["line"]],
   use: {
     browserName: "chromium",
-    launchOptions: { executablePath },
+    ...(executablePath ? { launchOptions: { executablePath } } : {}),
     locale: "en-US",
     screenshot: "off",
     trace: "off",
@@ -23,6 +23,10 @@ export default defineConfig({
       name: "desktop-production",
       testMatch: /setup-login\.spec\.ts/,
       use: { viewport: { width: 1280, height: 800 } },
+    },
+    {
+      name: "production-server-fixture",
+      testMatch: /production-server\.spec\.ts/,
     },
     {
       name: "mobile-390x844",
