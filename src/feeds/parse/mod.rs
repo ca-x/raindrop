@@ -19,8 +19,12 @@ use self::{
     finalize::finalize,
     map::{map_feed, parser_limits},
     mime::BodyFormat,
-    types::{FeedParseErrorKind as ErrorKind, parsed_source},
+    types::{FeedParseErrorKind as ErrorKind, parsed_source, validate_projected_inheritance},
 };
+
+#[cfg(test)]
+static UPSTREAM_PARSER_INVOCATIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
 
 static PARSER_CAPACITY: OnceLock<Arc<Semaphore>> = OnceLock::new();
 
@@ -87,8 +91,12 @@ fn parse_document(document: FetchedDocument) -> Result<ParsedFeed, FeedParseErro
         Preflight::Xml(preflight) => preflight.parser_bytes.as_slice(),
         Preflight::Json(preflight) => preflight.parser_bytes.as_slice(),
     };
-    let parsed = feedparser_rs::parse_with_limits(parser_bytes, parser_limits())
-        .map_err(classify_parser_error)?;
+    let projected_inheritance_bytes = match &preflight {
+        Preflight::Xml(preflight) => preflight.projected_inheritance_bytes,
+        Preflight::Json(preflight) => preflight.projected_inheritance_bytes,
+    };
+    validate_projected_inheritance(projected_inheritance_bytes)?;
+    let parsed = invoke_upstream_parser(parser_bytes)?;
     let xml_preflight = match &preflight {
         Preflight::Xml(preflight) => Some(preflight),
         Preflight::Json(_) => None,
@@ -111,6 +119,14 @@ fn parse_document(document: FetchedDocument) -> Result<ParsedFeed, FeedParseErro
         entries,
         duplicate_count,
     })
+}
+
+fn invoke_upstream_parser(
+    parser_bytes: &[u8],
+) -> Result<feedparser_rs::ParsedFeed, FeedParseError> {
+    #[cfg(test)]
+    UPSTREAM_PARSER_INVOCATIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    feedparser_rs::parse_with_limits(parser_bytes, parser_limits()).map_err(classify_parser_error)
 }
 
 enum Preflight {
@@ -174,6 +190,29 @@ mod tests {
         let mut document = document();
         document.body = vec![b'x'; 1024 * 1024];
         document
+    }
+
+    fn over_budget_json_document() -> FetchedDocument {
+        let url = FeedUrlPolicy::new(true)
+            .normalize("https://example.test/feed.json")
+            .expect("valid URL");
+        let authors = (0..256).map(|_| serde_json::json!({})).collect::<Vec<_>>();
+        let items = (0..5_000)
+            .map(|index| serde_json::json!({"id":index.to_string(),"content_text":"x"}))
+            .collect::<Vec<_>>();
+        FetchedDocument::try_from(FetchOutcome::Document {
+            url,
+            document: serde_json::to_vec(&serde_json::json!({
+                "version":"https://jsonfeed.org/version/1.1",
+                "authors":authors,
+                "items":items
+            }))
+            .expect("JSON document serializes"),
+            content_type: Some("application/feed+json".to_owned()),
+            etag: None,
+            last_modified: None,
+        })
+        .expect("document")
     }
 
     struct DropProbe(Arc<AtomicUsize>);
@@ -271,5 +310,18 @@ mod tests {
             .expect_err("worker panic rejects");
         assert_eq!(error.kind(), FeedParseErrorKind::WorkerPanicked);
         assert!(!format!("{error:?} {error}").contains("publisher-secret-panic"));
+    }
+
+    #[tokio::test]
+    async fn projected_inheritance_rejects_before_the_upstream_parser_is_invoked() {
+        let _serial = PARSER_TEST_LOCK.lock().await;
+        UPSTREAM_PARSER_INVOCATIONS.store(0, Ordering::SeqCst);
+        let error = parse_document(over_budget_json_document())
+            .expect_err("over-budget inheritance rejects before feedparser");
+        assert_eq!(
+            error.kind(),
+            FeedParseErrorKind::ProjectedInheritanceTooLarge
+        );
+        assert_eq!(UPSTREAM_PARSER_INVOCATIONS.load(Ordering::SeqCst), 0);
     }
 }

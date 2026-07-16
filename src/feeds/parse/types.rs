@@ -18,6 +18,43 @@ pub(crate) const MAX_TOTAL_TEXT_BYTES: usize = 16 * 1024 * 1024;
 pub(crate) const MAX_CONTENT_BLOCKS: usize = 64;
 pub(crate) const MAX_ENCLOSURES: usize = 64;
 pub(crate) const MAX_ENCLOSURE_JSON_BYTES: usize = 256 * 1024;
+pub(crate) const MAX_PROJECTED_INHERITANCE_BYTES: usize = 32 * 1024 * 1024;
+
+#[derive(Clone, Copy, Default)]
+pub(crate) struct ProjectedInheritance {
+    bytes: usize,
+}
+
+impl ProjectedInheritance {
+    pub(crate) fn add(&mut self, bytes: usize) -> Result<(), FeedParseError> {
+        self.bytes = self.bytes.checked_add(bytes).ok_or_else(|| {
+            FeedParseError::new(FeedParseErrorKind::ProjectedInheritanceTooLarge)
+                .with_bytes(usize::MAX)
+        })?;
+        Ok(())
+    }
+
+    pub(crate) fn add_product(&mut self, count: usize, bytes: usize) -> Result<(), FeedParseError> {
+        let bytes = count.checked_mul(bytes).ok_or_else(|| {
+            FeedParseError::new(FeedParseErrorKind::ProjectedInheritanceTooLarge)
+                .with_bytes(usize::MAX)
+        })?;
+        self.add(bytes)
+    }
+
+    #[must_use]
+    pub(crate) const fn bytes(self) -> usize {
+        self.bytes
+    }
+}
+
+pub(crate) fn validate_projected_inheritance(bytes: usize) -> Result<(), FeedParseError> {
+    if bytes > MAX_PROJECTED_INHERITANCE_BYTES {
+        Err(FeedParseError::new(FeedParseErrorKind::ProjectedInheritanceTooLarge).with_bytes(bytes))
+    } else {
+        Ok(())
+    }
+}
 
 pub struct FetchedDocument {
     pub(crate) url: NormalizedFeedUrl,
@@ -411,6 +448,7 @@ pub enum FeedParseErrorKind {
     UnsupportedVersion,
     BozoRejected,
     ParserFailure,
+    ProjectedInheritanceTooLarge,
     TitleTooLong,
     ContentTooLong,
     SanitizedContentTooLong,

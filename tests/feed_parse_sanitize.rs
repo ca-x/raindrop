@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::{cell::RefCell, mem::size_of};
 
 use html5ever::{
     tendril::StrTendril,
@@ -23,6 +23,15 @@ const WINDOWS_1252: &[u8] = include_bytes!("fixtures/rss_windows_1252.xml");
 const IDENTITY_EDGES: &[u8] = include_bytes!("fixtures/rss_identity_edges.xml");
 const MALICIOUS_HTML: &[u8] = include_bytes!("fixtures/malicious_html.xml");
 const UNSAFE_XML: &[u8] = include_bytes!("fixtures/unsafe_xml.xml");
+const MAX_PROJECTED_INHERITANCE_BYTES: usize = 32 * 1024 * 1024;
+
+fn person_struct_bytes() -> usize {
+    size_of::<feedparser_rs::Person>()
+}
+
+fn small_string_struct_bytes() -> usize {
+    size_of::<feedparser_rs::types::SmallString>()
+}
 
 fn fetched(body: impl Into<Vec<u8>>, content_type: Option<&str>) -> FetchedDocument {
     fetched_at(
@@ -380,6 +389,14 @@ async fn xml_entities_roots_structure_and_bases_are_strict() {
             br#"<rss version="2.0"><channel><link xml:base="https://ignored.test/">https://example.test/</link></channel></rss>"#,
             FeedParseErrorKind::InvalidUrl,
         ),
+        (
+            br#"&amp;<rss version="2.0"><channel><title>x</title></channel></rss>"#,
+            FeedParseErrorKind::MalformedXml,
+        ),
+        (
+            br#"<rss version="2.0"><channel><title>x</title></channel></rss>&amp;"#,
+            FeedParseErrorKind::MalformedXml,
+        ),
     ];
     for (body, kind) in cases {
         let error = parse(fetched(*body, Some("application/rss+xml")))
@@ -493,6 +510,22 @@ async fn exact_feed_signatures_reject_unknown_or_non_feed_roots() {
         .await
         .expect_err("non-feed JSON rejects");
     assert_eq!(json.kind(), FeedParseErrorKind::MimeMismatch);
+
+    let invalid_rdf = br#"<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlnsfoo="http://purl.org/rss/1.0/"></rdf:RDF>"#;
+    let error = parse(fetched(invalid_rdf, Some("application/rdf+xml")))
+        .await
+        .expect_err("an xmlns-prefixed ordinary attribute is not a namespace declaration");
+    assert_eq!(error.kind(), FeedParseErrorKind::UnsupportedVersion);
+
+    for valid_rdf in [
+        br#"<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/"><channel rdf:about="https://example.test/"><title>x</title><link>https://example.test/</link><description>x</description></channel></rdf:RDF>"#.as_slice(),
+        br#"<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:rss="http://purl.org/rss/1.0/"><rss:channel rdf:about="https://example.test/"><rss:title>x</rss:title><rss:link>https://example.test/</rss:link><rss:description>x</rss:description></rss:channel></rdf:RDF>"#.as_slice(),
+    ] {
+        let parsed = parse(fetched(valid_rdf, Some("application/rdf+xml")))
+            .await
+            .expect("default and prefixed RSS 1.0 namespace declarations are valid");
+        assert_eq!(parsed.version(), ParsedFeedVersion::Rss10);
+    }
 }
 
 #[tokio::test]
@@ -697,15 +730,28 @@ async fn json_n_plus_one_and_depth_prechecks_reject_before_parser_truncation() {
     .expect_err("5,001 JSON entries reject");
     assert_eq!(error.kind(), FeedParseErrorKind::TooManyEntries);
 
+    let nested = |arrays: usize| {
+        let mut json =
+            String::from("{\"version\":\"https://jsonfeed.org/version/1.1\",\"items\":[],\"x\":");
+        json.push_str(&"[".repeat(arrays));
+        json.push('0');
+        json.push_str(&"]".repeat(arrays));
+        json.push('}');
+        json
+    };
+    parse(fetched(nested(127), Some("application/json")))
+        .await
+        .expect("exactly 128 nested JSON containers are accepted");
+
     let mut deep =
         String::from("{\"version\":\"https://jsonfeed.org/version/1.1\",\"items\":[],\"x\":");
-    deep.push_str(&"[".repeat(129));
+    deep.push_str(&"[".repeat(128));
     deep.push('0');
-    deep.push_str(&"]".repeat(129));
+    deep.push_str(&"]".repeat(128));
     deep.push('}');
     let error = parse(fetched(deep, Some("application/json")))
         .await
-        .expect_err("JSON depth rejects");
+        .expect_err("129 nested JSON containers reject");
     assert_eq!(error.kind(), FeedParseErrorKind::DepthLimit);
 }
 
@@ -723,7 +769,11 @@ async fn json_feed_version_and_attachment_types_are_strict() {
     }
 
     for attachment in [
+        serde_json::json!({"mime_type":"audio/mpeg"}),
         serde_json::json!({"url":null,"mime_type":"audio/mpeg"}),
+        serde_json::json!({"url":7,"mime_type":"audio/mpeg"}),
+        serde_json::json!({"url":"https://example.test/a"}),
+        serde_json::json!({"url":"https://example.test/a","mime_type":null}),
         serde_json::json!({"url":"https://example.test/a","mime_type":1}),
         serde_json::json!({"url":"https://example.test/a","title":false}),
         serde_json::json!({"url":"https://example.test/a","size_in_bytes":-1}),
@@ -873,6 +923,225 @@ async fn json_feed_collection_and_string_boundaries_are_independent() {
             FeedParseErrorKind::MalformedJson
         );
     }
+}
+
+#[tokio::test]
+async fn json_author_inheritance_budget_is_exact() {
+    const ITEMS_AT_LIMIT: usize = 4_096;
+    let structural = 2 * person_struct_bytes() + small_string_struct_bytes();
+    let payload = MAX_PROJECTED_INHERITANCE_BYTES / ITEMS_AT_LIMIT - structural;
+    let name_len = payload % 2;
+    let avatar_len = (payload - 3 * name_len) / 2;
+    let per_item = structural + 3 * name_len + 2 * avatar_len;
+    assert_eq!(per_item * ITEMS_AT_LIMIT, MAX_PROJECTED_INHERITANCE_BYTES);
+
+    let document = |item_count: usize| {
+        let items = (0..item_count)
+            .map(|index| serde_json::json!({"id":index.to_string(),"content_text":"x"}))
+            .collect::<Vec<_>>();
+        serde_json::json!({
+            "version":"https://jsonfeed.org/version/1.1",
+            "authors":[{"name":"n".repeat(name_len),"avatar":"a".repeat(avatar_len)}],
+            "items":items
+        })
+        .to_string()
+    };
+
+    let parsed = parse(fetched(
+        document(ITEMS_AT_LIMIT),
+        Some("application/feed+json"),
+    ))
+    .await
+    .expect("exactly 32 MiB of projected JSON author inheritance is accepted");
+    assert_eq!(parsed.entries().len(), ITEMS_AT_LIMIT);
+
+    let expected = per_item * (ITEMS_AT_LIMIT + 1);
+    let error = parse(fetched(
+        document(ITEMS_AT_LIMIT + 1),
+        Some("application/feed+json"),
+    ))
+    .await
+    .expect_err("JSON author inheritance above 32 MiB rejects");
+    assert_eq!(
+        error.kind(),
+        FeedParseErrorKind::ProjectedInheritanceTooLarge
+    );
+    assert_eq!(error.byte_length(), Some(expected));
+}
+
+#[tokio::test]
+async fn json_language_inheritance_budget_is_exact() {
+    const ITEMS_AT_LIMIT: usize = 4_096;
+    let language_len =
+        MAX_PROJECTED_INHERITANCE_BYTES / ITEMS_AT_LIMIT / 2 - small_string_struct_bytes();
+    let per_item = 2 * (small_string_struct_bytes() + language_len);
+    assert_eq!(per_item * ITEMS_AT_LIMIT, MAX_PROJECTED_INHERITANCE_BYTES);
+
+    let document = |item_count: usize| {
+        let items = (0..item_count)
+            .map(|index| serde_json::json!({"id":index.to_string(),"content_text":"x"}))
+            .collect::<Vec<_>>();
+        serde_json::json!({
+            "version":"https://jsonfeed.org/version/1.1",
+            "language":"l".repeat(language_len),
+            "items":items
+        })
+        .to_string()
+    };
+
+    let parsed = parse(fetched(
+        document(ITEMS_AT_LIMIT),
+        Some("application/feed+json"),
+    ))
+    .await
+    .expect("exactly 32 MiB of projected JSON language inheritance is accepted");
+    assert_eq!(parsed.entries().len(), ITEMS_AT_LIMIT);
+
+    let expected = per_item * (ITEMS_AT_LIMIT + 1);
+    let error = parse(fetched(
+        document(ITEMS_AT_LIMIT + 1),
+        Some("application/feed+json"),
+    ))
+    .await
+    .expect_err("JSON language inheritance above 32 MiB rejects");
+    assert_eq!(
+        error.kind(),
+        FeedParseErrorKind::ProjectedInheritanceTooLarge
+    );
+    assert_eq!(error.byte_length(), Some(expected));
+}
+
+#[tokio::test]
+async fn atom_author_inheritance_budget_is_exact() {
+    let (entries_at_limit, name_len, uri_len) = (2_000..5_000)
+        .find_map(|entry_count| {
+            let structural = (entry_count + 1) * person_struct_bytes()
+                + entry_count * small_string_struct_bytes();
+            let payload_budget = MAX_PROJECTED_INHERITANCE_BYTES.checked_sub(structural)?;
+            let name_coefficient = 2 * entry_count + 1;
+            let uri_coefficient = entry_count + 1;
+            (0..=64 * 1024).find_map(|name_len| {
+                let name_bytes = name_coefficient * name_len;
+                let remainder = payload_budget.checked_sub(name_bytes)?;
+                if remainder % uri_coefficient == 0 {
+                    let uri_len = remainder / uri_coefficient;
+                    (uri_len <= 1024 * 1024).then_some((entry_count, name_len, uri_len))
+                } else {
+                    None
+                }
+            })
+        })
+        .expect("an exact bounded Atom author payload solution exists");
+    let vector_clone = person_struct_bytes() + name_len + uri_len;
+    let flat_clone = small_string_struct_bytes() + name_len;
+    let projected = vector_clone + entries_at_limit * (vector_clone + flat_clone);
+    assert_eq!(projected, MAX_PROJECTED_INHERITANCE_BYTES);
+
+    let document = |entry_count: usize| {
+        let mut xml = format!(
+            "<feed xmlns='http://www.w3.org/2005/Atom'><title>x</title><id>x</id><updated>2026-07-16T00:00:00Z</updated><author><name>{}</name><uri>{}</uri></author>",
+            "n".repeat(name_len),
+            "u".repeat(uri_len)
+        );
+        for index in 0..entry_count {
+            xml.push_str(&format!(
+                "<entry><id>{index}</id><title>x</title><updated>2026-07-16T00:00:00Z</updated></entry>"
+            ));
+        }
+        xml.push_str("</feed>");
+        xml
+    };
+
+    let parsed = parse(fetched(
+        document(entries_at_limit),
+        Some("application/atom+xml"),
+    ))
+    .await
+    .expect("exactly 32 MiB of projected Atom author inheritance is accepted");
+    assert_eq!(parsed.entries().len(), entries_at_limit);
+
+    let expected = projected + vector_clone + flat_clone;
+    let error = parse(fetched(
+        document(entries_at_limit + 1),
+        Some("application/atom+xml"),
+    ))
+    .await
+    .expect_err("Atom author inheritance above 32 MiB rejects");
+    assert_eq!(
+        error.kind(),
+        FeedParseErrorKind::ProjectedInheritanceTooLarge
+    );
+    assert_eq!(error.byte_length(), Some(expected));
+}
+
+#[tokio::test]
+async fn atom_language_inheritance_budget_is_exact() {
+    const ENTRIES_AT_LIMIT: usize = 4_096;
+    let language_len =
+        MAX_PROJECTED_INHERITANCE_BYTES / ENTRIES_AT_LIMIT - small_string_struct_bytes();
+    let per_entry = small_string_struct_bytes() + language_len;
+    assert_eq!(
+        per_entry * ENTRIES_AT_LIMIT,
+        MAX_PROJECTED_INHERITANCE_BYTES
+    );
+
+    let document = |entry_count: usize| {
+        let mut xml = format!(
+            "<feed xmlns='http://www.w3.org/2005/Atom' xml:lang='{}'><title xml:lang=''>x</title><id>x</id><updated>2026-07-16T00:00:00Z</updated>",
+            "l".repeat(language_len)
+        );
+        for index in 0..entry_count {
+            xml.push_str(&format!(
+                "<entry><id>{index}</id><title>x</title><updated>2026-07-16T00:00:00Z</updated></entry>"
+            ));
+        }
+        xml.push_str("</feed>");
+        xml
+    };
+
+    let parsed = parse(fetched(
+        document(ENTRIES_AT_LIMIT),
+        Some("application/atom+xml"),
+    ))
+    .await
+    .expect("exactly 32 MiB of projected Atom language inheritance is accepted");
+    assert_eq!(parsed.entries().len(), ENTRIES_AT_LIMIT);
+
+    let expected = per_entry * (ENTRIES_AT_LIMIT + 1);
+    let error = parse(fetched(
+        document(ENTRIES_AT_LIMIT + 1),
+        Some("application/atom+xml"),
+    ))
+    .await
+    .expect_err("Atom language inheritance above 32 MiB rejects");
+    assert_eq!(
+        error.kind(),
+        FeedParseErrorKind::ProjectedInheritanceTooLarge
+    );
+    assert_eq!(error.byte_length(), Some(expected));
+}
+
+#[tokio::test]
+async fn empty_feed_authors_cannot_bypass_structural_inheritance_budget() {
+    let authors = (0..256).map(|_| serde_json::json!({})).collect::<Vec<_>>();
+    let items = (0..5_000)
+        .map(|index| serde_json::json!({"id":index.to_string(),"content_text":"x"}))
+        .collect::<Vec<_>>();
+    let projected = 5_000 * 257 * person_struct_bytes();
+    assert!(projected > MAX_PROJECTED_INHERITANCE_BYTES);
+    let document = serde_json::json!({
+        "version":"https://jsonfeed.org/version/1.1",
+        "authors":authors,
+        "items":items
+    });
+    let error = parse(fetched(document.to_string(), Some("application/feed+json")))
+        .await
+        .expect_err("structural Person clones count even when every payload is empty");
+    assert_eq!(
+        error.kind(),
+        FeedParseErrorKind::ProjectedInheritanceTooLarge
+    );
+    assert_eq!(error.byte_length(), Some(projected));
 }
 
 #[tokio::test]
