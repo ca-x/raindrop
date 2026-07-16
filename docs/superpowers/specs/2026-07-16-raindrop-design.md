@@ -65,7 +65,7 @@ Rust 使用 Axum、Tokio 和 SeaORM；React 资源由同一程序提供。数据
 - Tokio：异步运行时和抓取工作池。
 - SeaORM + sea-orm-migration：SQLite、PostgreSQL、MySQL 的统一实体和迁移。
 - reqwest + rustls：Feed/OIDC HTTP 客户端。
-- feed-rs：RSS/Atom/JSON Feed 解析。
+- feedparser-rs 0.5.5：RSS 0.90/0.91/0.92/1.0/2.0、Atom 0.3/1.0 与 JSON Feed 1.0/1.1 解析；关闭默认 `http` feature，抓取仍只经过 Raindrop 的 SSRF-safe transport，任何格式中的 DTD/ENTITY 仍由项目安全策略拒绝。
 - openidconnect：Authorization Code + PKCE + nonce/state。
 - tower-sessions 或等价的服务端会话抽象；会话令牌只以哈希形式存库。
 - argon2：Argon2id 密码哈希。

@@ -6,7 +6,7 @@
 
 **Architecture:** The relational database remains the record system. Feeds and entries are shared globally; subscriptions and sparse entry state are user-owned. Network, decompression, parsing, sanitization, and synchronous content processing happen outside database transactions. Short transactions use unique constraints, monotonic feed sequences, a global ingest generation, and lease fencing tokens for idempotent persistence.
 
-**Tech Stack:** Rust 1.94, Axum 0.8, Tokio 1.52, SeaORM/sea-orm-migration declared as 1.1.19 and locked to 1.1.20, reqwest 0.13.4 with rustls and stream only, feed-rs 2.4.0 without `sanitize`, quick-xml 0.41.0, ammonia 4.1.3, async-compression 0.4.42, ipnet 2.12.0, BLAKE3, SQLite/PostgreSQL/MySQL.
+**Tech Stack:** Rust 1.94, Axum 0.8, Tokio 1.52, SeaORM/sea-orm-migration declared as 1.1.19 and locked to 1.1.20, reqwest 0.13.4 with rustls and stream only, feedparser-rs 0.5.5 without its default `http` feature, quick-xml 0.41.0, ammonia 4.1.3, async-compression 0.4.42, ipnet 2.12.0, BLAKE3, SQLite/PostgreSQL/MySQL.
 
 ## Global Constraints
 
@@ -18,6 +18,7 @@
 - Do not execute network, XML/JSON parsing, HTML sanitization, plugins, AI, MCP, or notifications inside a database transaction.
 - Default subscription policy accepts HTTPS only. HTTP requires an instance-level `allow_insecure_http` policy; HTTPS redirects may never downgrade to HTTP.
 - Disable automatic redirects, ambient/system proxy use, and automatic response decompression. Revalidate and pin DNS addresses on every redirect hop, with at most five redirects.
+- `feedparser-rs` is parser-only: keep its default `http` feature disabled and never call parser-owned URL fetching. Call `parse_with_limits` only after Raindrop MIME/encoding/XML preflight, reject unknown format and every `bozo` result, and immediately map crate types into owned domain types.
 - Default limits are DNS 3 s, connect/TLS 5 s, first byte 10 s, body idle 10 s, one hop 20 s, whole refresh 30 s, compressed body 2 MiB, decoded body 10 MiB, compression ratio 100:1, 5,000 entries, and XML depth 128.
 - Server-side HTML sanitization is mandatory. React never receives raw Feed XML or unsanitized publisher HTML; remote images remain inert by default.
 - Deterministic fixtures and local scripted servers are mandatory CI evidence. `https://www.ithome.com/rss/` is an ignored, opt-in smoke guarded by `RAINDROP_LIVE_RSS_SMOKE=1` and is not a pull-request gate.
@@ -388,6 +389,9 @@ git commit -m "feat: fetch feeds through pinned transport"
 - Modify: `src/lib.rs`
 - Create: `tests/fixtures/rss_2_60_items.xml`
 - Create: `tests/fixtures/atom_mixed.xml`
+- Create: `tests/fixtures/rss_1_rdf.xml`
+- Create: `tests/fixtures/json_feed.json`
+- Create: `tests/fixtures/rss_windows_1252.xml`
 - Create: `tests/fixtures/rss_identity_edges.xml`
 - Create: `tests/fixtures/malicious_html.xml`
 - Create: `tests/fixtures/unsafe_xml.xml`
@@ -396,9 +400,10 @@ git commit -m "feat: fetch feeds through pinned transport"
 
 **Interfaces:**
 
-- Add `feed-rs = { version = "2.4.0", default-features = false }`, `quick-xml = "0.41.0"`, and `ammonia = "4.1.3"`.
-- `preflight_xml(&[u8])` rejects DTD/ENTITY, nesting deeper than 128, more than 1,000,000 XML events, more than 256 attributes on one element, and any single attribute value over 64 KiB before feed-rs parses.
-- `parse_feed(FetchedDocument) -> Result<ParsedFeed, FeedParseError>` supports RSS/Atom/JSON Feed, caps 5,000 entries, title at 64 KiB, one entry content at 1 MiB, all normalized entry text at 16 MiB, 64 enclosures per entry, and canonical enclosure JSON at 256 KiB. It retains `published_at_us=None` when the source has no date.
+- Confirm the already-adopted `feedparser-rs = { version = "=0.5.5", default-features = false }`; add direct `quick-xml = "0.41.0"` and `ammonia = "4.1.3"`. The exact parser pin and committed lockfile prevent an unreviewed 0.5.x behavior change, and the optional `http` feature stays absent so it cannot bypass the pinned transport.
+- Decode the bounded body with `feedparser_rs::util::encoding::detect_encoding_with_hint(raw, content_type)` plus `convert_to_utf8`; conversion errors are typed rejects rather than lossy fallback. For XML, `preflight_xml(&str) -> PreflightedXml` fully consumes to EOF, rejects DTD/ENTITY, nesting deeper than 128, more than 1,000,000 XML events, more than 256 attributes on one element, and any single attribute value over 64 KiB. Its parser bytes are the strictly converted UTF-8 bytes with only a leading BOM and XML declaration removed; it must not reserialize events, reorder attributes, collapse whitespace, decode entities, or rewrite CDATA. `parse_with_limits` receives that representation, preventing a stale ISO-8859-1/Windows-1252 declaration from causing a second decode. JSON Feed bypasses XML preflight but receives the same strictly converted UTF-8/body budgets.
+- `FeedParser::parse(FetchedDocument) -> Result<ParsedFeed, FeedParseError>` is async and uses one process-wide `Arc<Semaphore>` with exactly two permits. It acquires an `OwnedSemaphorePermit` and moves that permit into the `spawn_blocking` closure, so caller cancellation cannot release capacity while blocking parsing still runs; the closure drops the permit only after parsing and mapping finish. Join and semaphore-closure failures are typed. It calls `feedparser_rs::parse_with_limits` with 10 MiB input, 5,000 entries, depth 128, 1 MiB parser text, 64 enclosures, and 64 KiB attribute limits, then enforces title at 64 KiB, all normalized entry text at 16 MiB, and canonical enclosure JSON at 256 KiB. RSS 0.90/0.91/0.92/1.0/2.0, Atom 0.3/1.0, and JSON Feed 1.0/1.1 remain supported within the DTD/ENTITY-free security profile. `FeedVersion::Unknown`, every `bozo=true`, and every nonempty `bozo_exception` reject with a typed error; the warning allowlist is empty. Missing source dates remain `published_at_us=None`.
+- Do not use `feedparser_rs::parse_url`, `FeedHttpClient`, or its generic sanitizer helpers. Parser values are untrusted structure only; immediately map them to owned Raindrop types, revalidate all resolved links against the final response URL, and sanitize entry HTML with Raindrop's explicit ammonia policy.
 - `sanitize_entry_html(base_url, input) -> SanitizedContent` removes scripts/styles/forms/frames/SVG/MathML, event handlers, style/class/id/data attributes, unsafe schemes, `srcset`, and tracking attributes.
 - Anchors retain only safe HTTP(S) hrefs. Images become inert records that retain safe original URL metadata and alt/width/height but no active remote `src`.
 - Content hash is calculated after sanitization. Publisher-only tracking/style changes do not create a content update.
@@ -412,8 +417,12 @@ Required tests:
 ```text
 RSS 2.0 fixture parses exactly 60 stable identities
 Atom xml:base and published/updated map correctly
+RSS 1.0/RDF and JSON Feed fixtures map through the same owned domain contract
+HTTP charset and XML declaration precedence decode a non-UTF-8 fixture exactly once without mojibake
 duplicate/missing GUIDs follow deterministic identity precedence
-DOCTYPE/entity/deep XML reject without panic
+DOCTYPE/entity/deep/truncated XML and every bozo result reject without panic or partial persistence
+preflight removes only BOM/XML declaration and preserves whitespace, CDATA, entity text, element order, and attributes byte-for-byte
+aborting two parser awaiters does not admit a third call until both blocking closures release their owned permits
 wrong-but-tolerated MIME parses only after safe body sniff
 malicious HTML loses scripts/events/styles/forms/frames/SVG/unsafe URLs
 remote image HTML is inert and cannot initiate a request
@@ -427,20 +436,21 @@ Define `FetchedDocument`, `ParsedFeed`, `ParsedEntry`, `SanitizedContent`, and t
 
 - [ ] **Step 3: Implement one corpus behavior at a time**
 
-Implement and run focused RED/GREEN tests in this order: MIME sniff; XML DTD/entity/depth/event/attribute budgets; RSS 2.0 mapping; Atom/xml:base; identity folding; per-field/total/enclosure budgets; sanitizer allowlist; inert images; stable sanitized hash. MIME handling accepts XML/JSON Feed MIME directly. `text/plain`, `text/html`, and `application/octet-stream` parse only when BOM/whitespace-stripped body sniff begins with XML/RSS/Atom/RDF or a JSON object. Binary/image/audio/video/PDF bodies reject.
+Implement and run focused RED/GREEN tests in this order: MIME sniff and encoding conversion; XML DTD/entity/depth/event/attribute budgets; feedparser-rs limit/bozo mapping; RSS 2.0; Atom/xml:base; RSS 1.0/RDF; JSON Feed; identity folding; per-field/total/enclosure budgets; sanitizer allowlist; inert images; stable sanitized hash. MIME handling accepts XML/JSON Feed MIME directly. `text/plain`, `text/html`, and `application/octet-stream` parse only when BOM/whitespace-stripped body sniff begins with XML/RSS/Atom/RDF or a JSON object. Binary/image/audio/video/PDF bodies reject.
 
 Feed mapping resolves relative links against `xml:base` or final response URL, then restricts them to credential-free HTTP(S) and removes fragments. Duplicate identities within one document choose the newer source timestamp, then stable document order.
 
 - [ ] **Step 4: Verify corpus and dependency graph**
 
 ```bash
-cargo tree --locked -e features | rg "feed-rs|quick-xml|ammonia"
+cargo tree --locked -p feedparser-rs@0.5.5 -e features
+! cargo tree --locked -e features | rg 'feedparser-rs feature "(default|http)"|reqwest feature "blocking"'
 cargo fmt --check
 cargo clippy --locked --all-targets --all-features -- -D warnings
 cargo test --locked --test feed_parse_sanitize -- --nocapture
 ```
 
-Expected: PASS; feed-rs `sanitize` feature is absent.
+Expected: PASS; one quick-xml 0.41 line is shared by the direct preflight and feedparser-rs, ammonia is shared by the parser dependency graph and Raindrop sanitizer, and feedparser-rs has no `http`/reqwest feature path.
 
 - [ ] **Step 5: Commit**
 
@@ -608,7 +618,7 @@ git commit -m "feat: record feed lifecycle events"
 - `subscribe(user_id, SubscribeInput { url }) -> Result<SubscriptionDto, FeedServiceError>` creates/reuses the shared Feed, creates the user-owned Subscription with start/read-through equal to the current feed head, and queues/executes a `SUBSCRIBE` refresh through the same refresh path.
 - `EntryRepository::list_for_user(user_id, ListEntriesQuery) -> Result<EntryPage, RepositoryError>` uses subscription joins and a versioned base64url cursor containing `v=1`, `filter_hash`, `snapshot_generation`, `sort_at_us`, and `entry_id`. `get_detail_for_user(user_id, entry_id)` must join a Subscription; opaque entry IDs never authorize access.
 - The deterministic E2E path injects a fake `FeedTransport` that returns the synthetic 60-item bounded document: subscribe -> parse -> sanitize -> persist -> user-scoped list/detail DTO -> second refresh idempotency. It does not require a production loopback bypass.
-- The IT Home smoke is `#[ignore]`, also checks `RAINDROP_LIVE_RSS_SMOKE=1`, uses a temporary SQLite database and at most two requests to `https://www.ithome.com/rss/`, and never fetches article pages/images.
+- The IT Home smoke is `#[ignore]`, also checks `RAINDROP_LIVE_RSS_SMOKE=1`, uses a temporary SQLite database and at most two requests to `https://www.ithome.com/rss/`, passes the original response through the production charset conversion/preflight/feedparser-rs path without ad hoc whitespace or structural rewriting, and never fetches article pages/images.
 - Live smoke hard assertions are successful secure parse, 50..=100 entries, unique identities, safe sanitized content, list/detail visibility, and second-refresh database deduplication. Current 60-item size, Brotli ratio, and Last-Modified/304 are diagnostic expectations, not permanent exact values.
 
 - [ ] **Step 1: Write the deterministic failing vertical test**
@@ -644,7 +654,7 @@ Expected: PASS; first successful representation has 50..=100 unique entries, cur
 
 - [ ] **Step 4: Document security boundaries and update evidence checklist**
 
-`docs/rss-security.md` records scheme policy, SSRF address classes, DNS pinning, redirect rules, body/time limits, XML preflight, sanitizer policy, error redaction, and the exact opt-in smoke command. Mark only completed RSS checklist items; do not mark scheduling/API/Reader work that this plan has not delivered.
+`docs/rss-security.md` records scheme policy, SSRF address classes, DNS pinning, redirect rules, body/time limits, XML preflight, sanitizer policy, error redaction, the exact opt-in smoke command, and two existing audit exceptions. `RUSTSEC-2023-0071` is limited to sqlx-mysql's client-side RSA public-key encryption path and does not perform the private-key decryption targeted by Marvin; `RUSTSEC-2026-0173` is an unmaintained build-time SeaORM proc-macro dependency already tracked in `tasks/todo.md`. Both exceptions name their inverse dependency path and must be removed or re-reviewed on every SeaORM/sqlx upgrade. Mark only completed RSS checklist items; do not mark scheduling/API/Reader work that this plan has not delivered.
 
 - [ ] **Step 5: Run the complete data-ingestion gate**
 
@@ -655,11 +665,13 @@ cargo clippy --locked --all-targets --all-features -- -D warnings
 cargo test --locked --all-features
 cargo tree --locked -e features -i reqwest
 ! cargo tree --locked -e features | rg 'system-proxy|cookies|native-tls|http3'
-cargo audit
+cargo tree --locked -i rsa
+cargo tree --locked -i proc-macro-error2
+cargo audit --ignore RUSTSEC-2023-0071 --ignore RUSTSEC-2026-0173
 git diff --check
 ```
 
-Expected: every command exits 0. Run the IT Home smoke separately and record its date/count/304 behavior without copying Feed content into the repository.
+Expected: every command exits 0; the two ignored advisories match only the documented existing sqlx-mysql and SeaORM macro paths, and the feedparser-rs subtree introduces no ignored advisory. Run the IT Home smoke separately and record its date/count/304 behavior without copying Feed content into the repository.
 
 - [ ] **Step 6: Commit**
 
