@@ -2,7 +2,7 @@ use std::fmt;
 
 use super::FeedUrlError;
 use super::IdentityError;
-use super::url_policy::normalize_identity_url;
+use super::url_policy::{has_http_scheme, normalize_identity_url};
 
 const MAX_IDENTITY_BYTES: usize = 65_536;
 const FINGERPRINT_CONTEXT: &str = "raindrop.entry-fingerprint.v1";
@@ -136,12 +136,12 @@ impl EntryIdentity {
         stable_fields: StableEntryFields,
     ) -> Result<Self, IdentityError> {
         if let Some(guid) = normalize_guid(guid)? {
-            if begins_with_http_scheme(&guid) {
-                if authority_has_userinfo(&guid) {
-                    return Err(IdentityError::CredentialsForbidden);
-                }
+            if has_http_scheme(&guid) {
                 match normalize_identity_url(&guid) {
                     Ok(url) => return Ok(Self::new(IdentityKind::Url, url)),
+                    Err(FeedUrlError::CredentialsForbidden) => {
+                        return Err(IdentityError::CredentialsForbidden);
+                    }
                     Err(FeedUrlError::TooLong) => return Err(IdentityError::TooLong),
                     Err(_) => {}
                 }
@@ -256,25 +256,6 @@ fn normalize_required_identity_url(raw: &str) -> Result<String, IdentityError> {
         FeedUrlError::TooLong => IdentityError::TooLong,
         _ => IdentityError::InvalidUrl,
     })
-}
-
-fn begins_with_http_scheme(raw: &str) -> bool {
-    raw.get(..7)
-        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("http://"))
-        || raw
-            .get(..8)
-            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("https://"))
-}
-
-fn authority_has_userinfo(raw: &str) -> bool {
-    let Some(scheme_end) = raw.find("://") else {
-        return false;
-    };
-    let authority = &raw[scheme_end + 3..];
-    let authority_end = authority
-        .find(['/', '?', '#', '\\'])
-        .unwrap_or(authority.len());
-    authority[..authority_end].contains('@')
 }
 
 fn append_optional(encoded: &mut Vec<u8>, tag: u8, value: Option<&[u8]>) {

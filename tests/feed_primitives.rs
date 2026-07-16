@@ -113,6 +113,41 @@ fn feed_url_authority_scanning_does_not_treat_path_or_query_at_signs_as_userinfo
 }
 
 #[test]
+fn feed_url_policy_requires_literal_double_slash_after_http_schemes() {
+    let policy = FeedUrlPolicy::new(true);
+    for (raw, expected) in [
+        ("https:/example.com/feed", FeedUrlError::Invalid),
+        (r"https:\example.com/feed", FeedUrlError::Invalid),
+        (
+            "https:/user@example.com/feed",
+            FeedUrlError::CredentialsForbidden,
+        ),
+        (
+            r"https:\user@example.com/feed",
+            FeedUrlError::CredentialsForbidden,
+        ),
+        ("https:///example.com/feed", FeedUrlError::Invalid),
+        (r"https://\example.com/feed", FeedUrlError::Invalid),
+        ("https://", FeedUrlError::Invalid),
+        ("https://?token=secret", FeedUrlError::Invalid),
+        ("https://#fragment", FeedUrlError::Invalid),
+        ("https://example.com:/feed", FeedUrlError::Invalid),
+        ("HTTP:/example.com/feed", FeedUrlError::Invalid),
+        ("HTTP:///example.com/feed", FeedUrlError::Invalid),
+        (
+            r"HtTp:\user@example.com/feed",
+            FeedUrlError::CredentialsForbidden,
+        ),
+    ] {
+        assert_eq!(
+            policy.normalize(raw),
+            Err(expected),
+            "malformed HTTP authority was accepted: {raw}"
+        );
+    }
+}
+
+#[test]
 fn feed_url_policy_enforces_raw_and_normalized_size_limits() {
     let policy = FeedUrlPolicy::new(false);
     let exact_limit = format!("https://example.com/?{}", "a".repeat(4_075));
@@ -326,22 +361,57 @@ fn address_policy_unwraps_all_reviewed_ipv4_transition_forms_first() {
 }
 
 #[test]
-fn configured_nat64_extracts_rfc6052_vectors_at_all_six_lengths() {
+fn configured_nat64_extracts_public_and_special_ipv4_at_all_six_lengths() {
     let vectors = [
-        ("2400:db8::", 32, "2400:db8:c000:221::"),
-        ("2401:db8:100::", 40, "2401:db8:1c0:2:21::"),
-        ("2402:db8:122::", 48, "2402:db8:122:c000:2:2100::"),
-        ("2403:db8:122:300::", 56, "2403:db8:122:3c0:0:221::"),
-        ("2404:db8:122:344::", 64, "2404:db8:122:344:c0:2:2100:0"),
-        ("2405:db8:122:344::", 96, "2405:db8:122:344::c000:221"),
+        (
+            "2400:db8::",
+            32,
+            "2400:db8:808:808::",
+            "2400:db8:c000:221::",
+        ),
+        (
+            "2401:db8:100::",
+            40,
+            "2401:db8:108:808:8::",
+            "2401:db8:1c0:2:21::",
+        ),
+        (
+            "2402:db8:122::",
+            48,
+            "2402:db8:122:808:8:800::",
+            "2402:db8:122:c000:2:2100::",
+        ),
+        (
+            "2403:db8:122:300::",
+            56,
+            "2403:db8:122:308:8:808::",
+            "2403:db8:122:3c0:0:221::",
+        ),
+        (
+            "2404:db8:122:344::",
+            64,
+            "2404:db8:122:344:8:808:800:0",
+            "2404:db8:122:344:c0:2:2100:0",
+        ),
+        (
+            "2405:db8:122:344::",
+            96,
+            "2405:db8:122:344::808:808",
+            "2405:db8:122:344::c000:221",
+        ),
     ];
 
-    for (prefix, length, candidate) in vectors {
+    for (prefix, length, public_candidate, special_candidate) in vectors {
         let policy = AddressPolicy::with_nat64_prefixes([ipv6_net(prefix, length)]).unwrap();
         assert_eq!(
-            policy.classify(IpAddr::V6(Ipv6Addr::from_str(candidate).unwrap())),
+            policy.classify(IpAddr::V6(Ipv6Addr::from_str(public_candidate).unwrap())),
+            AddressDecision::Allowed,
+            "public RFC 6052 extraction failed for /{length}"
+        );
+        assert_eq!(
+            policy.classify(IpAddr::V6(Ipv6Addr::from_str(special_candidate).unwrap())),
             AddressDecision::Denied(AddressDenyReason::EmbeddedIpv4),
-            "RFC 6052 extraction failed for /{length}"
+            "special RFC 6052 extraction failed for /{length}"
         );
     }
 }
@@ -539,19 +609,37 @@ fn entry_identity_uses_guid_then_canonical_url_then_fingerprint() {
 
 #[test]
 fn entry_identity_rejects_credential_like_url_guids_without_leaking_them() {
-    let raw = "https://publisher:top-secret@example.com:bad/post?token=also-secret";
-    let error = EntryIdentity::from_parts(
+    for raw in [
+        "https://publisher:top-secret@example.com:bad/post?token=also-secret",
+        "https:/publisher:top-secret@example.com/feed",
+        r"HtTp:\publisher:top-secret@example.com/feed",
+    ] {
+        let error = EntryIdentity::from_parts(
+            Some(raw),
+            None,
+            StableEntryFields::new(None, None, None, None, None).unwrap(),
+        )
+        .unwrap_err();
+        assert_eq!(error, IdentityError::CredentialsForbidden);
+        let rendered = format!("{error:?}: {error}");
+        for secret in [raw, "publisher", "top-secret", "also-secret"] {
+            assert!(!rendered.contains(secret));
+        }
+        assert!(std::error::Error::source(&error).is_none());
+    }
+}
+
+#[test]
+fn invalid_noncredential_url_like_guid_remains_opaque() {
+    let raw = "https://example.com:bad/post";
+    let identity = EntryIdentity::from_parts(
         Some(raw),
         None,
         StableEntryFields::new(None, None, None, None, None).unwrap(),
     )
-    .unwrap_err();
-    assert_eq!(error, IdentityError::CredentialsForbidden);
-    let rendered = format!("{error:?}: {error}");
-    for secret in [raw, "publisher", "top-secret", "also-secret"] {
-        assert!(!rendered.contains(secret));
-    }
-    assert!(std::error::Error::source(&error).is_none());
+    .unwrap();
+    assert_eq!(identity.kind(), IdentityKind::Guid);
+    assert_eq!(identity.identity(), raw);
 }
 
 #[test]
@@ -783,6 +871,15 @@ fn opaque_validator_rejects_unknown_corrupt_and_noncanonical_storage() {
         assert!(!format!("{error:?}: {error}").contains(storage));
         assert!(std::error::Error::source(&error).is_none());
     }
+}
+
+#[test]
+fn opaque_validator_rejects_oversized_encoded_storage_before_decoding() {
+    let storage = format!("v1:{}", "A".repeat(10_925));
+    assert_eq!(
+        OpaqueValidator::from_storage(&storage),
+        Err(ValidatorError::TooLong)
+    );
 }
 
 #[test]

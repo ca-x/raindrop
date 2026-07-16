@@ -87,15 +87,13 @@ pub(crate) fn normalize_identity_url(raw: &str) -> Result<String, FeedUrlError> 
     normalize(raw, true).map(|url| url.complete)
 }
 
+pub(crate) fn has_http_scheme(raw: &str) -> bool {
+    http_scheme_remainder(raw).is_some()
+}
+
 fn normalize(raw: &str, allow_insecure_http: bool) -> Result<NormalizedFeedUrl, FeedUrlError> {
     validate_raw(raw)?;
-
-    if authority_has_userinfo(raw) {
-        return Err(FeedUrlError::CredentialsForbidden);
-    }
-    if raw_authority(raw).is_some_and(|authority| authority.ends_with(':')) {
-        return Err(FeedUrlError::Invalid);
-    }
+    validate_raw_http_authority(raw)?;
 
     let mut url = Url::parse(raw).map_err(|_| FeedUrlError::Invalid)?;
     let scheme = match url.scheme() {
@@ -160,8 +158,53 @@ fn validate_raw(raw: &str) -> Result<(), FeedUrlError> {
     Ok(())
 }
 
-fn authority_has_userinfo(raw: &str) -> bool {
-    raw_authority(raw).is_some_and(|authority| authority.contains('@'))
+fn validate_raw_http_authority(raw: &str) -> Result<(), FeedUrlError> {
+    let Some(remainder) = http_scheme_remainder(raw) else {
+        return Ok(());
+    };
+    if !remainder.starts_with("//") {
+        return if malformed_authority_has_userinfo(remainder) {
+            Err(FeedUrlError::CredentialsForbidden)
+        } else {
+            Err(FeedUrlError::Invalid)
+        };
+    }
+
+    let authority = raw_authority(raw).ok_or(FeedUrlError::Invalid)?;
+    if authority.is_empty() {
+        return Err(FeedUrlError::Invalid);
+    }
+    if authority.contains('@') {
+        return Err(FeedUrlError::CredentialsForbidden);
+    }
+    if authority.ends_with(':') {
+        return Err(FeedUrlError::Invalid);
+    }
+    Ok(())
+}
+
+fn malformed_authority_has_userinfo(remainder: &str) -> bool {
+    let candidate = remainder.trim_start_matches(['/', '\\']);
+    let candidate_end = candidate
+        .find(['/', '?', '#', '\\'])
+        .unwrap_or(candidate.len());
+    candidate[..candidate_end].contains('@')
+}
+
+fn http_scheme_remainder(raw: &str) -> Option<&str> {
+    if raw
+        .get(..5)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("http:"))
+    {
+        raw.get(5..)
+    } else if raw
+        .get(..6)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("https:"))
+    {
+        raw.get(6..)
+    } else {
+        None
+    }
 }
 
 fn raw_authority(raw: &str) -> Option<&str> {

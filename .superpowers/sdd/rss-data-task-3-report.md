@@ -23,8 +23,9 @@ was specifically the missing public module required by the brief, rather than a
 test-only bypass or an unrelated dependency failure.
 
 The implementation then proceeded through URL, address, identity, validator,
-and scheduler slices. The final primitive suite contains 40 public-interface
-behavior tests and is GREEN on both the current toolchain and Rust 1.94.0.
+and scheduler slices. After the review-fix wave described below, the primitive
+suite contains 43 public-interface behavior tests and is GREEN on both the
+current toolchain and Rust 1.94.0.
 
 ## Implementation
 
@@ -70,7 +71,7 @@ frame/fingerprint/index hash. They also cover:
   inclusive and invalid jitter, delta/date/past/skew/overflow Retry-After cases,
   checked next-time overflow, and the four-hour cap.
 
-## Verification results
+## Initial implementation verification results
 
 All commands were run from
 `/home/czyt/code/rust/raindrop/.worktrees/foundation-bootstrap` after dependency
@@ -107,9 +108,12 @@ clippy.
   `http 1.4.2`, `httpdate 1.0.3`, and `blake3 1.8.5` remain unchanged.
 - There is no direct `idna` dependency.
 - `feedparser-rs` remains exactly `=0.5.5` with `default-features = false`.
-- The commit stages only Task 3 files plus this report. The known main-thread
-  change to `docs/superpowers/plans/2026-07-16-rss-data-ingestion.md` is not
-  staged. The root `node_modules/` directory is not touched or staged.
+- The initial implementation commit `961d0ac` staged only Task 3 files plus this
+  report. Commit `e99bd97` separately committed the reviewed plan/API
+  corrections after implementation; the main controller explicitly authorized
+  that documentation-only scope under the user's delegated internal review
+  authority. This review-fix wave does not alter the plan. The root
+  `node_modules/` directory is not touched or staged.
 
 ## Self-review and limitations
 
@@ -126,3 +130,82 @@ clippy.
 - As required, Task 3 does not implement RFC 7050/DNS64 discovery, Hickory,
   hostname resolution, HTTP execution, redirects beyond URL policy validation,
   database writes, or feed parsing. Those remain Task 4+ handoffs.
+
+## Review fix wave
+
+The post-implementation review identified three security/coverage gaps and one
+safe simplification. They were addressed without widening Task 3 scope:
+
+- HTTP(S) inputs now require a case-insensitive `http:`/`https:` scheme followed
+  by literal `//` and a nonempty raw authority before `Url::parse`. Single slash,
+  backslash, triple slash, empty authority, and empty port forms fail closed.
+  Credential-looking malformed authority segments return
+  `CredentialsForbidden` before generic `Invalid`; well-formed path/query `@`
+  remains non-credential data.
+- Validator storage rejects an encoded portion longer than 10,923 bytes before
+  alphabet scanning or base64 decoding, bounding work before allocation.
+- Every RFC 6052 prefix length now has independent, hard-coded IPv6 candidates
+  for public embedded `8.8.8.8` and denied special `192.0.2.33`, so a constant or
+  wrong bit-slice extractor cannot satisfy both assertions.
+- Entry identity uses the shared URL normalizer for the only raw authority rule.
+  Case-insensitive `http:`/`https:` GUIDs with credential-looking malformed
+  authorities cannot downgrade to opaque; invalid non-credential URL-like GUIDs
+  may remain opaque as specified.
+
+### Review-fix TDD evidence
+
+```text
+cargo test --locked --test feed_primitives \
+  feed_url_policy_requires_literal_double_slash_after_http_schemes -- --nocapture
+RED: exit 101; old code accepted https:/example.com/feed
+
+cargo test --locked --test feed_primitives \
+  opaque_validator_rejects_oversized_encoded_storage_before_decoding -- --nocapture
+RED: exit 101; old code returned InvalidEncoding instead of TooLong
+
+cargo test --locked --test feed_primitives \
+  feed_url_policy_requires_literal_double_slash_after_http_schemes -- --nocapture
+RED priority check: exit 101; old gate returned Invalid instead of
+CredentialsForbidden for https:/user@example.com/feed
+```
+
+The RFC 6052 change strengthened an already-correct implementation with
+independent positive/negative literals; the new coverage was GREEN when first
+run. The identity simplification was protected by credential-like malformed URL,
+invalid non-credential URL-like, and well-formed path/query `@` regressions.
+
+### Review-fix verification results
+
+```text
+cargo test --locked --test feed_primitives -- --nocapture
+PASS: 43 passed, 0 failed
+
+cargo +1.94.0 test --locked --test feed_primitives -- --nocapture
+PASS: 43 passed, 0 failed
+
+cargo fmt --check
+PASS: exit 0
+
+cargo clippy --locked --all-targets --all-features -- -D warnings
+PASS: exit 0
+
+cargo test --locked --all-features
+PASS: 86 passed, 0 failed across all unit/integration/doc test targets
+
+git diff --check
+PASS: exit 0
+```
+
+The same existing `proc-macro-error2 v2.0.1` future-incompatibility notice was
+emitted by Cargo; Task 3 code remained warning-free under clippy `-D warnings`.
+
+### Review-fix self-review
+
+- The raw authority analyzer is shared by feed URL and identity URL
+  normalization; identity contains no duplicate authority scan.
+- Credential error priority is fixed before parser normalization, while path and
+  query `@` are inspected only after a valid nonempty raw authority boundary.
+- The validator encoded-size check precedes both the alphabet walk and decode.
+- RFC 6052 extraction remains private; tests exercise only `AddressPolicy`.
+- `Cargo.toml` and `Cargo.lock` are unchanged by this review wave, and
+  `node_modules/` remains untracked and unstaged.

@@ -6,6 +6,7 @@ use http::HeaderValue;
 use super::{NormalizedFeedUrl, ValidatorError};
 
 const MAX_VALIDATOR_BYTES: usize = 8_192;
+const MAX_ENCODED_VALIDATOR_BYTES: usize = 10_923;
 const STORAGE_PREFIX: &str = "v1:";
 
 #[derive(Eq, PartialEq)]
@@ -28,6 +29,9 @@ impl OpaqueValidator {
         };
         if encoded.is_empty() {
             return Err(ValidatorError::Empty);
+        }
+        if encoded.len() > MAX_ENCODED_VALIDATOR_BYTES {
+            return Err(ValidatorError::TooLong);
         }
         if !encoded
             .bytes()
