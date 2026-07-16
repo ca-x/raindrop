@@ -1,4 +1,4 @@
-import { AppShell } from "@astryxdesign/core/AppShell"
+import { AppShell, useAppShellMobile } from "@astryxdesign/core/AppShell"
 import { Banner } from "@astryxdesign/core/Banner"
 import { Button } from "@astryxdesign/core/Button"
 import { EmptyState } from "@astryxdesign/core/EmptyState"
@@ -7,7 +7,7 @@ import { Section } from "@astryxdesign/core/Section"
 import { Stack } from "@astryxdesign/core/Stack"
 import { Text } from "@astryxdesign/core/Text"
 import { useLingui } from "@lingui/react"
-import type { CSSProperties } from "react"
+import { useRef, type CSSProperties, type RefObject } from "react"
 
 import { BrandMark } from "../../shared/brand/BrandMark"
 
@@ -15,7 +15,7 @@ interface ReadyMobilePageProps {
   username: string
   isLoading: boolean
   hasError: boolean
-  onLogout: () => void
+  onLogout: () => Promise<void>
 }
 
 export function ReadyMobilePage({
@@ -25,7 +25,8 @@ export function ReadyMobilePage({
   onLogout,
 }: ReadyMobilePageProps) {
   const { i18n } = useLingui()
-  const logoutAction = (
+  const mobileNavRef = useRef<HTMLDialogElement>(null)
+  const directLogoutAction = (
     <Button
       label={i18n._("common.logout")}
       variant="secondary"
@@ -36,6 +37,7 @@ export function ReadyMobilePage({
   )
   const navigation = (
     <MobileNav
+      ref={mobileNavRef}
       header={
         <Stack direction="horizontal" gap={2} align="center">
           <BrandMark size="sm" decorative />
@@ -47,7 +49,12 @@ export function ReadyMobilePage({
     >
       <Stack gap={3}>
         <Text type="label">{username}</Text>
-        {logoutAction}
+        <MobileMenuLogout
+          label={i18n._("common.logout")}
+          isLoading={isLoading}
+          onLogout={onLogout}
+          dialogRef={mobileNavRef}
+        />
       </Stack>
     </MobileNav>
   )
@@ -57,7 +64,7 @@ export function ReadyMobilePage({
       contentPadding={0}
       height="fill"
       variant="surface"
-      sideNav={<div>{logoutAction}</div>}
+      sideNav={<div>{directLogoutAction}</div>}
       mobileNav={{ breakpoint: "md", hasToggle: false, content: navigation }}
     >
       <Stack
@@ -101,5 +108,37 @@ export function ReadyMobilePage({
         </Section>
       </Stack>
     </AppShell>
+  )
+}
+
+interface MobileMenuLogoutProps {
+  label: string
+  isLoading: boolean
+  onLogout: () => Promise<void>
+  dialogRef: RefObject<HTMLDialogElement | null>
+}
+
+function MobileMenuLogout({
+  label,
+  isLoading,
+  onLogout,
+  dialogRef,
+}: MobileMenuLogoutProps) {
+  const { closeMobileNav } = useAppShellMobile()
+
+  const logoutFromMenu = async () => {
+    dialogRef.current?.close()
+    closeMobileNav()
+    await onLogout()
+  }
+
+  return (
+    <Button
+      label={label}
+      variant="secondary"
+      isLoading={isLoading}
+      clickAction={logoutFromMenu}
+      style={{ minHeight: 44, minWidth: 44, width: "100%" }}
+    />
   )
 }

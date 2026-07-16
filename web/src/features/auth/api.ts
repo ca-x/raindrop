@@ -18,8 +18,11 @@ export async function login(input: LoginInput): Promise<SessionResponse> {
 }
 
 export async function logout(csrfToken: string): Promise<void> {
-  await apiRequest("/api/v1/auth/logout", {
+  const response = await apiRequest("/api/v1/auth/logout", {
     method: "POST",
     headers: { "x-csrf-token": csrfToken },
   })
+  if (response !== undefined) {
+    throw invalidResponseError()
+  }
 }

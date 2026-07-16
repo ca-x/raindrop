@@ -139,7 +139,16 @@ describe("Setup flow", () => {
       email: "reader@example.com",
       password: "correct horse battery staple",
     })
-    expect(fetchMock.mock.calls[3]?.[0]).toBe("/api/v1/auth/login")
+    const [loginPath, loginInit] = fetchMock.mock.calls[3]
+    expect(loginPath).toBe("/api/v1/auth/login")
+    expect(loginInit).toEqual(
+      expect.objectContaining({ method: "POST", credentials: "same-origin" }),
+    )
+    expect(new Headers(loginInit?.headers).get("content-type")).toBe("application/json")
+    expect(JSON.parse(String(loginInit?.body))).toEqual({
+      login: "Reader",
+      password: "correct horse battery staple",
+    })
   })
 
   it("switches locale without losing the setup state", async () => {

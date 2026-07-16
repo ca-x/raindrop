@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react"
+import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -121,6 +121,30 @@ describe("Local authentication", () => {
       "--size-element-md": "48px",
     })
     expect(screen.getByRole("button", { name: "Sign in" })).toHaveStyle({ minHeight: "44px" })
+  })
+
+  it("closes the mobile menu before showing a logout failure", async () => {
+    const user = userEvent.setup()
+    const logoutRequest = deferred<Response>()
+    setTestViewport(390, 844)
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ status: "READY", version: "0.1.0" }))
+      .mockResolvedValueOnce(jsonResponse(sessionResponse))
+      .mockReturnValueOnce(logoutRequest.promise)
+    renderApp()
+
+    expect(await screen.findByRole("heading", { name: "Your reading space is ready" })).toBeVisible()
+    await user.click(screen.getByRole("button", { name: "Open menu" }))
+    const dialog = await screen.findByRole("dialog", { name: "Open menu" })
+    await user.click(within(dialog).getByRole("button", { name: "Sign out" }))
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Open menu" })).not.toBeInTheDocument()
+    })
+    logoutRequest.resolve(
+      jsonResponse({ error: { code: "REQUEST_FAILED", message: "Request failed" } }, 500),
+    )
+    expect(await screen.findByText("Sign-in failed")).toBeVisible()
   })
 })
 
