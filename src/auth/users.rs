@@ -124,7 +124,9 @@ pub async fn authenticate(
         return Err(AuthenticateError::Disabled);
     }
 
-    let roles = load_roles(database, &stored.id).await?;
+    let roles = load_roles(database, &stored.id)
+        .await
+        .map_err(AuthenticateError::Database)?;
     let mut active: user::ActiveModel = stored.clone().into();
     active.last_login_at = Set(Some(OffsetDateTime::now_utc()));
     active
@@ -153,15 +155,32 @@ async fn username_exists(
         .map_err(CreateAdminError::Database)
 }
 
+pub(crate) async fn load_user_by_id(
+    database: &DatabaseConnection,
+    user_id: &str,
+) -> Result<Option<User>, sea_orm::DbErr> {
+    let stored = user::Entity::find_by_id(user_id).one(database).await?;
+    let Some(stored) = stored else {
+        return Ok(None);
+    };
+    let roles = load_roles(database, &stored.id).await?;
+    Ok(Some(User {
+        id: stored.id,
+        username: stored.username,
+        email: stored.email,
+        is_disabled: stored.is_disabled,
+        roles,
+    }))
+}
+
 async fn load_roles(
     database: &DatabaseConnection,
     user_id: &str,
-) -> Result<Vec<Role>, AuthenticateError> {
+) -> Result<Vec<Role>, sea_orm::DbErr> {
     let stored = user_role::Entity::find()
         .filter(user_role::Column::UserId.eq(user_id))
         .all(database)
-        .await
-        .map_err(AuthenticateError::Database)?;
+        .await?;
     Ok(stored
         .into_iter()
         .filter_map(|role| match role.role.as_str() {

@@ -1,10 +1,16 @@
+mod cookies;
+mod extractor;
 mod model;
 mod password;
+mod sessions;
 mod users;
 
+pub use cookies::{SESSION_COOKIE_NAME, build_session_cookie};
+pub use extractor::{AuthRejection, CsrfGuard, CurrentUser};
 pub use model::{
     AuthenticateError, CreateAdminError, CreateAdminInput, LoginIdentifier, Role, User,
     UsernameError,
 };
 pub use password::PasswordService;
+pub use sessions::{CreatedSession, SessionError, SessionService};
 pub use users::{authenticate, create_admin, normalize_username};
