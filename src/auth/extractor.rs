@@ -1,7 +1,7 @@
 use axum::{
     extract::{FromRef, FromRequestParts},
     http::{
-        HeaderMap, StatusCode,
+        HeaderMap,
         header::{COOKIE, HOST, ORIGIN},
         request::Parts,
         uri::Authority,
@@ -19,6 +19,28 @@ use super::{
 pub const CSRF_HEADER_NAME: &str = "x-csrf-token";
 
 pub struct CurrentUser(pub User);
+
+pub struct SessionToken(SecretString);
+
+impl SessionToken {
+    #[must_use]
+    pub fn as_secret(&self) -> &SecretString {
+        &self.0
+    }
+}
+
+impl<S> FromRequestParts<S> for SessionToken
+where
+    S: Send + Sync,
+{
+    type Rejection = AuthRejection;
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        session_cookie(&parts.headers)
+            .map(Self)
+            .ok_or(AuthRejection::Unauthenticated)
+    }
+}
 
 impl<S> FromRequestParts<S> for CurrentUser
 where
@@ -69,9 +91,11 @@ pub enum AuthRejection {
 impl IntoResponse for AuthRejection {
     fn into_response(self) -> Response {
         match self {
-            Self::Unauthenticated => StatusCode::UNAUTHORIZED.into_response(),
-            Self::Forbidden => StatusCode::FORBIDDEN.into_response(),
-            Self::Internal => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+            Self::Unauthenticated => {
+                crate::api::ApiError::authentication_required().into_response()
+            }
+            Self::Forbidden => crate::api::ApiError::forbidden().into_response(),
+            Self::Internal => crate::api::ApiError::internal().into_response(),
         }
     }
 }
@@ -97,7 +121,7 @@ where
             SessionError::Invalid | SessionError::Expired | SessionError::Disabled => {
                 AuthRejection::Unauthenticated
             }
-            SessionError::Database(_) => AuthRejection::Internal,
+            SessionError::Unavailable | SessionError::Database(_) => AuthRejection::Internal,
         })?;
     parts.extensions.insert(authenticated.clone());
     Ok(authenticated)
