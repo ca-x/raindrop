@@ -1,0 +1,33 @@
+mod address_policy;
+mod error;
+mod identity;
+mod model;
+mod schedule;
+mod url_policy;
+
+pub use address_policy::AddressPolicy;
+pub use error::{
+    AddressPolicyError, FeedUrlError, IdentityError, RetryAfterError, ScheduleError, ValidatorError,
+};
+pub use identity::{EntryIdentity, IdentityKind, StableEntryFields};
+pub use model::{OpaqueValidator, ReusableValidators, ValidatorSet};
+pub use schedule::{JitterSource, RefreshResult, RefreshSchedule, RetryAfter, ScheduleOutcome};
+pub use url_policy::{FeedUrlPolicy, NormalizedFeedUrl};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AddressDecision {
+    Allowed,
+    Denied(AddressDenyReason),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AddressDenyReason {
+    Ipv4Special,
+    Ipv6OutsideGlobalUnicast,
+    Ipv6Special,
+    EmbeddedIpv4,
+    Nat64UOctet,
+    TeredoServer,
+    TeredoClient,
+    LocalUseNat64,
+}
