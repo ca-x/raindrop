@@ -215,6 +215,30 @@ mod tests {
         .expect("document")
     }
 
+    fn over_budget_qualified_atom_person_document() -> FetchedDocument {
+        let url = FeedUrlPolicy::new(true)
+            .normalize("https://example.test/feed.atom")
+            .expect("valid URL");
+        let mut body = format!(
+            "<feed xmlns='http://www.w3.org/2005/Atom' xmlns:x='urn:qualified-person'><title>x</title><id>x</id><updated>2026-07-16T00:00:00Z</updated><author><x:name>{}</x:name><x:email>e</x:email><x:uri>u</x:uri></author>",
+            "n".repeat(4 * 1024)
+        );
+        for index in 0..5_000 {
+            body.push_str(&format!(
+                "<entry><id>{index}</id><updated>2026-07-16T00:00:00Z</updated></entry>"
+            ));
+        }
+        body.push_str("</feed>");
+        FetchedDocument::try_from(FetchOutcome::Document {
+            url,
+            document: body.into_bytes(),
+            content_type: Some("application/atom+xml".to_owned()),
+            etag: None,
+            last_modified: None,
+        })
+        .expect("document")
+    }
+
     struct DropProbe(Arc<AtomicUsize>);
 
     impl Drop for DropProbe {
@@ -318,6 +342,19 @@ mod tests {
         UPSTREAM_PARSER_INVOCATIONS.store(0, Ordering::SeqCst);
         let error = parse_document(over_budget_json_document())
             .expect_err("over-budget inheritance rejects before feedparser");
+        assert_eq!(
+            error.kind(),
+            FeedParseErrorKind::ProjectedInheritanceTooLarge
+        );
+        assert_eq!(UPSTREAM_PARSER_INVOCATIONS.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn qualified_atom_person_payload_rejects_before_upstream_parser_invocation() {
+        let _serial = PARSER_TEST_LOCK.lock().await;
+        UPSTREAM_PARSER_INVOCATIONS.store(0, Ordering::SeqCst);
+        let error = parse_document(over_budget_qualified_atom_person_document())
+            .expect_err("qualified Person payload exceeds the inheritance budget");
         assert_eq!(
             error.kind(),
             FeedParseErrorKind::ProjectedInheritanceTooLarge

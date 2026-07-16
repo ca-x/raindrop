@@ -525,9 +525,9 @@ fn project_atom_inheritance(input: &str) -> Result<ProjectedInheritance, FeedPar
                     }
                 } else if let Some(person) = person_capture.as_ref()
                     && person.depth == depth
-                    && matches!(name, "name" | "email" | "uri")
+                    && matches!(local_name(name), "name" | "email" | "uri")
                 {
-                    let target = match name {
+                    let target = match local_name(name) {
                         "name" => AtomTextTarget::PersonName,
                         "email" => AtomTextTarget::PersonEmail,
                         "uri" => AtomTextTarget::PersonUri,
@@ -1305,6 +1305,24 @@ mod tests {
                 .expect("language aliases project")
                 .bytes(),
             3 * clone
+        );
+    }
+
+    #[test]
+    fn atom_projection_uses_local_names_for_qualified_person_fields() {
+        let input = r#"
+            <feed xmlns="http://www.w3.org/2005/Atom" xmlns:x="urn:qualified-person">
+              <author><x:name>name</x:name><x:email>email</x:email><x:uri>uri</x:uri></author>
+              <entry><id>1</id><updated>2026-07-16T00:00:00Z</updated></entry>
+            </feed>
+        "#;
+        let person_clone = size_of::<feedparser_rs::Person>() + 12;
+        let flat_clone = size_of::<feedparser_rs::types::SmallString>() + 12;
+        assert_eq!(
+            project_atom_inheritance(input)
+                .expect("qualified Person fields project")
+                .bytes(),
+            2 * person_clone + flat_clone
         );
     }
 }
