@@ -63,7 +63,7 @@ export function ReadyPage({ session, onLoggedOut }: ReadyPageProps) {
         header={
           <Section variant="section" padding={3} dividers={["bottom"]}>
             <Stack direction="horizontal" gap={2} align="center">
-              <BrandMark size="sm" />
+              <BrandMark size="sm" decorative />
               <Text type="label">Raindrop</Text>
             </Stack>
           </Section>
@@ -80,7 +80,6 @@ export function ReadyPage({ session, onLoggedOut }: ReadyPageProps) {
                   variant="secondary"
                   isLoading={isLoading}
                   clickAction={signOut}
-                  className="raindrop-pressable"
                   style={{ minHeight: 44 }}
                 />
               }

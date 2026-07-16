@@ -29,6 +29,7 @@ export function LoginPage({ onAuthenticated }: LoginPageProps) {
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
+    if (isLoading) return
     if (!identifier.trim() || !password) {
       setHasError(true)
       return
@@ -74,7 +75,7 @@ export function LoginPage({ onAuthenticated }: LoginPageProps) {
                     </Heading>
                   </Stack>
                 </Stack>
-                <LocaleSwitch />
+                <LocaleSwitch isDisabled={isLoading} />
               </Stack>
               {hasError ? (
                 <Banner
@@ -92,7 +93,9 @@ export function LoginPage({ onAuthenticated }: LoginPageProps) {
                       onChange={setIdentifier}
                       htmlName="login"
                       isRequired
+                      isDisabled={isLoading}
                       width="100%"
+                      style={{ minHeight: 44 }}
                     />
                     <TextInput
                       label={i18n._("login.password")}
@@ -101,7 +104,9 @@ export function LoginPage({ onAuthenticated }: LoginPageProps) {
                       onChange={setPassword}
                       htmlName="password"
                       isRequired
+                      isDisabled={isLoading}
                       width="100%"
+                      style={{ minHeight: 44 }}
                     />
                   </FormLayout>
                   <Button
@@ -110,7 +115,6 @@ export function LoginPage({ onAuthenticated }: LoginPageProps) {
                     variant="primary"
                     size="lg"
                     isLoading={isLoading}
-                    className="raindrop-pressable"
                     style={{ minHeight: 44 }}
                   />
                 </Stack>

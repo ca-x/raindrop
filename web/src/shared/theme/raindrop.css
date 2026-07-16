@@ -90,23 +90,11 @@ body {
   padding-block-start: env(safe-area-inset-top);
 }
 
-.raindrop-mobile-navigation {
-  --size-element-md: 44px;
-}
-
 .raindrop-mobile-task {
   flex: 1;
   min-block-size: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-}
-
-.raindrop-pressable {
-  transition: transform 140ms var(--ease-out);
-}
-
-.raindrop-pressable:active {
-  transform: scale(0.97) !important;
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -137,15 +125,5 @@ body {
 
   .raindrop-auth-card {
     box-shadow: none;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .raindrop-pressable {
-    transition-property: opacity, color;
-  }
-
-  .raindrop-pressable:active {
-    transform: none !important;
   }
 }

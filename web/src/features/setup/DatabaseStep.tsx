@@ -28,6 +28,7 @@ export function DatabaseStep({
 }: DatabaseStepProps) {
   const { i18n } = useLingui()
   const setKind = (kind: string) => {
+    if (isLoading) return
     const databaseKind = kind as DatabaseKind
     onChange({ ...values, databaseKind, databaseUrl: databaseUrls[databaseKind] })
   }
@@ -56,7 +57,9 @@ export function DatabaseStep({
             onChange={(token) => onChange({ ...values, token })}
             htmlName="setupToken"
             isRequired
+            isDisabled={isLoading}
             width="100%"
+            style={{ minHeight: 44 }}
             status={fieldStatus(fields.token, i18n._("setup.required"))}
           />
           <RadioList
@@ -64,10 +67,32 @@ export function DatabaseStep({
             value={values.databaseKind}
             onChange={setKind}
             htmlName="databaseKind"
+            isDisabled={isLoading}
           >
-            <RadioListItem label="SQLite" value="sqlite" description="WAL · single node" />
-            <RadioListItem label="PostgreSQL" value="postgres" description="Shared database" />
-            <RadioListItem label="MySQL" value="mysql" description="Shared database" />
+            <RadioListItem
+              label="SQLite"
+              value="sqlite"
+              description="WAL · single node"
+              data-testid="database-kind-sqlite"
+              style={{ minHeight: 44 }}
+              onClick={() => setKind("sqlite")}
+            />
+            <RadioListItem
+              label="PostgreSQL"
+              value="postgres"
+              description="Shared database"
+              data-testid="database-kind-postgres"
+              style={{ minHeight: 44 }}
+              onClick={() => setKind("postgres")}
+            />
+            <RadioListItem
+              label="MySQL"
+              value="mysql"
+              description="Shared database"
+              data-testid="database-kind-mysql"
+              style={{ minHeight: 44 }}
+              onClick={() => setKind("mysql")}
+            />
           </RadioList>
           <TextInput
             label={i18n._("setup.databaseUrl")}
@@ -76,7 +101,9 @@ export function DatabaseStep({
             onChange={(databaseUrl) => onChange({ ...values, databaseUrl })}
             htmlName="databaseUrl"
             isRequired
+            isDisabled={isLoading}
             width="100%"
+            style={{ minHeight: 44 }}
             status={fieldStatus(fields.databaseUrl, i18n._("setup.required"))}
           />
         </FormLayout>
@@ -89,7 +116,6 @@ export function DatabaseStep({
           variant="primary"
           size="lg"
           isLoading={isLoading}
-          className="raindrop-pressable"
           style={{ minHeight: 44 }}
         />
       </Stack>

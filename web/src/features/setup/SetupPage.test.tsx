@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 
-import { render, screen } from "@testing-library/react"
+import { fireEvent, render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -43,6 +43,15 @@ describe("Setup flow", () => {
     await user.click(submit)
     expect(submit).toBeDisabled()
     expect(submit).toHaveAttribute("aria-busy", "true")
+    expect(screen.getByLabelText(/设置令牌/)).toBeDisabled()
+    expect(screen.getByLabelText(/数据库 URL/)).toBeDisabled()
+    expect(screen.getByRole("radio", { name: "SQLite" })).toBeDisabled()
+    expect(screen.getByRole("radio", { name: "中文" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    )
+    fireEvent.submit(submit.closest("form")!)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
 
     databaseCheck.resolve(jsonResponse({ status: "OK", databaseKind: "MYSQL" }))
     expect(await screen.findByRole("heading", { name: "创建管理员" })).toBeVisible()
@@ -74,9 +83,10 @@ describe("Setup flow", () => {
 
   it("validates the administrator before completing setup", async () => {
     const user = userEvent.setup()
+    const completion = deferred<Response>()
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ status: "OK", databaseKind: "SQLITE" }))
-      .mockResolvedValueOnce(jsonResponse({ status: "READY", user: publicUser }))
+      .mockReturnValueOnce(completion.promise)
       .mockResolvedValueOnce(jsonResponse(sessionResponse))
     renderApp()
 
@@ -98,10 +108,38 @@ describe("Setup flow", () => {
     await replace(user, /密码/, "correct horse battery staple")
     await user.click(screen.getByRole("button", { name: "完成设置" }))
 
+    expect(screen.getByLabelText(/用户名/)).toBeDisabled()
+    expect(screen.getByLabelText(/邮箱/)).toBeDisabled()
+    expect(screen.getByLabelText(/密码/)).toBeDisabled()
+    expect(screen.getByRole("button", { name: "返回数据库" })).toBeDisabled()
+    expect(screen.getByRole("radio", { name: "中文" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    )
+    fireEvent.submit(screen.getByRole("button", { name: "完成设置" }).closest("form")!)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+
+    completion.resolve(jsonResponse({ status: "READY", user: publicUser }))
+
     expect(await screen.findByRole("heading", { name: "阅读空间已就绪" })).toBeVisible()
     const [path, init] = fetchMock.mock.calls[1]
     expect(path).toBe("/api/v1/setup/database-check")
     expect(new Headers(init?.headers).get("x-setup-token")).toBe("rd_setup_valid")
+    expect(JSON.parse(String(init?.body))).toEqual({
+      databaseUrl: "sqlite://data/raindrop.db?mode=rwc",
+    })
+    const [completePath, completeInit] = fetchMock.mock.calls[2]
+    expect(completePath).toBe("/api/v1/setup/complete")
+    expect(new Headers(completeInit?.headers).get("x-setup-token")).toBe(
+      "rd_setup_valid",
+    )
+    expect(JSON.parse(String(completeInit?.body))).toEqual({
+      databaseUrl: "sqlite://data/raindrop.db?mode=rwc",
+      username: "Reader",
+      email: "reader@example.com",
+      password: "correct horse battery staple",
+    })
+    expect(fetchMock.mock.calls[3]?.[0]).toBe("/api/v1/auth/login")
   })
 
   it("switches locale without losing the setup state", async () => {

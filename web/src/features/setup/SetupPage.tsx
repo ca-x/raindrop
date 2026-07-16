@@ -17,6 +17,7 @@ import type { SessionResponse } from "../auth/session"
 import { AdminStep } from "./AdminStep"
 import { checkDatabase, completeSetup } from "./api"
 import { DatabaseStep } from "./DatabaseStep"
+import { login } from "../auth/api"
 import {
   initialSetupValues,
   type SetupStep,
@@ -27,9 +28,10 @@ import {
 
 interface SetupPageProps {
   onAuthenticated: (session: SessionResponse) => void
+  onLoginRequired: () => void
 }
 
-export function SetupPage({ onAuthenticated }: SetupPageProps) {
+export function SetupPage({ onAuthenticated, onLoginRequired }: SetupPageProps) {
   const { i18n } = useLingui()
   const [step, setStep] = useState<SetupStep>("database")
   const [values, setValues] = useState<SetupValues>(initialSetupValues)
@@ -38,6 +40,7 @@ export function SetupPage({ onAuthenticated }: SetupPageProps) {
   const [isLoading, setIsLoading] = useState(false)
 
   const submitDatabase = async () => {
+    if (isLoading) return
     const nextFields = validateDatabase(values)
     setFields(nextFields)
     if (Object.keys(nextFields).length) return
@@ -55,16 +58,24 @@ export function SetupPage({ onAuthenticated }: SetupPageProps) {
   }
 
   const submitAdmin = async () => {
+    if (isLoading) return
     const nextFields = validateAdmin(values)
     setFields(nextFields)
     if (Object.keys(nextFields).length) return
     setError(null)
     setIsLoading(true)
     try {
-      onAuthenticated(await completeSetup(values))
+      await completeSetup(values)
     } catch (cause) {
       setError("complete")
       mergeApiFields(cause, setFields)
+      setIsLoading(false)
+      return
+    }
+    try {
+      onAuthenticated(await login({ login: values.username, password: values.password }))
+    } catch {
+      onLoginRequired()
     } finally {
       setIsLoading(false)
     }
@@ -103,7 +114,7 @@ export function SetupPage({ onAuthenticated }: SetupPageProps) {
                       </Heading>
                     </Stack>
                   </Stack>
-                  <LocaleSwitch />
+                  <LocaleSwitch isDisabled={isLoading} />
                 </Stack>
                 <ProgressBar
                   label={i18n._("setup.progress")}
@@ -137,6 +148,7 @@ export function SetupPage({ onAuthenticated }: SetupPageProps) {
                     isLoading={isLoading}
                     onChange={setValues}
                     onBack={() => {
+                      if (isLoading) return
                       setFields({})
                       setError(null)
                       setStep("database")

@@ -1,4 +1,4 @@
-import { apiRequest } from "../../shared/api/client"
+import { apiRequest, invalidResponseError } from "../../shared/api/client"
 import { isSessionResponse, type SessionResponse } from "./session"
 
 export interface LoginInput {
@@ -12,7 +12,7 @@ export async function login(input: LoginInput): Promise<SessionResponse> {
     body: JSON.stringify(input),
   })
   if (!isSessionResponse(response)) {
-    throw new Error("invalid login response")
+    throw invalidResponseError()
   }
   return response
 }

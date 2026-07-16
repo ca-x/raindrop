@@ -15,10 +15,17 @@ export class ApiClientError extends Error {
   }
 }
 
-export async function apiRequest<T>(
+export function invalidResponseError(): ApiClientError {
+  return new ApiClientError(502, {
+    code: "INVALID_RESPONSE",
+    message: "Invalid server response",
+  })
+}
+
+export async function apiRequest(
   path: string,
   init: RequestInit = {},
-): Promise<T> {
+): Promise<unknown> {
   const headers = new Headers(init.headers)
   if (init.body && !headers.has("content-type")) {
     headers.set("content-type", "application/json")
@@ -32,9 +39,13 @@ export async function apiRequest<T>(
     throw new ApiClientError(response.status, await readApiError(response))
   }
   if (response.status === 204) {
-    return undefined as T
+    return undefined
   }
-  return (await response.json()) as T
+  try {
+    return await response.json()
+  } catch {
+    throw invalidResponseError()
+  }
 }
 
 async function readApiError(response: Response): Promise<ApiErrorPayload> {

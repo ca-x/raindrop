@@ -49,7 +49,9 @@ export function AdminStep({
             onChange={(username) => onChange({ ...values, username })}
             htmlName="username"
             isRequired
+            isDisabled={isLoading}
             width="100%"
+            style={{ minHeight: 44 }}
             status={fieldStatus(fields.username, i18n._("setup.usernameInvalid"))}
           />
           <TextInput
@@ -59,7 +61,9 @@ export function AdminStep({
             onChange={(email) => onChange({ ...values, email })}
             htmlName="email"
             isOptional
+            isDisabled={isLoading}
             width="100%"
+            style={{ minHeight: 44 }}
             status={fieldStatus(fields.email, i18n._("setup.emailInvalid"))}
           />
           <TextInput
@@ -70,7 +74,9 @@ export function AdminStep({
             onChange={(password) => onChange({ ...values, password })}
             htmlName="password"
             isRequired
+            isDisabled={isLoading}
             width="100%"
+            style={{ minHeight: 44 }}
             status={fieldStatus(fields.password, i18n._("setup.passwordInvalid"))}
           />
         </FormLayout>
@@ -80,7 +86,7 @@ export function AdminStep({
             label={i18n._("setup.back")}
             variant="secondary"
             onClick={onBack}
-            className="raindrop-pressable"
+            isDisabled={isLoading}
             style={{ minHeight: 44 }}
           />
           <Button
@@ -89,7 +95,6 @@ export function AdminStep({
             variant="primary"
             size="lg"
             isLoading={isLoading}
-            className="raindrop-pressable"
             style={{ minHeight: 44 }}
           />
         </Stack>

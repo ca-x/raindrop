@@ -41,16 +41,28 @@ export function App() {
   }
 
   if (override?.phase === "login") {
-    return <LoginPage onAuthenticated={(session) => setOverride({ phase: "ready", session })} />
+    return (
+      <LoginPage
+        onAuthenticated={(session) => setOverride({ phase: "ready", session })}
+      />
+    )
   }
   if (override?.phase === "ready") {
-    return <ReadyPage session={override.session} onLoggedOut={() => setOverride({ phase: "login" })} />
+    return (
+      <ReadyPage
+        session={override.session}
+        onLoggedOut={() => setOverride({ phase: "login" })}
+      />
+    )
   }
 
   switch (state.value.phase) {
     case "setup":
       return (
-        <SetupPage onAuthenticated={(session) => setOverride({ phase: "ready", session })} />
+        <SetupPage
+          onAuthenticated={(session) => setOverride({ phase: "ready", session })}
+          onLoginRequired={() => setOverride({ phase: "login" })}
+        />
       )
     case "login":
       return (

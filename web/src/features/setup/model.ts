@@ -43,7 +43,9 @@ export function validateAdmin(values: SetupValues): Record<string, string> {
   ) {
     fields.username = "invalid"
   }
-  if (values.password.length < 12) fields.password = "invalid"
+  if (new TextEncoder().encode(values.password).byteLength < 12) {
+    fields.password = "invalid"
+  }
   if (values.email && !/^\S+@\S+\.\S+$/.test(values.email)) fields.email = "invalid"
   return fields
 }

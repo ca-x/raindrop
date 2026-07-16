@@ -13,16 +13,24 @@ export interface SessionResponse {
 }
 
 export function isSessionResponse(value: unknown): value is SessionResponse {
-  if (!isRecord(value) || !isRecord(value.user)) return false
+  if (!isRecord(value) || !isSessionUser(value.user)) return false
   return (
     typeof value.csrfToken === "string" &&
     typeof value.expiresAt === "string" &&
-    typeof value.user.id === "string" &&
-    typeof value.user.username === "string" &&
-    (typeof value.user.email === "string" || value.user.email === null) &&
-    typeof value.user.isDisabled === "boolean" &&
-    Array.isArray(value.user.roles) &&
-    value.user.roles.every((role) => typeof role === "string")
+    value.csrfToken.length > 0 &&
+    value.expiresAt.length > 0
+  )
+}
+
+export function isSessionUser(value: unknown): value is SessionUser {
+  if (!isRecord(value)) return false
+  return (
+    typeof value.id === "string" &&
+    typeof value.username === "string" &&
+    (typeof value.email === "string" || value.email === null) &&
+    typeof value.isDisabled === "boolean" &&
+    Array.isArray(value.roles) &&
+    value.roles.every((role) => typeof role === "string")
   )
 }
 

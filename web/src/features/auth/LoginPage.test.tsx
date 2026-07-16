@@ -50,7 +50,8 @@ describe("Local authentication", () => {
     await user.click(screen.getByRole("button", { name: "Sign in" }))
 
     expect(await screen.findByRole("heading", { name: "Your reading space is ready" })).toBeVisible()
-    expect(screen.getByRole("img", { name: "Raindrop" })).toHaveAttribute("width", "32")
+    expect(screen.queryByRole("img", { name: "Raindrop" })).not.toBeInTheDocument()
+    expect(screen.getByText("Raindrop")).toBeVisible()
     expect(localStorage).toHaveLength(0)
     expect(fetchMock).toHaveBeenLastCalledWith(
       "/api/v1/auth/login",
@@ -58,7 +59,21 @@ describe("Local authentication", () => {
     )
   })
 
+  it("turns a malformed login success body into the stable error state", async () => {
+    const user = userEvent.setup()
+    mockLoginBootstrap()
+    fetchMock.mockResolvedValueOnce(jsonResponse({ user: null, csrfToken: 42 }))
+    renderApp()
+
+    await fillLogin(user)
+    await user.click(screen.getByRole("button", { name: "Sign in" }))
+
+    expect(await screen.findByText("Sign-in failed")).toBeVisible()
+    expect(screen.queryByText("invalid login response")).not.toBeInTheDocument()
+  })
+
   it.each([
+    { width: 360, height: 800, mode: "mobile" },
     { width: 390, height: 844, mode: "mobile" },
     { width: 1280, height: 800, mode: "desktop" },
   ])("exposes logout and exits at $width px", async ({ width, height, mode }) => {
@@ -78,7 +93,10 @@ describe("Local authentication", () => {
       expect(screen.getByTestId("mobile-ready-page")).toBeVisible()
       await user.click(screen.getByRole("button", { name: "Open menu" }))
       const dialog = await screen.findByRole("dialog", { name: "Open menu" })
-      await user.click(within(dialog).getByText("Sign out"))
+      expect(dialog).toHaveStyle({ "--size-element-md": "44px" })
+      const menuLogout = within(dialog).getByRole("button", { name: "Sign out" })
+      expect(menuLogout).toHaveStyle({ minHeight: "44px", minWidth: "44px" })
+      await user.click(menuLogout)
     } else {
       expect(screen.queryByTestId("mobile-ready-page")).not.toBeInTheDocument()
       expect(screen.queryByRole("button", { name: "Open menu" })).not.toBeInTheDocument()
@@ -90,14 +108,28 @@ describe("Local authentication", () => {
     expect(path).toBe("/api/v1/auth/logout")
     expect(new Headers(init?.headers).get("x-csrf-token")).toBe(sessionResponse.csrfToken)
   })
+
+  it("exposes 44px login fields, locale choices, and submit at 360x800", async () => {
+    setTestViewport(360, 800)
+    mockLoginBootstrap(false)
+    renderApp()
+
+    const identifier = await screen.findByLabelText(/Username or email/)
+    expect(identifier.parentElement).toHaveStyle({ minHeight: "44px" })
+    expect(screen.getByLabelText(/Password/).parentElement).toHaveStyle({ minHeight: "44px" })
+    expect(screen.getByRole("radiogroup", { name: "Language" })).toHaveStyle({
+      "--size-element-md": "48px",
+    })
+    expect(screen.getByRole("button", { name: "Sign in" })).toHaveStyle({ minHeight: "44px" })
+  })
 })
 
 function renderApp() {
   render(<Providers><App /></Providers>)
 }
 
-function mockLoginBootstrap() {
-  setTestViewport(1280, 800)
+function mockLoginBootstrap(resetViewport = true) {
+  if (resetViewport) setTestViewport(1280, 800)
   fetchMock
     .mockResolvedValueOnce(jsonResponse({ status: "READY", version: "0.1.0" }))
     .mockResolvedValueOnce(jsonResponse({ error: { code: "AUTHENTICATION_REQUIRED" } }, 401))

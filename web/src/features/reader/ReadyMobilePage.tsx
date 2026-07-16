@@ -4,10 +4,10 @@ import { Button } from "@astryxdesign/core/Button"
 import { EmptyState } from "@astryxdesign/core/EmptyState"
 import { MobileNav, MobileNavToggle } from "@astryxdesign/core/MobileNav"
 import { Section } from "@astryxdesign/core/Section"
-import { SideNav, SideNavItem, SideNavSection } from "@astryxdesign/core/SideNav"
 import { Stack } from "@astryxdesign/core/Stack"
 import { Text } from "@astryxdesign/core/Text"
 import { useLingui } from "@lingui/react"
+import type { CSSProperties } from "react"
 
 import { BrandMark } from "../../shared/brand/BrandMark"
 
@@ -25,16 +25,15 @@ export function ReadyMobilePage({
   onLogout,
 }: ReadyMobilePageProps) {
   const { i18n } = useLingui()
-  const navItems = (
-    <SideNavSection title={username}>
-      <SideNavItem
-        label={i18n._("common.logout")}
-        onClick={onLogout}
-        className="raindrop-pressable"
-      />
-    </SideNavSection>
+  const logoutAction = (
+    <Button
+      label={i18n._("common.logout")}
+      variant="secondary"
+      isLoading={isLoading}
+      clickAction={onLogout}
+      style={{ minHeight: 44, minWidth: 44, width: "100%" }}
+    />
   )
-  const sideNavigation = <SideNav>{navItems}</SideNav>
   const navigation = (
     <MobileNav
       header={
@@ -44,9 +43,12 @@ export function ReadyMobilePage({
         </Stack>
       }
       label={i18n._("common.menu")}
-      className="raindrop-mobile-navigation"
+      style={{ "--size-element-md": "44px" } as CSSProperties}
     >
-      {navItems}
+      <Stack gap={3}>
+        <Text type="label">{username}</Text>
+        {logoutAction}
+      </Stack>
     </MobileNav>
   )
 
@@ -55,7 +57,7 @@ export function ReadyMobilePage({
       contentPadding={0}
       height="fill"
       variant="surface"
-      sideNav={sideNavigation}
+      sideNav={<div>{logoutAction}</div>}
       mobileNav={{ breakpoint: "md", hasToggle: false, content: navigation }}
     >
       <Stack
@@ -72,7 +74,6 @@ export function ReadyMobilePage({
           <Stack direction="horizontal" gap={3} align="center" justify="between">
             <MobileNavToggle
               label={i18n._("common.menu")}
-              className="raindrop-pressable"
               style={{ minWidth: 44, minHeight: 44 }}
             />
             <Stack direction="horizontal" gap={2} align="center">
@@ -93,8 +94,7 @@ export function ReadyMobilePage({
                 variant="secondary"
                 isLoading={isLoading}
                 clickAction={onLogout}
-                className="raindrop-pressable"
-                style={{ minHeight: 44 }}
+                style={{ minHeight: 44, minWidth: 44 }}
               />
             }
           />
