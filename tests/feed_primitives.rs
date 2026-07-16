@@ -127,7 +127,28 @@ fn feed_url_policy_requires_literal_double_slash_after_http_schemes() {
             FeedUrlError::CredentialsForbidden,
         ),
         ("https:///example.com/feed", FeedUrlError::Invalid),
+        ("https:////example.com/feed", FeedUrlError::Invalid),
         (r"https://\example.com/feed", FeedUrlError::Invalid),
+        (
+            "https:///user@example.com/feed",
+            FeedUrlError::CredentialsForbidden,
+        ),
+        (
+            "https:////user@example.com/feed",
+            FeedUrlError::CredentialsForbidden,
+        ),
+        (
+            "https:///@example.com/feed",
+            FeedUrlError::CredentialsForbidden,
+        ),
+        (
+            "https:////@example.com/feed",
+            FeedUrlError::CredentialsForbidden,
+        ),
+        (
+            r"https://\user@example.com/feed",
+            FeedUrlError::CredentialsForbidden,
+        ),
         ("https://", FeedUrlError::Invalid),
         ("https://?token=secret", FeedUrlError::Invalid),
         ("https://#fragment", FeedUrlError::Invalid),
@@ -613,6 +634,11 @@ fn entry_identity_rejects_credential_like_url_guids_without_leaking_them() {
         "https://publisher:top-secret@example.com:bad/post?token=also-secret",
         "https:/publisher:top-secret@example.com/feed",
         r"HtTp:\publisher:top-secret@example.com/feed",
+        "https:///publisher:top-secret@example.com/feed",
+        "https:////publisher:top-secret@example.com/feed",
+        r"https://\publisher:top-secret@example.com/feed",
+        "https:///@example.com/feed",
+        "https:////@example.com/feed",
     ] {
         let error = EntryIdentity::from_parts(
             Some(raw),

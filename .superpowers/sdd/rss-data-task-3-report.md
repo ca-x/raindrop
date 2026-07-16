@@ -209,3 +209,70 @@ emitted by Cargo; Task 3 code remained warning-free under clippy `-D warnings`.
 - RFC 6052 extraction remains private; tests exercise only `AddressPolicy`.
 - `Cargo.toml` and `Cargo.lock` are unchanged by this review wave, and
   `node_modules/` remains untracked and unstaged.
+
+## Second review fix wave
+
+A locked `url 2.5.8` probe showed that separator variants with an empty raw
+authority can still be promoted into userinfo plus a host. The shared pre-parser
+authority analyzer now inspects the authority-like segment after the initial
+literal `//` before returning generic `Invalid` for an empty raw authority.
+
+The feed URL and GUID regressions cover:
+
+- `https:///user@example.com/feed`
+- `https:////user@example.com/feed`
+- `https://\user@example.com/feed`
+- empty-username forms `https:///@example.com/feed` and
+  `https:////@example.com/feed`
+
+All return `CredentialsForbidden` before `Url::parse`, preventing identity GUIDs
+from downgrading to opaque. Matching triple/quad-slash and backslash forms
+without `@` remain `Invalid`, and well-formed path/query `@` remains allowed.
+
+### Second-wave TDD evidence
+
+```text
+cargo test --locked --test feed_primitives \
+  feed_url_policy_requires_literal_double_slash_after_http_schemes -- --nocapture
+RED: exit 101; old empty-authority branch returned Invalid instead of
+CredentialsForbidden for https:///user@example.com/feed
+
+cargo test --locked --test feed_primitives \
+  feed_url_policy_requires_literal_double_slash_after_http_schemes -- --nocapture
+GREEN: 1 passed, 0 failed
+
+cargo test --locked --test feed_primitives \
+  entry_identity_rejects_credential_like_url_guids_without_leaking_them -- --nocapture
+GREEN: 1 passed, 0 failed
+```
+
+The empty-username vectors were added after the core fix and passed immediately,
+confirming that the same shared analyzer covers both explicit and promoted empty
+userinfo markers.
+
+### Second-wave verification results
+
+```text
+cargo test --locked --test feed_primitives -- --nocapture
+PASS: 43 passed, 0 failed
+
+cargo +1.94.0 test --locked --test feed_primitives -- --nocapture
+PASS: 43 passed, 0 failed
+
+cargo fmt --check
+PASS: exit 0
+
+cargo clippy --locked --all-targets --all-features -- -D warnings
+PASS: exit 0
+
+cargo test --locked --all-features
+PASS: 86 passed, 0 failed across all unit/integration/doc test targets
+
+git diff --check
+PASS: exit 0
+```
+
+Self-review confirmed that the change remains confined to the shared raw HTTP
+authority analyzer and public-seam regressions. It does not expose parser
+internals, alter valid URL normalization, change dependencies, or touch
+`node_modules/`.

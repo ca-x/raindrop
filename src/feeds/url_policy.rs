@@ -172,7 +172,11 @@ fn validate_raw_http_authority(raw: &str) -> Result<(), FeedUrlError> {
 
     let authority = raw_authority(raw).ok_or(FeedUrlError::Invalid)?;
     if authority.is_empty() {
-        return Err(FeedUrlError::Invalid);
+        return if malformed_authority_has_userinfo(&remainder[2..]) {
+            Err(FeedUrlError::CredentialsForbidden)
+        } else {
+            Err(FeedUrlError::Invalid)
+        };
     }
     if authority.contains('@') {
         return Err(FeedUrlError::CredentialsForbidden);
