@@ -16,6 +16,14 @@ use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    if std::env::args_os()
+        .nth(1)
+        .is_some_and(|argument| argument == "--version" || argument == "-V")
+    {
+        println!("raindrop {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+
     init_tracing();
 
     let loaded = load(

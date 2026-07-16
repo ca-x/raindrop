@@ -9,6 +9,8 @@
     "build": "vite build",
     "typecheck": "tsc -b --pretty false",
     "test:ci": "vitest run",
+    "test:e2e": "npm run test:e2e:prepare && playwright test",
+    "test:e2e:prepare": "npm run build && cargo build --release --locked --manifest-path ../Cargo.toml",
     "lint": "tsc -b --pretty false",
     "astryx:check": "node node_modules/@astryxdesign/core/docs.mjs --list --brief",
     "i18n:extract": "lingui extract"
@@ -28,6 +30,7 @@
     "@lingui/cli": "6.5.0",
     "@lingui/conf": "6.5.0",
     "@lingui/format-po": "6.5.0",
+    "@playwright/test": "1.61.1",
     "@testing-library/jest-dom": "6.9.1",
     "@testing-library/react": "16.3.2",
     "@testing-library/user-event": "14.6.1",

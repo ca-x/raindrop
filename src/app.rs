@@ -5,6 +5,7 @@ use crate::{
     api::{self, RateLimiter},
     auth::SessionService,
     setup::SetupService,
+    web,
 };
 
 #[derive(Clone)]
@@ -51,6 +52,7 @@ pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/api/v1/health/live", get(live_health))
         .merge(api::router())
+        .fallback(web::serve)
         .with_state(state)
 }
 

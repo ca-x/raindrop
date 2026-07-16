@@ -135,6 +135,11 @@ impl ApiError {
     }
 
     #[must_use]
+    pub fn not_found() -> Self {
+        Self::new(StatusCode::NOT_FOUND, "NOT_FOUND", "Resource not found")
+    }
+
+    #[must_use]
     pub fn username_invalid(message: &'static str) -> Self {
         Self::new(
             StatusCode::UNPROCESSABLE_ENTITY,
