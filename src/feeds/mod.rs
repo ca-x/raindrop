@@ -2,6 +2,7 @@ mod address_policy;
 mod content_storage;
 mod deadline;
 mod decode;
+mod dto;
 mod error;
 mod fetch;
 mod identity;
@@ -9,10 +10,13 @@ mod lifecycle;
 mod model;
 mod parse;
 mod persistence;
+mod query;
 mod refresh;
 mod repository;
 mod resolver;
 mod schedule;
+mod service;
+mod subscription;
 mod url_policy;
 
 #[cfg(test)]
@@ -20,12 +24,17 @@ mod test_support;
 
 pub use address_policy::AddressPolicy;
 pub use content_storage::{EncodedEntryContent, EntryContentDetail, EntryContentError};
+pub use dto::{
+    EnclosureDto, EntryDetailDto, EntryListItemDto, EntryPage, InertImageDto, RefreshDto,
+    SubscribeInput, SubscriptionDto,
+};
 pub use error::{
     AddressPolicyError, FeedUrlError, IdentityError, RetryAfterError, ScheduleError, ValidatorError,
 };
 pub use fetch::{
     CryptoProviderError, FeedFetchError, FeedFetchErrorKind, FeedTransport, FetchOutcome,
-    FetchRequest, FetchTimeoutStage, HttpFeedTransport, Nat64Mode, install_ring_crypto_provider,
+    FetchRequest, FetchTimeoutStage, HttpExecutionCounter, HttpFeedTransport, Nat64Mode,
+    install_ring_crypto_provider,
 };
 pub use identity::{EntryIdentity, IdentityKind, StableEntryFields};
 pub use model::{OpaqueValidator, ReusableValidators, ValidatorSet};
@@ -40,12 +49,15 @@ pub use persistence::{
     persistence_new_entry_insert_batch_sizes, persistence_peak_full_existing_entry_batch,
     reset_new_entry_insert_batch_observation, reset_persistence_batch_observation,
 };
+pub use query::{EntryListState, ListEntriesQuery, RepositoryError};
 pub use refresh::{
-    ClaimRequest, QueueRefreshRequest, RefreshClaim, RefreshCounts, RefreshFailure,
-    RefreshRepositoryError, RefreshRun, RefreshStatus, RefreshTrigger, UnknownRefreshValue,
+    ClaimRequest, ExactClaimResult, QueueRefreshRequest, RefreshClaim, RefreshCounts,
+    RefreshFailure, RefreshRepositoryError, RefreshRun, RefreshStatus, RefreshTrigger,
+    UnknownRefreshValue,
 };
 pub use repository::FeedRepository;
 pub use schedule::{JitterSource, RefreshResult, RefreshSchedule, RetryAfter, ScheduleOutcome};
+pub use service::{FeedService, FeedServiceError};
 pub use url_policy::{FeedUrlPolicy, NormalizedFeedUrl};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

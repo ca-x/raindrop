@@ -386,7 +386,7 @@ fn insert_event_statement(backend: DbBackend, event: &LifecycleEvent<'_>) -> Sta
     )
 }
 
-fn is_unique_violation(error: &DbErr) -> bool {
+pub(super) fn is_unique_violation(error: &DbErr) -> bool {
     is_unique_violation_provenance(unique_violation_provenance(error))
 }
 

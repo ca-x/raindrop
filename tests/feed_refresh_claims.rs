@@ -1033,7 +1033,21 @@ async fn assert_terminal_run(
     assert!(run.completed_at.is_some());
     assert!(run.completed_at >= run.started_at);
     assert_eq!(run.commit_generation, None);
-    assert_eq!(run.fetched_at, None);
+    if expected_status == RefreshStatus::NotModified {
+        let fetched_at = run
+            .fetched_at
+            .expect("not-modified refresh should record its database fetch time");
+        assert!(
+            run.started_at
+                .is_some_and(|started_at| fetched_at >= started_at)
+        );
+        assert!(
+            run.completed_at
+                .is_some_and(|completed_at| fetched_at <= completed_at)
+        );
+    } else {
+        assert_eq!(run.fetched_at, None);
+    }
     assert_eq!(run.persisted_at, None);
 }
 

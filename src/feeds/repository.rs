@@ -7,8 +7,9 @@ use uuid::Uuid;
 
 use super::lifecycle::{record_completed_event, valid_error_code};
 use super::{
-    ClaimRequest, QueueRefreshRequest, RefreshClaim, RefreshCounts, RefreshFailure,
-    RefreshRepositoryError, RefreshRun, RefreshStatus,
+    ClaimRequest, ExactClaimResult, NormalizedFeedUrl, OpaqueValidator, QueueRefreshRequest,
+    RefreshClaim, RefreshCounts, RefreshFailure, RefreshRepositoryError, RefreshRun, RefreshStatus,
+    ScheduleOutcome,
 };
 
 const MAX_LEASE_TOKEN: i64 = i64::MAX;
@@ -27,6 +28,13 @@ struct TerminalUpdate<'a> {
     counts: RefreshCounts,
     error_code: Option<&'a str>,
     retry_at: Option<OffsetDateTime>,
+}
+
+struct NotModifiedUpdate<'a> {
+    final_url: &'a str,
+    etag: Option<&'a str>,
+    last_modified: Option<&'a str>,
+    same_validator_scope: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -151,6 +159,84 @@ impl FeedRepository {
         }))
     }
 
+    pub async fn claim_run(
+        &self,
+        run_id: &str,
+        request: ClaimRequest,
+    ) -> Result<ExactClaimResult, RefreshRepositoryError> {
+        if run_id.is_empty() || run_id.len() > 36 {
+            return Err(RefreshRepositoryError::InvalidRequest);
+        }
+        validate_owner(&request.owner)?;
+        let lease_micros = lease_micros(request.lease_duration)?;
+        let backend = self.database.get_database_backend();
+        let (status, disabled) = read_exact_run_state(&self.database, backend, run_id)
+            .await?
+            .ok_or(RefreshRepositoryError::RunNotFound)?;
+        if status != RefreshStatus::Queued {
+            return Ok(ExactClaimResult::Existing(status));
+        }
+        if disabled {
+            return Ok(ExactClaimResult::FeedDisabled);
+        }
+        let Some(candidate) = find_exact_claim_candidate(&self.database, backend, run_id).await?
+        else {
+            return Ok(ExactClaimResult::TemporarilyBlocked);
+        };
+        validate_claim_token(candidate.lease_token)?;
+
+        let transaction = self.database.begin().await?;
+        let locked_token = if backend == DatabaseBackend::MySql {
+            lock_feed_for_mysql(&transaction, &candidate.feed_id).await?
+        } else {
+            candidate.lease_token
+        };
+        validate_claim_token(locked_token)?;
+        let result = transaction
+            .execute(claim_statement(
+                backend,
+                &request.owner,
+                lease_micros,
+                &candidate.feed_id,
+                &candidate.run_id,
+            ))
+            .await?;
+        if result.rows_affected() != 1 {
+            transaction.rollback().await?;
+            let status = read_run_status_optional(&self.database, backend, run_id)
+                .await?
+                .ok_or(RefreshRepositoryError::RunNotFound)?;
+            return if status == RefreshStatus::Queued {
+                Ok(ExactClaimResult::TemporarilyBlocked)
+            } else {
+                Ok(ExactClaimResult::Existing(status))
+            };
+        }
+        let (lease_token, deadline) =
+            read_lease_state(&transaction, backend, &candidate.feed_id).await?;
+        validate_active_token(lease_token)?;
+        let run_result = transaction
+            .execute(start_run_statement(
+                backend,
+                &candidate.run_id,
+                &candidate.feed_id,
+                lease_token,
+            ))
+            .await?;
+        if run_result.rows_affected() != 1 {
+            transaction.rollback().await?;
+            return Err(RefreshRepositoryError::CorruptData);
+        }
+        transaction.commit().await?;
+        Ok(ExactClaimResult::Claimed(RefreshClaim {
+            run_id: candidate.run_id,
+            feed_id: candidate.feed_id,
+            owner: request.owner,
+            lease_token,
+            lease_deadline: deadline,
+        }))
+    }
+
     pub async fn extend_lease(
         &self,
         claim: &RefreshClaim,
@@ -182,6 +268,7 @@ impl FeedRepository {
         })
     }
 
+    #[cfg(debug_assertions)]
     pub async fn complete_success(
         &self,
         claim: &RefreshClaim,
@@ -203,6 +290,7 @@ impl FeedRepository {
         .await
     }
 
+    #[cfg(debug_assertions)]
     pub async fn complete_partial(
         &self,
         claim: &RefreshClaim,
@@ -224,6 +312,7 @@ impl FeedRepository {
         .await
     }
 
+    #[cfg(debug_assertions)]
     pub async fn complete_not_modified(
         &self,
         claim: &RefreshClaim,
@@ -245,6 +334,7 @@ impl FeedRepository {
         .await
     }
 
+    #[cfg(debug_assertions)]
     pub async fn complete_failure(
         &self,
         claim: &RefreshClaim,
@@ -269,6 +359,75 @@ impl FeedRepository {
                 error_code: Some(&failure.error_code),
                 retry_at: failure.retry_at,
             },
+        )
+        .await
+    }
+
+    pub async fn complete_not_modified_scheduled(
+        &self,
+        claim: &RefreshClaim,
+        final_url: &NormalizedFeedUrl,
+        etag: Option<&OpaqueValidator>,
+        last_modified: Option<&OpaqueValidator>,
+        schedule: ScheduleOutcome,
+    ) -> Result<(), RefreshRepositoryError> {
+        if schedule.consecutive_failures() != 0 || schedule.retry_after_at().is_some() {
+            return Err(RefreshRepositoryError::InvalidRequest);
+        }
+        self.complete_owned_scheduled(
+            claim,
+            TerminalUpdate {
+                status: RefreshStatus::NotModified,
+                http_status: Some(304),
+                counts: RefreshCounts {
+                    new_count: 0,
+                    updated_count: 0,
+                    dropped_count: 0,
+                },
+                error_code: None,
+                retry_at: None,
+            },
+            schedule,
+            Some(NotModifiedUpdate {
+                final_url: final_url.complete(),
+                etag: etag.map(OpaqueValidator::storage_value),
+                last_modified: last_modified.map(OpaqueValidator::storage_value),
+                same_validator_scope: false,
+            }),
+        )
+        .await
+    }
+
+    pub async fn complete_failure_scheduled(
+        &self,
+        claim: &RefreshClaim,
+        failure: RefreshFailure,
+        schedule: ScheduleOutcome,
+    ) -> Result<(), RefreshRepositoryError> {
+        if !valid_error_code(&failure.error_code)
+            || schedule.consecutive_failures() <= 0
+            || failure.retry_at != Some(schedule.next_at())
+        {
+            return Err(RefreshRepositoryError::InvalidRequest);
+        }
+        if let Some(http_status) = failure.http_status {
+            validate_http_status(http_status)?;
+        }
+        self.complete_owned_scheduled(
+            claim,
+            TerminalUpdate {
+                status: RefreshStatus::Error,
+                http_status: failure.http_status,
+                counts: RefreshCounts {
+                    new_count: 0,
+                    updated_count: 0,
+                    dropped_count: 0,
+                },
+                error_code: Some(&failure.error_code),
+                retry_at: failure.retry_at,
+            },
+            schedule,
+            None,
         )
         .await
     }
@@ -395,6 +554,64 @@ impl FeedRepository {
             )
             .await?;
         }
+        transaction.commit().await?;
+        Ok(())
+    }
+
+    async fn complete_owned_scheduled(
+        &self,
+        claim: &RefreshClaim,
+        terminal: TerminalUpdate<'_>,
+        schedule: ScheduleOutcome,
+        mut not_modified: Option<NotModifiedUpdate<'_>>,
+    ) -> Result<(), RefreshRepositoryError> {
+        validate_owner(&claim.owner)?;
+        validate_active_token(claim.lease_token)?;
+        let backend = self.database.get_database_backend();
+        let transaction = self.database.begin().await?;
+        if backend == DatabaseBackend::MySql {
+            let current_token = lock_feed_for_mysql(&transaction, &claim.feed_id).await?;
+            validate_active_token(current_token)?;
+        }
+        if let Some(update) = not_modified.as_mut() {
+            let stored_scope = read_validator_scope(&transaction, backend, &claim.feed_id).await?;
+            update.same_validator_scope = stored_scope.as_deref() == Some(update.final_url);
+        }
+        let authorization = transaction
+            .execute(scheduled_terminal_authorization_statement(
+                backend,
+                claim,
+                &terminal,
+                schedule,
+                not_modified.as_ref(),
+            ))
+            .await?;
+        if authorization.rows_affected() != 1 {
+            let status = read_run_status(&transaction, backend, &claim.run_id).await?;
+            transaction.rollback().await?;
+            return if status == RefreshStatus::Running {
+                Err(RefreshRepositoryError::LeaseLost)
+            } else {
+                Err(RefreshRepositoryError::InvalidTransition)
+            };
+        }
+        let run_result = transaction
+            .execute(terminal_run_statement(backend, claim, &terminal))
+            .await?;
+        if run_result.rows_affected() != 1 {
+            transaction.rollback().await?;
+            return Err(RefreshRepositoryError::InvalidTransition);
+        }
+        record_completed_event(
+            &transaction,
+            backend,
+            claim,
+            terminal.status,
+            terminal.http_status,
+            terminal.counts,
+            terminal.error_code,
+        )
+        .await?;
         transaction.commit().await?;
         Ok(())
     }
@@ -648,6 +865,54 @@ where
         .query_one(Statement::from_string(backend, sql.to_owned()))
         .await?;
     row.map(decode_claim_candidate).transpose()
+}
+
+async fn find_exact_claim_candidate<C>(
+    connection: &C,
+    backend: DbBackend,
+    run_id: &str,
+) -> Result<Option<ClaimCandidate>, RefreshRepositoryError>
+where
+    C: ConnectionTrait,
+{
+    let sql = match backend {
+        DatabaseBackend::Sqlite => {
+            "SELECT r.id AS run_id, r.feed_id AS feed_id, f.lease_token AS lease_token
+             FROM feed_refresh_runs r JOIN feeds f ON f.id = r.feed_id
+             WHERE r.id = ? AND r.status = 'QUEUED' AND f.is_disabled = FALSE
+               AND ((r.trigger_kind = 'SCHEDULED' AND julianday(f.next_fetch_at) <= julianday('now'))
+                    OR r.trigger_kind IN ('MANUAL','SUBSCRIBE','IMPORT','RETRY'))
+               AND ((f.lease_owner IS NULL AND f.lease_until IS NULL)
+                    OR (f.lease_until IS NOT NULL AND julianday(f.lease_until) <= julianday('now')))"
+        }
+        DatabaseBackend::Postgres => {
+            "SELECT r.id AS run_id, r.feed_id AS feed_id, f.lease_token AS lease_token
+             FROM feed_refresh_runs r JOIN feeds f ON f.id = r.feed_id
+             WHERE r.id = $1 AND r.status = 'QUEUED' AND f.is_disabled = FALSE
+               AND ((r.trigger_kind = 'SCHEDULED' AND f.next_fetch_at <= clock_timestamp())
+                    OR r.trigger_kind IN ('MANUAL','SUBSCRIBE','IMPORT','RETRY'))
+               AND ((f.lease_owner IS NULL AND f.lease_until IS NULL)
+                    OR (f.lease_until IS NOT NULL AND f.lease_until <= clock_timestamp()))"
+        }
+        DatabaseBackend::MySql => {
+            "SELECT r.id AS run_id, r.feed_id AS feed_id, f.lease_token AS lease_token
+             FROM feed_refresh_runs r JOIN feeds f ON f.id = r.feed_id
+             WHERE r.id = ? AND r.status = 'QUEUED' AND f.is_disabled = FALSE
+               AND ((r.trigger_kind = 'SCHEDULED' AND f.next_fetch_at <= UTC_TIMESTAMP(6))
+                    OR r.trigger_kind IN ('MANUAL','SUBSCRIBE','IMPORT','RETRY'))
+               AND ((f.lease_owner IS NULL AND f.lease_until IS NULL)
+                    OR (f.lease_until IS NOT NULL AND f.lease_until <= UTC_TIMESTAMP(6)))"
+        }
+    };
+    connection
+        .query_one(Statement::from_sql_and_values(
+            backend,
+            sql,
+            [run_id.into()],
+        ))
+        .await?
+        .map(decode_claim_candidate)
+        .transpose()
 }
 
 fn decode_claim_candidate(row: QueryResult) -> Result<ClaimCandidate, RefreshRepositoryError> {
@@ -973,6 +1238,151 @@ fn terminal_authorization_statement(backend: DbBackend, claim: &RefreshClaim) ->
     )
 }
 
+fn scheduled_terminal_authorization_statement(
+    backend: DbBackend,
+    claim: &RefreshClaim,
+    terminal: &TerminalUpdate<'_>,
+    schedule: ScheduleOutcome,
+    not_modified: Option<&NotModifiedUpdate<'_>>,
+) -> Statement {
+    let is_not_modified = terminal.status == RefreshStatus::NotModified;
+    let clock = match backend {
+        DatabaseBackend::Sqlite => "strftime('%Y-%m-%dT%H:%M:%f000Z','now')",
+        DatabaseBackend::Postgres => "clock_timestamp()",
+        DatabaseBackend::MySql => "UTC_TIMESTAMP(6)",
+    };
+    let success_assignment = if is_not_modified {
+        format!("last_success_at={clock},")
+    } else {
+        String::new()
+    };
+    if let Some(update) = not_modified {
+        let placeholders = if backend == DatabaseBackend::Postgres {
+            [
+                "$1", "$2", "$3", "$4", "$5", "$6", "$7", "$8", "$9", "$10", "$11", "$12", "$13",
+                "$14", "$15", "$16",
+            ]
+        } else {
+            [
+                "?", "?", "?", "?", "?", "?", "?", "?", "?", "?", "?", "?", "?", "?", "?", "?",
+            ]
+        };
+        let sql = format!(
+            "UPDATE feeds SET lease_owner=NULL, lease_until=NULL, last_attempt_at={clock},
+                    {success_assignment} next_fetch_at={0}, retry_after_at={1},
+                    consecutive_failures={2}, last_error_code={3}, fetch_url={4}, validator_url={5},
+                    etag=CASE WHEN {6} THEN COALESCE({7}, etag) ELSE {8} END,
+                    last_modified=CASE WHEN {9} THEN COALESCE({10}, last_modified) ELSE {11} END,
+                    updated_at={clock}
+             WHERE id={12} AND lease_owner={13} AND lease_token={14} AND lease_token >= 0
+               AND lease_until IS NOT NULL AND lease_until > {clock}
+               AND EXISTS (SELECT 1 FROM feed_refresh_runs r WHERE r.id={15}
+                           AND r.feed_id=feeds.id AND r.status='RUNNING'
+                           AND r.lease_token=feeds.lease_token)",
+            placeholders[0],
+            placeholders[1],
+            placeholders[2],
+            placeholders[3],
+            placeholders[4],
+            placeholders[5],
+            placeholders[6],
+            placeholders[7],
+            placeholders[8],
+            placeholders[9],
+            placeholders[10],
+            placeholders[11],
+            placeholders[12],
+            placeholders[13],
+            placeholders[14],
+            placeholders[15],
+        );
+        return Statement::from_sql_and_values(
+            backend,
+            sql,
+            [
+                schedule.next_at().into(),
+                schedule.retry_after_at().into(),
+                schedule.consecutive_failures().into(),
+                terminal.error_code.into(),
+                update.final_url.into(),
+                update.final_url.into(),
+                update.same_validator_scope.into(),
+                update.etag.into(),
+                update.etag.into(),
+                update.same_validator_scope.into(),
+                update.last_modified.into(),
+                update.last_modified.into(),
+                claim.feed_id.as_str().into(),
+                claim.owner.as_str().into(),
+                claim.lease_token.into(),
+                claim.run_id.as_str().into(),
+            ],
+        );
+    }
+    let placeholders = if backend == DatabaseBackend::Postgres {
+        ["$1", "$2", "$3", "$4", "$5", "$6", "$7", "$8"]
+    } else {
+        ["?", "?", "?", "?", "?", "?", "?", "?"]
+    };
+    let sql = format!(
+        "UPDATE feeds SET lease_owner=NULL, lease_until=NULL, last_attempt_at={clock},
+                {success_assignment} next_fetch_at={0}, retry_after_at={1},
+                consecutive_failures={2}, last_error_code={3}, updated_at={clock}
+         WHERE id={4} AND lease_owner={5} AND lease_token={6} AND lease_token >= 0
+           AND lease_until IS NOT NULL AND lease_until > {clock}
+           AND EXISTS (SELECT 1 FROM feed_refresh_runs r WHERE r.id={7}
+                       AND r.feed_id=feeds.id AND r.status='RUNNING'
+                       AND r.lease_token=feeds.lease_token)",
+        placeholders[0],
+        placeholders[1],
+        placeholders[2],
+        placeholders[3],
+        placeholders[4],
+        placeholders[5],
+        placeholders[6],
+        placeholders[7],
+    );
+    Statement::from_sql_and_values(
+        backend,
+        sql,
+        [
+            schedule.next_at().into(),
+            schedule.retry_after_at().into(),
+            schedule.consecutive_failures().into(),
+            terminal.error_code.into(),
+            claim.feed_id.as_str().into(),
+            claim.owner.as_str().into(),
+            claim.lease_token.into(),
+            claim.run_id.as_str().into(),
+        ],
+    )
+}
+
+async fn read_validator_scope<C>(
+    connection: &C,
+    backend: DbBackend,
+    feed_id: &str,
+) -> Result<Option<String>, RefreshRepositoryError>
+where
+    C: ConnectionTrait,
+{
+    let sql = match backend {
+        DatabaseBackend::Sqlite => "SELECT validator_url FROM feeds WHERE id = ?",
+        DatabaseBackend::Postgres => "SELECT validator_url FROM feeds WHERE id = $1 FOR UPDATE",
+        DatabaseBackend::MySql => "SELECT validator_url FROM feeds WHERE id = ? FOR UPDATE",
+    };
+    let row = connection
+        .query_one(Statement::from_sql_and_values(
+            backend,
+            sql,
+            [feed_id.into()],
+        ))
+        .await?
+        .ok_or(RefreshRepositoryError::CorruptData)?;
+    row.try_get("", "validator_url")
+        .map_err(|_| RefreshRepositoryError::CorruptData)
+}
+
 fn cancel_queued_statement(backend: DbBackend, run_id: &str) -> Statement {
     let sql = match backend {
         DatabaseBackend::Sqlite => {
@@ -1050,26 +1460,35 @@ fn terminal_run_statement(
     claim: &RefreshClaim,
     terminal: &TerminalUpdate<'_>,
 ) -> Statement {
+    let fetched_assignment = if terminal.status == RefreshStatus::NotModified {
+        match backend {
+            DatabaseBackend::Sqlite => "fetched_at = strftime('%Y-%m-%dT%H:%M:%f000Z', 'now'),",
+            DatabaseBackend::Postgres => "fetched_at = clock_timestamp(),",
+            DatabaseBackend::MySql => "fetched_at = UTC_TIMESTAMP(6),",
+        }
+    } else {
+        ""
+    };
     let sql = match backend {
         DatabaseBackend::Sqlite => {
-            "UPDATE feed_refresh_runs
-             SET status = ?, http_status = ?, new_count = ?, updated_count = ?, dropped_count = ?,
+            format!("UPDATE feed_refresh_runs
+             SET {fetched_assignment} status = ?, http_status = ?, new_count = ?, updated_count = ?, dropped_count = ?,
                  error_code = ?, retry_at = ?,
                  completed_at = strftime('%Y-%m-%dT%H:%M:%f000Z', 'now')
-             WHERE id = ? AND feed_id = ? AND status = 'RUNNING' AND lease_token = ?"
+             WHERE id = ? AND feed_id = ? AND status = 'RUNNING' AND lease_token = ?")
         }
         DatabaseBackend::Postgres => {
-            "UPDATE feed_refresh_runs
-             SET status = $1, http_status = $2, new_count = $3, updated_count = $4,
+            format!("UPDATE feed_refresh_runs
+             SET {fetched_assignment} status = $1, http_status = $2, new_count = $3, updated_count = $4,
                  dropped_count = $5, error_code = $6, retry_at = $7,
                  completed_at = clock_timestamp()
-             WHERE id = $8 AND feed_id = $9 AND status = 'RUNNING' AND lease_token = $10"
+             WHERE id = $8 AND feed_id = $9 AND status = 'RUNNING' AND lease_token = $10")
         }
         DatabaseBackend::MySql => {
-            "UPDATE feed_refresh_runs
-             SET status = ?, http_status = ?, new_count = ?, updated_count = ?, dropped_count = ?,
+            format!("UPDATE feed_refresh_runs
+             SET {fetched_assignment} status = ?, http_status = ?, new_count = ?, updated_count = ?, dropped_count = ?,
                  error_code = ?, retry_at = ?, completed_at = UTC_TIMESTAMP(6)
-             WHERE id = ? AND feed_id = ? AND status = 'RUNNING' AND lease_token = ?"
+             WHERE id = ? AND feed_id = ? AND status = 'RUNNING' AND lease_token = ?")
         }
     };
     Statement::from_sql_and_values(
@@ -1118,6 +1537,80 @@ where
     status
         .parse()
         .map_err(|_| RefreshRepositoryError::CorruptData)
+}
+
+async fn read_run_status_optional<C>(
+    connection: &C,
+    backend: DbBackend,
+    run_id: &str,
+) -> Result<Option<RefreshStatus>, RefreshRepositoryError>
+where
+    C: ConnectionTrait,
+{
+    let sql = match backend {
+        DatabaseBackend::Postgres => "SELECT status FROM feed_refresh_runs WHERE id = $1",
+        DatabaseBackend::Sqlite | DatabaseBackend::MySql => {
+            "SELECT status FROM feed_refresh_runs WHERE id = ?"
+        }
+    };
+    connection
+        .query_one(Statement::from_sql_and_values(
+            backend,
+            sql,
+            [run_id.into()],
+        ))
+        .await?
+        .map(|row| {
+            let status: String = row
+                .try_get("", "status")
+                .map_err(|_| RefreshRepositoryError::CorruptData)?;
+            status
+                .parse()
+                .map_err(|_| RefreshRepositoryError::CorruptData)
+        })
+        .transpose()
+}
+
+async fn read_exact_run_state<C>(
+    connection: &C,
+    backend: DbBackend,
+    run_id: &str,
+) -> Result<Option<(RefreshStatus, bool)>, RefreshRepositoryError>
+where
+    C: ConnectionTrait,
+{
+    let sql = match backend {
+        DatabaseBackend::Postgres => {
+            "SELECT r.status, f.is_disabled FROM feed_refresh_runs r
+             JOIN feeds f ON f.id = r.feed_id WHERE r.id = $1"
+        }
+        DatabaseBackend::Sqlite | DatabaseBackend::MySql => {
+            "SELECT r.status, f.is_disabled FROM feed_refresh_runs r
+             JOIN feeds f ON f.id = r.feed_id WHERE r.id = ?"
+        }
+    };
+    connection
+        .query_one(Statement::from_sql_and_values(
+            backend,
+            sql,
+            [run_id.into()],
+        ))
+        .await?
+        .map(|row| {
+            let status: String = row
+                .try_get("", "status")
+                .map_err(|_| RefreshRepositoryError::CorruptData)?;
+            let disabled: bool = row
+                .try_get("", "is_disabled")
+                .map_err(|_| RefreshRepositoryError::CorruptData)?;
+            Ok((
+                status
+                    .parse()
+                    .map_err(|_| RefreshRepositoryError::CorruptData)?,
+                disabled,
+            ))
+        })
+        .transpose()
 }
 
 async fn read_lease_state<C>(

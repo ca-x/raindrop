@@ -4,6 +4,7 @@ use std::{
     fmt,
     net::{IpAddr, SocketAddr},
     sync::Arc,
+    sync::atomic::{AtomicUsize, Ordering},
     time::Duration,
 };
 
@@ -228,6 +229,7 @@ pub enum FeedFetchErrorKind {
     Encoding,
     CompressedTooLarge,
     Decode,
+    RequestBudget,
 }
 
 enum FetchErrorSource {
@@ -352,6 +354,21 @@ pub struct HttpFeedTransport {
     resolver: Arc<dyn DnsResolver>,
     snapshots: Arc<dyn SnapshotProvider>,
     executor: Arc<dyn HttpExecutor>,
+    execution_count: Arc<AtomicUsize>,
+    execution_budget: Option<usize>,
+}
+
+#[derive(Clone, Debug)]
+#[doc(hidden)]
+pub struct HttpExecutionCounter {
+    count: Arc<AtomicUsize>,
+}
+
+impl HttpExecutionCounter {
+    #[must_use]
+    pub fn count(&self) -> usize {
+        self.count.load(Ordering::SeqCst)
+    }
 }
 
 impl HttpFeedTransport {
@@ -386,7 +403,28 @@ impl HttpFeedTransport {
             resolver: Arc::new(resolver),
             snapshots: Arc::new(snapshots),
             executor: Arc::new(ReqwestExecutor::production()),
+            execution_count: Arc::new(AtomicUsize::new(0)),
+            execution_budget: None,
         })
+    }
+
+    #[doc(hidden)]
+    pub fn new_observed(
+        url_policy: FeedUrlPolicy,
+        execution_budget: usize,
+    ) -> Result<(Self, HttpExecutionCounter), FeedFetchError> {
+        if execution_budget == 0 {
+            return Err(FeedFetchError::new(
+                FeedFetchErrorKind::Configuration,
+                "request-budget",
+            ));
+        }
+        let mut transport = Self::new(url_policy)?;
+        transport.execution_budget = Some(execution_budget);
+        let counter = HttpExecutionCounter {
+            count: transport.execution_count.clone(),
+        };
+        Ok((transport, counter))
     }
 
     #[cfg(test)]
@@ -401,6 +439,8 @@ impl HttpFeedTransport {
             resolver,
             snapshots,
             executor,
+            execution_count: Arc::new(AtomicUsize::new(0)),
+            execution_budget: None,
         }
     }
 }
@@ -477,6 +517,7 @@ impl HttpFeedTransport {
                     hop_deadline,
                     total_deadline,
                 );
+                self.claim_execution(host)?;
                 let response =
                     strict_timeout_at(first_byte_deadline, self.executor.execute(execute_request))
                         .await
@@ -603,6 +644,25 @@ impl HttpFeedTransport {
                 }
             }
         }
+    }
+
+    fn claim_execution(&self, host: &str) -> Result<(), FeedFetchError> {
+        if let Some(budget) = self.execution_budget {
+            if self
+                .execution_count
+                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |count| {
+                    (count < budget).then_some(count + 1)
+                })
+                .is_err()
+            {
+                let mut error = FeedFetchError::new(FeedFetchErrorKind::RequestBudget, host);
+                error.count = Some(budget);
+                return Err(error);
+            }
+        } else {
+            self.execution_count.fetch_add(1, Ordering::SeqCst);
+        }
+        Ok(())
     }
 
     async fn current_snapshot(
@@ -1207,6 +1267,35 @@ mod tests {
         assert_eq!(error.kind(), FeedFetchErrorKind::RedirectLimit);
         assert_eq!(error.count(), Some(6));
         assert_eq!(executor.requests().len(), 6);
+    }
+
+    #[tokio::test]
+    async fn execution_budget_is_claimed_before_redirect_executor_calls() {
+        let dns = Arc::new(FakeDnsResolver::new(
+            (0..3)
+                .map(|_| DnsReply::addresses(vec![PUBLIC_IP]))
+                .collect(),
+        ));
+        let executor = Arc::new(ScriptedExecutor::new(vec![
+            redirect("/two"),
+            redirect("/three"),
+            redirect("/must-not-execute"),
+        ]));
+        let mut transport = transport(dns, stable_snapshots(), executor.clone());
+        transport.execution_budget = Some(2);
+        let counter = super::HttpExecutionCounter {
+            count: transport.execution_count.clone(),
+        };
+
+        let error = transport
+            .fetch(request("https://feed.example/rss"))
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.kind(), FeedFetchErrorKind::RequestBudget);
+        assert_eq!(error.count(), Some(2));
+        assert_eq!(counter.count(), 2);
+        assert_eq!(executor.requests().len(), 2);
     }
 
     #[tokio::test]

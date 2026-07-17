@@ -15,6 +15,15 @@ pub trait JitterSource {
     fn sample_inclusive_us(&mut self, upper_bound_us: u64) -> u64;
 }
 
+impl<T> JitterSource for Box<T>
+where
+    T: JitterSource + ?Sized,
+{
+    fn sample_inclusive_us(&mut self, upper_bound_us: u64) -> u64 {
+        (**self).sample_inclusive_us(upper_bound_us)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RefreshResult {
     Success,

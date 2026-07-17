@@ -21,7 +21,8 @@ use crate::content::sanitize::canonical_summary_text;
 use super::lifecycle::{record_completed_event, record_persisted_event};
 use super::{
     EncodedEntryContent, EntryIdentity, FeedRepository, FeedUrlPolicy, OpaqueValidator,
-    ParsedEnclosure, ParsedFeed, RefreshClaim, RefreshCounts, RefreshRepositoryError, ValidatorSet,
+    ParsedEnclosure, ParsedFeed, RefreshClaim, RefreshCounts, RefreshRepositoryError,
+    ScheduleOutcome, ValidatorSet,
 };
 
 const PIPELINE_VERSION: &str = "sanitize-v1";
@@ -227,13 +228,14 @@ pub struct PersistResult {
 }
 
 impl FeedRepository {
+    #[cfg(debug_assertions)]
     pub async fn persist_feed(
         &self,
         claim: &RefreshClaim,
         feed: PersistFeed,
     ) -> Result<PersistResult, RefreshRepositoryError> {
         for backoff in RETRY_BACKOFFS {
-            match self.persist_feed_once(claim, &feed).await {
+            match self.persist_feed_once(claim, &feed, None).await {
                 Err(RefreshRepositoryError::Database(error))
                     if is_transient_database_error(&error) =>
                 {
@@ -242,13 +244,36 @@ impl FeedRepository {
                 result => return result,
             }
         }
-        self.persist_feed_once(claim, &feed).await
+        self.persist_feed_once(claim, &feed, None).await
+    }
+
+    pub async fn persist_feed_scheduled(
+        &self,
+        claim: &RefreshClaim,
+        feed: PersistFeed,
+        schedule: ScheduleOutcome,
+    ) -> Result<PersistResult, RefreshRepositoryError> {
+        if schedule.consecutive_failures() != 0 || schedule.retry_after_at().is_some() {
+            return Err(RefreshRepositoryError::InvalidRequest);
+        }
+        for backoff in RETRY_BACKOFFS {
+            match self.persist_feed_once(claim, &feed, Some(schedule)).await {
+                Err(RefreshRepositoryError::Database(error))
+                    if is_transient_database_error(&error) =>
+                {
+                    tokio::time::sleep(backoff).await;
+                }
+                result => return result,
+            }
+        }
+        self.persist_feed_once(claim, &feed, Some(schedule)).await
     }
 
     async fn persist_feed_once(
         &self,
         claim: &RefreshClaim,
         feed: &PersistFeed,
+        schedule: Option<ScheduleOutcome>,
     ) -> Result<PersistResult, RefreshRepositoryError> {
         validate_claim(claim)?;
         let backend = self.connection().get_database_backend();
@@ -362,6 +387,7 @@ impl FeedRepository {
                 feed,
                 final_sequence_head,
                 counts.new_count != 0 || counts.updated_count != 0,
+                schedule,
             ))
             .await?;
         if feed_updated.rows_affected() != 1 {
@@ -1195,6 +1221,7 @@ fn update_feed_statement(
     feed: &PersistFeed,
     sequence_head: i64,
     changed: bool,
+    schedule: Option<ScheduleOutcome>,
 ) -> Statement {
     let changed_assignment = if changed {
         match backend {
@@ -1208,25 +1235,26 @@ fn update_feed_statement(
     let (clock, placeholders) = match backend {
         DatabaseBackend::Sqlite => (
             "strftime('%Y-%m-%dT%H:%M:%f000Z','now')",
-            ["?", "?", "?", "?", "?", "?", "?", "?", "?", "?", "?"],
+            ["?", "?", "?", "?", "?", "?", "?", "?", "?", "?", "?", "?"],
         ),
         DatabaseBackend::Postgres => (
             "clock_timestamp()",
             [
-                "$1", "$2", "$3", "$4", "$5", "$6", "$7", "$8", "$9", "$10", "$11",
+                "$1", "$2", "$3", "$4", "$5", "$6", "$7", "$8", "$9", "$10", "$11", "$12",
             ],
         ),
         DatabaseBackend::MySql => (
             "UTC_TIMESTAMP(6)",
-            ["?", "?", "?", "?", "?", "?", "?", "?", "?", "?", "?"],
+            ["?", "?", "?", "?", "?", "?", "?", "?", "?", "?", "?", "?"],
         ),
     };
     let sql = format!(
         "UPDATE feeds SET fetch_url={0}, title={1}, site_url={2}, validator_url={3}, etag={4},
             last_modified={5}, response_content_hash={6}, entry_sequence_head={7}, last_attempt_at={clock},
             last_success_at={clock}, {changed_assignment} retry_after_at=NULL,
-            consecutive_failures=0, last_error_code=NULL, orphaned_at=NULL, updated_at={clock}
-         WHERE id={8} AND lease_owner={9} AND lease_token={10}",
+            consecutive_failures=0, last_error_code=NULL, orphaned_at=NULL,
+            next_fetch_at=COALESCE({8}, next_fetch_at), updated_at={clock}
+         WHERE id={9} AND lease_owner={10} AND lease_token={11}",
         placeholders[0],
         placeholders[1],
         placeholders[2],
@@ -1237,7 +1265,8 @@ fn update_feed_statement(
         placeholders[7],
         placeholders[8],
         placeholders[9],
-        placeholders[10]
+        placeholders[10],
+        placeholders[11]
     );
     Statement::from_sql_and_values(
         backend,
@@ -1257,6 +1286,7 @@ fn update_feed_statement(
                 .into(),
             feed.response_content_hash.as_str().into(),
             sequence_head.into(),
+            schedule.map(ScheduleOutcome::next_at).into(),
             claim.feed_id.as_str().into(),
             claim.owner.as_str().into(),
             claim.lease_token.into(),

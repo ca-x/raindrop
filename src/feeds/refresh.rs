@@ -143,6 +143,14 @@ pub struct RefreshClaim {
     pub lease_deadline: OffsetDateTime,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ExactClaimResult {
+    Claimed(RefreshClaim),
+    TemporarilyBlocked,
+    FeedDisabled,
+    Existing(RefreshStatus),
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RefreshCounts {
     pub new_count: i32,
@@ -179,6 +187,8 @@ pub enum RefreshRepositoryError {
     LeaseLost,
     #[error("refresh status transition is invalid")]
     InvalidTransition,
+    #[error("refresh run was not found")]
+    RunNotFound,
     #[error("entry content storage validation failed")]
     Content(#[source] super::EntryContentError),
     #[error("entry content serialization failed")]
@@ -210,6 +220,7 @@ impl fmt::Debug for RefreshRepositoryError {
             Self::CorruptData => "RefreshRepositoryError::CorruptData",
             Self::LeaseLost => "RefreshRepositoryError::LeaseLost",
             Self::InvalidTransition => "RefreshRepositoryError::InvalidTransition",
+            Self::RunNotFound => "RefreshRepositoryError::RunNotFound",
             Self::Content(_) => "RefreshRepositoryError::Content([REDACTED])",
             Self::InvalidContent => "RefreshRepositoryError::InvalidContent",
             Self::IdentityHashCollision => "RefreshRepositoryError::IdentityHashCollision",

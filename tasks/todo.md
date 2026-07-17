@@ -13,9 +13,9 @@
 
 ## 2. RSS core
 
-- [ ] Feed/subscription/entry/entry_state schema 与三数据库迁移。
-- [ ] URL 安全、SSRF 防护、条件请求、解析、清洗和幂等插入。
-- [ ] 将 `https://www.ithome.com/rss/` 作为 opt-in/live smoke，覆盖真实抓取、RSS 2.0 解析、HTML 清洗、`60-item` 级入库、二次刷新幂等无重复，以及列表/正文展示；live smoke 与确定性 CI fixture 分开。
+- [x] Feed/subscription/entry/entry_state schema 与三数据库迁移。
+- [x] URL 安全、SSRF 防护、条件请求、解析、清洗和幂等插入。
+- [x] 将 `https://www.ithome.com/rss/` 作为 opt-in/live smoke，覆盖真实抓取、RSS 2.0 解析、HTML 清洗、`60-item` 级入库、二次刷新幂等无重复，以及列表/正文展示；live smoke 与确定性 CI fixture 分开。
 - [ ] 调度租约、退避、保留策略和刷新事件。
 - [ ] 订阅树、文章列表、阅读器、已读/未读/收藏。
 - [ ] CommaFeed 效率内核：All/Unread/Starred、J/K 与 N/P、批量已读快照、下一未读来源、来源内搜索和非打扰式新文章合并。

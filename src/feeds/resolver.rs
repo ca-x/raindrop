@@ -149,16 +149,22 @@ fn collect_family_addresses(
             if lookup.answers().is_empty() {
                 return Err(DnsResolveError::Lookup);
             }
+            let initial_count = addresses.len();
             for record in lookup.answers() {
                 match (&record.data, record_type) {
                     (RData::A(address), RecordType::A) => addresses.push(IpAddr::V4(address.0)),
                     (RData::AAAA(address), RecordType::AAAA) => {
                         addresses.push(IpAddr::V6(address.0));
                     }
+                    (RData::CNAME(_), RecordType::A | RecordType::AAAA) => {}
                     _ => return Err(DnsResolveError::Lookup),
                 }
             }
-            Ok(())
+            if addresses.len() == initial_count {
+                Err(DnsResolveError::Lookup)
+            } else {
+                Ok(())
+            }
         }
         Err(NetError::Dns(DnsError::NoRecordsFound(no_records)))
             if no_records.response_code == ResponseCode::NoError =>
@@ -553,7 +559,7 @@ mod tests {
             op::{Query, ResponseCode},
             rr::{
                 Name, RData, Record, RecordType,
-                rdata::{A, AAAA},
+                rdata::{A, AAAA, CNAME},
             },
         },
     };
@@ -864,6 +870,30 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn system_user_dns_accepts_cname_chain_with_terminal_public_address() {
+        let terminal = std::net::Ipv4Addr::new(8, 8, 8, 8);
+        let lookup = Arc::new(ScriptedLookup::new(vec![
+            ScriptedLookupResult::Delayed(Duration::ZERO, Ok(lookup_v4_cname(terminal, 60))),
+            ScriptedLookupResult::Delayed(
+                Duration::ZERO,
+                Err(no_records(
+                    RecordType::AAAA,
+                    ResponseCode::NoError,
+                    Some(60),
+                )),
+            ),
+        ]));
+        let resolver = SystemDnsResolver::with_lookup(lookup);
+
+        assert_eq!(
+            resolver
+                .resolve("feed.example", Instant::now() + Duration::from_secs(3))
+                .await,
+            Ok(vec![std::net::IpAddr::V4(terminal)])
+        );
+    }
+
     #[tokio::test(start_paused = true)]
     async fn nat64_refresh_lock_wait_rejects_the_total_deadline() {
         let discovery = Arc::new(FakeNat64Discovery::new(vec![Ok(Nat64Discovery {
@@ -1047,6 +1077,20 @@ mod tests {
         Lookup::new_with_deadline(
             query,
             records,
+            StdInstant::now() + Duration::from_secs(u64::from(ttl)),
+        )
+    }
+
+    fn lookup_v4_cname(address: std::net::Ipv4Addr, ttl: u32) -> Lookup {
+        let alias = Name::from_ascii("feed.example.").unwrap();
+        let terminal = Name::from_ascii("edge.example.").unwrap();
+        let query = Query::query(alias.clone(), RecordType::A);
+        Lookup::new_with_deadline(
+            query,
+            vec![
+                Record::from_rdata(alias, ttl, RData::CNAME(CNAME(terminal.clone()))),
+                Record::from_rdata(terminal, ttl, RData::A(A(address))),
+            ],
             StdInstant::now() + Duration::from_secs(u64::from(ttl)),
         )
     }
