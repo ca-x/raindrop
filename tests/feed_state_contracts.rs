@@ -10,7 +10,8 @@ use raindrop::{
 };
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectOptions, ConnectionTrait, Database,
-    DatabaseBackend, DatabaseConnection, EntityTrait, QueryFilter, Statement, TransactionTrait,
+    DatabaseBackend, DatabaseConnection, EntityTrait, QueryFilter, QueryResult, Statement,
+    TransactionTrait,
 };
 use secrecy::SecretString;
 use support::database::{
@@ -762,36 +763,7 @@ async fn wait_until_backend_reports_lock_wait(
 ) {
     tokio::time::timeout(std::time::Duration::from_secs(5), async {
         loop {
-            let row = observer
-                .query_one(Statement::from_sql_and_values(
-                    backend,
-                    match backend {
-                        DatabaseBackend::Postgres => {
-                            "SELECT EXISTS (
-                                 SELECT 1 FROM pg_stat_activity
-                                 WHERE pid = $1 AND state = 'active'
-                                   AND wait_event_type = 'Lock'
-                             ) AS waiting"
-                        }
-                        DatabaseBackend::MySql => {
-                            "SELECT EXISTS (
-                                 SELECT 1 FROM information_schema.innodb_trx
-                                 WHERE trx_mysql_thread_id = ? AND trx_state = 'LOCK WAIT'
-                             ) AS waiting"
-                        }
-                        DatabaseBackend::Sqlite => {
-                            unreachable!("backend contract is server-only")
-                        }
-                    },
-                    [connection_id.into()],
-                ))
-                .await
-                .expect("backend lock wait should query")
-                .expect("backend lock wait result should exist");
-            if row
-                .try_get::<bool>("", "waiting")
-                .expect("backend lock wait should decode")
-            {
+            if backend_reports_lock_wait(observer, backend, connection_id).await {
                 break;
             }
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
@@ -799,6 +771,77 @@ async fn wait_until_backend_reports_lock_wait(
     })
     .await
     .expect("second patch must visibly wait on the subscription lock");
+}
+
+async fn backend_reports_lock_wait(
+    observer: &DatabaseConnection,
+    backend: DatabaseBackend,
+    connection_id: i64,
+) -> bool {
+    match backend {
+        DatabaseBackend::Postgres => observer
+            .query_one(Statement::from_sql_and_values(
+                backend,
+                "SELECT EXISTS (
+                     SELECT 1 FROM pg_stat_activity
+                     WHERE pid = $1 AND state = 'active'
+                       AND wait_event_type = 'Lock'
+                 ) AS waiting",
+                [connection_id.into()],
+            ))
+            .await
+            .expect("PostgreSQL lock wait should query")
+            .expect("PostgreSQL lock wait result should exist")
+            .try_get::<bool>("", "waiting")
+            .expect("PostgreSQL lock wait should decode"),
+        DatabaseBackend::MySql => observer
+            .query_all(Statement::from_string(
+                backend,
+                "SHOW PROCESSLIST".to_owned(),
+            ))
+            .await
+            .expect("MySQL process list should query without PROCESS privilege")
+            .iter()
+            .find(|row| mysql_processlist_id(row) == connection_id)
+            .is_some_and(mysql_processlist_row_is_lock_wait),
+        DatabaseBackend::Sqlite => unreachable!("backend contract is server-only"),
+    }
+}
+
+fn mysql_processlist_id(row: &QueryResult) -> i64 {
+    for column in ["Id", "ID", "id"] {
+        if let Ok(value) = row.try_get::<i64>("", column) {
+            return value;
+        }
+        if let Ok(value) = row.try_get::<u64>("", column) {
+            return i64::try_from(value).expect("MySQL process ID should fit signed 64-bit");
+        }
+        if let Ok(value) = row.try_get::<u32>("", column) {
+            return i64::from(value);
+        }
+    }
+    panic!("MySQL SHOW PROCESSLIST ID column should decode");
+}
+
+fn mysql_processlist_row_is_lock_wait(row: &QueryResult) -> bool {
+    let command = mysql_processlist_text(row, &["Command", "COMMAND", "command"])
+        .expect("MySQL SHOW PROCESSLIST Command should be non-null");
+    let state = mysql_processlist_text(row, &["State", "STATE", "state"]);
+    let command = command.trim().to_ascii_lowercase();
+    matches!(command.as_str(), "query" | "execute")
+        && state.is_some_and(|state| state.to_ascii_lowercase().contains("lock"))
+}
+
+fn mysql_processlist_text(row: &QueryResult, columns: &[&str]) -> Option<String> {
+    for column in columns {
+        if let Ok(value) = row.try_get::<Option<String>>("", column) {
+            return value;
+        }
+        if let Ok(value) = row.try_get::<String>("", column) {
+            return Some(value);
+        }
+    }
+    None
 }
 
 #[tokio::test]

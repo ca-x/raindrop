@@ -204,6 +204,12 @@ jobs:
       - name: Verify terminal atomicity and lock order on MySQL
         run: cargo test --locked --test feed_terminal_backend_contracts mysql -- --nocapture --test-threads=1
 
+      - name: Test PostgreSQL reader state contracts
+        run: cargo test --locked --test feed_state_contracts postgres -- --nocapture --test-threads=1
+
+      - name: Test MySQL reader state contracts
+        run: cargo test --locked --test feed_state_contracts mysql -- --nocapture --test-threads=1
+
       - name: Run Rust tests
         run: env -u RAINDROP_TEST_POSTGRES_URL -u RAINDROP_TEST_MYSQL_URL cargo test --locked --all-features
 
