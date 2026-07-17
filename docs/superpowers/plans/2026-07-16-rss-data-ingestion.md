@@ -21,6 +21,7 @@
 - `feedparser-rs` is parser-only: keep its default `http` feature disabled and never call parser-owned URL fetching. Call `parse_with_limits` only after Raindrop MIME/encoding/XML preflight, reject unknown format and every `bozo` result, and immediately map crate types into owned domain types.
 - Default limits are DNS 3 s, connect/TLS 5 s, first byte 10 s, body idle 10 s, one hop 20 s, whole refresh 30 s, compressed body 2 MiB, decoded body 10 MiB, compression ratio 100:1, 5,000 entries, and XML depth 128.
 - Server-side HTML sanitization is mandatory. React never receives raw Feed XML or unsanitized publisher HTML; remote images remain inert by default.
+- Persisted sanitized content uses the canonical `rdsc:v1:` envelope: the prefix followed by compact JSON with exact top-level keys `html` and `inertImages`; each image record uses `imageIndex`, `sourceUrl`, `alt`, `width`, and `height` in that order. Semantic `source_content_hash` and `content_hash` remain hashes of sanitized HTML only, never image source URLs or the storage envelope.
 - Deterministic fixtures and local scripted servers are mandatory CI evidence. `https://www.ithome.com/rss/` is an ignored, opt-in smoke guarded by `RAINDROP_LIVE_RSS_SMOKE=1` and is not a pull-request gate.
 - API and module interfaces use typed inputs/outputs and explicit error enums. Route handlers do not fetch URLs, parse feeds, sanitize HTML, or issue database queries.
 - New dependencies must have minimal features, no system proxy, no cookie jar, no native-tls, no HTTP/3, no unused codecs, and no high/critical reachable advisory.
@@ -596,28 +597,44 @@ git commit -m "feat: fence feed refresh claims"
 
 **Files:**
 
+- Create: `src/db/migration/rss/entry_storage.rs`
+- Modify: `src/db/migration/rss/mod.rs`
+- Modify: `src/db/migration.rs`
+- Create: `src/feeds/content_storage.rs`
+- Create: `src/feeds/persistence.rs`
+- Modify: `src/feeds/mod.rs`
 - Modify: `src/feeds/repository.rs`
 - Modify: `src/feeds/refresh.rs`
 - Modify: `tests/support/database.rs`
+- Modify: `tests/rss_migrations.rs`
 - Create: `tests/feed_entry_persistence.rs`
 
 **Interfaces:**
 
+- `sanitized_content` stores exact prefix `rdsc:v1:` followed by compact canonical JSON `{"html":...,"inertImages":[...]}`. The private storage structs declare fields in that exact order; inert images are strictly increasing by `imageIndex`, have unique indexes, and retain only sanitized absolute source URLs plus bounded alt/width/height metadata. Encoding and decoding reject envelopes above 4 MiB, unknown prefixes/versions, malformed JSON, duplicate/out-of-order indexes, and invalid dimensions with typed redacted errors. No raw publisher HTML is accepted at this seam.
+- `PersistedContent::from_sanitized(&SanitizedContent)` owns the canonical envelope; `PersistedContent::decode(&str)` produces the typed detail shape `{ html, inert_images }` used later by Task 9. Serialization names are `html` and `inertImages`; image names are `imageIndex`, `sourceUrl`, `alt`, `width`, and `height`.
+- The storage envelope never participates in entry identity or semantic hashes. `source_content_hash` and `content_hash` are the Task 5 HTML-only values; an image-source-only envelope change therefore does not create a new entry and does not trigger a large-field rewrite.
+- Add an ordered schema-evolution migration after all existing migrations. On MySQL it widens `entries.sanitized_content` to `LONGTEXT` and `identity/title/author/summary/enclosure_json` to `MEDIUMTEXT`; SQLite and PostgreSQL remain logical `TEXT`. The migration is idempotent and its down path is verified only with bounded fixture data. Fresh databases and already-migrated databases converge to the same physical schema.
 - A persist transaction first verifies database-clock owner/token fencing, then compares existing identities, increments `INGEST_GENERATION` only when at least one new entry exists, allocates monotonic feed sequences, updates changed content, updates Feed/run state, and releases the lease.
 - `(feed_id, identity_hash)` is final duplicate arbitration; a hit compares both persisted `identity_kind` and full `identity`, and returns `IdentityHashCollision` if either differs.
 - Existing rows preserve ID, inserted time, ingest generation, feed sequence, and sort key. Tracking-only sanitized equality avoids a large-field rewrite. `sort_at_us` is derived from checked `published_at_us` or insertion time once and never changes.
 - `PersistFeed` owns the exact final validator URL plus optional `OpaqueValidator` ETag/Last-Modified values. The same feed transaction encodes them to canonical storage text; repository readback decodes them before the next fetch. Corrupt/unknown validator storage is a typed repository error and is never forwarded as a header.
+- Keep `FeedRepository` as the public repository type, but put Task 7 entry persistence SQL and methods in `src/feeds/persistence.rs` via a separate `impl FeedRepository`; expose its database field only as `pub(super)`. Do not grow the refresh-claim SQL file with entry upsert logic.
 - Backend-specific exact unique-conflict/upsert functions are private. Broad MySQL `INSERT IGNORE` is forbidden. Transaction retry reuses parsed content and never repeats network I/O.
 
-- [ ] **Step 1: Add one compiling persist input/output seam**
+- [ ] **Step 1: Add the storage envelope and schema-evolution contract**
+
+Write RED/GREEN tests for deterministic `rdsc:v1:` bytes, round-trip of HTML plus indexed inert images, rejection of corrupt/oversized/unknown envelopes, image-source-only changes preserving the existing HTML hashes, and MySQL physical column types. Extend `rss_migrations` so the new migration participates in up/down/up and named schema verification.
+
+- [ ] **Step 2: Add one compiling persist input/output seam**
 
 Define owned `PersistFeed`, `PersistEntry`, and `PersistResult` types. Begin with one new-entry test that compiles and fails on count/row assertions.
 
-- [ ] **Step 2: Implement behavioral slices**
+- [ ] **Step 3: Implement behavioral slices**
 
 Run RED/GREEN cycles for: first 60 inserts; second identical refresh inserts zero; tracking-only change updates zero; a real content change under GUID/URL or unchanged fingerprint inputs updates one without changing identity fields/state; accepted content-only/title/date/enclosure fallback changes insert a new identity; concurrent persists leave one identity row; both kind/text are checked on hash collision; non-UTF-8 validator bytes survive database store/reload/decode on all three backends; all new rows share one generation and monotonic sequences; no-new-entry refresh does not increment the counter; a stale token writes nothing.
 
-- [ ] **Step 3: Verify persistence**
+- [ ] **Step 4: Verify persistence**
 
 ```bash
 cargo fmt --check
@@ -625,12 +642,13 @@ cargo clippy --locked --all-targets --all-features -- -D warnings
 cargo test --locked --test feed_entry_persistence -- --nocapture
 RAINDROP_TEST_POSTGRES_URL="$POSTGRES_TEST_URL" cargo test --locked --test feed_entry_persistence postgres -- --nocapture
 RAINDROP_TEST_MYSQL_URL="$MYSQL_TEST_URL" cargo test --locked --test feed_entry_persistence mysql -- --nocapture
+cargo test --locked --test rss_migrations -- --nocapture
 ```
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add src/feeds tests/feed_entry_persistence.rs
+git add src/db src/feeds tests/support/database.rs tests/rss_migrations.rs tests/feed_entry_persistence.rs
 git commit -m "feat: persist feed entries idempotently"
 ```
 
