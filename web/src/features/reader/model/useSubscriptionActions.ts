@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef } from "react"
+import { useCallback } from "react"
 
 import type { ReaderApi } from "./controllerApi"
+import type { ReaderSession } from "./controllerSession"
 import {
   isAbortError,
   isUnauthenticatedError,
@@ -13,7 +14,7 @@ interface SubscriptionActionOptions {
   csrfToken: string
   createRequestId: () => string
   dispatch: (action: ReaderAction) => void
-  expireSession: () => void
+  session: ReaderSession
 }
 
 export function useSubscriptionActions({
@@ -21,29 +22,29 @@ export function useSubscriptionActions({
   csrfToken,
   createRequestId,
   dispatch,
-  expireSession,
+  session,
 }: SubscriptionActionOptions) {
-  const controllers = useRef(new Set<AbortController>())
-
   const runAction = useCallback(
     async <T,>(
       request: (signal: AbortSignal) => Promise<T>,
       success: (value: T) => ReaderAction,
     ) => {
-      const controller = new AbortController()
-      controllers.current.add(controller)
+      const task = session.begin()
+      if (!task) return
       dispatch({ type: "mutationErrorCleared" })
       try {
-        dispatch(success(await request(controller.signal)))
+        const value = await request(task.controller.signal)
+        if (session.isCurrent(task)) dispatch(success(value))
       } catch (error) {
         if (isAbortError(error)) return
-        if (isUnauthenticatedError(error)) return expireSession()
+        if (!session.isCurrent(task)) return
+        if (isUnauthenticatedError(error)) return session.expire(task)
         dispatch({ type: "mutationErrorSet", error: readerErrorMessage(error) })
       } finally {
-        controllers.current.delete(controller)
+        session.finish(task)
       }
     },
-    [dispatch, expireSession],
+    [dispatch, session],
   )
 
   const addSubscription = useCallback(
@@ -81,13 +82,5 @@ export function useSubscriptionActions({
       ),
     [api, createRequestId, csrfToken, runAction],
   )
-
-  useEffect(
-    () => () => {
-      for (const controller of controllers.current) controller.abort()
-    },
-    [],
-  )
-
   return { addSubscription, deleteSubscription, refreshSubscription }
 }

@@ -2,6 +2,7 @@ import { useCallback, useReducer, useRef } from "react"
 
 import { defaultReaderApi, type ReaderApi } from "./controllerApi"
 import { initialReaderState, readerReducer, type ReaderAction } from "./reducer"
+import { useReaderSession } from "./controllerSession"
 import type { ReaderSource, ReaderState } from "./types"
 import { useEntryMutations } from "./useEntryMutations"
 import { useReaderRequests } from "./useReaderRequests"
@@ -38,7 +39,6 @@ export function useReaderController({
 }: UseReaderControllerOptions): ReaderController {
   const [state, reactDispatch] = useReducer(readerReducer, initialReaderState)
   const stateRef = useRef(state)
-  const unauthenticatedNotified = useRef(false)
   stateRef.current = state
 
   const dispatch = useCallback((action: ReaderAction) => {
@@ -46,39 +46,35 @@ export function useReaderController({
     reactDispatch(action)
   }, [])
 
-  const expireSession = useCallback(() => {
-    dispatch({ type: "sessionExpired" })
-    if (!unauthenticatedNotified.current) {
-      unauthenticatedNotified.current = true
-      onUnauthenticated()
-    }
-  }, [dispatch, onUnauthenticated])
+  const session = useReaderSession(dispatch, onUnauthenticated)
 
-  const requests = useReaderRequests({ api, dispatch, stateRef, expireSession })
+  const requests = useReaderRequests({ api, dispatch, stateRef, session })
   const entryMutations = useEntryMutations({
     api,
     csrfToken,
     dispatch,
     stateRef,
-    expireSession,
+    session,
   })
   const subscriptionActions = useSubscriptionActions({
     api,
     csrfToken,
     createRequestId,
     dispatch,
-    expireSession,
+    session,
   })
 
   const recordScrollAnchor = useCallback(
     (route: string, offset: number) => {
+      if (!session.active()) return
       dispatch({ type: "scrollAnchorRecorded", route, offset })
     },
-    [dispatch],
+    [dispatch, session],
   )
   const clearMutationError = useCallback(() => {
+    if (!session.active()) return
     dispatch({ type: "mutationErrorCleared" })
-  }, [dispatch])
+  }, [dispatch, session])
 
   return {
     state,

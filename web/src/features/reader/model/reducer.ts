@@ -12,10 +12,7 @@ import {
   startEntryMutation,
   succeedEntryMutation,
 } from "./reducerMutations"
-import {
-  entryDetailToListItem,
-  updateDetailsFromEntries,
-} from "./reducerDetails"
+import { receiveDetail, receiveSource } from "./reducerEntries"
 import {
   deleteSubscriptionState,
   failSubscriptions,
@@ -127,35 +124,7 @@ export function readerReducer(state: ReaderState, action: ReaderAction): ReaderS
         errors: { ...state.errors, queue: null },
       }
     case "sourceReceived": {
-      if (action.generation !== state.requestGenerationByPane.queue) return state
-      if (sourceKey(action.source) !== sourceKey(state.selectedSource)) return state
-      const entriesById = { ...state.entriesById }
-      for (const entry of action.entries) entriesById[entry.entryId] = entry
-      const key = sourceKey(action.source)
-      const receivedIds = action.entries.map((entry) => entry.entryId)
-      const currentQueue = state.queueBySourceKey[key] ?? []
-      const pendingIds = state.pendingNewEntriesBySource[key] ?? []
-      const discoveredIds = receivedIds.filter(
-        (entryId) => !currentQueue.includes(entryId) && !pendingIds.includes(entryId),
-      )
-      return {
-        ...state,
-        entriesById,
-        detailsById: updateDetailsFromEntries(state.detailsById, action.entries),
-        queueBySourceKey: {
-          ...state.queueBySourceKey,
-          [key]: action.mode === "replace" ? receivedIds : currentQueue,
-        },
-        pendingNewEntriesBySource: {
-          ...state.pendingNewEntriesBySource,
-          [key]: action.mode === "replace" ? [] : [...pendingIds, ...discoveredIds],
-        },
-        pendingNewEntryCountBySource: {
-          ...state.pendingNewEntryCountBySource,
-          [key]: action.mode === "replace" ? 0 : pendingIds.length + discoveredIds.length,
-        },
-        paneStatus: { ...state.paneStatus, queue: "ready" },
-      }
+      return receiveSource(state, action)
     }
     case "sourceFailed":
       if (
@@ -200,22 +169,7 @@ export function readerReducer(state: ReaderState, action: ReaderAction): ReaderS
         errors: { ...state.errors, detail: null },
       }
     case "detailReceived":
-      if (
-        action.generation !== state.requestGenerationByPane.detail ||
-        action.entryId !== state.selectedEntryId
-      ) {
-        return state
-      }
-      return {
-        ...state,
-        detailsById: { ...state.detailsById, [action.entryId]: action.detail },
-        entriesById: {
-          ...state.entriesById,
-          [action.entryId]: entryDetailToListItem(action.detail),
-        },
-        paneStatus: { ...state.paneStatus, detail: "ready" },
-        errors: { ...state.errors, detail: null },
-      }
+      return receiveDetail(state, action)
     case "detailFailed":
       if (
         action.generation !== state.requestGenerationByPane.detail ||
@@ -241,7 +195,7 @@ export function readerReducer(state: ReaderState, action: ReaderAction): ReaderS
     case "sessionExpired":
       return {
         ...initialReaderState,
-        requestGenerationByPane: { subscriptions: 0, queue: 0, detail: 0 },
+        requestGenerationByPane: state.requestGenerationByPane,
         paneStatus: { subscriptions: "idle", queue: "idle", detail: "idle" },
         errors: { subscriptions: null, queue: null, detail: null, mutation: null },
       }

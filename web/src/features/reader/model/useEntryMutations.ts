@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef } from "react"
+import { useCallback, useRef } from "react"
 
 import { invalidResponseError } from "../../../shared/api/client"
 import type { ReaderApi } from "./controllerApi"
+import type { ReaderSession } from "./controllerSession"
 import {
   isAbortError,
   isUnauthenticatedError,
@@ -15,7 +16,7 @@ interface EntryMutationOptions {
   csrfToken: string
   dispatch: (action: ReaderAction) => void
   stateRef: { current: ReaderState }
-  expireSession: () => void
+  session: ReaderSession
 }
 
 export function useEntryMutations({
@@ -23,9 +24,8 @@ export function useEntryMutations({
   csrfToken,
   dispatch,
   stateRef,
-  expireSession,
+  session,
 }: EntryMutationOptions) {
-  const controllers = useRef(new Set<AbortController>())
   const nextMutationId = useRef(0)
 
   const toggleField = useCallback(
@@ -33,10 +33,10 @@ export function useEntryMutations({
       const entity =
         stateRef.current.entriesById[entryId] ?? stateRef.current.detailsById[entryId]
       if (!entity) return
+      const task = session.begin()
+      if (!task) return
       const mutationId = ++nextMutationId.current
       const value = !entity[field]
-      const controller = new AbortController()
-      controllers.current.add(controller)
       dispatch({ type: "entryMutationStarted", mutationId, entryId, field, value })
       try {
         const request = field === "isRead" ? { isRead: value } : { isStarred: value }
@@ -44,30 +44,25 @@ export function useEntryMutations({
           entryId,
           request,
           csrfToken,
-          controller.signal,
+          task.controller.signal,
         )
+        if (!session.isCurrent(task)) return
         if (response.entryId !== entryId) throw invalidResponseError()
         dispatch({ type: "entryMutationSucceeded", mutationId, state: response })
       } catch (error) {
         if (isAbortError(error)) return
-        if (isUnauthenticatedError(error)) return expireSession()
+        if (!session.isCurrent(task)) return
+        if (isUnauthenticatedError(error)) return session.expire(task)
         dispatch({
           type: "entryMutationFailed",
           mutationId,
           error: readerErrorMessage(error),
         })
       } finally {
-        controllers.current.delete(controller)
+        session.finish(task)
       }
     },
-    [api, csrfToken, dispatch, expireSession, stateRef],
-  )
-
-  useEffect(
-    () => () => {
-      for (const controller of controllers.current) controller.abort()
-    },
-    [],
+    [api, csrfToken, dispatch, session, stateRef],
   )
 
   return {

@@ -85,3 +85,33 @@ it("rejects late source responses and errors after a newer generation starts", (
   })
   expect(state.entriesById[entryId]?.title).toBe("Winning entry")
 })
+
+it("keeps request generations monotonic across session expiry", () => {
+  const source: ReaderSource = { kind: "smart", state: "UNREAD" }
+  let state = readerReducer(initialReaderState, {
+    type: "sourceRequested",
+    source,
+    generation: 7,
+  })
+  state = readerReducer(state, { type: "sessionExpired" })
+  expect(state.requestGenerationByPane.queue).toBe(7)
+
+  state = readerReducer(state, { type: "sourceRequested", source, generation: 8 })
+  state = readerReducer(state, {
+    type: "sourceReceived",
+    source,
+    generation: 7,
+    entries: [makeEntry({ title: "Pre-expiry response" })],
+    mode: "replace",
+  })
+  expect(state.entriesById[entryId]).toBeUndefined()
+
+  state = readerReducer(state, {
+    type: "sourceReceived",
+    source,
+    generation: 8,
+    entries: [makeEntry({ title: "Post-expiry response" })],
+    mode: "replace",
+  })
+  expect(state.entriesById[entryId]?.title).toBe("Post-expiry response")
+})

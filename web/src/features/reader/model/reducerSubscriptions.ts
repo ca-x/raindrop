@@ -1,4 +1,5 @@
 import type { Refresh, Subscription } from "../api/subscription.generated"
+import { reconcileSubscription } from "./reducerOptimistic"
 import { sourceKey, type ReaderState } from "./types"
 
 export function requestSubscriptions(
@@ -22,12 +23,15 @@ export function receiveSubscriptions(
   subscriptions: Subscription[],
 ): ReaderState {
   if (generation !== state.requestGenerationByPane.subscriptions) return state
+  const reconciled = subscriptions.map((subscription) =>
+    reconcileSubscription(state, subscription),
+  )
   return {
     ...state,
     subscriptionsById: Object.fromEntries(
-      subscriptions.map((subscription) => [subscription.subscriptionId, subscription]),
+      reconciled.map((subscription) => [subscription.subscriptionId, subscription]),
     ),
-    subscriptionOrder: subscriptions.map((subscription) => subscription.subscriptionId),
+    subscriptionOrder: reconciled.map((subscription) => subscription.subscriptionId),
     paneStatus: { ...state.paneStatus, subscriptions: "ready" },
     errors: { ...state.errors, subscriptions: null },
   }
@@ -50,12 +54,13 @@ export function upsertSubscription(
   state: ReaderState,
   subscription: Subscription,
 ): ReaderState {
+  const reconciled = reconcileSubscription(state, subscription)
   const exists = subscription.subscriptionId in state.subscriptionsById
   return {
     ...state,
     subscriptionsById: {
       ...state.subscriptionsById,
-      [subscription.subscriptionId]: subscription,
+      [subscription.subscriptionId]: reconciled,
     },
     subscriptionOrder: exists
       ? state.subscriptionOrder

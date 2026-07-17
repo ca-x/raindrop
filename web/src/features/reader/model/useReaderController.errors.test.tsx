@@ -71,6 +71,26 @@ it("rejects a mismatched state response and rolls back the optimistic value", as
   expect(result.current.state.errors.mutation).toBe(GENERIC_READER_ERROR)
 })
 
+it("rejects a malformed state response through the Task 1 PATCH validator", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue(jsonResponse({ entryId, isRead: true })),
+  )
+  const { result } = renderHook(() =>
+    useReaderController({
+      csrfToken: "csrf-memory",
+      onUnauthenticated: vi.fn(),
+      api: makeApi({ patchEntryState }),
+    }),
+  )
+  await act(async () => result.current.load())
+
+  await act(async () => result.current.toggleRead(entryId))
+
+  expect(result.current.state.entriesById[entryId]?.isRead).toBe(false)
+  expect(result.current.state.errors.mutation).toBe(GENERIC_READER_ERROR)
+})
+
 function makeApi(overrides: Partial<ReaderApi> = {}): ReaderApi {
   return {
     listSubscriptions: vi.fn(async () => ({ items: [], nextCursor: null })),
