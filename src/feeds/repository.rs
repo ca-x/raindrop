@@ -30,6 +30,17 @@ struct TerminalUpdate<'a> {
     retry_at: Option<OffsetDateTime>,
 }
 
+pub(super) struct LockedFeed {
+    pub normalized_url: String,
+    pub entry_sequence_head: i64,
+    pub last_attempt_at: Option<OffsetDateTime>,
+    pub last_success_at: Option<OffsetDateTime>,
+    pub next_fetch_at: OffsetDateTime,
+    pub retry_after_at: Option<OffsetDateTime>,
+    pub is_disabled: bool,
+    pub orphaned_at: Option<OffsetDateTime>,
+}
+
 struct NotModifiedUpdate<'a> {
     final_url: &'a str,
     etag: Option<&'a str>,
@@ -52,31 +63,20 @@ impl FeedRepository {
         &self.database
     }
 
+    /// Low-level exact-key queue seam retained for executor and persistence contracts.
+    /// User-facing manual refresh admission must use `queue_subscription_refresh`.
+    #[doc(hidden)]
     pub async fn queue_refresh(
         &self,
         request: QueueRefreshRequest,
     ) -> Result<RefreshRun, RefreshRepositoryError> {
         validate_queue_request(&request)?;
         let backend = self.database.get_database_backend();
-        if let Some(existing) = find_run_by_idempotency(
-            &self.database,
-            backend,
-            &request.feed_id,
-            &request.idempotency_key,
-        )
-        .await?
-        {
-            return idempotent_result(existing, &request);
-        }
-
-        let run_id = Uuid::new_v4().to_string();
-        if let Err(error) = self
-            .database
-            .execute(queue_run_statement(backend, &run_id, &request))
-            .await
-        {
+        let transaction = self.database.begin().await?;
+        let result = async {
+            lock_feed_for_queue(&transaction, backend, &request.feed_id).await?;
             if let Some(existing) = find_run_by_idempotency(
-                &self.database,
+                &transaction,
                 backend,
                 &request.feed_id,
                 &request.idempotency_key,
@@ -85,17 +85,34 @@ impl FeedRepository {
             {
                 return idempotent_result(existing, &request);
             }
-            return Err(RefreshRepositoryError::Database(error));
-        }
+            if request.requested_by_user_id.is_some() {
+                return Err(RefreshRepositoryError::InvalidRequest);
+            }
 
-        find_run_by_idempotency(
-            &self.database,
-            backend,
-            &request.feed_id,
-            &request.idempotency_key,
-        )
-        .await?
-        .ok_or(RefreshRepositoryError::CorruptData)
+            let run_id = Uuid::new_v4().to_string();
+            transaction
+                .execute(queue_run_statement(backend, &run_id, &request))
+                .await?;
+            find_run_by_idempotency(
+                &transaction,
+                backend,
+                &request.feed_id,
+                &request.idempotency_key,
+            )
+            .await?
+            .ok_or(RefreshRepositoryError::CorruptData)
+        }
+        .await;
+        match result {
+            Ok(run) => {
+                transaction.commit().await?;
+                Ok(run)
+            }
+            Err(error) => {
+                transaction.rollback().await?;
+                Err(error)
+            }
+        }
     }
 
     pub async fn claim_due(
@@ -617,6 +634,83 @@ impl FeedRepository {
     }
 }
 
+pub(super) async fn lock_feed_for_queue<C>(
+    connection: &C,
+    backend: DbBackend,
+    feed_id: &str,
+) -> Result<LockedFeed, RefreshRepositoryError>
+where
+    C: ConnectionTrait,
+{
+    if backend == DatabaseBackend::Sqlite {
+        let locked = connection
+            .execute(Statement::from_sql_and_values(
+                backend,
+                "UPDATE feeds SET lease_token = lease_token WHERE id = ?",
+                [feed_id.into()],
+            ))
+            .await?;
+        if locked.rows_affected() != 1 {
+            return Err(RefreshRepositoryError::CorruptData);
+        }
+    }
+    let sql = match backend {
+        DatabaseBackend::Sqlite => {
+            "SELECT normalized_url, entry_sequence_head, last_attempt_at, last_success_at,
+                    next_fetch_at, retry_after_at, is_disabled, orphaned_at
+             FROM feeds WHERE id = ?"
+        }
+        DatabaseBackend::Postgres => {
+            "SELECT normalized_url, entry_sequence_head, last_attempt_at, last_success_at,
+                    next_fetch_at, retry_after_at, is_disabled, orphaned_at
+             FROM feeds WHERE id = $1 FOR UPDATE"
+        }
+        DatabaseBackend::MySql => {
+            "SELECT normalized_url, entry_sequence_head, last_attempt_at, last_success_at,
+                    next_fetch_at, retry_after_at, is_disabled, orphaned_at
+             FROM feeds WHERE id = ? FOR UPDATE"
+        }
+    };
+    let row = connection
+        .query_one(Statement::from_sql_and_values(
+            backend,
+            sql,
+            [feed_id.into()],
+        ))
+        .await?
+        .ok_or(RefreshRepositoryError::CorruptData)?;
+    let entry_sequence_head = row
+        .try_get("", "entry_sequence_head")
+        .map_err(|_| RefreshRepositoryError::CorruptData)?;
+    if entry_sequence_head < 0 {
+        return Err(RefreshRepositoryError::CorruptData);
+    }
+    Ok(LockedFeed {
+        normalized_url: row
+            .try_get("", "normalized_url")
+            .map_err(|_| RefreshRepositoryError::CorruptData)?,
+        entry_sequence_head,
+        last_attempt_at: row
+            .try_get("", "last_attempt_at")
+            .map_err(|_| RefreshRepositoryError::CorruptData)?,
+        last_success_at: row
+            .try_get("", "last_success_at")
+            .map_err(|_| RefreshRepositoryError::CorruptData)?,
+        next_fetch_at: row
+            .try_get("", "next_fetch_at")
+            .map_err(|_| RefreshRepositoryError::CorruptData)?,
+        retry_after_at: row
+            .try_get("", "retry_after_at")
+            .map_err(|_| RefreshRepositoryError::CorruptData)?,
+        is_disabled: row
+            .try_get("", "is_disabled")
+            .map_err(|_| RefreshRepositoryError::CorruptData)?,
+        orphaned_at: row
+            .try_get("", "orphaned_at")
+            .map_err(|_| RefreshRepositoryError::CorruptData)?,
+    })
+}
+
 fn validate_queue_request(request: &QueueRefreshRequest) -> Result<(), RefreshRepositoryError> {
     if request.feed_id.is_empty()
         || request.feed_id.len() > 36
@@ -632,7 +726,7 @@ fn validate_queue_request(request: &QueueRefreshRequest) -> Result<(), RefreshRe
     Ok(())
 }
 
-fn idempotent_result(
+pub(super) fn idempotent_result(
     existing: RefreshRun,
     request: &QueueRefreshRequest,
 ) -> Result<RefreshRun, RefreshRepositoryError> {
@@ -652,7 +746,7 @@ fn validate_owner(owner: &str) -> Result<(), RefreshRepositoryError> {
     Ok(())
 }
 
-fn queue_run_statement(
+pub(super) fn queue_run_statement(
     backend: DbBackend,
     run_id: &str,
     request: &QueueRefreshRequest,
@@ -687,7 +781,7 @@ fn queue_run_statement(
     )
 }
 
-async fn find_run_by_idempotency<C>(
+pub(super) async fn find_run_by_idempotency<C>(
     connection: &C,
     backend: DbBackend,
     feed_id: &str,
@@ -715,6 +809,41 @@ where
             backend,
             sql,
             [feed_id.into(), idempotency_key.into()],
+        ))
+        .await?
+        .map(decode_refresh_run)
+        .transpose()
+}
+
+pub(super) async fn find_active_run<C>(
+    connection: &C,
+    backend: DbBackend,
+    feed_id: &str,
+) -> Result<Option<RefreshRun>, RefreshRepositoryError>
+where
+    C: ConnectionTrait,
+{
+    let sql = match backend {
+        DatabaseBackend::Postgres => {
+            "SELECT id, feed_id, requested_by_user_id, trigger_kind, status, idempotency_key,
+                    lease_token, queued_at
+             FROM feed_refresh_runs
+             WHERE feed_id = $1 AND status IN ('QUEUED','RUNNING')
+             ORDER BY queued_at, id LIMIT 1"
+        }
+        DatabaseBackend::Sqlite | DatabaseBackend::MySql => {
+            "SELECT id, feed_id, requested_by_user_id, trigger_kind, status, idempotency_key,
+                    lease_token, queued_at
+             FROM feed_refresh_runs
+             WHERE feed_id = ? AND status IN ('QUEUED','RUNNING')
+             ORDER BY queued_at, id LIMIT 1"
+        }
+    };
+    connection
+        .query_one(Statement::from_sql_and_values(
+            backend,
+            sql,
+            [feed_id.into()],
         ))
         .await?
         .map(decode_refresh_run)

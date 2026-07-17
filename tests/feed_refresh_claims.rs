@@ -210,6 +210,17 @@ async fn sqlite_manual_idempotency_returns_existing_or_conflicts() {
     let (_data, _url, database) = sqlite_database("manual-idempotency").await;
     seed_feed(&database).await;
     let repository = FeedRepository::new(database.clone());
+    assert!(matches!(
+        repository
+            .queue_refresh(QueueRefreshRequest {
+                feed_id: FEED_ID.to_owned(),
+                requested_by_user_id: Some("00000000-0000-4000-8000-000000000099".to_owned()),
+                trigger: RefreshTrigger::Manual,
+                idempotency_key: "manual:user-admission-bypass".to_owned(),
+            })
+            .await,
+        Err(RefreshRepositoryError::InvalidRequest)
+    ));
     let request = QueueRefreshRequest {
         feed_id: FEED_ID.to_owned(),
         requested_by_user_id: None,

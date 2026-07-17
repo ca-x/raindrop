@@ -173,6 +173,16 @@ pub enum RefreshRepositoryError {
     InvalidRequest,
     #[error("refresh idempotency key has conflicting semantics")]
     IdempotencyConflict,
+    #[error("subscription limit has been reached")]
+    SubscriptionLimit,
+    #[error("active user refresh limit has been reached")]
+    ActiveRefreshLimit,
+    #[error("another refresh is already in progress")]
+    RefreshInProgress { operation_id: String },
+    #[error("manual refresh is cooling down")]
+    RefreshCooldown { retry_at: OffsetDateTime },
+    #[error("feed is disabled")]
+    FeedDisabled,
     #[error("refresh lifecycle event has conflicting semantics")]
     LifecycleEventConflict,
     #[error("refresh lifecycle payload exceeds the size limit")]
@@ -213,6 +223,13 @@ impl fmt::Debug for RefreshRepositoryError {
             Self::Database(_) => "RefreshRepositoryError::Database([REDACTED])",
             Self::InvalidRequest => "RefreshRepositoryError::InvalidRequest",
             Self::IdempotencyConflict => "RefreshRepositoryError::IdempotencyConflict",
+            Self::SubscriptionLimit => "RefreshRepositoryError::SubscriptionLimit",
+            Self::ActiveRefreshLimit => "RefreshRepositoryError::ActiveRefreshLimit",
+            Self::RefreshInProgress { .. } => {
+                "RefreshRepositoryError::RefreshInProgress([REDACTED])"
+            }
+            Self::RefreshCooldown { .. } => "RefreshRepositoryError::RefreshCooldown([REDACTED])",
+            Self::FeedDisabled => "RefreshRepositoryError::FeedDisabled",
             Self::LifecycleEventConflict => "RefreshRepositoryError::LifecycleEventConflict",
             Self::LifecyclePayloadTooLarge => "RefreshRepositoryError::LifecyclePayloadTooLarge",
             Self::InvalidLifecyclePayload => "RefreshRepositoryError::InvalidLifecyclePayload",

@@ -8,9 +8,9 @@ use super::subscription::SubscriptionRepositoryError;
 use super::{
     ClaimRequest, ExactClaimResult, FeedFetchError, FeedParser, FeedRepository, FeedTransport,
     FeedUrlError, FeedUrlPolicy, FetchOutcome, FetchRequest, FetchedDocument, JitterSource,
-    PersistFeed, QueueRefreshRequest, RefreshDto, RefreshFailure, RefreshRepositoryError,
-    RefreshResult, RefreshSchedule, RefreshStatus, RefreshTrigger, RepositoryError, ScheduleError,
-    SubscribeInput, SubscriptionDto,
+    PersistFeed, QueueSubscriptionRefresh, RefreshDto, RefreshFailure, RefreshRepositoryError,
+    RefreshResult, RefreshSchedule, RefreshStatus, RepositoryError, ScheduleError, SubscribeInput,
+    SubscriptionDto,
 };
 
 const CLAIM_ATTEMPTS: usize = 700;
@@ -98,15 +98,16 @@ where
         let nonce = Uuid::new_v4();
         let run = self
             .repository
-            .queue_refresh(QueueRefreshRequest {
-                feed_id: feed_id.clone(),
-                requested_by_user_id: Some(user_id.to_owned()),
-                trigger: RefreshTrigger::Manual,
-                idempotency_key: format!("manual:{nonce}"),
-            })
+            .queue_subscription_refresh(
+                user_id,
+                subscription_id,
+                QueueSubscriptionRefresh {
+                    request_id: nonce.to_string(),
+                },
+            )
             .await
             .map_err(FeedServiceError::RefreshRepository)?;
-        self.execute_run(&feed_id, &run.id, run.status).await
+        self.execute_run(&feed_id, &run.run_id, run.status).await
     }
 
     async fn execute_run(

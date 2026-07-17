@@ -1,5 +1,7 @@
 use std::fmt;
 
+use time::OffsetDateTime;
+
 use super::RefreshStatus;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -63,6 +65,26 @@ pub struct SubscriptionPage {
     pub next_cursor: Option<String>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SubscribeOutcome {
+    pub created: bool,
+    pub subscription: SubscriptionListItemDto,
+}
+
+#[derive(Clone, Eq, PartialEq)]
+pub struct QueueSubscriptionRefresh {
+    pub request_id: String,
+}
+
+impl fmt::Debug for QueueSubscriptionRefresh {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("QueueSubscriptionRefresh")
+            .field("request_id", &"[REDACTED]")
+            .finish()
+    }
+}
+
 impl fmt::Debug for SubscriptionDto {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
@@ -78,7 +100,7 @@ impl fmt::Debug for SubscriptionDto {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct RefreshDto {
     pub run_id: String,
     pub status: RefreshStatus,
@@ -87,6 +109,31 @@ pub struct RefreshDto {
     pub updated_count: i32,
     pub dropped_count: i32,
     pub generation: Option<i64>,
+    pub error_code: Option<String>,
+    pub retry_at: Option<OffsetDateTime>,
+    pub queued_at: OffsetDateTime,
+    pub started_at: Option<OffsetDateTime>,
+    pub completed_at: Option<OffsetDateTime>,
+}
+
+impl fmt::Debug for RefreshDto {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("RefreshDto")
+            .field("run_id", &"[REDACTED]")
+            .field("status", &self.status)
+            .field("http_status", &self.http_status)
+            .field("new_count", &self.new_count)
+            .field("updated_count", &self.updated_count)
+            .field("dropped_count", &self.dropped_count)
+            .field("generation", &self.generation)
+            .field("error_code", &self.error_code)
+            .field("retry_at", &self.retry_at.map(|_| "[REDACTED]"))
+            .field("queued_at", &"[REDACTED]")
+            .field("started_at", &self.started_at.map(|_| "[REDACTED]"))
+            .field("completed_at", &self.completed_at.map(|_| "[REDACTED]"))
+            .finish()
+    }
 }
 
 #[derive(Clone, Eq, PartialEq)]
