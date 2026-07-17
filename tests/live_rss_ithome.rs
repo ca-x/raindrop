@@ -1,12 +1,13 @@
 #[allow(dead_code)]
 mod support;
 
-use std::collections::HashSet;
+use std::{collections::HashSet, time::Duration};
 
 use raindrop::db::{entities::entry, migrate};
 use raindrop::feeds::{
-    EntryListState, FeedRepository, FeedService, FeedUrlPolicy, HttpFeedTransport,
-    ListEntriesQuery, RefreshStatus, SubscribeInput, install_ring_crypto_provider,
+    ClaimRequest, EntryListState, ExactClaimResult, FeedCommandService, FeedExecutor,
+    FeedRepository, FeedUrlPolicy, HttpFeedTransport, ListEntriesQuery, QueueSubscriptionRefresh,
+    RefreshStatus, SubscribeInput, install_ring_crypto_provider,
 };
 use sea_orm::{EntityTrait, PaginatorTrait, QuerySelect};
 use secrecy::SecretString;
@@ -36,8 +37,9 @@ async fn ithome_feed_securely_ingests_and_deduplicates() {
     let policy = FeedUrlPolicy::new(false);
     let (transport, execution_counter) =
         HttpFeedTransport::new_observed(policy, 2).expect("production transport should build");
-    let service = FeedService::new(repository.clone(), policy, transport);
-    let subscription = service
+    let command = FeedCommandService::new(repository.clone(), policy);
+    let executor = FeedExecutor::new(repository.clone(), policy, transport);
+    let subscription = command
         .subscribe(
             USER_A_ID,
             SubscribeInput {
@@ -45,16 +47,40 @@ async fn ithome_feed_securely_ingests_and_deduplicates() {
             },
         )
         .await
-        .expect("live subscription should complete");
+        .expect("live subscription should queue");
+    let first_run_id = subscription
+        .subscription
+        .refresh
+        .as_ref()
+        .expect("new live feed should queue a refresh")
+        .run_id
+        .clone();
+    let ExactClaimResult::Claimed(first_claim) = repository
+        .claim_run(
+            &first_run_id,
+            ClaimRequest {
+                owner: "live-ithome-first".to_owned(),
+                lease_duration: Duration::from_secs(60),
+            },
+        )
+        .await
+        .expect("first live refresh should claim exactly")
+    else {
+        panic!("first live refresh should be claimed");
+    };
+    let first = executor
+        .execute_claim(first_claim)
+        .await
+        .expect("first live refresh should execute");
     assert!(
         matches!(
-            subscription.refresh.status,
+            first.status,
             RefreshStatus::Success | RefreshStatus::Partial
         ),
         "first representation must parse and persist securely"
     );
     assert!(
-        (50..=100).contains(&subscription.refresh.new_count),
+        (50..=100).contains(&first.new_count),
         "first representation must contain a bounded realistic item count"
     );
 
@@ -112,10 +138,34 @@ async fn ithome_feed_securely_ingests_and_deduplicates() {
         "persisted identities must be unique"
     );
 
-    let second = service
-        .refresh_subscription(USER_A_ID, &subscription.subscription_id)
+    tokio::time::sleep(Duration::from_secs(31)).await;
+    let second_queued = command
+        .queue_subscription_refresh(
+            USER_A_ID,
+            &subscription.subscription.subscription_id,
+            QueueSubscriptionRefresh {
+                request_id: "00000000-0000-4000-8000-000000000501".to_owned(),
+            },
+        )
         .await
-        .expect("manual live refresh should complete");
+        .expect("manual live refresh should queue after cooldown");
+    let ExactClaimResult::Claimed(second_claim) = repository
+        .claim_run(
+            &second_queued.run_id,
+            ClaimRequest {
+                owner: "live-ithome-second".to_owned(),
+                lease_duration: Duration::from_secs(60),
+            },
+        )
+        .await
+        .expect("second live refresh should claim exactly")
+    else {
+        panic!("second live refresh should be claimed");
+    };
+    let second = executor
+        .execute_claim(second_claim)
+        .await
+        .expect("manual live refresh should execute");
     assert!(
         matches!(
             second.status,
@@ -135,14 +185,14 @@ async fn ithome_feed_securely_ingests_and_deduplicates() {
     assert_eq!(
         execution_counter.count(),
         2,
-        "two service refreshes must execute at most two feed HTTP requests including redirects"
+        "two executor refreshes must execute at most two feed HTTP requests including redirects"
     );
 
     eprintln!(
         "live RSS observation date={} count={} first_status={} second_status={} second_http={:?}",
         time::OffsetDateTime::now_utc().date(),
         items.len(),
-        subscription.refresh.status,
+        first.status,
         second.status,
         second.http_status
     );

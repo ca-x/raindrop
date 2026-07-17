@@ -9,17 +9,6 @@ pub struct SubscribeInput {
     pub url: String,
 }
 
-#[derive(Clone, Eq, PartialEq)]
-pub struct SubscriptionDto {
-    pub subscription_id: String,
-    pub feed_id: String,
-    pub title: String,
-    pub site_url: Option<String>,
-    pub start_sequence: i64,
-    pub read_through_sequence: i64,
-    pub refresh: RefreshDto,
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ListSubscriptionsQuery {
     pub cursor: Option<String>,
@@ -81,21 +70,6 @@ impl fmt::Debug for QueueSubscriptionRefresh {
         formatter
             .debug_struct("QueueSubscriptionRefresh")
             .field("request_id", &"[REDACTED]")
-            .finish()
-    }
-}
-
-impl fmt::Debug for SubscriptionDto {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("SubscriptionDto")
-            .field("subscription_id", &self.subscription_id)
-            .field("feed_id", &self.feed_id)
-            .field("title", &"[REDACTED]")
-            .field("site_url", &self.site_url.as_ref().map(|_| "[REDACTED]"))
-            .field("start_sequence", &self.start_sequence)
-            .field("read_through_sequence", &self.read_through_sequence)
-            .field("refresh", &self.refresh)
             .finish()
     }
 }

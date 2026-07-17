@@ -14,11 +14,11 @@ use raindrop::db::{
     migrate,
 };
 use raindrop::feeds::{
-    ClaimRequest, EntryListState, ExactClaimResult, FeedFetchError, FeedParser, FeedRepository,
-    FeedService, FeedTransport, FeedUrlPolicy, FetchOutcome, FetchRequest, FetchedDocument,
-    JitterSource, ListEntriesQuery, OpaqueValidator, PersistFeed, QueueRefreshRequest,
-    RefreshFailure, RefreshRepositoryError, RefreshResult, RefreshSchedule, RefreshTrigger,
-    SubscribeInput,
+    ClaimRequest, EntryListState, ExactClaimResult, FeedCommandService, FeedExecutor,
+    FeedFetchError, FeedParser, FeedRepository, FeedTransport, FeedUrlPolicy, FetchOutcome,
+    FetchRequest, FetchedDocument, JitterSource, ListEntriesQuery, OpaqueValidator, PersistFeed,
+    QueueRefreshRequest, QueueSubscriptionRefresh, RefreshFailure, RefreshRepositoryError,
+    RefreshResult, RefreshSchedule, RefreshTrigger, SubscribeInput,
 };
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DatabaseConnection,
@@ -110,16 +110,18 @@ async fn two_users_securely_ingest_share_query_and_deduplicate_sixty_entries() {
 
     let repository = FeedRepository::new(database.clone());
     let transport = ControlledTransport::new(synthetic_feed(60));
-    let service = Arc::new(FeedService::with_jitter(
+    let policy = FeedUrlPolicy::new(false);
+    let command = Arc::new(FeedCommandService::new(repository.clone(), policy));
+    let executor = Arc::new(FeedExecutor::with_jitter(
         repository.clone(),
-        FeedUrlPolicy::new(false),
+        policy,
         transport.clone(),
         ZeroJitter,
     ));
 
-    let first_service = Arc::clone(&service);
-    let first = tokio::spawn(async move {
-        first_service
+    let first_command = Arc::clone(&command);
+    let first_subscription = tokio::spawn(async move {
+        first_command
             .subscribe(
                 USER_A_ID,
                 SubscribeInput {
@@ -128,11 +130,9 @@ async fn two_users_securely_ingest_share_query_and_deduplicate_sixty_entries() {
             )
             .await
     });
-    transport.first_entered.notified().await;
-
-    let second_service = Arc::clone(&service);
-    let second = tokio::spawn(async move {
-        second_service
+    let second_command = Arc::clone(&command);
+    let second_subscription = tokio::spawn(async move {
+        second_command
             .subscribe(
                 USER_B_ID,
                 SubscribeInput {
@@ -141,6 +141,14 @@ async fn two_users_securely_ingest_share_query_and_deduplicate_sixty_entries() {
             )
             .await
     });
+    let first_subscription = first_subscription
+        .await
+        .expect("first subscribe task should join")
+        .expect("first subscribe command should succeed");
+    let second_subscription = second_subscription
+        .await
+        .expect("second subscribe task should join")
+        .expect("second subscribe command should succeed");
     wait_for_subscription_count(&database, 2).await;
     let boundaries = subscription::Entity::find()
         .order_by_asc(subscription::Column::UserId)
@@ -155,30 +163,101 @@ async fn two_users_securely_ingest_share_query_and_deduplicate_sixty_entries() {
         "both subscriptions must commit before the first feed persistence"
     );
 
+    let first_run_id = first_subscription
+        .subscription
+        .refresh
+        .as_ref()
+        .expect("new feed should queue a refresh")
+        .run_id
+        .clone();
+    assert_eq!(
+        second_subscription
+            .subscription
+            .refresh
+            .as_ref()
+            .expect("shared active refresh should be projected")
+            .run_id,
+        first_run_id
+    );
+    let ExactClaimResult::Claimed(first_claim) = repository
+        .claim_run(
+            &first_run_id,
+            ClaimRequest {
+                owner: "ingestion-worker-first".to_owned(),
+                lease_duration: Duration::from_secs(30),
+            },
+        )
+        .await
+        .expect("first queued refresh should claim exactly")
+    else {
+        panic!("first queued refresh should be claimed");
+    };
+    let first_executor = Arc::clone(&executor);
+    let first_refresh =
+        tokio::spawn(async move { first_executor.execute_claim(first_claim).await });
+    transport.first_entered.notified().await;
     transport.first_release.notify_one();
-    transport.second_entered.notified().await;
+    let first_refresh = first_refresh
+        .await
+        .expect("first executor task should join")
+        .expect("first claimed refresh should succeed");
     wait_for_entry_count(&database, 60).await;
     let before_second_200 = entry::Entity::find()
         .order_by_asc(entry::Column::Id)
         .all(&database)
         .await
         .expect("first persistence should be inspectable");
+
+    let feed = feed::Entity::find_by_id(&first_subscription.subscription.feed_id)
+        .one(&database)
+        .await
+        .expect("shared feed should query")
+        .expect("shared feed should exist");
+    let mut feed: feed::ActiveModel = feed.into();
+    feed.last_attempt_at = Set(Some(
+        time::OffsetDateTime::now_utc() - time::Duration::seconds(31),
+    ));
+    feed.update(&database)
+        .await
+        .expect("manual refresh cooldown should elapse in the scripted fixture");
+    let second_queued = command
+        .queue_subscription_refresh(
+            USER_B_ID,
+            &second_subscription.subscription.subscription_id,
+            QueueSubscriptionRefresh {
+                request_id: "00000000-0000-4000-8000-000000000502".to_owned(),
+            },
+        )
+        .await
+        .expect("manual refresh command should queue");
+    let ExactClaimResult::Claimed(second_claim) = repository
+        .claim_run(
+            &second_queued.run_id,
+            ClaimRequest {
+                owner: "ingestion-worker-second".to_owned(),
+                lease_duration: Duration::from_secs(30),
+            },
+        )
+        .await
+        .expect("second queued refresh should claim exactly")
+    else {
+        panic!("second queued refresh should be claimed");
+    };
+    let second_executor = Arc::clone(&executor);
+    let second_refresh =
+        tokio::spawn(async move { second_executor.execute_claim(second_claim).await });
+    transport.second_entered.notified().await;
     transport.second_release.notify_one();
-
-    let first = first
+    let second_refresh = second_refresh
         .await
-        .expect("first subscribe task should join")
-        .expect("first subscribe should succeed");
-    let second = second
-        .await
-        .expect("second subscribe task should join")
-        .expect("second subscribe should succeed");
+        .expect("second executor task should join")
+        .expect("second claimed refresh should succeed");
 
-    assert_eq!(first.refresh.status.as_str(), "SUCCESS");
-    assert_eq!(first.refresh.new_count, 60);
-    assert_eq!(second.refresh.status.as_str(), "SUCCESS");
-    assert_eq!(second.refresh.new_count, 0);
-    assert_eq!(second.refresh.updated_count, 0);
+    assert_eq!(first_refresh.status.as_str(), "SUCCESS");
+    assert_eq!(first_refresh.new_count, 60);
+    assert_eq!(second_refresh.status.as_str(), "SUCCESS");
+    assert_eq!(second_refresh.new_count, 0);
+    assert_eq!(second_refresh.updated_count, 0);
     assert_eq!(transport.calls.load(Ordering::SeqCst), 2);
     assert_eq!(feed::Entity::find().count(&database).await.unwrap(), 1);
     assert_eq!(
@@ -207,7 +286,7 @@ async fn two_users_securely_ingest_share_query_and_deduplicate_sixty_entries() {
         subscription::ActiveModel {
             id: Set(Uuid::new_v4().to_string()),
             user_id: Set(user_id),
-            feed_id: Set(first.feed_id.clone()),
+            feed_id: Set(first_subscription.subscription.feed_id.clone()),
             title_override: Set(None),
             position: Set(0),
             start_sequence: Set(60),
@@ -225,7 +304,7 @@ async fn two_users_securely_ingest_share_query_and_deduplicate_sixty_entries() {
         .await
         .expect("SQLite statistics should collect");
     for state in [EntryListState::All, EntryListState::Unread] {
-        for feed_id in [None, Some(first.feed_id.clone())] {
+        for feed_id in [None, Some(first_subscription.subscription.feed_id.clone())] {
             let plan = repository
                 .explain_list_for_user(
                     USER_A_ID,

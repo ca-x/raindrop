@@ -17,8 +17,8 @@ use super::repository::{
 };
 use super::{
     FeedRepository, ListSubscriptionsQuery, NormalizedFeedUrl, QueueRefreshRequest,
-    QueueSubscriptionRefresh, RefreshDto, RefreshRepositoryError, RefreshStatus, RefreshTrigger,
-    SubscribeOutcome, SubscriptionDto, SubscriptionListItemDto, SubscriptionPage,
+    QueueSubscriptionRefresh, RefreshClaim, RefreshDto, RefreshRepositoryError, RefreshTrigger,
+    SubscribeOutcome, SubscriptionListItemDto, SubscriptionPage,
 };
 
 const SUBSCRIPTION_CURSOR_VERSION: u8 = 1;
@@ -44,39 +44,25 @@ pub(super) struct RefreshContext {
     pub consecutive_failures: i64,
 }
 
-#[derive(Clone)]
-pub(super) struct SubscribeRecord {
-    pub subscription_id: String,
-    pub feed_id: String,
-    pub run_id: String,
-    pub run_status: RefreshStatus,
-}
-
 #[derive(thiserror::Error)]
 pub(super) enum SubscriptionRepositoryError {
     #[error("subscription repository database operation failed")]
     Database(#[source] DbErr),
-    #[error("subscription request is invalid")]
-    InvalidRequest,
     #[error("subscription user is not authorized")]
     UserNotFound,
-    #[error("normalized feed URL hash collision detected")]
-    FeedUrlHashCollision,
     #[error("subscription repository data is corrupt")]
     CorruptData,
-    #[error("stable subscribe refresh has conflicting semantics")]
-    RunConflict,
+    #[error("refresh run does not belong to the claimed feed")]
+    RunMismatch,
 }
 
 impl fmt::Debug for SubscriptionRepositoryError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
             Self::Database(_) => "SubscriptionRepositoryError::Database([REDACTED])",
-            Self::InvalidRequest => "SubscriptionRepositoryError::InvalidRequest",
             Self::UserNotFound => "SubscriptionRepositoryError::UserNotFound",
-            Self::FeedUrlHashCollision => "SubscriptionRepositoryError::FeedUrlHashCollision",
             Self::CorruptData => "SubscriptionRepositoryError::CorruptData",
-            Self::RunConflict => "SubscriptionRepositoryError::RunConflict",
+            Self::RunMismatch => "SubscriptionRepositoryError::RunMismatch",
         })
     }
 }
@@ -540,143 +526,31 @@ impl FeedRepository {
         required(&row, "database_now")
     }
 
-    pub(super) async fn subscribe_transaction(
-        &self,
-        user_id: &str,
-        source_url: &str,
-        normalized: &NormalizedFeedUrl,
-    ) -> Result<SubscribeRecord, SubscriptionRepositoryError> {
-        for attempt in 0..3 {
-            let candidate = find_feed_by_hash(
-                self.connection(),
-                self.connection().get_database_backend(),
-                normalized.url_hash(),
-            )
-            .await?;
-            match self
-                .subscribe_transaction_once(user_id, source_url, normalized, candidate)
-                .await
-            {
-                Err(SubscriptionRepositoryError::Database(error))
-                    if attempt < 2 && is_unique_violation(&error) => {}
-                result => return result,
-            }
-        }
-        Err(SubscriptionRepositoryError::CorruptData)
-    }
-
-    async fn subscribe_transaction_once(
-        &self,
-        user_id: &str,
-        source_url: &str,
-        normalized: &NormalizedFeedUrl,
-        candidate: Option<(String, String)>,
-    ) -> Result<SubscribeRecord, SubscriptionRepositoryError> {
-        if source_url.is_empty() || source_url.len() > 4_096 {
-            return Err(SubscriptionRepositoryError::InvalidRequest);
-        }
-        let backend = self.connection().get_database_backend();
-        let transaction = self.connection().begin().await?;
-        let result = async {
-            lock_active_user_legacy(&transaction, backend, user_id).await?;
-            let feed_id = match candidate {
-                Some((feed_id, stored_url)) => {
-                    if stored_url != normalized.complete() {
-                        return Err(SubscriptionRepositoryError::FeedUrlHashCollision);
-                    }
-                    feed_id
-                }
-                None => {
-                    let feed_id = Uuid::new_v4().to_string();
-                    transaction
-                        .execute(insert_feed_statement(
-                            backend, &feed_id, source_url, normalized,
-                        ))
-                        .await?;
-                    feed_id
-                }
-            };
-            let feed = lock_feed_for_queue(&transaction, backend, &feed_id)
-                .await
-                .map_err(map_refresh_to_subscription_error)?;
-            if feed.normalized_url != normalized.complete() {
-                return Err(SubscriptionRepositoryError::FeedUrlHashCollision);
-            }
-            let cleared = transaction
-                .execute(clear_orphaned_statement(backend, &feed_id))
-                .await?;
-            if cleared.rows_affected() != 1 {
-                return Err(SubscriptionRepositoryError::CorruptData);
-            }
-            let subscription_id =
-                match find_subscription(&transaction, backend, user_id, &feed_id).await? {
-                    Some(subscription_id) => subscription_id,
-                    None => {
-                        let subscription_id = Uuid::new_v4().to_string();
-                        transaction
-                            .execute(insert_subscription_statement(
-                                backend,
-                                &subscription_id,
-                                user_id,
-                                &feed_id,
-                                feed.entry_sequence_head,
-                            ))
-                            .await?;
-                        subscription_id
-                    }
-                };
-            let idempotency_key = format!("subscribe:{subscription_id}");
-            let (run_id, run_status) =
-                match find_subscribe_run_legacy(&transaction, backend, &feed_id, &idempotency_key)
-                    .await?
-                {
-                    Some((run_id, requested_by, trigger, status)) => {
-                        if requested_by.as_deref() != Some(user_id)
-                            || trigger != RefreshTrigger::Subscribe
-                        {
-                            return Err(SubscriptionRepositoryError::RunConflict);
-                        }
-                        (run_id, status)
-                    }
-                    None => {
-                        let run_id = Uuid::new_v4().to_string();
-                        transaction
-                            .execute(insert_subscribe_run_statement(
-                                backend,
-                                &run_id,
-                                &feed_id,
-                                user_id,
-                                &idempotency_key,
-                            ))
-                            .await?;
-                        (run_id, RefreshStatus::Queued)
-                    }
-                };
-            Ok(SubscribeRecord {
-                subscription_id,
-                feed_id,
-                run_id,
-                run_status,
-            })
-        }
-        .await;
-        match result {
-            Ok(record) => {
-                transaction.commit().await?;
-                Ok(record)
-            }
-            Err(error) => {
-                transaction.rollback().await?;
-                Err(error)
-            }
-        }
-    }
-
     pub(super) async fn load_refresh_context(
         &self,
-        feed_id: &str,
+        claim: &RefreshClaim,
     ) -> Result<RefreshContext, SubscriptionRepositoryError> {
         let backend = self.connection().get_database_backend();
+        let run_feed_id: String = self
+            .connection()
+            .query_one(Statement::from_sql_and_values(
+                backend,
+                match backend {
+                    DatabaseBackend::Postgres => {
+                        "SELECT feed_id FROM feed_refresh_runs WHERE id = $1"
+                    }
+                    DatabaseBackend::Sqlite | DatabaseBackend::MySql => {
+                        "SELECT feed_id FROM feed_refresh_runs WHERE id = ?"
+                    }
+                },
+                [claim.run_id.as_str().into()],
+            ))
+            .await?
+            .ok_or(SubscriptionRepositoryError::RunMismatch)
+            .and_then(|row| required(&row, "feed_id"))?;
+        if run_feed_id != claim.feed_id {
+            return Err(SubscriptionRepositoryError::RunMismatch);
+        }
         let row = self
             .connection()
             .query_one(Statement::from_sql_and_values(
@@ -689,7 +563,7 @@ impl FeedRepository {
                         "SELECT fetch_url, consecutive_failures FROM feeds WHERE id = ? AND is_disabled = FALSE"
                     }
                 },
-                [feed_id.into()],
+                [claim.feed_id.as_str().into()],
             ))
             .await?
             .ok_or(SubscriptionRepositoryError::UserNotFound)?;
@@ -740,60 +614,6 @@ impl FeedRepository {
                 }
                 _ => SubscriptionRepositoryError::CorruptData,
             })
-    }
-
-    pub(super) async fn subscription_dto(
-        &self,
-        user_id: &str,
-        subscription_id: &str,
-        refresh: RefreshDto,
-    ) -> Result<SubscriptionDto, SubscriptionRepositoryError> {
-        let backend = self.connection().get_database_backend();
-        let row = self
-            .connection()
-            .query_one(Statement::from_sql_and_values(
-                backend,
-                match backend {
-                    DatabaseBackend::Postgres => {
-                        "SELECT s.id AS subscription_id, s.feed_id AS feed_id,
-                                s.title_override AS title_override, s.start_sequence AS start_sequence,
-                                s.read_through_sequence AS read_through_sequence, f.title AS feed_title,
-                                f.site_url AS site_url, f.normalized_url AS normalized_url
-                         FROM subscriptions s JOIN feeds f ON f.id = s.feed_id
-                         WHERE s.id = $1 AND s.user_id = $2"
-                    }
-                    DatabaseBackend::Sqlite | DatabaseBackend::MySql => {
-                        "SELECT s.id AS subscription_id, s.feed_id AS feed_id,
-                                s.title_override AS title_override, s.start_sequence AS start_sequence,
-                                s.read_through_sequence AS read_through_sequence, f.title AS feed_title,
-                                f.site_url AS site_url, f.normalized_url AS normalized_url
-                         FROM subscriptions s JOIN feeds f ON f.id = s.feed_id
-                         WHERE s.id = ? AND s.user_id = ?"
-                    }
-                },
-                [subscription_id.into(), user_id.into()],
-            ))
-            .await?
-            .ok_or(SubscriptionRepositoryError::UserNotFound)?;
-        let normalized_url: String = required(&row, "normalized_url")?;
-        let title = optional::<String>(&row, "title_override")?
-            .filter(|title| !title.trim().is_empty())
-            .or(optional::<String>(&row, "feed_title")?.filter(|title| !title.trim().is_empty()))
-            .or_else(|| {
-                url::Url::parse(&normalized_url)
-                    .ok()
-                    .and_then(|url| url.host_str().map(str::to_owned))
-            })
-            .ok_or(SubscriptionRepositoryError::CorruptData)?;
-        Ok(SubscriptionDto {
-            subscription_id: required(&row, "subscription_id")?,
-            feed_id: required(&row, "feed_id")?,
-            title,
-            site_url: optional(&row, "site_url")?,
-            start_sequence: required(&row, "start_sequence")?,
-            read_through_sequence: required(&row, "read_through_sequence")?,
-            refresh,
-        })
     }
 }
 
@@ -1258,19 +1078,6 @@ where
     Ok(())
 }
 
-async fn lock_active_user_legacy<C>(
-    connection: &C,
-    backend: DbBackend,
-    user_id: &str,
-) -> Result<(), SubscriptionRepositoryError>
-where
-    C: ConnectionTrait,
-{
-    lock_active_user(connection, backend, user_id)
-        .await
-        .map_err(map_refresh_to_subscription_error)
-}
-
 async fn count_user_subscriptions<C>(
     connection: &C,
     backend: DbBackend,
@@ -1463,51 +1270,6 @@ where
         .transpose()
 }
 
-async fn find_subscribe_run_legacy<C>(
-    connection: &C,
-    backend: DbBackend,
-    feed_id: &str,
-    idempotency_key: &str,
-) -> Result<
-    Option<(String, Option<String>, RefreshTrigger, RefreshStatus)>,
-    SubscriptionRepositoryError,
->
-where
-    C: ConnectionTrait,
-{
-    connection
-        .query_one(Statement::from_sql_and_values(
-            backend,
-            match backend {
-                DatabaseBackend::Postgres => {
-                    "SELECT id, requested_by_user_id, trigger_kind, status
-                     FROM feed_refresh_runs WHERE feed_id = $1 AND idempotency_key = $2"
-                }
-                DatabaseBackend::Sqlite | DatabaseBackend::MySql => {
-                    "SELECT id, requested_by_user_id, trigger_kind, status
-                     FROM feed_refresh_runs WHERE feed_id = ? AND idempotency_key = ?"
-                }
-            },
-            [feed_id.into(), idempotency_key.into()],
-        ))
-        .await?
-        .map(|row| {
-            let trigger: String = required(&row, "trigger_kind")?;
-            let status: String = required(&row, "status")?;
-            Ok((
-                required(&row, "id")?,
-                optional(&row, "requested_by_user_id")?,
-                trigger
-                    .parse()
-                    .map_err(|_| SubscriptionRepositoryError::CorruptData)?,
-                status
-                    .parse()
-                    .map_err(|_| SubscriptionRepositoryError::CorruptData)?,
-            ))
-        })
-        .transpose()
-}
-
 fn insert_feed_statement(
     backend: DbBackend,
     feed_id: &str,
@@ -1640,20 +1402,10 @@ fn insert_subscription_statement(
 fn map_subscription_command_error(error: SubscriptionRepositoryError) -> RefreshRepositoryError {
     match error {
         SubscriptionRepositoryError::Database(error) => RefreshRepositoryError::Database(error),
-        SubscriptionRepositoryError::InvalidRequest | SubscriptionRepositoryError::UserNotFound => {
-            RefreshRepositoryError::InvalidRequest
+        SubscriptionRepositoryError::UserNotFound => RefreshRepositoryError::InvalidRequest,
+        SubscriptionRepositoryError::CorruptData | SubscriptionRepositoryError::RunMismatch => {
+            RefreshRepositoryError::CorruptData
         }
-        SubscriptionRepositoryError::FeedUrlHashCollision
-        | SubscriptionRepositoryError::CorruptData
-        | SubscriptionRepositoryError::RunConflict => RefreshRepositoryError::CorruptData,
-    }
-}
-
-fn map_refresh_to_subscription_error(error: RefreshRepositoryError) -> SubscriptionRepositoryError {
-    match error {
-        RefreshRepositoryError::Database(error) => SubscriptionRepositoryError::Database(error),
-        RefreshRepositoryError::InvalidRequest => SubscriptionRepositoryError::UserNotFound,
-        _ => SubscriptionRepositoryError::CorruptData,
     }
 }
 
@@ -1664,49 +1416,7 @@ fn map_projection_command_error(error: RepositoryError) -> RefreshRepositoryErro
     }
 }
 
-fn insert_subscribe_run_statement(
-    backend: DbBackend,
-    run_id: &str,
-    feed_id: &str,
-    user_id: &str,
-    idempotency_key: &str,
-) -> Statement {
-    let clock = match backend {
-        DatabaseBackend::Sqlite => "strftime('%Y-%m-%dT%H:%M:%f000Z','now')",
-        DatabaseBackend::Postgres => "clock_timestamp()",
-        DatabaseBackend::MySql => "UTC_TIMESTAMP(6)",
-    };
-    let placeholders = if backend == DatabaseBackend::Postgres {
-        ["$1", "$2", "$3", "$4"]
-    } else {
-        ["?", "?", "?", "?"]
-    };
-    Statement::from_sql_and_values(
-        backend,
-        format!(
-            "INSERT INTO feed_refresh_runs (
-                id, feed_id, requested_by_user_id, trigger_kind, status, idempotency_key, queued_at
-             ) VALUES ({}, {}, {}, 'SUBSCRIBE', 'QUEUED', {}, {clock})",
-            placeholders[0], placeholders[1], placeholders[2], placeholders[3]
-        ),
-        [
-            run_id.into(),
-            feed_id.into(),
-            user_id.into(),
-            idempotency_key.into(),
-        ],
-    )
-}
-
 fn required<T>(row: &QueryResult, column: &str) -> Result<T, SubscriptionRepositoryError>
-where
-    T: sea_orm::TryGetable,
-{
-    row.try_get("", column)
-        .map_err(|_| SubscriptionRepositoryError::CorruptData)
-}
-
-fn optional<T>(row: &QueryResult, column: &str) -> Result<Option<T>, SubscriptionRepositoryError>
 where
     T: sea_orm::TryGetable,
 {

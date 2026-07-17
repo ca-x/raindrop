@@ -28,7 +28,7 @@ pub use content_storage::{EncodedEntryContent, EntryContentDetail, EntryContentE
 pub use dto::{
     EnclosureDto, EntryDetailDto, EntryListItemDto, EntryPage, EntryStateDto, InertImageDto,
     ListSubscriptionsQuery, QueueSubscriptionRefresh, RefreshDto, SubscribeInput, SubscribeOutcome,
-    SubscriptionDto, SubscriptionListItemDto, SubscriptionPage, UpdateEntryState,
+    SubscriptionListItemDto, SubscriptionPage, UpdateEntryState,
 };
 pub use error::{
     AddressPolicyError, FeedUrlError, IdentityError, RetryAfterError, ScheduleError, ValidatorError,
@@ -59,7 +59,7 @@ pub use refresh::{
 };
 pub use repository::FeedRepository;
 pub use schedule::{JitterSource, RefreshResult, RefreshSchedule, RetryAfter, ScheduleOutcome};
-pub use service::{FeedService, FeedServiceError};
+pub use service::{FeedCommandService, FeedExecutor, FeedServiceError};
 pub use url_policy::{FeedUrlPolicy, NormalizedFeedUrl};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

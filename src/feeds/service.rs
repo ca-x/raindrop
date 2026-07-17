@@ -1,4 +1,4 @@
-use std::{fmt, time::Duration};
+use std::fmt;
 
 use rand_core::{OsRng, RngCore};
 use tokio::sync::Mutex;
@@ -6,21 +6,98 @@ use uuid::Uuid;
 
 use super::subscription::SubscriptionRepositoryError;
 use super::{
-    ClaimRequest, ExactClaimResult, FeedFetchError, FeedParser, FeedRepository, FeedTransport,
-    FeedUrlError, FeedUrlPolicy, FetchOutcome, FetchRequest, FetchedDocument, JitterSource,
-    PersistFeed, QueueSubscriptionRefresh, RefreshDto, RefreshFailure, RefreshRepositoryError,
-    RefreshResult, RefreshSchedule, RefreshStatus, RepositoryError, ScheduleError, SubscribeInput,
-    SubscriptionDto,
+    FeedFetchError, FeedParser, FeedRepository, FeedTransport, FeedUrlError, FeedUrlPolicy,
+    FetchOutcome, FetchRequest, FetchedDocument, JitterSource, ListSubscriptionsQuery, PersistFeed,
+    QueueSubscriptionRefresh, RefreshClaim, RefreshDto, RefreshFailure, RefreshRepositoryError,
+    RefreshResult, RefreshSchedule, RepositoryError, ScheduleError, SubscribeInput,
+    SubscribeOutcome, SubscriptionListItemDto, SubscriptionPage,
 };
 
-const CLAIM_ATTEMPTS: usize = 700;
-const CLAIM_RETRY_DELAY: Duration = Duration::from_millis(100);
-const LEASE_DURATION: Duration = Duration::from_secs(60);
+#[derive(Clone)]
+pub struct FeedCommandService {
+    repository: FeedRepository,
+    url_policy: FeedUrlPolicy,
+}
 
-pub struct FeedService<T>
-where
-    T: FeedTransport,
-{
+impl FeedCommandService {
+    #[must_use]
+    pub fn new(repository: FeedRepository, url_policy: FeedUrlPolicy) -> Self {
+        Self {
+            repository,
+            url_policy,
+        }
+    }
+
+    pub async fn subscribe(
+        &self,
+        user_id: &str,
+        input: SubscribeInput,
+    ) -> Result<SubscribeOutcome, FeedServiceError> {
+        validate_uuid(user_id).map_err(|()| FeedServiceError::InvalidUserId)?;
+        let normalized = self
+            .url_policy
+            .normalize(&input.url)
+            .map_err(FeedServiceError::Url)?;
+        self.repository
+            .subscribe(user_id, &input.url, &normalized)
+            .await
+            .map_err(FeedServiceError::RefreshRepository)
+    }
+
+    pub async fn list_subscriptions(
+        &self,
+        user_id: &str,
+        query: ListSubscriptionsQuery,
+    ) -> Result<SubscriptionPage, FeedServiceError> {
+        validate_uuid(user_id).map_err(|()| FeedServiceError::InvalidUserId)?;
+        self.repository
+            .list_subscriptions_for_user(user_id, query)
+            .await
+            .map_err(FeedServiceError::EntryRepository)
+    }
+
+    pub async fn get_subscription(
+        &self,
+        user_id: &str,
+        subscription_id: &str,
+    ) -> Result<Option<SubscriptionListItemDto>, FeedServiceError> {
+        validate_uuid(user_id).map_err(|()| FeedServiceError::InvalidUserId)?;
+        validate_uuid(subscription_id).map_err(|()| FeedServiceError::InvalidSubscriptionId)?;
+        self.repository
+            .get_subscription_for_user(user_id, subscription_id)
+            .await
+            .map_err(FeedServiceError::EntryRepository)
+    }
+
+    pub async fn queue_subscription_refresh(
+        &self,
+        user_id: &str,
+        subscription_id: &str,
+        request: QueueSubscriptionRefresh,
+    ) -> Result<RefreshDto, FeedServiceError> {
+        validate_uuid(user_id).map_err(|()| FeedServiceError::InvalidUserId)?;
+        validate_uuid(subscription_id).map_err(|()| FeedServiceError::InvalidSubscriptionId)?;
+        self.repository
+            .queue_subscription_refresh(user_id, subscription_id, request)
+            .await
+            .map_err(FeedServiceError::RefreshRepository)
+    }
+
+    pub async fn unsubscribe(
+        &self,
+        user_id: &str,
+        subscription_id: &str,
+    ) -> Result<bool, FeedServiceError> {
+        validate_uuid(user_id).map_err(|()| FeedServiceError::InvalidUserId)?;
+        validate_uuid(subscription_id).map_err(|()| FeedServiceError::InvalidSubscriptionId)?;
+        self.repository
+            .unsubscribe(user_id, subscription_id)
+            .await
+            .map_err(FeedServiceError::RefreshRepository)
+    }
+}
+
+pub struct FeedExecutor<T: FeedTransport> {
     repository: FeedRepository,
     url_policy: FeedUrlPolicy,
     transport: T,
@@ -28,7 +105,7 @@ where
     schedule: Mutex<RefreshSchedule<Box<dyn JitterSource + Send>>>,
 }
 
-impl<T> FeedService<T>
+impl<T> FeedExecutor<T>
 where
     T: FeedTransport,
 {
@@ -56,108 +133,10 @@ where
         }
     }
 
-    pub async fn subscribe(
-        &self,
-        user_id: &str,
-        input: SubscribeInput,
-    ) -> Result<SubscriptionDto, FeedServiceError> {
-        validate_uuid(user_id).map_err(|()| FeedServiceError::InvalidUserId)?;
-        let normalized = self
-            .url_policy
-            .normalize(&input.url)
-            .map_err(FeedServiceError::Url)?;
-        let record = self
-            .repository
-            .subscribe_transaction(user_id, &input.url, &normalized)
-            .await
-            .map_err(map_subscription_error)?;
-        let refresh = self
-            .execute_run(&record.feed_id, &record.run_id, record.run_status)
-            .await?;
-        self.repository
-            .subscription_dto(user_id, &record.subscription_id, refresh)
-            .await
-            .map_err(map_subscription_error)
-    }
-
-    pub async fn refresh_subscription(
-        &self,
-        user_id: &str,
-        subscription_id: &str,
-    ) -> Result<RefreshDto, FeedServiceError> {
-        validate_uuid(user_id).map_err(|()| FeedServiceError::InvalidUserId)?;
-        validate_uuid(subscription_id).map_err(|()| FeedServiceError::InvalidSubscriptionId)?;
-        let Some((_, feed_id)) = self
-            .repository
-            .find_owned_subscription(user_id, subscription_id)
-            .await
-            .map_err(map_subscription_error)?
-        else {
-            return Err(FeedServiceError::Unauthorized);
-        };
-        let nonce = Uuid::new_v4();
-        let run = self
-            .repository
-            .queue_subscription_refresh(
-                user_id,
-                subscription_id,
-                QueueSubscriptionRefresh {
-                    request_id: nonce.to_string(),
-                },
-            )
-            .await
-            .map_err(FeedServiceError::RefreshRepository)?;
-        self.execute_run(&feed_id, &run.run_id, run.status).await
-    }
-
-    async fn execute_run(
-        &self,
-        feed_id: &str,
-        run_id: &str,
-        initial_status: RefreshStatus,
-    ) -> Result<RefreshDto, FeedServiceError> {
-        if is_terminal(initial_status) {
-            return self.load_refresh(run_id).await;
-        }
-        let owner = format!("feed-service:{}", Uuid::new_v4());
-        let mut claimed = None;
-        for _ in 0..CLAIM_ATTEMPTS {
-            match self
-                .repository
-                .claim_run(
-                    run_id,
-                    ClaimRequest {
-                        owner: owner.clone(),
-                        lease_duration: LEASE_DURATION,
-                    },
-                )
-                .await
-                .map_err(FeedServiceError::RefreshRepository)?
-            {
-                ExactClaimResult::Claimed(claim) => {
-                    claimed = Some(claim);
-                    break;
-                }
-                ExactClaimResult::Existing(status) => {
-                    return if status == RefreshStatus::Running || is_terminal(status) {
-                        self.load_refresh(run_id).await
-                    } else {
-                        Err(FeedServiceError::RunUnavailable)
-                    };
-                }
-                ExactClaimResult::TemporarilyBlocked => {}
-                ExactClaimResult::FeedDisabled => return Err(FeedServiceError::FeedDisabled),
-            }
-            tokio::time::sleep(CLAIM_RETRY_DELAY).await;
-        }
-        let claim = claimed.ok_or(FeedServiceError::RunUnavailable)?;
-        if claim.feed_id != feed_id {
-            return Err(FeedServiceError::RunMismatch);
-        }
-
+    pub async fn execute_claim(&self, claim: RefreshClaim) -> Result<RefreshDto, FeedServiceError> {
         let context = self
             .repository
-            .load_refresh_context(feed_id)
+            .load_refresh_context(&claim)
             .await
             .map_err(map_subscription_error)?;
         let fetch_url = self
@@ -166,7 +145,7 @@ where
             .map_err(|_| FeedServiceError::CorruptFeed)?;
         let validators = self
             .repository
-            .load_validators(feed_id)
+            .load_validators(&claim.feed_id)
             .await
             .map_err(FeedServiceError::RefreshRepository)?;
         let outcome = self
@@ -226,7 +205,7 @@ where
                     .persist_feed_scheduled(&claim, persisted, schedule)
                     .await
                     .map_err(FeedServiceError::RefreshRepository)?;
-                self.load_refresh(run_id).await
+                self.load_refresh(&claim.run_id).await
             }
             Ok(FetchOutcome::NotModified {
                 url,
@@ -246,7 +225,7 @@ where
                     )
                     .await
                     .map_err(FeedServiceError::RefreshRepository)?;
-                self.load_refresh(run_id).await
+                self.load_refresh(&claim.run_id).await
             }
             Err(error) => {
                 let http_status = error.status().map(|status| i32::from(status.as_u16()));
@@ -325,18 +304,12 @@ pub enum FeedServiceError {
     InvalidSubscriptionId,
     #[error("feed URL is invalid")]
     Url(#[source] FeedUrlError),
-    #[error("feed URL hash collision detected")]
-    FeedUrlHashCollision,
     #[error("subscription is not authorized")]
     Unauthorized,
-    #[error("refresh run is temporarily unavailable")]
-    RunUnavailable,
     #[error("refresh run does not belong to the requested feed")]
     RunMismatch,
     #[error("stored feed data is corrupt")]
     CorruptFeed,
-    #[error("feed is disabled")]
-    FeedDisabled,
     #[error("refresh repository operation failed")]
     RefreshRepository(#[source] RefreshRepositoryError),
     #[error("entry repository operation failed")]
@@ -351,12 +324,9 @@ impl fmt::Debug for FeedServiceError {
             Self::InvalidUserId => "FeedServiceError::InvalidUserId",
             Self::InvalidSubscriptionId => "FeedServiceError::InvalidSubscriptionId",
             Self::Url(_) => "FeedServiceError::Url([REDACTED])",
-            Self::FeedUrlHashCollision => "FeedServiceError::FeedUrlHashCollision",
             Self::Unauthorized => "FeedServiceError::Unauthorized",
-            Self::RunUnavailable => "FeedServiceError::RunUnavailable",
             Self::RunMismatch => "FeedServiceError::RunMismatch",
             Self::CorruptFeed => "FeedServiceError::CorruptFeed",
-            Self::FeedDisabled => "FeedServiceError::FeedDisabled",
             Self::RefreshRepository(_) => "FeedServiceError::RefreshRepository([REDACTED])",
             Self::EntryRepository(_) => "FeedServiceError::EntryRepository([REDACTED])",
             Self::Schedule(_) => "FeedServiceError::Schedule([REDACTED])",
@@ -367,32 +337,17 @@ impl fmt::Debug for FeedServiceError {
 fn map_subscription_error(error: SubscriptionRepositoryError) -> FeedServiceError {
     match error {
         SubscriptionRepositoryError::UserNotFound => FeedServiceError::Unauthorized,
-        SubscriptionRepositoryError::FeedUrlHashCollision => FeedServiceError::FeedUrlHashCollision,
-        SubscriptionRepositoryError::InvalidRequest => FeedServiceError::CorruptFeed,
         SubscriptionRepositoryError::Database(error) => {
             FeedServiceError::RefreshRepository(RefreshRepositoryError::Database(error))
         }
-        SubscriptionRepositoryError::CorruptData | SubscriptionRepositoryError::RunConflict => {
-            FeedServiceError::CorruptFeed
-        }
+        SubscriptionRepositoryError::CorruptData => FeedServiceError::CorruptFeed,
+        SubscriptionRepositoryError::RunMismatch => FeedServiceError::RunMismatch,
     }
 }
 
 fn validate_uuid(value: &str) -> Result<(), ()> {
     let parsed = Uuid::parse_str(value).map_err(|_| ())?;
     (parsed.to_string() == value).then_some(()).ok_or(())
-}
-
-fn is_terminal(status: RefreshStatus) -> bool {
-    matches!(
-        status,
-        RefreshStatus::Success
-            | RefreshStatus::NotModified
-            | RefreshStatus::Partial
-            | RefreshStatus::Error
-            | RefreshStatus::LeaseLost
-            | RefreshStatus::Cancelled
-    )
 }
 
 fn operational_persist_error(error: &RefreshRepositoryError) -> bool {
