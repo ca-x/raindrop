@@ -116,7 +116,57 @@ describe("Reader article workspace", () => {
     act(() => window.history.back())
     await waitFor(() => expect(window.location.pathname).toBe("/reader/all"))
   })
+
+  it("replaces A with B while preserving the genuine queue history origin", async () => {
+    const user = userEvent.setup()
+    const controller = twoArticleController()
+    window.history.replaceState(null, "", "/reader/all")
+    window.history.pushState(null, "", "/reader/unread")
+    const { rerender } = render(readerWorkspace(controller, "medium"))
+
+    const queue = screen.getByRole("region", { name: "Entry queue" })
+    await user.click(within(queue).getByText("Reading without trackers"))
+    await user.click(within(queue).getByText("Second quiet article"))
+    rerender(readerWorkspace(controller, "compact"))
+    await user.click(screen.getByRole("button", { name: "Back to entry queue" }))
+
+    await waitFor(() => expect(window.location.pathname).toBe("/reader/unread"))
+  })
+
+  it("keeps direct-link A to B markerless for compact fallback Back", async () => {
+    const user = userEvent.setup()
+    const controller = twoArticleController()
+    window.history.replaceState(null, "", "/reader/all")
+    window.history.pushState(null, "", "/reader/unread/entry/entry")
+    const { rerender } = render(readerWorkspace(controller, "medium"))
+
+    await user.click(within(screen.getByRole("region", { name: "Entry queue" })).getByText("Second quiet article"))
+    rerender(readerWorkspace(controller, "compact"))
+    await user.click(screen.getByRole("button", { name: "Back to entry queue" }))
+    await waitFor(() => expect(window.location.pathname).toBe("/reader/unread"))
+
+    act(() => window.history.back())
+    await waitFor(() => expect(window.location.pathname).toBe("/reader/all"))
+  })
 })
+
+function readerWorkspace(controller: ReaderController, viewportMode: "compact" | "medium") {
+  return (
+    <Providers>
+      <ReaderRoutes controller={controller} username="reader" onLogout={vi.fn()} viewportMode={viewportMode} />
+    </Providers>
+  )
+}
+
+function twoArticleController(): ReaderController {
+  const controller = articleController()
+  const entry = controller.state.entriesById.entry
+  const detail = controller.state.detailsById.entry
+  controller.state.entriesById.second = { ...entry, entryId: "second", title: "Second quiet article" }
+  controller.state.detailsById.second = { ...detail, entryId: "second", title: "Second quiet article" }
+  controller.state.queueBySourceKey["smart:UNREAD"] = ["entry", "second"]
+  return controller
+}
 
 function articleController(): ReaderController {
   return {

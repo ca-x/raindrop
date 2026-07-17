@@ -42,9 +42,19 @@ export function ReaderRoutes(props: ReaderRoutesProps) {
       {...props}
       route={route}
       onSelectSource={(source) => navigate(pathForSource(source))}
-      onSelectEntry={(entryId) => navigate(pathForEntry(route.sourcePath, entryId), {
-        state: { readerQueuePath: route.sourcePath },
-      })}
+      onSelectEntry={(entryId) => {
+        const path = pathForEntry(route.sourcePath, entryId)
+        if (route.entryId) {
+          navigate(path, {
+            replace: true,
+            state: readerQueuePath === route.sourcePath
+              ? { readerQueuePath: route.sourcePath }
+              : null,
+          })
+          return
+        }
+        navigate(path, { state: { readerQueuePath: route.sourcePath } })
+      }}
       onBack={() => {
         if (readerQueuePath === route.sourcePath) navigate(-1)
         else navigate(route.sourcePath, { replace: true })
