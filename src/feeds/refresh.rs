@@ -180,7 +180,10 @@ pub enum RefreshRepositoryError {
     #[error("another refresh is already in progress")]
     RefreshInProgress { operation_id: String },
     #[error("manual refresh is cooling down")]
-    RefreshCooldown { retry_at: OffsetDateTime },
+    RefreshCooldown {
+        retry_at: OffsetDateTime,
+        retry_after_seconds: u64,
+    },
     #[error("feed is disabled")]
     FeedDisabled,
     #[error("refresh lifecycle event has conflicting semantics")]

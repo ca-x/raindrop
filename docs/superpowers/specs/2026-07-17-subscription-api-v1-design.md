@@ -343,7 +343,7 @@ list response 为 `{ items, nextCursor }`。detail missing/cross-tenant 同一 4
 
 请求 `{ "requestId": "canonical UUID" }`。accepted queued/running 返回 202；exact idempotent replay 已 terminal 返回 200。其它 active run 返回 409 `REFRESH_IN_PROGRESS`，`error.fields.operationId`；idempotency semantic conflict 返回 409 `CONFLICT`。
 
-cooldown/quota/limiter 返回统一 429：
+temporal limiter/cooldown 返回统一 429，并携带可证明的 retry metadata：
 
 ```json
 {
@@ -356,7 +356,9 @@ cooldown/quota/limiter 返回统一 429：
 }
 ```
 
-`Retry-After` 是相对 database/limiter now 向上取整的整数秒，最小 1。exact idempotency lookup 优先于 cooldown/limiter database admission；HTTP memory limiter 仍在 command 前执行，因此 client 应在正常限额内重试。
+`Retry-After` 是相对 repository transaction 已读取的 database now 或 limiter now 向上取整的整数秒，最小 1。HTTP 只格式化 repository 提供的 persisted `retry_at` 和 `retry_after_seconds`，不得再用 app wall clock 重算。exact idempotency lookup 优先于 cooldown/limiter database admission；HTTP memory limiter 仍在 command 前执行，因此 client 应在正常限额内重试。
+
+`SubscriptionLimit` / `ActiveRefreshLimit` 是没有可证明解除时刻的 hard quota，仍返回 429 `RATE_LIMITED` 和稳定 message `Too many requests`，但省略 `fields.retryAt` 与 `Retry-After`；不得伪造 app-now-based retry time。
 
 ### 13.5 Delete
 

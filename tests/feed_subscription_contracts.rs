@@ -12,7 +12,7 @@ use raindrop::feeds::{
 };
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DatabaseConnection,
-    EntityTrait, PaginatorTrait, QueryFilter,
+    DbBackend, EntityTrait, PaginatorTrait, QueryFilter, Statement,
 };
 use secrecy::SecretString;
 use std::{sync::Arc, time::Duration as StdDuration};
@@ -752,7 +752,8 @@ async fn sqlite_manual_key_fits_all_backend_limits() {
 #[tokio::test]
 async fn sqlite_manual_cooldown_respects_retry_after() {
     let fixture = SubscriptionFixture::new().await;
-    let retry_at = FIXTURE_AT + time::Duration::days(3_650);
+    let database_now = sqlite_database_now(&fixture.database).await;
+    let retry_at = database_now + time::Duration::seconds(60) + time::Duration::milliseconds(900);
     let feed = feed::Entity::find_by_id(support::database::FEED_ID)
         .one(&fixture.database)
         .await
@@ -775,10 +776,33 @@ async fn sqlite_manual_cooldown_respects_retry_after() {
         )
         .await
         .expect_err("retry-after should govern manual cooldown");
-    assert!(matches!(
-        error,
-        RefreshRepositoryError::RefreshCooldown { retry_at: actual } if actual == retry_at
-    ));
+    match &error {
+        RefreshRepositoryError::RefreshCooldown {
+            retry_at: actual,
+            retry_after_seconds,
+        } => {
+            assert_eq!(*actual, retry_at);
+            assert_eq!(*retry_after_seconds, 61);
+        }
+        error => panic!("expected cooldown error, got {error:?}"),
+    }
+    assert_eq!(
+        format!("{error:?}"),
+        "RefreshRepositoryError::RefreshCooldown([REDACTED])"
+    );
+}
+
+async fn sqlite_database_now(database: &DatabaseConnection) -> OffsetDateTime {
+    database
+        .query_one(Statement::from_string(
+            DbBackend::Sqlite,
+            "SELECT strftime('%Y-%m-%dT%H:%M:%f000Z','now') AS database_now".to_owned(),
+        ))
+        .await
+        .expect("database time should query")
+        .expect("database time row should exist")
+        .try_get("", "database_now")
+        .expect("database time should decode")
 }
 
 #[tokio::test]

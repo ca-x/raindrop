@@ -308,7 +308,10 @@ impl FeedRepository {
             if let Some(retry_at) = retry_at
                 && now < retry_at
             {
-                return Err(RefreshRepositoryError::RefreshCooldown { retry_at });
+                return Err(RefreshRepositoryError::RefreshCooldown {
+                    retry_at,
+                    retry_after_seconds: retry_after_seconds(now, retry_at),
+                });
             }
             if count_active_user_refresh_runs(&transaction, backend, user_id).await?
                 >= MAX_ACTIVE_USER_REFRESH_RUNS
@@ -901,6 +904,12 @@ fn manual_retry_at(
         (Some(cooldown), None) => Some(cooldown),
         (None, retry_after) => retry_after,
     })
+}
+
+fn retry_after_seconds(now: OffsetDateTime, retry_at: OffsetDateTime) -> u64 {
+    let remaining_ns = (retry_at - now).whole_nanoseconds().max(1);
+    let seconds = ((remaining_ns - 1) / 1_000_000_000) + 1;
+    u64::try_from(seconds).unwrap_or(u64::MAX).max(1)
 }
 
 fn encode_subscription_cursor(cursor: &SubscriptionCursorV1) -> Result<String, RepositoryError> {

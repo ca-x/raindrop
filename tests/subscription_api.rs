@@ -21,7 +21,7 @@ use http_body_util::BodyExt;
 use raindrop::{
     app::{AppState, build_router},
     auth::build_session_cookie,
-    db::entities::{feed, feed_refresh_run},
+    db::entities::{feed, feed_refresh_run, subscription},
     db::{DatabaseConfig, connect, migrate},
     feeds::{
         FeedExecutor, FeedFetchError, FeedRepository, FeedRuntime, FeedTransport, FeedUrlPolicy,
@@ -30,13 +30,18 @@ use raindrop::{
     setup::SetupService,
 };
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, DatabaseConnection, EntityTrait, IntoActiveModel,
+    ActiveModelTrait, ActiveValue::Set, ConnectionTrait, DatabaseConnection, DbBackend,
+    EntityTrait, IntoActiveModel, Statement,
 };
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::{Value, json};
 use tempfile::TempDir;
-use time::macros::datetime;
+use time::{
+    OffsetDateTime, UtcOffset,
+    macros::{datetime, format_description},
+};
 use tower::ServiceExt;
+use uuid::Uuid;
 
 use support::database::{FEED_ID, USER_A_ID, USER_B_ID, insert_feed, insert_user};
 
@@ -281,6 +286,132 @@ async fn response_body_bytes(response: axum::response::Response) -> axum::body::
         .await
         .expect("response body should collect")
         .to_bytes()
+}
+
+async fn sqlite_database_now(database: &DatabaseConnection) -> OffsetDateTime {
+    database
+        .query_one(Statement::from_string(
+            DbBackend::Sqlite,
+            "SELECT strftime('%Y-%m-%dT%H:%M:%f000Z','now') AS database_now".to_owned(),
+        ))
+        .await
+        .expect("database time should query")
+        .expect("database time row should exist")
+        .try_get("", "database_now")
+        .expect("database time should decode")
+}
+
+fn public_time(value: OffsetDateTime) -> String {
+    value
+        .to_offset(UtcOffset::UTC)
+        .format(format_description!(
+            "[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:6]Z"
+        ))
+        .expect("public time fixture should format")
+}
+
+fn quota_feed_model(id: String, url: String) -> feed::ActiveModel {
+    let at = datetime!(2026-07-17 12:00:00 UTC);
+    feed::ActiveModel {
+        id: Set(id),
+        source_url: Set(url.clone()),
+        normalized_url: Set(url.clone()),
+        normalized_url_hash: Set(blake3::hash(url.as_bytes()).to_hex().to_string()),
+        fetch_url: Set(url),
+        title: Set(Some("Quota feed".to_owned())),
+        site_url: Set(None),
+        validator_url: Set(None),
+        etag: Set(None),
+        last_modified: Set(None),
+        response_content_hash: Set(None),
+        entry_sequence_head: Set(0),
+        last_attempt_at: Set(None),
+        last_success_at: Set(None),
+        last_changed_at: Set(None),
+        next_fetch_at: Set(at + time::Duration::days(3_650)),
+        retry_after_at: Set(None),
+        consecutive_failures: Set(0),
+        last_error_code: Set(None),
+        is_disabled: Set(false),
+        orphaned_at: Set(None),
+        lease_owner: Set(None),
+        lease_token: Set(0),
+        lease_until: Set(None),
+        created_at: Set(at),
+        updated_at: Set(at),
+    }
+}
+
+async fn seed_subscription_quota(database: &DatabaseConnection) {
+    let at = datetime!(2026-07-17 12:00:00 UTC);
+    for index in 0..1_000_u128 {
+        let feed_id =
+            Uuid::from_u128(0x8000_0000_0000_4000_8000_0000_0000_0000 + index).to_string();
+        let subscription_id =
+            Uuid::from_u128(0x8100_0000_0000_4000_8000_0000_0000_0000 + index).to_string();
+        quota_feed_model(
+            feed_id.clone(),
+            format!("https://subscription-quota-{index:04}.example/rss.xml"),
+        )
+        .insert(database)
+        .await
+        .expect("subscription quota feed should insert");
+        subscription::ActiveModel {
+            id: Set(subscription_id),
+            user_id: Set(USER_A_ID.to_owned()),
+            feed_id: Set(feed_id),
+            title_override: Set(None),
+            position: Set(0),
+            start_sequence: Set(0),
+            read_through_sequence: Set(0),
+            state_revision: Set(0),
+            created_at: Set(at),
+            updated_at: Set(at),
+        }
+        .insert(database)
+        .await
+        .expect("subscription quota row should insert");
+    }
+}
+
+async fn seed_active_refresh_quota(database: &DatabaseConnection) {
+    let at = datetime!(2026-07-17 12:00:00 UTC);
+    for index in 0..20_u128 {
+        let feed_id =
+            Uuid::from_u128(0x8200_0000_0000_4000_8000_0000_0000_0000 + index).to_string();
+        let run_id = Uuid::from_u128(0x8300_0000_0000_4000_8000_0000_0000_0000 + index).to_string();
+        quota_feed_model(
+            feed_id.clone(),
+            format!("https://active-quota-{index:02}.example/rss.xml"),
+        )
+        .insert(database)
+        .await
+        .expect("active quota feed should insert");
+        feed_refresh_run::ActiveModel {
+            id: Set(run_id),
+            feed_id: Set(feed_id),
+            requested_by_user_id: Set(Some(USER_A_ID.to_owned())),
+            trigger_kind: Set("MANUAL".to_owned()),
+            status: Set("QUEUED".to_owned()),
+            idempotency_key: Set(format!("active-quota-{index}")),
+            lease_token: Set(None),
+            commit_generation: Set(None),
+            queued_at: Set(at + time::Duration::seconds(index as i64)),
+            started_at: Set(None),
+            fetched_at: Set(None),
+            persisted_at: Set(None),
+            completed_at: Set(None),
+            http_status: Set(None),
+            new_count: Set(0),
+            updated_count: Set(0),
+            dropped_count: Set(0),
+            error_code: Set(None),
+            retry_at: Set(None),
+        }
+        .insert(database)
+        .await
+        .expect("active quota run should insert");
+    }
 }
 
 fn assert_sensitive_cache_headers(response: &axum::response::Response) {
@@ -555,6 +686,68 @@ async fn subscription_requests_reject_invalid_query_path_body_and_url() {
         )
         .await;
     assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
+async fn subscription_invalid_utf8_paths_use_validation_json_after_security_extractors() {
+    let fixture = SubscriptionApiFixture::new().await;
+
+    let unauthenticated = fixture
+        .request_unauthenticated(Method::GET, "/api/v1/subscriptions/%FF", None)
+        .await;
+    assert_eq!(unauthenticated.status(), StatusCode::UNAUTHORIZED);
+
+    let invalid_csrf = fixture
+        .request_mutation(
+            Method::POST,
+            "/api/v1/subscriptions/%FF/refresh",
+            Some(r#"{"requestId":"00000000-0000-4000-8000-000000000701"}"#),
+            UserKind::A,
+            &["invalid-csrf"],
+            &["http://subscriptions.test"],
+            Some("subscriptions.test"),
+        )
+        .await;
+    assert_eq!(invalid_csrf.status(), StatusCode::FORBIDDEN);
+
+    let detail = fixture.get("/api/v1/subscriptions/%FF", UserKind::A).await;
+    assert_validation_json_response(detail).await;
+
+    let refresh = fixture
+        .post_with_csrf(
+            "/api/v1/subscriptions/%FF/refresh",
+            json!({ "requestId": "00000000-0000-4000-8000-000000000701" }),
+            UserKind::A,
+        )
+        .await;
+    assert_validation_json_response(refresh).await;
+
+    let (_, csrf) = fixture.credentials(UserKind::A);
+    let delete = fixture
+        .request_mutation(
+            Method::DELETE,
+            "/api/v1/subscriptions/%FF",
+            None,
+            UserKind::A,
+            &[csrf],
+            &["http://subscriptions.test"],
+            Some("subscriptions.test"),
+        )
+        .await;
+    assert_validation_json_response(delete).await;
+}
+
+async fn assert_validation_json_response(response: axum::response::Response) {
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_sensitive_cache_headers(&response);
+    assert_eq!(
+        response.headers().get(CONTENT_TYPE).unwrap(),
+        "application/json"
+    );
+    assert_eq!(
+        response_json(response).await["error"]["code"],
+        "VALIDATION_ERROR"
+    );
 }
 
 #[tokio::test]
@@ -959,6 +1152,136 @@ async fn subscription_rate_limits_are_user_scoped_and_return_retry_after() {
         .await;
     assert_eq!(unauthenticated.status(), StatusCode::UNAUTHORIZED);
     assert!(!csrf.is_empty());
+}
+
+#[tokio::test]
+async fn subscription_cooldown_uses_repository_retry_metadata() {
+    let fixture = SubscriptionApiFixture::new().await;
+    let created = fixture
+        .post_with_csrf(
+            "/api/v1/subscriptions",
+            json!({ "url": "https://cooldown.example/rss.xml" }),
+            UserKind::A,
+        )
+        .await;
+    let created_body = response_json(created).await;
+    let subscription_id = created_body["subscription"]["subscriptionId"]
+        .as_str()
+        .expect("created subscription should expose its identifier")
+        .to_owned();
+    let feed_id = created_body["subscription"]["feedId"]
+        .as_str()
+        .expect("created subscription should expose its feed identifier")
+        .to_owned();
+    let operation_id = created_body["subscription"]["refresh"]["operationId"]
+        .as_str()
+        .expect("created subscription should expose its refresh")
+        .to_owned();
+
+    let run = feed_refresh_run::Entity::find_by_id(operation_id)
+        .one(&fixture.database)
+        .await
+        .expect("subscribe run should query")
+        .expect("subscribe run should exist");
+    let mut run = run.into_active_model();
+    run.status = Set("SUCCESS".to_owned());
+    run.completed_at = Set(Some(datetime!(2026-07-17 12:00:00 UTC)));
+    run.update(&fixture.database)
+        .await
+        .expect("subscribe run should become terminal");
+
+    let database_now = sqlite_database_now(&fixture.database).await;
+    let retry_at = database_now + time::Duration::seconds(60) + time::Duration::milliseconds(900);
+    let stored_feed = feed::Entity::find_by_id(feed_id)
+        .one(&fixture.database)
+        .await
+        .expect("cooldown feed should query")
+        .expect("cooldown feed should exist");
+    let mut stored_feed = stored_feed.into_active_model();
+    stored_feed.last_attempt_at = Set(None);
+    stored_feed.retry_after_at = Set(Some(retry_at));
+    stored_feed
+        .update(&fixture.database)
+        .await
+        .expect("cooldown retry time should persist");
+
+    let response = fixture
+        .post_with_csrf(
+            &format!("/api/v1/subscriptions/{subscription_id}/refresh"),
+            json!({ "requestId": "00000000-0000-4000-8000-000000000731" }),
+            UserKind::A,
+        )
+        .await;
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_sensitive_cache_headers(&response);
+    assert_eq!(response.headers().get(RETRY_AFTER).unwrap(), "61");
+    let body = response_json(response).await;
+    assert_eq!(body["error"]["code"], "RATE_LIMITED");
+    assert_eq!(body["error"]["message"], "Too many requests");
+    assert_eq!(body["error"]["fields"]["retryAt"], public_time(retry_at));
+}
+
+#[tokio::test]
+async fn subscription_hard_quotas_omit_retry_metadata() {
+    let fixture = SubscriptionApiFixture::new().await;
+    seed_subscription_quota(&fixture.database).await;
+    let subscription_limit = fixture
+        .post_with_csrf(
+            "/api/v1/subscriptions",
+            json!({ "url": "https://over-subscription-quota.example/rss.xml" }),
+            UserKind::A,
+        )
+        .await;
+    assert_rate_limited_without_retry(subscription_limit).await;
+
+    let fixture = SubscriptionApiFixture::new().await;
+    let created = fixture
+        .post_with_csrf(
+            "/api/v1/subscriptions",
+            json!({ "url": "https://over-active-quota.example/rss.xml" }),
+            UserKind::A,
+        )
+        .await;
+    let created_body = response_json(created).await;
+    let subscription_id = created_body["subscription"]["subscriptionId"]
+        .as_str()
+        .expect("created subscription should expose its identifier")
+        .to_owned();
+    let operation_id = created_body["subscription"]["refresh"]["operationId"]
+        .as_str()
+        .expect("created subscription should expose its refresh")
+        .to_owned();
+    let run = feed_refresh_run::Entity::find_by_id(operation_id)
+        .one(&fixture.database)
+        .await
+        .expect("subscribe run should query")
+        .expect("subscribe run should exist");
+    let mut run = run.into_active_model();
+    run.status = Set("SUCCESS".to_owned());
+    run.completed_at = Set(Some(datetime!(2026-07-17 12:00:00 UTC)));
+    run.update(&fixture.database)
+        .await
+        .expect("subscribe run should become terminal");
+    seed_active_refresh_quota(&fixture.database).await;
+
+    let active_limit = fixture
+        .post_with_csrf(
+            &format!("/api/v1/subscriptions/{subscription_id}/refresh"),
+            json!({ "requestId": "00000000-0000-4000-8000-000000000732" }),
+            UserKind::A,
+        )
+        .await;
+    assert_rate_limited_without_retry(active_limit).await;
+}
+
+async fn assert_rate_limited_without_retry(response: axum::response::Response) {
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_sensitive_cache_headers(&response);
+    assert!(response.headers().get(RETRY_AFTER).is_none());
+    let body = response_json(response).await;
+    assert_eq!(body["error"]["code"], "RATE_LIMITED");
+    assert_eq!(body["error"]["message"], "Too many requests");
+    assert!(body["error"].get("fields").is_none());
 }
 
 #[tokio::test]

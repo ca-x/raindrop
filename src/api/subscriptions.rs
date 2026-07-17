@@ -72,6 +72,23 @@ where
     }
 }
 
+struct ApiPath<T>(T);
+
+impl<T, S> FromRequestParts<S> for ApiPath<T>
+where
+    T: DeserializeOwned + Send,
+    S: Send + Sync,
+{
+    type Rejection = ApiError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        Path::<T>::from_request_parts(parts, state)
+            .await
+            .map(|Path(value)| Self(value))
+            .map_err(|_| ApiError::validation())
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ListSubscriptionsParams {
@@ -282,7 +299,7 @@ async fn create_subscription(
 async fn get_subscription(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
-    Path(subscription_id): Path<String>,
+    ApiPath(subscription_id): ApiPath<String>,
 ) -> Result<Json<SubscriptionResponse>, ApiError> {
     let subscription = command_service(&state)?
         .get_subscription(&user.id, &subscription_id)
@@ -296,7 +313,7 @@ async fn refresh_subscription(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
     _csrf: CsrfGuard,
-    Path(subscription_id): Path<String>,
+    ApiPath(subscription_id): ApiPath<String>,
     ApiJson(request): ApiJson<RefreshSubscriptionRequest>,
 ) -> Result<Response, ApiError> {
     validate_canonical_uuid(&subscription_id, "subscriptionId")?;
@@ -331,7 +348,7 @@ async fn delete_subscription(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
     _csrf: CsrfGuard,
-    Path(subscription_id): Path<String>,
+    ApiPath(subscription_id): ApiPath<String>,
 ) -> Result<StatusCode, ApiError> {
     validate_canonical_uuid(&subscription_id, "subscriptionId")?;
     state
@@ -393,9 +410,12 @@ fn map_repository_error(error: RepositoryError) -> ApiError {
 fn map_refresh_repository_error(error: RefreshRepositoryError) -> ApiError {
     match error {
         RefreshRepositoryError::InvalidRequest => ApiError::validation(),
-        RefreshRepositoryError::RefreshCooldown { retry_at } => rate_limited_at(retry_at),
+        RefreshRepositoryError::RefreshCooldown {
+            retry_at,
+            retry_after_seconds,
+        } => rate_limited_at(retry_at, retry_after_seconds),
         RefreshRepositoryError::SubscriptionLimit | RefreshRepositoryError::ActiveRefreshLimit => {
-            rate_limited_at(OffsetDateTime::now_utc() + time::Duration::seconds(1))
+            rate_limited_without_retry()
         }
         RefreshRepositoryError::IdempotencyConflict
         | RefreshRepositoryError::FeedDisabled
@@ -433,6 +453,14 @@ fn conflict_error() -> ApiError {
     )
 }
 
+fn rate_limited_without_retry() -> ApiError {
+    ApiError::new(
+        StatusCode::TOO_MANY_REQUESTS,
+        "RATE_LIMITED",
+        "Too many requests",
+    )
+}
+
 fn map_limiter_rejection(rejection: RateLimitRejection) -> ApiError {
     match format_public_time(rejection.retry_at) {
         Ok(retry_at) => ApiError::rate_limited_with_retry(retry_at, rejection.retry_after_seconds),
@@ -440,13 +468,7 @@ fn map_limiter_rejection(rejection: RateLimitRejection) -> ApiError {
     }
 }
 
-fn rate_limited_at(retry_at: OffsetDateTime) -> ApiError {
-    let remaining_ns = (retry_at - OffsetDateTime::now_utc())
-        .whole_nanoseconds()
-        .max(1);
-    let retry_after_seconds = ((remaining_ns + 999_999_999) / 1_000_000_000)
-        .try_into()
-        .unwrap_or(u64::MAX);
+fn rate_limited_at(retry_at: OffsetDateTime, retry_after_seconds: u64) -> ApiError {
     match format_public_time(retry_at) {
         Ok(retry_at) => ApiError::rate_limited_with_retry(retry_at, retry_after_seconds),
         Err(error) => error,
