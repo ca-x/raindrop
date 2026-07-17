@@ -1,6 +1,6 @@
 # RSS ingestion security boundary
 
-Raindrop treats feed URLs, DNS answers, HTTP responses, XML/JSON documents, publisher HTML, validators, and stored content envelopes as untrusted input. Callers use `FeedService` and user-scoped entry DTOs; they do not receive raw HTTP responses or database entities.
+Raindrop treats feed URLs, DNS answers, HTTP responses, XML/JSON documents, publisher HTML, validators, and stored content envelopes as untrusted input. HTTP callers use the queue-only `FeedCommandService` plus user-scoped DTOs; they do not receive raw HTTP responses or database entities. Only `FeedRuntime` claims work and invokes the network-owning `FeedExecutor`.
 
 ## URL, DNS, and network policy
 
@@ -29,8 +29,9 @@ Raindrop treats feed URLs, DNS answers, HTTP responses, XML/JSON documents, publ
 
 ## Refresh ownership, scheduling, and redaction
 
-- A subscribe transaction resolves/reuses the full normalized Feed, locks its sequence head, creates/reuses the user's subscription, clears orphan state, and queues one stable `SUBSCRIBE` run. No DNS, HTTP, parsing, or sanitization occurs inside it.
-- The service claims only the exact run it created. MySQL locks the Feed row before claim/terminal authorization; all backends authorize leases with their database clock and fencing token.
+- `FeedCommandService` owns only the repository and strict production URL policy. Subscribe/manual-refresh/unsubscribe commands persist queue state and return without DNS, HTTP, parsing, sanitization, claim, or execution work.
+- `FeedRuntime` is the sole owner of stale-run recovery, scheduled enqueue, claiming, heartbeat, and shutdown coordination. It passes only already-authorized claims to the network-owning `FeedExecutor`; the executor cannot claim additional work.
+- MySQL locks the Feed row before claim/terminal authorization; all backends authorize leases with their database clock and fencing token.
 - Success/partial persistence, 304 completion, and owned failure persist Feed schedule state, terminal run state, lifecycle outbox records, and lease release in the same transaction. Outbox conflicts roll back the whole terminal result.
 - 304 validators remain scoped to their exact final URL. Missing response validators are preserved only when the final URL is unchanged; a redirect clears any absent old-scope validator.
 - Validators, URL query strings, response bodies, publisher HTML, and underlying error sources are absent from DTOs and diagnostic output. Repository/service errors use stable typed messages and redacted `Debug` implementations.

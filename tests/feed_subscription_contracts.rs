@@ -292,6 +292,11 @@ async fn backend_quota_contract(url: &str, backend_name: &str) {
         (Ok(_), Err(RefreshRepositoryError::SubscriptionLimit))
             | (Err(RefreshRepositoryError::SubscriptionLimit), Ok(_))
     ));
+    assert_eq!(
+        user_subscription_count(&database, USER_A_ID).await,
+        1_000,
+        "{backend_name} subscription quota race must persist the exact ceiling"
+    );
     database.close().await.expect("database should close");
     second_database
         .close()
@@ -337,11 +342,61 @@ async fn backend_quota_contract(url: &str, backend_name: &str) {
     })
     .await
     .unwrap_or_else(|_| panic!("{backend_name} active quota must not deadlock"));
+    let (accepted, rejected, accepted_subscription, accepted_request) = match (shared, second) {
+        (Ok(accepted), Err(rejected)) => {
+            (accepted, rejected, SUBSCRIPTION_A_ID, MANUAL_REQUEST_A_ID)
+        }
+        (Err(rejected), Ok(accepted)) => (
+            accepted,
+            rejected,
+            SECOND_SUBSCRIPTION_A_ID,
+            MANUAL_REQUEST_B_ID,
+        ),
+        results => panic!("{backend_name} exactly one manual refresh should fit: {results:?}"),
+    };
     assert!(matches!(
-        (&shared, &second),
-        (Ok(_), Err(RefreshRepositoryError::ActiveRefreshLimit))
-            | (Err(RefreshRepositoryError::ActiveRefreshLimit), Ok(_))
+        rejected,
+        RefreshRepositoryError::ActiveRefreshLimit
     ));
+    assert_eq!(
+        active_user_requested_run_count(&database, USER_A_ID).await,
+        20,
+        "{backend_name} active quota race must persist the exact ceiling"
+    );
+    let run_count = feed_refresh_run::Entity::find()
+        .count(&database)
+        .await
+        .expect("backend refresh runs should count before replay");
+    let subscription_count = user_subscription_count(&database, USER_A_ID).await;
+    let replay_repository = FeedRepository::new(database.clone());
+    for replay_index in 1..=2 {
+        let replay = replay_repository
+            .queue_subscription_refresh(
+                USER_A_ID,
+                accepted_subscription,
+                QueueSubscriptionRefresh {
+                    request_id: accepted_request.to_owned(),
+                },
+            )
+            .await
+            .unwrap_or_else(|_| {
+                panic!("{backend_name} exact replay {replay_index} should succeed")
+            });
+        assert_eq!(replay.run_id, accepted.run_id);
+        assert_eq!(
+            feed_refresh_run::Entity::find()
+                .count(&database)
+                .await
+                .expect("backend refresh runs should count after replay"),
+            run_count,
+            "{backend_name} exact replay {replay_index} must not insert a run"
+        );
+        assert_eq!(
+            user_subscription_count(&database, USER_A_ID).await,
+            subscription_count,
+            "{backend_name} exact replay {replay_index} must not change subscriptions"
+        );
+    }
     database.close().await.expect("database should close");
     second_database
         .close()
@@ -1008,6 +1063,10 @@ async fn sqlite_subscription_and_active_run_quotas_are_atomic() {
         duplicate.subscription.subscription_id,
         created.subscription.subscription_id
     );
+    assert_eq!(
+        user_subscription_count(&subscription_fixture.database, USER_A_ID).await,
+        1_000
+    );
 
     let refresh_fixture = SubscriptionFixture::new().await;
     seed_active_user_refresh_quota(&refresh_fixture.database, 19).await;
@@ -1060,6 +1119,15 @@ async fn sqlite_subscription_and_active_run_quotas_are_atomic() {
         rejected,
         RefreshRepositoryError::ActiveRefreshLimit
     ));
+    assert_eq!(
+        active_user_requested_run_count(&refresh_fixture.database, USER_A_ID).await,
+        20
+    );
+    let run_count = feed_refresh_run::Entity::find()
+        .count(&refresh_fixture.database)
+        .await
+        .expect("refresh runs should count before exact replay");
+    let subscription_count = user_subscription_count(&refresh_fixture.database, USER_A_ID).await;
     let replay = refresh_fixture
         .repository
         .queue_subscription_refresh(
@@ -1072,6 +1140,33 @@ async fn sqlite_subscription_and_active_run_quotas_are_atomic() {
         .await
         .expect("exact manual replay should win at the active-run ceiling");
     assert_eq!(replay.run_id, accepted.run_id);
+    let replay_again = refresh_fixture
+        .repository
+        .queue_subscription_refresh(
+            USER_A_ID,
+            accepted_subscription,
+            QueueSubscriptionRefresh {
+                request_id: accepted_request.to_owned(),
+            },
+        )
+        .await
+        .expect("second exact manual replay should remain idempotent");
+    assert_eq!(replay_again.run_id, accepted.run_id);
+    assert_eq!(
+        feed_refresh_run::Entity::find()
+            .count(&refresh_fixture.database)
+            .await
+            .expect("refresh runs should count after exact replays"),
+        run_count
+    );
+    assert_eq!(
+        user_subscription_count(&refresh_fixture.database, USER_A_ID).await,
+        subscription_count
+    );
+    assert_eq!(
+        active_user_requested_run_count(&refresh_fixture.database, USER_A_ID).await,
+        20
+    );
 }
 
 #[tokio::test]
@@ -1507,6 +1602,23 @@ async fn active_feed_run_count(database: &DatabaseConnection, feed_id: &str) -> 
         .count(database)
         .await
         .expect("active feed runs should count")
+}
+
+async fn user_subscription_count(database: &DatabaseConnection, user_id: &str) -> u64 {
+    subscription::Entity::find()
+        .filter(subscription::Column::UserId.eq(user_id))
+        .count(database)
+        .await
+        .expect("user subscriptions should count")
+}
+
+async fn active_user_requested_run_count(database: &DatabaseConnection, user_id: &str) -> u64 {
+    feed_refresh_run::Entity::find()
+        .filter(feed_refresh_run::Column::RequestedByUserId.eq(user_id))
+        .filter(feed_refresh_run::Column::Status.is_in(["QUEUED", "RUNNING"]))
+        .count(database)
+        .await
+        .expect("user-requested active refresh runs should count")
 }
 
 async fn seed_explain_noise(database: &DatabaseConnection) {

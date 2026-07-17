@@ -21,10 +21,10 @@ pub struct FeedCommandService {
 
 impl FeedCommandService {
     #[must_use]
-    pub fn new(repository: FeedRepository, url_policy: FeedUrlPolicy) -> Self {
+    pub fn new(repository: FeedRepository) -> Self {
         Self {
             repository,
-            url_policy,
+            url_policy: FeedUrlPolicy::new(false),
         }
     }
 
@@ -310,6 +310,8 @@ pub enum FeedServiceError {
     RunMismatch,
     #[error("stored feed data is corrupt")]
     CorruptFeed,
+    #[error("feed runtime supervision failed")]
+    RuntimeSupervision,
     #[error("feed executor initialization failed")]
     ExecutorInitialization(#[source] FeedFetchError),
     #[error("refresh repository operation failed")]
@@ -329,6 +331,7 @@ impl fmt::Debug for FeedServiceError {
             Self::Unauthorized => "FeedServiceError::Unauthorized",
             Self::RunMismatch => "FeedServiceError::RunMismatch",
             Self::CorruptFeed => "FeedServiceError::CorruptFeed",
+            Self::RuntimeSupervision => "FeedServiceError::RuntimeSupervision",
             Self::ExecutorInitialization(_) => {
                 "FeedServiceError::ExecutorInitialization([REDACTED])"
             }

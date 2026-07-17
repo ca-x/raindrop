@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use raindrop::{
     app::{AppState, build_router},
     auth::{CreateAdminInput, PasswordService, create_admin},
@@ -161,23 +161,70 @@ where
     Server: IntoFuture<Output = std::io::Result<()>>,
 {
     let server = server.into_future();
+    let mut runtime_task = runtime_task;
+    let mut server_shutdown_tx = Some(server_shutdown_tx);
     tokio::pin!(signal);
     tokio::pin!(server);
-    let server_result = tokio::select! {
-        result = &mut server => result,
-        () = &mut signal => {
-            request_runtime_shutdown();
-            let _ = server_shutdown_tx.send(());
-            server.await
-        }
+
+    enum FirstCompletion {
+        Server(std::io::Result<()>),
+        Signal,
+        Runtime(Result<Result<(), FeedServiceError>, tokio::task::JoinError>),
+    }
+
+    let first = tokio::select! {
+        biased;
+        result = &mut runtime_task => FirstCompletion::Runtime(result),
+        result = &mut server => FirstCompletion::Server(result),
+        () = &mut signal => FirstCompletion::Signal,
     };
-    request_runtime_shutdown();
-    let runtime_result = runtime_task
-        .await
-        .context("Raindrop feed runtime task failed")?;
-    server_result.context("Raindrop HTTP server failed")?;
-    runtime_result.context("Raindrop feed runtime failed")?;
-    Ok(())
+
+    match first {
+        FirstCompletion::Signal => {
+            request_runtime_shutdown();
+            let runtime_result = runtime_task.await;
+            if let Some(shutdown) = server_shutdown_tx.take() {
+                let _ = shutdown.send(());
+            }
+            let server_result = server.await;
+            server_result.context("Raindrop HTTP server failed")?;
+            joined_runtime_result(runtime_result)
+        }
+        FirstCompletion::Server(server_result) => {
+            request_runtime_shutdown();
+            let runtime_result = runtime_task.await;
+            server_result.context("Raindrop HTTP server failed")?;
+            joined_runtime_result(runtime_result)
+        }
+        FirstCompletion::Runtime(runtime_result) => {
+            request_runtime_shutdown();
+            if let Some(shutdown) = server_shutdown_tx.take() {
+                let _ = shutdown.send(());
+            }
+            if let Err(error) = server.await {
+                tracing::error!(%error, "Raindrop HTTP server drain failed after runtime exit");
+            }
+            unexpected_runtime_result(runtime_result)
+        }
+    }
+}
+
+fn joined_runtime_result(
+    result: Result<Result<(), FeedServiceError>, tokio::task::JoinError>,
+) -> Result<()> {
+    result
+        .context("Raindrop feed runtime task failed")?
+        .context("Raindrop feed runtime failed")
+}
+
+fn unexpected_runtime_result(
+    result: Result<Result<(), FeedServiceError>, tokio::task::JoinError>,
+) -> Result<()> {
+    match result {
+        Ok(Ok(())) => Err(anyhow!("Raindrop feed runtime stopped unexpectedly")),
+        Ok(Err(error)) => Err(error).context("Raindrop feed runtime failed"),
+        Err(error) => Err(error).context("Raindrop feed runtime task failed"),
+    }
 }
 
 fn init_tracing() {
@@ -227,6 +274,82 @@ mod tests {
     use tokio::sync::oneshot;
 
     use super::*;
+
+    #[derive(Clone, Copy, Debug)]
+    enum InjectedRuntimeCompletion {
+        EarlyOk,
+        Error,
+        Panic,
+    }
+
+    #[tokio::test]
+    async fn coordinator_runtime_error_early_ok_and_panic_stop_server_first() {
+        for completion in [
+            InjectedRuntimeCompletion::EarlyOk,
+            InjectedRuntimeCompletion::Error,
+            InjectedRuntimeCompletion::Panic,
+        ] {
+            assert_runtime_completion_stops_server(completion).await;
+        }
+    }
+
+    async fn assert_runtime_completion_stops_server(completion: InjectedRuntimeCompletion) {
+        let runtime_task = tokio::spawn(async move {
+            match completion {
+                InjectedRuntimeCompletion::EarlyOk => Ok(()),
+                InjectedRuntimeCompletion::Error => Err(FeedServiceError::RuntimeSupervision),
+                InjectedRuntimeCompletion::Panic => panic!("injected runtime panic"),
+            }
+        });
+        let shutdown_calls = Arc::new(AtomicUsize::new(0));
+        let observed_shutdown_calls = shutdown_calls.clone();
+        let request_runtime_shutdown = move || {
+            observed_shutdown_calls.fetch_add(1, Ordering::SeqCst);
+        };
+        let server_stopped = Arc::new(AtomicBool::new(false));
+        let observed_server_stopped = server_stopped.clone();
+        let (server_shutdown_tx, server_shutdown_rx) = oneshot::channel();
+        let server = async move {
+            server_shutdown_rx
+                .await
+                .map_err(|_| io::Error::other("server shutdown sender dropped"))?;
+            observed_server_stopped.store(true, Ordering::SeqCst);
+            Ok(())
+        };
+
+        let error = tokio::time::timeout(
+            Duration::from_secs(1),
+            coordinate_server_and_feed_runtime(
+                future::pending(),
+                request_runtime_shutdown,
+                runtime_task,
+                server_shutdown_tx,
+                server,
+            ),
+        )
+        .await
+        .expect("runtime completion should immediately stop the HTTP server")
+        .expect_err("runtime completion before signal/server should fail coordination");
+
+        assert!(server_stopped.load(Ordering::SeqCst));
+        assert_eq!(shutdown_calls.load(Ordering::SeqCst), 1);
+        match completion {
+            InjectedRuntimeCompletion::EarlyOk => {
+                assert_eq!(
+                    error.to_string(),
+                    "Raindrop feed runtime stopped unexpectedly"
+                );
+            }
+            InjectedRuntimeCompletion::Error => {
+                assert_eq!(error.to_string(), "Raindrop feed runtime failed");
+                assert!(error.downcast_ref::<FeedServiceError>().is_some());
+            }
+            InjectedRuntimeCompletion::Panic => {
+                assert_eq!(error.to_string(), "Raindrop feed runtime task failed");
+                assert!(error.downcast_ref::<tokio::task::JoinError>().is_some());
+            }
+        }
+    }
 
     #[tokio::test]
     async fn production_feed_runtime_stays_inert_while_setup_is_required() {
@@ -296,7 +419,7 @@ mod tests {
         .await
         .expect("coordinated shutdown should succeed");
 
-        assert_eq!(shutdown_calls.load(Ordering::SeqCst), 2);
+        assert_eq!(shutdown_calls.load(Ordering::SeqCst), 1);
         assert!(runtime_stopped.load(Ordering::SeqCst));
     }
 

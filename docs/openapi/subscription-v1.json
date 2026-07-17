@@ -456,8 +456,10 @@
         ],
         "properties": {
           "url": {
+            "description": "Absolute HTTPS feed URL. Userinfo credentials are not allowed.",
             "type": "string",
             "format": "uri",
+            "pattern": "^https://[^/?#@]+(?:[/?#].*)?$",
             "maxLength": 4096
           }
         }

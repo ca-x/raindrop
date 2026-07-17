@@ -49,6 +49,7 @@ const REFRESH_PATH: &str = "/api/v1/subscriptions/{subscriptionId}/refresh";
 const PUBLIC_TIME_PATTERN: &str =
     r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{6}Z$";
 const LOCATION_PATTERN: &str = r"^/api/v1/subscriptions/[0-9a-f-]{36}$";
+const HTTPS_FEED_URL_PATTERN: &str = r"^https://[^/?#@]+(?:[/?#].*)?$";
 const OPENAPI_METHODS: [&str; 8] = [
     "get", "put", "post", "delete", "options", "head", "patch", "trace",
 ];
@@ -351,9 +352,13 @@ fn subscription_openapi_schema_manifest_and_local_refs_are_frozen() {
         "post",
         &json!({ "url": "https://request.example/rss.xml" }),
     );
+    let overlong_url = format!("https://request.example/{}", "a".repeat(4_096));
     for invalid in [
         json!({ "url": "https://request.example/rss.xml", "providerDetails": true }),
         json!({ "url": 7 }),
+        json!({ "url": "http://request.example/rss.xml" }),
+        json!({ "url": "https://user:password@request.example/rss.xml" }),
+        json!({ "url": overlong_url }),
     ] {
         assert_request_schema_rejects(&document, "/api/v1/subscriptions", "post", &invalid);
     }
@@ -874,12 +879,22 @@ async fn subscription_openapi_matches_real_router_responses() {
         &create_unauthorized,
     );
 
+    let overlong_url = format!("https://invalid.example/{}", "a".repeat(4_096));
     for (scenario, body) in [
         (
             "create_unknown_field",
             json!({ "url": "https://invalid.example/rss.xml", "providerDetails": true }),
         ),
         ("create_wrong_type", json!({ "url": 7 })),
+        (
+            "create_http_url",
+            json!({ "url": "http://invalid.example/rss.xml" }),
+        ),
+        (
+            "create_credential_url",
+            json!({ "url": "https://user:password@invalid.example/rss.xml" }),
+        ),
+        ("create_overlong_url", json!({ "url": overlong_url })),
     ] {
         assert_request_schema_rejects(&document, "/api/v1/subscriptions", "post", &body);
         let invalid_create = fixture
@@ -1317,7 +1332,12 @@ fn frozen_schema_manifest() -> Value {
             "additionalProperties": false,
             "required": ["url"],
             "properties": {
-                "url": { "type": "string", "format": "uri" }
+                "url": {
+                    "type": "string",
+                    "format": "uri",
+                    "pattern": HTTPS_FEED_URL_PATTERN,
+                    "maxLength": 4096
+                }
             }
         },
         "RefreshSubscriptionRequest": {
@@ -1365,7 +1385,7 @@ fn frozen_schema_manifest() -> Value {
                 "feedId": { "type": "string", "format": "uuid" },
                 "title": { "type": "string" },
                 "siteUrl": { "type": ["string", "null"], "format": "uri" },
-                "unreadCount": { "type": "integer" },
+                "unreadCount": { "type": "integer", "minimum": 0 },
                 "refresh": {
                     "anyOf": [
                         { "$ref": "#/components/schemas/Refresh" },
@@ -1396,10 +1416,10 @@ fn frozen_schema_manifest() -> Value {
                     "type": "string",
                     "enum": ["PENDING", "READY", "DEGRADED", "BACKING_OFF", "ERROR"]
                 },
-                "newCount": { "type": "integer" },
-                "updatedCount": { "type": "integer" },
-                "droppedCount": { "type": "integer" },
-                "generation": { "type": ["integer", "null"] },
+                "newCount": { "type": "integer", "minimum": 0 },
+                "updatedCount": { "type": "integer", "minimum": 0 },
+                "droppedCount": { "type": "integer", "minimum": 0 },
+                "generation": { "type": ["integer", "null"], "minimum": 0 },
                 "errorCode": {
                     "type": ["string", "null"],
                     "enum": ["REFRESH_FAILED", "UPSTREAM_RATE_LIMITED", null]
@@ -1795,6 +1815,10 @@ fn project_schema_shape(schema: &Value) -> Value {
         "enum",
         "format",
         "pattern",
+        "minimum",
+        "maximum",
+        "maxLength",
+        "default",
     ] {
         let Some(value) = object.get(key) else {
             continue;
@@ -2337,6 +2361,11 @@ fn validate_pattern(pattern: &str, value: &str, path: &str) -> Result<(), String
         LOCATION_PATTERN => value
             .strip_prefix("/api/v1/subscriptions/")
             .is_some_and(|id| Uuid::parse_str(id).is_ok_and(|parsed| parsed.to_string() == id)),
+        HTTPS_FEED_URL_PATTERN => value.strip_prefix("https://").is_some_and(|remainder| {
+            let authority_end = remainder.find(['/', '?', '#']).unwrap_or(remainder.len());
+            let authority = &remainder[..authority_end];
+            !authority.is_empty() && !authority.contains('@')
+        }),
         other => return Err(format!("{path} uses unsupported pattern {other}")),
     };
     if valid {

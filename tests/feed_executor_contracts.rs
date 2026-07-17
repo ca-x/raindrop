@@ -120,7 +120,7 @@ impl JitterSource for ZeroJitter {
 }
 
 #[tokio::test]
-async fn command_service_never_calls_transport() {
+async fn command_service_constructor_has_no_executor_or_transport_dependency() {
     let data = tempfile::tempdir().expect("temporary directory should be created");
     let database_url = format!(
         "sqlite://{}?mode=rwc",
@@ -130,31 +130,26 @@ async fn command_service_never_calls_transport() {
     migrate(&database).await.expect("migrations should apply");
     insert_user(&database, USER_A_ID, "command-reader").await;
 
-    let repository = raindrop::feeds::FeedRepository::new(database);
-    let command = FeedCommandService::new(repository, FeedUrlPolicy::new(false));
-    let transport = BlockedTransport::new();
+    let repository = raindrop::feeds::FeedRepository::new(database.clone());
+    let command = FeedCommandService::new(repository);
 
-    let outcome = tokio::time::timeout(
-        Duration::from_secs(1),
-        command.subscribe(
+    let outcome = command
+        .subscribe(
             USER_A_ID,
             SubscribeInput {
                 url: FEED_URL.to_owned(),
             },
-        ),
-    )
-    .await
-    .expect("queue-only subscribe must return without waiting on transport")
-    .expect("queue-only subscribe should succeed");
+        )
+        .await
+        .expect("queue-only subscribe should succeed");
 
     assert!(outcome.created);
-    assert_eq!(transport.calls.load(Ordering::SeqCst), 0);
-    assert!(
-        tokio::time::timeout(Duration::from_millis(20), transport.entered.notified())
-            .await
-            .is_err(),
-        "queue-only subscribe must not enter the transport"
-    );
+    let run = raindrop::db::entities::feed_refresh_run::Entity::find()
+        .one(&database)
+        .await
+        .expect("queued command should remain queryable")
+        .expect("new subscription should persist one refresh run");
+    assert_eq!(run.status, RefreshStatus::Queued.as_str());
 }
 
 #[tokio::test]
@@ -170,7 +165,7 @@ async fn executor_success_persists_and_returns_refresh() {
 
     let repository = raindrop::feeds::FeedRepository::new(database.clone());
     let policy = FeedUrlPolicy::new(false);
-    let command = FeedCommandService::new(repository.clone(), policy);
+    let command = FeedCommandService::new(repository.clone());
     let transport = StaticTransport {
         calls: Arc::new(AtomicUsize::new(0)),
         body: Arc::new(one_item_feed()),
@@ -247,7 +242,7 @@ async fn executor_not_modified_never_parses_body() {
 
     let repository = raindrop::feeds::FeedRepository::new(database.clone());
     let policy = FeedUrlPolicy::new(false);
-    let command = FeedCommandService::new(repository.clone(), policy);
+    let command = FeedCommandService::new(repository.clone());
     command
         .subscribe(
             USER_A_ID,
@@ -334,7 +329,7 @@ async fn executor_rejects_claim_feed_mismatch_without_network() {
 
     let repository = raindrop::feeds::FeedRepository::new(database);
     let policy = FeedUrlPolicy::new(false);
-    let command = FeedCommandService::new(repository.clone(), policy);
+    let command = FeedCommandService::new(repository.clone());
     command
         .subscribe(
             USER_A_ID,
@@ -406,8 +401,7 @@ async fn command_subscribe_and_manual_refresh_only_queue() {
     insert_subscription(&database, SUBSCRIPTION_A_ID, USER_A_ID, fixture_at).await;
 
     let repository = raindrop::feeds::FeedRepository::new(database);
-    let command = FeedCommandService::new(repository, FeedUrlPolicy::new(false));
-    let transport = BlockedTransport::new();
+    let command = FeedCommandService::new(repository);
 
     let subscribed = command
         .subscribe(
@@ -438,7 +432,6 @@ async fn command_subscribe_and_manual_refresh_only_queue() {
         RefreshStatus::Queued
     );
     assert_eq!(manual.status, RefreshStatus::Queued);
-    assert_eq!(transport.calls.load(Ordering::SeqCst), 0);
 }
 
 fn one_item_feed() -> Vec<u8> {
@@ -468,7 +461,7 @@ where
     insert_user(&database, USER_A_ID, &format!("{name}-failure-reader")).await;
     let repository = raindrop::feeds::FeedRepository::new(database);
     let policy = FeedUrlPolicy::new(false);
-    let command = FeedCommandService::new(repository.clone(), policy);
+    let command = FeedCommandService::new(repository.clone());
     command
         .subscribe(
             USER_A_ID,

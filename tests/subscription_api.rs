@@ -622,11 +622,13 @@ async fn subscription_requests_reject_invalid_query_path_body_and_url() {
         );
     }
 
+    let overlong_url = format!("https://feed.example/{}", "a".repeat(4_096));
     for url in [
-        "",
-        "not-a-url",
-        "http://feed.example/rss.xml",
-        "https://user:password@feed.example/rss.xml",
+        String::new(),
+        "not-a-url".to_owned(),
+        "http://feed.example/rss.xml".to_owned(),
+        "https://user:password@feed.example/rss.xml".to_owned(),
+        overlong_url,
     ] {
         let response = fixture
             .post_with_csrf("/api/v1/subscriptions", json!({ "url": url }), UserKind::A)

@@ -37,7 +37,7 @@ async fn ithome_feed_securely_ingests_and_deduplicates() {
     let policy = FeedUrlPolicy::new(false);
     let (transport, execution_counter) =
         HttpFeedTransport::new_observed(policy, 2).expect("production transport should build");
-    let command = FeedCommandService::new(repository.clone(), policy);
+    let command = FeedCommandService::new(repository.clone());
     let executor = FeedExecutor::new(repository.clone(), policy, transport);
     let subscription = command
         .subscribe(

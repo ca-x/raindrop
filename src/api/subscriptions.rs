@@ -239,7 +239,7 @@ fn command_service(state: &AppState) -> Result<FeedCommandService, ApiError> {
         .setup
         .database()
         .map(FeedRepository::new)
-        .map(|repository| FeedCommandService::new(repository, FeedUrlPolicy::new(false)))
+        .map(FeedCommandService::new)
         .map_err(|_| ApiError::internal())
 }
 
@@ -384,6 +384,7 @@ fn map_feed_service_error(error: FeedServiceError) -> ApiError {
         FeedServiceError::EntryRepository(error) => map_repository_error(error),
         FeedServiceError::RunMismatch => conflict_error(),
         FeedServiceError::CorruptFeed
+        | FeedServiceError::RuntimeSupervision
         | FeedServiceError::ExecutorInitialization(_)
         | FeedServiceError::Schedule(_) => ApiError::internal(),
     }

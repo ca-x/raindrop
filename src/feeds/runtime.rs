@@ -50,6 +50,8 @@ pub struct FeedRuntime<T: FeedTransport> {
     shutdown_rx: watch::Receiver<bool>,
     #[cfg(debug_assertions)]
     terminal_ready_hook: Option<Arc<TerminalReadyHook>>,
+    #[cfg(debug_assertions)]
+    lane_future_factory: Option<Arc<LaneFutureFactory>>,
 }
 
 #[cfg(debug_assertions)]
@@ -58,6 +60,13 @@ struct TerminalReadyHook {
     release: Arc<Notify>,
     heartbeat_attempts: Arc<std::sync::atomic::AtomicUsize>,
 }
+
+#[cfg(debug_assertions)]
+type LaneFuture =
+    std::pin::Pin<Box<dyn Future<Output = Result<(), FeedServiceError>> + Send + 'static>>;
+
+#[cfg(debug_assertions)]
+type LaneFutureFactory = dyn Fn(usize) -> LaneFuture + Send + Sync;
 
 impl<T> FeedRuntime<T>
 where
@@ -80,6 +89,8 @@ where
                 shutdown_rx,
                 #[cfg(debug_assertions)]
                 terminal_ready_hook: None,
+                #[cfg(debug_assertions)]
+                lane_future_factory: None,
             },
             FeedRuntimeHandle {
                 notify,
@@ -105,6 +116,17 @@ where
         self
     }
 
+    #[cfg(debug_assertions)]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn with_lane_future_factory<F>(mut self, factory: F) -> Self
+    where
+        F: Fn(usize) -> LaneFuture + Send + Sync + 'static,
+    {
+        self.lane_future_factory = Some(Arc::new(factory));
+        self
+    }
+
     pub async fn run(mut self) -> Result<(), FeedServiceError> {
         let database = loop {
             if *self.shutdown_rx.borrow() {
@@ -127,14 +149,22 @@ where
         };
         let repository = FeedRepository::new(database.clone());
         let executor = (self.executor_factory)(database)?;
-        self.run_lanes(repository, executor).await;
-        Ok(())
+        self.run_lanes(repository, executor).await
     }
 
-    async fn run_lanes(&mut self, repository: FeedRepository, executor: Arc<FeedExecutor<T>>) {
+    async fn run_lanes(
+        &mut self,
+        repository: FeedRepository,
+        executor: Arc<FeedExecutor<T>>,
+    ) -> Result<(), FeedServiceError> {
         let runtime_id = Uuid::new_v4();
         let mut lanes = JoinSet::new();
         for lane_index in 0..LANE_COUNT {
+            #[cfg(debug_assertions)]
+            if let Some(factory) = self.lane_future_factory.as_ref() {
+                lanes.spawn(factory(lane_index));
+                continue;
+            }
             lanes.spawn(run_lane(
                 lane_index,
                 format!("feed-runtime-{runtime_id}-lane-{lane_index}"),
@@ -149,7 +179,8 @@ where
 
         loop {
             if lanes.is_empty() {
-                return;
+                abort_and_drain(&mut lanes).await;
+                return Err(FeedServiceError::RuntimeSupervision);
             }
             tokio::select! {
                 changed = self.shutdown_rx.changed() => {
@@ -158,9 +189,29 @@ where
                     }
                 }
                 result = lanes.join_next() => {
-                    if let Some(Err(error)) = result {
-                        tracing::error!(?error, "feed runtime lane terminated unexpectedly");
+                    if *self.shutdown_rx.borrow() {
+                        break;
                     }
+                    match result {
+                        Some(Ok(Ok(()))) => {
+                            tracing::error!("feed runtime lane returned unexpectedly");
+                        }
+                        Some(Ok(Err(error))) => {
+                            tracing::error!(?error, "feed runtime lane failed unexpectedly");
+                        }
+                        Some(Err(error)) => {
+                            tracing::error!(
+                                cancelled = error.is_cancelled(),
+                                panicked = error.is_panic(),
+                                "feed runtime lane task failed unexpectedly"
+                            );
+                        }
+                        None => {
+                            tracing::error!("all feed runtime lanes disappeared unexpectedly");
+                        }
+                    }
+                    abort_and_drain(&mut lanes).await;
+                    return Err(FeedServiceError::RuntimeSupervision);
                 }
             }
         }
@@ -178,7 +229,13 @@ where
             lanes.abort_all();
             while lanes.join_next().await.is_some() {}
         }
+        Ok(())
     }
+}
+
+async fn abort_and_drain<T: 'static>(tasks: &mut JoinSet<T>) {
+    tasks.abort_all();
+    while tasks.join_next().await.is_some() {}
 }
 
 async fn run_lane<T>(
@@ -189,14 +246,15 @@ async fn run_lane<T>(
     notify: Arc<Notify>,
     mut shutdown_rx: watch::Receiver<bool>,
     #[cfg(debug_assertions)] terminal_ready_hook: Option<Arc<TerminalReadyHook>>,
-) where
+) -> Result<(), FeedServiceError>
+where
     T: FeedTransport + 'static,
 {
     let scheduler_lane = lane_index == 0;
     let mut next_schedule_scan = Instant::now();
     loop {
         if *shutdown_rx.borrow() {
-            return;
+            return Ok(());
         }
 
         match repository.recover_expired_runs(MAINTENANCE_LIMIT).await {
@@ -218,7 +276,7 @@ async fn run_lane<T>(
         }
 
         if *shutdown_rx.borrow() {
-            return;
+            return Ok(());
         }
         match repository
             .claim_due(ClaimRequest {
@@ -274,7 +332,7 @@ async fn execute_with_heartbeat<T>(
                 Ok(result) => result,
                 Err(error) => {
                     tracing::error!(?error, "feed runtime observed attempt task failure");
-                    Err(FeedServiceError::CorruptFeed)
+                    Err(FeedServiceError::RuntimeSupervision)
                 }
             }
         };

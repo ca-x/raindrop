@@ -2,6 +2,8 @@
 mod support;
 
 use std::{
+    future,
+    pin::Pin,
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -75,6 +77,13 @@ impl Drop for CancellationGuard {
 
 struct ZeroJitter;
 
+#[derive(Clone, Copy, Debug)]
+enum InjectedLaneExit {
+    Ok,
+    Err,
+    Panic,
+}
+
 impl JitterSource for ZeroJitter {
     fn sample_inclusive_us(&mut self, _upper_bound_us: u64) -> u64 {
         0
@@ -129,6 +138,64 @@ impl FeedTransport for CancellationTransport {
         std::future::pending::<()>().await;
         unreachable!("cancellation transport only exits when its future is dropped")
     }
+}
+
+#[tokio::test]
+async fn scheduler_and_worker_lane_early_completion_is_supervised() {
+    for lane_index in [0, 1] {
+        for exit in [
+            InjectedLaneExit::Ok,
+            InjectedLaneExit::Err,
+            InjectedLaneExit::Panic,
+        ] {
+            assert_unexpected_lane_exit_is_supervised(lane_index, exit).await;
+        }
+    }
+}
+
+async fn assert_unexpected_lane_exit_is_supervised(
+    failing_lane_index: usize,
+    exit: InjectedLaneExit,
+) {
+    let (data, database) =
+        ready_runtime_database(&format!("lane-supervision-{failing_lane_index}-{exit:?}")).await;
+    let setup = SetupService::ready(data.path(), None, database.clone());
+    let (runtime, _handle) = FeedRuntime::new(setup, move |database| {
+        Ok(Arc::new(FeedExecutor::with_jitter(
+            FeedRepository::new(database),
+            FeedUrlPolicy::new(false),
+            NeverTransport,
+            ZeroJitter,
+        )))
+    });
+    let runtime = runtime.with_lane_future_factory(move |lane_index| {
+        let future: Pin<
+            Box<dyn Future<Output = Result<(), raindrop::feeds::FeedServiceError>> + Send>,
+        > = if lane_index == failing_lane_index {
+            Box::pin(async move {
+                match exit {
+                    InjectedLaneExit::Ok => Ok(()),
+                    InjectedLaneExit::Err => Err(raindrop::feeds::FeedServiceError::InvalidUserId),
+                    InjectedLaneExit::Panic => panic!("injected lane panic"),
+                }
+            })
+        } else {
+            Box::pin(future::pending())
+        };
+        future
+    });
+
+    let error = tokio::time::timeout(Duration::from_secs(1), runtime.run())
+        .await
+        .expect("unexpected lane completion should stop the runtime")
+        .expect_err("unexpected lane completion should fail the runtime");
+
+    assert!(matches!(
+        error,
+        raindrop::feeds::FeedServiceError::RuntimeSupervision
+    ));
+    assert_eq!(error.to_string(), "feed runtime supervision failed");
+    assert_eq!(format!("{error:?}"), "FeedServiceError::RuntimeSupervision");
 }
 
 #[tokio::test]
@@ -276,10 +343,7 @@ async fn no_receiver_notify_does_not_change_committed_command_outcome() {
     });
     drop(runtime);
     let state = AppState::with_feed_runtime(setup, handle);
-    let command = FeedCommandService::new(
-        FeedRepository::new(database.clone()),
-        FeedUrlPolicy::new(false),
-    );
+    let command = FeedCommandService::new(FeedRepository::new(database.clone()));
 
     let committed = state
         .commit_and_notify_feed_runtime(command.queue_subscription_refresh(

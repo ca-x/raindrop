@@ -111,7 +111,7 @@ async fn two_users_securely_ingest_share_query_and_deduplicate_sixty_entries() {
     let repository = FeedRepository::new(database.clone());
     let transport = ControlledTransport::new(synthetic_feed(60));
     let policy = FeedUrlPolicy::new(false);
-    let command = Arc::new(FeedCommandService::new(repository.clone(), policy));
+    let command = Arc::new(FeedCommandService::new(repository.clone()));
     let executor = Arc::new(FeedExecutor::with_jitter(
         repository.clone(),
         policy,
