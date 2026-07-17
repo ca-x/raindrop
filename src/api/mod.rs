@@ -3,6 +3,7 @@ mod error;
 mod json;
 mod rate_limit;
 mod routes;
+mod subscriptions;
 
 pub use error::{ApiError, ApiErrorBody, ApiErrorEnvelope};
 pub use json::ApiJson;

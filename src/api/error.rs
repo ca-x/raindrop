@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use axum::{
     Json,
-    http::StatusCode,
+    http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header::RETRY_AFTER},
     response::{IntoResponse, Response},
 };
 use serde::Serialize;
@@ -27,6 +27,7 @@ pub struct ApiErrorBody {
 pub struct ApiError {
     status: StatusCode,
     body: ApiErrorBody,
+    headers: Option<Box<HeaderMap>>,
 }
 
 impl ApiError {
@@ -40,6 +41,7 @@ impl ApiError {
                 fields: None,
                 request_id: Uuid::new_v4().to_string(),
             },
+            headers: None,
         }
     }
 
@@ -49,6 +51,14 @@ impl ApiError {
             .fields
             .get_or_insert_with(BTreeMap::new)
             .insert(field.into(), message.into());
+        self
+    }
+
+    #[must_use]
+    pub fn with_header(mut self, name: HeaderName, value: HeaderValue) -> Self {
+        self.headers
+            .get_or_insert_with(|| Box::new(HeaderMap::new()))
+            .insert(name, value);
         self
     }
 
@@ -135,6 +145,19 @@ impl ApiError {
     }
 
     #[must_use]
+    pub fn rate_limited_with_retry(retry_at: String, retry_after_seconds: u64) -> Self {
+        let retry_after = HeaderValue::from_str(&retry_after_seconds.max(1).to_string())
+            .expect("integer Retry-After values are valid HTTP headers");
+        Self::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            "RATE_LIMITED",
+            "Too many requests",
+        )
+        .with_field("retryAt", retry_at)
+        .with_header(RETRY_AFTER, retry_after)
+    }
+
+    #[must_use]
     pub fn not_found() -> Self {
         Self::new(StatusCode::NOT_FOUND, "NOT_FOUND", "Resource not found")
     }
@@ -190,6 +213,12 @@ impl ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        (self.status, Json(ApiErrorEnvelope { error: self.body })).into_response()
+        let headers = self.headers.map_or_else(HeaderMap::new, |headers| *headers);
+        (
+            self.status,
+            headers,
+            Json(ApiErrorEnvelope { error: self.body }),
+        )
+            .into_response()
     }
 }

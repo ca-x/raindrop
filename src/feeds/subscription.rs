@@ -128,7 +128,7 @@ impl FeedRepository {
             let (feed_id, feed_is_new) = match candidate {
                 Some((feed_id, stored_url)) => {
                     if stored_url != normalized.complete() {
-                        return Err(RefreshRepositoryError::CorruptData);
+                        return Err(RefreshRepositoryError::IdentityHashCollision);
                     }
                     (feed_id, false)
                 }
