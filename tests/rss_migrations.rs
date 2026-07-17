@@ -4,6 +4,7 @@ use raindrop::db::{
     entities::{entry, entry_state, feed, feed_refresh_run, rss_counter, subscription, user},
     migrate, rollback,
 };
+use raindrop::feeds::EntryContentDetail;
 use sea_orm::{
     ActiveModelTrait,
     ActiveValue::Set,
@@ -85,6 +86,7 @@ async fn rss_schema_contract(database_url: SecretString) {
     assert_generation(&database, 0).await;
     assert_expected_indexes(&database).await;
     assert_operational_timestamp_schema(&database).await;
+    assert_entry_storage_physical_schema(&database).await;
     assert_multiple_pool_connections_use_utc(&database).await;
 
     insert_user(&database, USER_A_ID, "reader-a").await;
@@ -180,6 +182,10 @@ async fn rss_schema_contract(database_url: SecretString) {
         .expect("post-2038 entry should exist");
     assert_eq!(before_epoch.published_at_us, Some(BEFORE_UNIX_EPOCH_US));
     assert_eq!(after_2038.published_at_us, Some(AFTER_2038_US));
+    assert!(EntryContentDetail::decode(&before_epoch.sanitized_content).is_ok());
+    assert!(EntryContentDetail::decode(&after_2038.sanitized_content).is_ok());
+
+    assert_entry_storage_reentry(&database).await;
 
     assert!(
         insert_entry_state(&database, USER_B_ID, 1, ROUNDTRIP_AT)
@@ -265,6 +271,7 @@ async fn rss_schema_contract(database_url: SecretString) {
     assert_refresh_run_constraints(&database).await;
     assert_counter_seed_reentry(&database).await;
 
+    assert_entry_storage_down_is_fail_closed(&database).await;
     rollback(&database)
         .await
         .unwrap_or_else(|_| panic!("RSS contract database should roll back"));
@@ -272,6 +279,167 @@ async fn rss_schema_contract(database_url: SecretString) {
         .close()
         .await
         .unwrap_or_else(|_| panic!("RSS contract database should close"));
+}
+
+async fn assert_entry_storage_reentry(database: &DatabaseConnection) {
+    let mut batch_ids = Vec::new();
+    for index in 0..33_i64 {
+        let id = format!("10000000-0000-4000-8000-{index:012}");
+        let identity = format!("legacy-batch-{index}");
+        let identity_hash = format!("{:064x}", index + 100);
+        let mut model = entry_model(
+            &id,
+            index + 100,
+            &identity,
+            &identity_hash,
+            None,
+            ROUNDTRIP_AT,
+        );
+        model.sanitized_content = Set("<p>Legacy batch content</p>".to_owned());
+        model
+            .insert(database)
+            .await
+            .expect("legacy batch fixture should insert");
+        batch_ids.push(id);
+    }
+    database
+        .execute(Statement::from_sql_and_values(
+            database.get_database_backend(),
+            match database.get_database_backend() {
+                DatabaseBackend::Postgres => {
+                    "UPDATE entries SET sanitized_content = $1 WHERE id = $2"
+                }
+                DatabaseBackend::Sqlite | DatabaseBackend::MySql => {
+                    "UPDATE entries SET sanitized_content = ? WHERE id = ?"
+                }
+            },
+            ["<p>Legacy safe content</p>".into(), ENTRY_A_ID.into()],
+        ))
+        .await
+        .expect("legacy bare HTML fixture should update");
+
+    if database.get_database_backend() == DatabaseBackend::MySql {
+        database
+            .execute(Statement::from_string(
+                DatabaseBackend::MySql,
+                "ALTER TABLE entries MODIFY COLUMN identity TEXT NOT NULL".to_owned(),
+            ))
+            .await
+            .expect("partial MySQL widening fixture should narrow one column");
+    }
+
+    delete_migration_marker(database, "entry_storage").await;
+    migrate(database)
+        .await
+        .expect("entry storage migration should recover partial work");
+
+    let entry = entry::Entity::find_by_id(ENTRY_A_ID)
+        .one(database)
+        .await
+        .expect("backfilled entry should query")
+        .expect("backfilled entry should exist");
+    let detail = EntryContentDetail::decode(&entry.sanitized_content)
+        .expect("legacy HTML should become a valid envelope");
+    assert_eq!(detail.html(), "<p>Legacy safe content</p>");
+    assert!(detail.inert_images().is_empty());
+    for id in &batch_ids {
+        let entry = entry::Entity::find_by_id(id)
+            .one(database)
+            .await
+            .expect("batch-backfilled entry should query")
+            .expect("batch-backfilled entry should exist");
+        let detail = EntryContentDetail::decode(&entry.sanitized_content)
+            .expect("each keyset batch row should become a valid envelope");
+        assert_eq!(detail.html(), "<p>Legacy batch content</p>");
+    }
+    assert_entry_storage_physical_schema(database).await;
+    for id in batch_ids {
+        entry::Entity::delete_by_id(id)
+            .exec(database)
+            .await
+            .expect("legacy batch fixture should delete");
+    }
+}
+
+async fn assert_entry_storage_down_is_fail_closed(database: &DatabaseConnection) {
+    if database.get_database_backend() == DatabaseBackend::MySql {
+        database
+            .execute(Statement::from_sql_and_values(
+                DatabaseBackend::MySql,
+                "UPDATE entries SET identity = ? WHERE id = ?",
+                ["x".repeat(65_536).into(), ENTRY_A_ID.into()],
+            ))
+            .await
+            .expect("oversized MySQL rollback fixture should update");
+        assert!(rollback(database).await.is_err());
+        database
+            .execute(Statement::from_sql_and_values(
+                DatabaseBackend::MySql,
+                "UPDATE entries SET identity = ? WHERE id = ?",
+                ["urn:Example:Entry".into(), ENTRY_A_ID.into()],
+            ))
+            .await
+            .expect("bounded MySQL rollback fixture should restore");
+    }
+    let envelope = "rdsc:v1:{\"html\":\"<img alt=\\\"A\\\">\",\"inertImages\":[{\"imageIndex\":0,\"sourceUrl\":\"https://img.example.test/a.jpg\",\"alt\":\"A\",\"width\":null,\"height\":null}]}";
+    database
+        .execute(Statement::from_sql_and_values(
+            database.get_database_backend(),
+            match database.get_database_backend() {
+                DatabaseBackend::Postgres => {
+                    "UPDATE entries SET sanitized_content = $1 WHERE id = $2"
+                }
+                DatabaseBackend::Sqlite | DatabaseBackend::MySql => {
+                    "UPDATE entries SET sanitized_content = ? WHERE id = ?"
+                }
+            },
+            [envelope.into(), ENTRY_A_ID.into()],
+        ))
+        .await
+        .expect("inert image rollback fixture should update");
+    assert!(rollback(database).await.is_err());
+
+    database
+        .execute(Statement::from_sql_and_values(
+            database.get_database_backend(),
+            match database.get_database_backend() {
+                DatabaseBackend::Postgres => {
+                    "UPDATE entries SET sanitized_content = $1 WHERE id = $2"
+                }
+                DatabaseBackend::Sqlite | DatabaseBackend::MySql => {
+                    "UPDATE entries SET sanitized_content = ? WHERE id = ?"
+                }
+            },
+            [
+                "rdsc:v1:{\"html\":\"<img alt=\\\"A\\\">\",\"inertImages\":[]}".into(),
+                ENTRY_A_ID.into(),
+            ],
+        ))
+        .await
+        .expect("rollback-safe fixture should restore");
+}
+
+async fn assert_entry_storage_physical_schema(database: &DatabaseConnection) {
+    if database.get_database_backend() != DatabaseBackend::MySql {
+        return;
+    }
+    let row = database
+        .query_one(Statement::from_string(
+            DatabaseBackend::MySql,
+            "SELECT
+                CAST(SUM(column_name = 'sanitized_content' AND data_type = 'longtext') AS SIGNED) AS long_count,
+                CAST(SUM(column_name IN ('identity','title','author','summary','enclosure_json') AND data_type = 'mediumtext') AS SIGNED) AS medium_count
+             FROM information_schema.columns
+             WHERE table_schema = DATABASE() AND table_name = 'entries'"
+                .to_owned(),
+        ))
+        .await
+        .expect("MySQL entry storage column types should query")
+        .expect("MySQL entry storage column type counts should exist");
+    let long_count: i64 = row.try_get("", "long_count").expect("LONGTEXT count");
+    let medium_count: i64 = row.try_get("", "medium_count").expect("MEDIUMTEXT count");
+    assert_eq!(long_count, 1);
+    assert_eq!(medium_count, 5);
 }
 
 async fn assert_operational_timestamp_roundtrip(database: &DatabaseConnection) {

@@ -5,12 +5,13 @@ mod policy;
 use std::{error::Error, fmt};
 
 pub(crate) use hash::{content_hash, source_content_hash};
-use images::{extract_images, validate_image_metadata};
+use images::{extract_images, extract_text, validate_image_metadata};
 use policy::sanitize_html;
 
 const MAX_FINAL_HTML_BYTES: usize = 1024 * 1024;
 const MAX_IMAGES: usize = 256;
 const MAX_IMAGE_METADATA_BYTES: usize = 256 * 1024;
+const MAX_SOURCE_URL_BYTES: usize = 4 * 1024;
 
 #[derive(Clone, Eq, PartialEq)]
 pub struct InertImage {
@@ -22,6 +23,22 @@ pub struct InertImage {
 }
 
 impl InertImage {
+    pub(crate) fn from_stored_parts(
+        image_index: u32,
+        source_url: String,
+        alt: Option<String>,
+        width: Option<u32>,
+        height: Option<u32>,
+    ) -> Self {
+        Self {
+            image_index,
+            source_url,
+            alt,
+            width,
+            height,
+        }
+    }
+
     #[must_use]
     pub const fn image_index(&self) -> u32 {
         self.image_index
@@ -193,6 +210,104 @@ pub(crate) fn resanitize_entry_html(
         });
     }
     Ok(SanitizedContent { html, images })
+}
+
+pub(crate) fn canonical_summary_text(input: &str) -> Option<String> {
+    let decoded = extract_text(input);
+    let sanitized = sanitize_html("https://stored-summary.invalid/", &decoded, false);
+    let text = extract_text(&sanitized);
+    let mut normalized = String::with_capacity(text.len());
+    let mut pending_space = false;
+    for character in text.chars() {
+        if character.is_whitespace() {
+            pending_space = true;
+        } else {
+            if pending_space && !normalized.is_empty() {
+                normalized.push(' ');
+            }
+            normalized.push(character);
+            pending_space = false;
+        }
+    }
+    (!normalized.is_empty()).then_some(normalized)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum StoredContentValidationError {
+    HtmlTooLong,
+    TooManyImages,
+    ImageAltTooLong,
+    ImageDimensionInvalid,
+    ImageMetadataTooLarge,
+    ImageIndexInvalid,
+    ImageMetadataMismatch,
+    ImageSourceInvalid,
+    NotIdempotent,
+}
+
+pub(crate) fn validate_stored_content(
+    html: &str,
+    images: &[InertImage],
+) -> Result<(), StoredContentValidationError> {
+    if html.len() > MAX_FINAL_HTML_BYTES {
+        return Err(StoredContentValidationError::HtmlTooLong);
+    }
+    validate_image_metadata(html).map_err(|error| match error {
+        SanitizeError::ImageAltTooLong { .. } => StoredContentValidationError::ImageAltTooLong,
+        SanitizeError::ImageDimensionInvalid => StoredContentValidationError::ImageDimensionInvalid,
+        _ => StoredContentValidationError::ImageMetadataMismatch,
+    })?;
+    if sanitize_html("https://stored-content.invalid/", html, false) != html {
+        return Err(StoredContentValidationError::NotIdempotent);
+    }
+
+    let final_images = extract_images(html);
+    if final_images.len() > MAX_IMAGES {
+        return Err(StoredContentValidationError::TooManyImages);
+    }
+
+    let mut previous_index = None;
+    for image in images {
+        let index = usize::try_from(image.image_index)
+            .map_err(|_| StoredContentValidationError::ImageIndexInvalid)?;
+        if previous_index.is_some_and(|previous| image.image_index <= previous) {
+            return Err(StoredContentValidationError::ImageIndexInvalid);
+        }
+        previous_index = Some(image.image_index);
+
+        let final_image = final_images
+            .get(index)
+            .ok_or(StoredContentValidationError::ImageIndexInvalid)?;
+        if final_image.alt != image.alt
+            || final_image.width != image.width
+            || final_image.height != image.height
+        {
+            return Err(StoredContentValidationError::ImageMetadataMismatch);
+        }
+        validate_source_url(&image.source_url)?;
+    }
+    if canonical_metadata_bytes(images) > MAX_IMAGE_METADATA_BYTES {
+        return Err(StoredContentValidationError::ImageMetadataTooLarge);
+    }
+    Ok(())
+}
+
+fn validate_source_url(source_url: &str) -> Result<(), StoredContentValidationError> {
+    if source_url.len() > MAX_SOURCE_URL_BYTES {
+        return Err(StoredContentValidationError::ImageSourceInvalid);
+    }
+    let url = url::Url::parse(source_url)
+        .map_err(|_| StoredContentValidationError::ImageSourceInvalid)?;
+    if !matches!(url.scheme(), "http" | "https")
+        || url.host().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.fragment().is_some()
+        || url.as_str() != source_url
+    {
+        return Err(StoredContentValidationError::ImageSourceInvalid);
+    }
+    Ok(())
 }
 
 fn canonical_metadata_bytes(images: &[InertImage]) -> usize {

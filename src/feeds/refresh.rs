@@ -157,7 +157,7 @@ pub struct RefreshFailure {
     pub retry_at: Option<OffsetDateTime>,
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(thiserror::Error)]
 pub enum RefreshRepositoryError {
     #[error("refresh repository database operation failed")]
     Database(#[source] sea_orm::DbErr),
@@ -173,6 +173,44 @@ pub enum RefreshRepositoryError {
     LeaseLost,
     #[error("refresh status transition is invalid")]
     InvalidTransition,
+    #[error("entry content storage validation failed")]
+    Content(#[source] super::EntryContentError),
+    #[error("entry content serialization failed")]
+    InvalidContent,
+    #[error("entry identity hash collision detected")]
+    IdentityHashCollision,
+    #[error("persisted validator data is corrupt")]
+    CorruptValidator,
+    #[error("database time could not be represented")]
+    InvalidTime,
+    #[error("ingest generation is exhausted")]
+    GenerationExhausted,
+    #[error("feed entry sequence is exhausted")]
+    SequenceExhausted,
+    #[error("refresh count is too large")]
+    CountOverflow,
+}
+
+impl fmt::Debug for RefreshRepositoryError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Database(_) => "RefreshRepositoryError::Database([REDACTED])",
+            Self::InvalidRequest => "RefreshRepositoryError::InvalidRequest",
+            Self::IdempotencyConflict => "RefreshRepositoryError::IdempotencyConflict",
+            Self::TokenExhausted => "RefreshRepositoryError::TokenExhausted",
+            Self::CorruptData => "RefreshRepositoryError::CorruptData",
+            Self::LeaseLost => "RefreshRepositoryError::LeaseLost",
+            Self::InvalidTransition => "RefreshRepositoryError::InvalidTransition",
+            Self::Content(_) => "RefreshRepositoryError::Content([REDACTED])",
+            Self::InvalidContent => "RefreshRepositoryError::InvalidContent",
+            Self::IdentityHashCollision => "RefreshRepositoryError::IdentityHashCollision",
+            Self::CorruptValidator => "RefreshRepositoryError::CorruptValidator",
+            Self::InvalidTime => "RefreshRepositoryError::InvalidTime",
+            Self::GenerationExhausted => "RefreshRepositoryError::GenerationExhausted",
+            Self::SequenceExhausted => "RefreshRepositoryError::SequenceExhausted",
+            Self::CountOverflow => "RefreshRepositoryError::CountOverflow",
+        })
+    }
 }
 
 impl From<sea_orm::DbErr> for RefreshRepositoryError {

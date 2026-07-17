@@ -1,4 +1,5 @@
 mod address_policy;
+mod content_storage;
 mod deadline;
 mod decode;
 mod error;
@@ -6,6 +7,7 @@ mod fetch;
 mod identity;
 mod model;
 mod parse;
+mod persistence;
 mod refresh;
 mod repository;
 mod resolver;
@@ -16,6 +18,7 @@ mod url_policy;
 mod test_support;
 
 pub use address_policy::AddressPolicy;
+pub use content_storage::{EncodedEntryContent, EntryContentDetail, EntryContentError};
 pub use error::{
     AddressPolicyError, FeedUrlError, IdentityError, RetryAfterError, ScheduleError, ValidatorError,
 };
@@ -29,6 +32,7 @@ pub use parse::{
     FeedParseError, FeedParseErrorKind, FeedParser, FetchedDocument, FetchedDocumentError,
     ParsedEnclosure, ParsedEntry, ParsedFeed, ParsedFeedVersion, ParsedSource,
 };
+pub use persistence::{PersistEntry, PersistFeed, PersistResult};
 pub use refresh::{
     ClaimRequest, QueueRefreshRequest, RefreshClaim, RefreshCounts, RefreshFailure,
     RefreshRepositoryError, RefreshRun, RefreshStatus, RefreshTrigger, UnknownRefreshValue,

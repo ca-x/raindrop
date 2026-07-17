@@ -74,6 +74,35 @@ pub(super) fn extract_images(html: &str) -> Vec<ExtractedImage> {
     tokenizer.sink.images.into_inner()
 }
 
+struct TextSink {
+    text: RefCell<String>,
+}
+
+impl TokenSink for TextSink {
+    type Handle = ();
+
+    fn process_token(&self, token: Token, _line_number: u64) -> TokenSinkResult<Self::Handle> {
+        if let Token::CharacterTokens(characters) = token {
+            self.text.borrow_mut().push_str(&characters);
+        }
+        TokenSinkResult::Continue
+    }
+}
+
+pub(super) fn extract_text(html: &str) -> String {
+    let input = BufferQueue::default();
+    input.push_back(StrTendril::from(html));
+    let tokenizer = Tokenizer::new(
+        TextSink {
+            text: RefCell::new(String::new()),
+        },
+        TokenizerOpts::default(),
+    );
+    let _ = tokenizer.feed(&input);
+    tokenizer.end();
+    tokenizer.sink.text.into_inner()
+}
+
 struct ValidationSink {
     error: RefCell<Option<SanitizeError>>,
 }

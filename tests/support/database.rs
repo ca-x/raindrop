@@ -127,7 +127,9 @@ pub fn entry_model(
         ))),
         title: Set(Some(format!("Entry {feed_sequence}"))),
         author: Set(Some("Example Author".to_owned())),
-        sanitized_content: Set("<p>Safe content</p>".to_owned()),
+        sanitized_content: Set(
+            "rdsc:v1:{\"html\":\"<p>Safe content</p>\",\"inertImages\":[]}".to_owned(),
+        ),
         summary: Set(Some("Safe summary".to_owned())),
         published_at_us: Set(published_at_us),
         sort_at_us: Set(2_147_483_648_000_001 + feed_sequence),

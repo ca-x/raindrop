@@ -39,6 +39,10 @@ impl FeedRepository {
         Self { database }
     }
 
+    pub(super) const fn connection(&self) -> &DatabaseConnection {
+        &self.database
+    }
+
     pub async fn queue_refresh(
         &self,
         request: QueueRefreshRequest,
