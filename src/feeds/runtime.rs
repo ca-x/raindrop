@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{future::Future, sync::Arc, time::Duration};
 
 use sea_orm::DatabaseConnection;
 use tokio::{
@@ -48,6 +48,15 @@ pub struct FeedRuntime<T: FeedTransport> {
     executor_factory: ExecutorFactory<T>,
     notify: Arc<Notify>,
     shutdown_rx: watch::Receiver<bool>,
+    #[cfg(debug_assertions)]
+    terminal_ready_hook: Option<Arc<TerminalReadyHook>>,
+}
+
+#[cfg(debug_assertions)]
+struct TerminalReadyHook {
+    ready: Arc<Notify>,
+    release: Arc<Notify>,
+    heartbeat_attempts: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl<T> FeedRuntime<T>
@@ -69,12 +78,31 @@ where
                 executor_factory: Arc::new(executor_factory),
                 notify: notify.clone(),
                 shutdown_rx,
+                #[cfg(debug_assertions)]
+                terminal_ready_hook: None,
             },
             FeedRuntimeHandle {
                 notify,
                 shutdown_tx,
             },
         )
+    }
+
+    #[cfg(debug_assertions)]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn with_terminal_ready_hook(
+        mut self,
+        ready: Arc<Notify>,
+        release: Arc<Notify>,
+        heartbeat_attempts: Arc<std::sync::atomic::AtomicUsize>,
+    ) -> Self {
+        self.terminal_ready_hook = Some(Arc::new(TerminalReadyHook {
+            ready,
+            release,
+            heartbeat_attempts,
+        }));
+        self
     }
 
     pub async fn run(mut self) -> Result<(), FeedServiceError> {
@@ -114,6 +142,8 @@ where
                 executor.clone(),
                 self.notify.clone(),
                 self.shutdown_rx.clone(),
+                #[cfg(debug_assertions)]
+                self.terminal_ready_hook.clone(),
             ));
         }
 
@@ -158,6 +188,7 @@ async fn run_lane<T>(
     executor: Arc<FeedExecutor<T>>,
     notify: Arc<Notify>,
     mut shutdown_rx: watch::Receiver<bool>,
+    #[cfg(debug_assertions)] terminal_ready_hook: Option<Arc<TerminalReadyHook>>,
 ) where
     T: FeedTransport + 'static,
 {
@@ -198,8 +229,15 @@ async fn run_lane<T>(
         {
             Ok(Some(claim)) => {
                 notify.notify_one();
-                execute_with_heartbeat(&repository, executor.as_ref(), claim, notify.as_ref())
-                    .await;
+                execute_with_heartbeat(
+                    &repository,
+                    executor.clone(),
+                    claim,
+                    notify.as_ref(),
+                    #[cfg(debug_assertions)]
+                    terminal_ready_hook.clone(),
+                )
+                .await;
             }
             Ok(None) => {
                 wait_until_woken(&notify, &mut shutdown_rx).await;
@@ -214,17 +252,72 @@ async fn run_lane<T>(
 
 async fn execute_with_heartbeat<T>(
     repository: &FeedRepository,
-    executor: &FeedExecutor<T>,
+    executor: Arc<FeedExecutor<T>>,
+    claim: super::RefreshClaim,
+    notify: &Notify,
+    #[cfg(debug_assertions)] terminal_ready_hook: Option<Arc<TerminalReadyHook>>,
+) where
+    T: FeedTransport + 'static,
+{
+    #[cfg(debug_assertions)]
+    if let Some(hook) = terminal_ready_hook {
+        let attempt_executor = executor.clone();
+        let attempt_claim = claim.clone();
+        let attempt_ready = hook.ready.clone();
+        let task = tokio::spawn(async move {
+            let result = attempt_executor.execute_claim(attempt_claim).await;
+            attempt_ready.notify_one();
+            result
+        });
+        let attempt = async move {
+            match task.await {
+                Ok(result) => result,
+                Err(error) => {
+                    tracing::error!(?error, "feed runtime observed attempt task failure");
+                    Err(FeedServiceError::CorruptFeed)
+                }
+            }
+        };
+        coordinate_attempt(repository, attempt, claim, notify, Some(hook), true).await;
+        return;
+    }
+
+    let attempt_claim = claim.clone();
+    let attempt = async move { executor.execute_claim(attempt_claim).await };
+    coordinate_attempt(
+        repository,
+        attempt,
+        claim,
+        notify,
+        #[cfg(debug_assertions)]
+        None,
+        #[cfg(debug_assertions)]
+        false,
+    )
+    .await;
+}
+
+async fn coordinate_attempt<A>(
+    repository: &FeedRepository,
+    attempt: A,
     mut claim: super::RefreshClaim,
     notify: &Notify,
+    #[cfg(debug_assertions)] terminal_ready_hook: Option<Arc<TerminalReadyHook>>,
+    #[cfg(debug_assertions)] mut gate_first_select: bool,
 ) where
-    T: FeedTransport,
+    A: Future<Output = Result<super::RefreshDto, FeedServiceError>>,
 {
-    let attempt = executor.execute_claim(claim.clone());
     tokio::pin!(attempt);
     loop {
         let heartbeat = tokio::time::sleep(HEARTBEAT_INTERVAL);
         tokio::pin!(heartbeat);
+        #[cfg(debug_assertions)]
+        if gate_first_select {
+            if let Some(hook) = terminal_ready_hook.as_ref() {
+                hook.release.notified().await;
+            }
+            gate_first_select = false;
+        }
         tokio::select! {
             biased;
             result = &mut attempt => {
@@ -245,6 +338,11 @@ async fn execute_with_heartbeat<T>(
                 return;
             }
             () = &mut heartbeat => {
+                #[cfg(debug_assertions)]
+                if let Some(hook) = terminal_ready_hook.as_ref() {
+                    hook.heartbeat_attempts
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
                 match repository.extend_lease(&claim, LEASE_DURATION).await {
                     Ok(extended) => claim = extended,
                     Err(error) => {

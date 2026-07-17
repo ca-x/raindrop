@@ -22,14 +22,17 @@ use raindrop::{
     },
     setup::SetupService,
 };
-use sea_orm::{ActiveModelTrait, ActiveValue::Set, EntityTrait};
+use sea_orm::{
+    ActiveModelTrait, ActiveValue::Set, ConnectionTrait, DatabaseBackend, EntityTrait, Statement,
+    TransactionTrait,
+};
 use secrecy::SecretString;
 use support::database::{
     FEED_ID, SUBSCRIPTION_A_ID, USER_A_ID, connect_for_contract, insert_feed, insert_subscription,
     insert_user, subscription_model,
 };
-use time::OffsetDateTime;
-use tokio::sync::Semaphore;
+use time::{OffsetDateTime, macros::datetime};
+use tokio::sync::{Notify, Semaphore};
 
 const EXPIRED_RUN_ID: &str = "00000000-0000-4000-8000-000000000601";
 const SECOND_FEED_ID: &str = "00000000-0000-4000-8000-000000000102";
@@ -350,6 +353,7 @@ async fn heartbeat_extends_lease_before_deadline() {
 #[tokio::test]
 async fn terminal_completion_stops_heartbeat_without_false_lease_lost() {
     let (data, database) = ready_runtime_database("terminal-stops-heartbeat").await;
+    install_lease_extension_audit(&database).await;
     insert_queued_run(
         &database,
         FIRST_RUNTIME_RUN_ID,
@@ -358,8 +362,11 @@ async fn terminal_completion_stops_heartbeat_without_false_lease_lost() {
     )
     .await;
     let calls = Arc::new(AtomicUsize::new(0));
-    let observed = calls.clone();
+    let terminal_ready = Arc::new(Notify::new());
+    let terminal_release = Arc::new(Notify::new());
+    let heartbeat_attempts = Arc::new(AtomicUsize::new(0));
     let setup = SetupService::ready(data.path(), None, database.clone());
+    let observed = calls.clone();
     let (runtime, handle) = FeedRuntime::new(setup, move |database| {
         Ok(Arc::new(FeedExecutor::with_jitter(
             FeedRepository::new(database),
@@ -370,16 +377,22 @@ async fn terminal_completion_stops_heartbeat_without_false_lease_lost() {
             ZeroJitter,
         )))
     });
+    let runtime = runtime.with_terminal_ready_hook(
+        terminal_ready.clone(),
+        terminal_release.clone(),
+        heartbeat_attempts.clone(),
+    );
     let task = tokio::spawn(runtime.run());
 
-    wait_for_terminal(&database, FIRST_RUNTIME_RUN_ID, Duration::from_secs(1)).await;
+    terminal_ready.notified().await;
+    tokio::time::pause();
+    tokio::time::advance(Duration::from_secs(20)).await;
+    terminal_release.notify_one();
+    tokio::time::resume();
     handle.shutdown();
     task.await
         .expect("runtime task should join")
         .expect("terminal runtime should stop cleanly");
-    tokio::time::pause();
-    tokio::time::advance(Duration::from_secs(40)).await;
-    tokio::time::resume();
     let runs = feed_refresh_run::Entity::find()
         .all(&database)
         .await
@@ -387,6 +400,8 @@ async fn terminal_completion_stops_heartbeat_without_false_lease_lost() {
     assert_eq!(runs.len(), 1);
     assert_eq!(runs[0].status, RefreshStatus::NotModified.as_str());
     assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(heartbeat_attempts.load(Ordering::SeqCst), 0);
+    assert_eq!(lease_extension_audit_count(&database).await, 0);
 }
 
 #[tokio::test]
@@ -489,6 +504,110 @@ async fn scheduled_enqueue_skips_disabled_orphan_unsubscribed_and_active() {
 }
 
 #[tokio::test]
+async fn scheduled_enqueue_revalidates_snapshot_after_waiting_for_feed_lock() {
+    let data = tempfile::tempdir().expect("temporary directory should be created");
+    let url = format!(
+        "sqlite://{}?mode=rwc",
+        data.path().join("scheduled-snapshot-race.db").display()
+    );
+    let database = connect_for_contract(SecretString::from(url.clone())).await;
+    migrate(&database).await.expect("migrations should apply");
+    seed_due_subscribed_feed(&database).await;
+    let blocker = connect_for_contract(SecretString::from(url)).await;
+    let transaction = blocker
+        .begin()
+        .await
+        .expect("Feed blocker transaction should start");
+    transaction
+        .execute(Statement::from_sql_and_values(
+            DatabaseBackend::Sqlite,
+            "UPDATE feeds SET lease_token = lease_token WHERE id = ?",
+            [FEED_ID.into()],
+        ))
+        .await
+        .expect("Feed blocker should hold the Feed write lock");
+
+    let scanned = Arc::new(Notify::new());
+    let repository = FeedRepository::new(database.clone());
+    let observed = scanned.clone();
+    let enqueue = tokio::spawn(async move {
+        repository
+            .enqueue_due_scheduled_after_scan(100, observed)
+            .await
+    });
+    scanned.notified().await;
+    transaction
+        .execute(Statement::from_sql_and_values(
+            DatabaseBackend::Sqlite,
+            "UPDATE feeds
+             SET next_fetch_at = strftime('%Y-%m-%dT%H:%M:%f000Z', 'now', '+1 hour')
+             WHERE id = ?",
+            [FEED_ID.into()],
+        ))
+        .await
+        .expect("blocker should advance the scanned schedule version");
+    transaction
+        .commit()
+        .await
+        .expect("Feed blocker should commit the newer schedule version");
+
+    assert_eq!(
+        enqueue
+            .await
+            .expect("scheduled race task should join")
+            .expect("scheduled race should not fail"),
+        0
+    );
+    assert!(
+        feed_refresh_run::Entity::find()
+            .all(&database)
+            .await
+            .expect("scheduled race runs should query")
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn scheduled_idempotency_key_matches_frozen_frame_golden() {
+    const NEXT_FETCH_AT: OffsetDateTime = datetime!(2026-07-16 12:00:00 UTC);
+    const EXPECTED_KEY: &str = "s1:4C65jR4OytA8YRsC3qD2yjWK_vizX9HFvSYzKVJM0Qo";
+
+    let data = tempfile::tempdir().expect("temporary directory should be created");
+    let database_url = format!(
+        "sqlite://{}?mode=rwc",
+        data.path().join("scheduled-golden.db").display()
+    );
+    let database = connect_for_contract(SecretString::from(database_url)).await;
+    migrate(&database).await.expect("migrations should apply");
+    seed_due_subscribed_feed(&database).await;
+    let model = feed::Entity::find_by_id(FEED_ID)
+        .one(&database)
+        .await
+        .expect("golden Feed should query")
+        .expect("golden Feed should exist");
+    let mut active: feed::ActiveModel = model.into();
+    active.next_fetch_at = Set(NEXT_FETCH_AT);
+    active
+        .update(&database)
+        .await
+        .expect("golden schedule version should update");
+
+    assert_eq!(
+        FeedRepository::new(database.clone())
+            .enqueue_due_scheduled(100)
+            .await
+            .expect("golden schedule should enqueue"),
+        1
+    );
+    let run = feed_refresh_run::Entity::find()
+        .one(&database)
+        .await
+        .expect("golden scheduled run should query")
+        .expect("golden scheduled run should exist");
+    assert_eq!(run.idempotency_key, EXPECTED_KEY);
+}
+
+#[tokio::test]
 async fn multi_instance_recovery_and_scheduled_enqueue_are_idempotent() {
     let data = tempfile::tempdir().expect("temporary directory should be created");
     let url = format!(
@@ -563,6 +682,68 @@ async fn graceful_shutdown_stops_new_claims() {
         .await
         .expect("post-shutdown run should query")
         .expect("post-shutdown run should exist");
+    assert_eq!(queued.status, RefreshStatus::Queued.as_str());
+    assert_eq!(transport.calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn shutdown_bound_aborts_blocked_attempt_after_thirty_seconds() {
+    let (data, database) = ready_runtime_database("shutdown-bound").await;
+    seed_second_subscribed_feed(&database).await;
+    insert_queued_run(
+        &database,
+        FIRST_RUNTIME_RUN_ID,
+        FEED_ID,
+        "runtime:shutdown-bound-running",
+    )
+    .await;
+    let transport = CancellationTransport {
+        calls: Arc::new(AtomicUsize::new(0)),
+        entered: Arc::new(Semaphore::new(0)),
+        cancelled: Arc::new(Semaphore::new(0)),
+    };
+    let setup = SetupService::ready(data.path(), None, database.clone());
+    let observed = transport.clone();
+    let (runtime, handle) = FeedRuntime::new(setup, move |database| {
+        Ok(Arc::new(FeedExecutor::with_jitter(
+            FeedRepository::new(database),
+            FeedUrlPolicy::new(false),
+            observed.clone(),
+            ZeroJitter,
+        )))
+    });
+    let task = tokio::spawn(runtime.run());
+    wait_for_entries(&transport.entered, 1, Duration::from_secs(1)).await;
+    tokio::time::sleep(Duration::from_millis(25)).await;
+
+    handle.shutdown();
+    for _ in 0..8 {
+        tokio::task::yield_now().await;
+    }
+    insert_queued_run(
+        &database,
+        SECOND_RUNTIME_RUN_ID,
+        SECOND_FEED_ID,
+        "runtime:shutdown-bound-queued",
+    )
+    .await;
+    tokio::time::pause();
+    tokio::time::advance(Duration::from_secs(29)).await;
+    tokio::task::yield_now().await;
+    assert!(!task.is_finished());
+    tokio::time::advance(Duration::from_secs(1)).await;
+    tokio::task::yield_now().await;
+    tokio::time::resume();
+
+    wait_for_entries(&transport.cancelled, 1, Duration::from_secs(1)).await;
+    task.await
+        .expect("bounded runtime task should join")
+        .expect("bounded runtime should stop cleanly");
+    let queued = feed_refresh_run::Entity::find_by_id(SECOND_RUNTIME_RUN_ID)
+        .one(&database)
+        .await
+        .expect("bounded shutdown queued run should query")
+        .expect("bounded shutdown queued run should exist");
     assert_eq!(queued.status, RefreshStatus::Queued.as_str());
     assert_eq!(transport.calls.load(Ordering::SeqCst), 1);
 }
@@ -652,7 +833,106 @@ async fn expired_running_run_recovers_to_one_retry() {
     assert_eq!(retries[0].status, RefreshStatus::Queued.as_str());
 }
 
+#[tokio::test]
+async fn recovery_retry_inherits_requester_and_exact_identity() {
+    let data = tempfile::tempdir().expect("temporary directory should be created");
+    let database_url = format!(
+        "sqlite://{}?mode=rwc",
+        data.path().join("requester-recovery.db").display()
+    );
+    let database = connect_for_contract(SecretString::from(database_url)).await;
+    migrate(&database).await.expect("migrations should apply");
+    seed_expired_running_run_with_requester(&database, Some(USER_A_ID)).await;
+    let repository = FeedRepository::new(database.clone());
+
+    let queued = repository
+        .recover_expired_runs(100)
+        .await
+        .expect("requester recovery should succeed");
+
+    assert_eq!(queued.len(), 1);
+    let runs = feed_refresh_run::Entity::find()
+        .all(&database)
+        .await
+        .expect("requester recovery runs should query");
+    assert_eq!(runs.len(), 2);
+    let retry = runs
+        .iter()
+        .find(|run| run.idempotency_key == format!("r1:{EXPIRED_RUN_ID}"))
+        .expect("requester recovery should persist its exact retry key");
+    assert_eq!(retry.id, queued[0]);
+    assert_eq!(retry.feed_id, FEED_ID);
+    assert_eq!(retry.requested_by_user_id.as_deref(), Some(USER_A_ID));
+    assert_eq!(retry.trigger_kind, RefreshTrigger::Retry.as_str());
+    assert_eq!(retry.status, RefreshStatus::Queued.as_str());
+    assert_eq!(
+        runs.iter()
+            .filter(|run| run.idempotency_key == format!("r1:{EXPIRED_RUN_ID}"))
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn recovery_with_another_queued_run_terminalizes_without_retry() {
+    let data = tempfile::tempdir().expect("temporary directory should be created");
+    let database_url = format!(
+        "sqlite://{}?mode=rwc",
+        data.path().join("queued-suppresses-recovery.db").display()
+    );
+    let database = connect_for_contract(SecretString::from(database_url)).await;
+    migrate(&database).await.expect("migrations should apply");
+    seed_expired_running_run_with_requester(&database, Some(USER_A_ID)).await;
+    insert_queued_run(
+        &database,
+        SECOND_RUNTIME_RUN_ID,
+        FEED_ID,
+        "runtime:already-queued",
+    )
+    .await;
+    let repository = FeedRepository::new(database.clone());
+
+    assert!(
+        repository
+            .recover_expired_runs(100)
+            .await
+            .expect("queued suppression recovery should succeed")
+            .is_empty()
+    );
+    assert_recovery_suppressed(&database, SECOND_RUNTIME_RUN_ID, RefreshStatus::Queued).await;
+}
+
+#[tokio::test]
+async fn recovery_with_newer_running_run_terminalizes_without_retry() {
+    let data = tempfile::tempdir().expect("temporary directory should be created");
+    let database_url = format!(
+        "sqlite://{}?mode=rwc",
+        data.path().join("running-suppresses-recovery.db").display()
+    );
+    let database = connect_for_contract(SecretString::from(database_url)).await;
+    migrate(&database).await.expect("migrations should apply");
+    seed_expired_running_run_with_requester(&database, Some(USER_A_ID)).await;
+    install_newer_running_run(&database).await;
+    let repository = FeedRepository::new(database.clone());
+
+    assert!(
+        repository
+            .recover_expired_runs(100)
+            .await
+            .expect("running suppression recovery should succeed")
+            .is_empty()
+    );
+    assert_recovery_suppressed(&database, SECOND_RUNTIME_RUN_ID, RefreshStatus::Running).await;
+}
+
 async fn seed_expired_running_run(database: &sea_orm::DatabaseConnection) {
+    seed_expired_running_run_with_requester(database, None).await;
+}
+
+async fn seed_expired_running_run_with_requester(
+    database: &sea_orm::DatabaseConnection,
+    requested_by_user_id: Option<&str>,
+) {
     let now = OffsetDateTime::now_utc();
     insert_user(database, USER_A_ID, "runtime-reader").await;
     insert_feed(database, now - time::Duration::hours(1)).await;
@@ -676,7 +956,7 @@ async fn seed_expired_running_run(database: &sea_orm::DatabaseConnection) {
     feed_refresh_run::ActiveModel {
         id: Set(EXPIRED_RUN_ID.to_owned()),
         feed_id: Set(FEED_ID.to_owned()),
-        requested_by_user_id: Set(None),
+        requested_by_user_id: Set(requested_by_user_id.map(str::to_owned)),
         trigger_kind: Set(RefreshTrigger::Scheduled.as_str().to_owned()),
         status: Set(RefreshStatus::Running.as_str().to_owned()),
         idempotency_key: Set("s1:expired-fixture".to_owned()),
@@ -697,6 +977,77 @@ async fn seed_expired_running_run(database: &sea_orm::DatabaseConnection) {
     .insert(database)
     .await
     .expect("expired running run should insert");
+}
+
+async fn install_newer_running_run(database: &sea_orm::DatabaseConnection) {
+    let now = OffsetDateTime::now_utc();
+    let model = feed::Entity::find_by_id(FEED_ID)
+        .one(database)
+        .await
+        .expect("feed should query")
+        .expect("feed should exist");
+    let mut active: feed::ActiveModel = model.into();
+    active.lease_owner = Set(Some("newer-worker".to_owned()));
+    active.lease_token = Set(3);
+    active.lease_until = Set(Some(now + time::Duration::minutes(1)));
+    active
+        .update(database)
+        .await
+        .expect("newer feed lease should update");
+
+    feed_refresh_run::ActiveModel {
+        id: Set(SECOND_RUNTIME_RUN_ID.to_owned()),
+        feed_id: Set(FEED_ID.to_owned()),
+        requested_by_user_id: Set(Some(USER_A_ID.to_owned())),
+        trigger_kind: Set(RefreshTrigger::Retry.as_str().to_owned()),
+        status: Set(RefreshStatus::Running.as_str().to_owned()),
+        idempotency_key: Set("runtime:newer-running".to_owned()),
+        lease_token: Set(Some(3)),
+        commit_generation: Set(None),
+        queued_at: Set(now - time::Duration::seconds(2)),
+        started_at: Set(Some(now - time::Duration::seconds(1))),
+        fetched_at: Set(None),
+        persisted_at: Set(None),
+        completed_at: Set(None),
+        http_status: Set(None),
+        new_count: Set(0),
+        updated_count: Set(0),
+        dropped_count: Set(0),
+        error_code: Set(None),
+        retry_at: Set(None),
+    }
+    .insert(database)
+    .await
+    .expect("newer running run should insert");
+}
+
+async fn assert_recovery_suppressed(
+    database: &sea_orm::DatabaseConnection,
+    active_run_id: &str,
+    active_status: RefreshStatus,
+) {
+    let runs = feed_refresh_run::Entity::find()
+        .all(database)
+        .await
+        .expect("suppressed recovery runs should query");
+    assert_eq!(runs.len(), 2);
+    let old = runs
+        .iter()
+        .find(|run| run.id == EXPIRED_RUN_ID)
+        .expect("expired old run should remain persisted");
+    assert_eq!(old.status, RefreshStatus::LeaseLost.as_str());
+    assert!(old.completed_at.is_some());
+    let active = runs
+        .iter()
+        .find(|run| run.id == active_run_id)
+        .expect("other active run should remain persisted");
+    assert_eq!(active.status, active_status.as_str());
+    assert_eq!(
+        runs.iter()
+            .filter(|run| run.idempotency_key == format!("r1:{EXPIRED_RUN_ID}"))
+            .count(),
+        0
+    );
 }
 
 async fn seed_due_subscribed_feed(database: &sea_orm::DatabaseConnection) {
@@ -798,6 +1149,42 @@ async fn set_feed_schedule_state(
         .update(database)
         .await
         .expect("scheduled feed state should update");
+}
+
+async fn install_lease_extension_audit(database: &sea_orm::DatabaseConnection) {
+    database
+        .execute(Statement::from_string(
+            DatabaseBackend::Sqlite,
+            "CREATE TABLE lease_extension_audit (observed INTEGER NOT NULL)".to_owned(),
+        ))
+        .await
+        .expect("lease extension audit table should create");
+    database
+        .execute(Statement::from_string(
+            DatabaseBackend::Sqlite,
+            "CREATE TRIGGER observe_lease_extension
+             AFTER UPDATE OF lease_until ON feeds
+             WHEN OLD.lease_until IS NOT NULL AND NEW.lease_until IS NOT NULL
+             BEGIN
+                 INSERT INTO lease_extension_audit (observed) VALUES (1);
+             END"
+            .to_owned(),
+        ))
+        .await
+        .expect("lease extension audit trigger should create");
+}
+
+async fn lease_extension_audit_count(database: &sea_orm::DatabaseConnection) -> i64 {
+    database
+        .query_one(Statement::from_string(
+            DatabaseBackend::Sqlite,
+            "SELECT COUNT(*) AS audit_count FROM lease_extension_audit".to_owned(),
+        ))
+        .await
+        .expect("lease extension audit should query")
+        .expect("lease extension audit count should exist")
+        .try_get("", "audit_count")
+        .expect("lease extension audit count should decode")
 }
 
 async fn maintenance_idempotency_contract(url: String) {

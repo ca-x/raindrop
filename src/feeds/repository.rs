@@ -413,12 +413,35 @@ impl FeedRepository {
     }
 
     pub async fn enqueue_due_scheduled(&self, limit: u16) -> Result<usize, RefreshRepositoryError> {
+        self.enqueue_due_scheduled_inner(limit, || {}).await
+    }
+
+    #[cfg(debug_assertions)]
+    #[doc(hidden)]
+    pub async fn enqueue_due_scheduled_after_scan(
+        &self,
+        limit: u16,
+        scanned: std::sync::Arc<tokio::sync::Notify>,
+    ) -> Result<usize, RefreshRepositoryError> {
+        self.enqueue_due_scheduled_inner(limit, move || scanned.notify_one())
+            .await
+    }
+
+    async fn enqueue_due_scheduled_inner<F>(
+        &self,
+        limit: u16,
+        after_scan: F,
+    ) -> Result<usize, RefreshRepositoryError>
+    where
+        F: FnOnce(),
+    {
         if limit == 0 {
             return Err(RefreshRepositoryError::InvalidRequest);
         }
         let backend = self.database.get_database_backend();
         let candidates =
             find_due_scheduled_candidates(&self.database, backend, limit.min(100)).await?;
+        after_scan();
         let mut queued = 0;
         for candidate in candidates {
             let transaction = self.database.begin().await?;
