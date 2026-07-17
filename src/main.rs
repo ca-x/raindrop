@@ -1,4 +1,8 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    future::{Future, IntoFuture},
+    path::PathBuf,
+    sync::Arc,
+};
 
 use anyhow::{Context, Result};
 use raindrop::{
@@ -13,7 +17,7 @@ use raindrop::{
     setup::SetupService,
 };
 use secrecy::ExposeSecret;
-use tokio::net::TcpListener;
+use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
@@ -106,8 +110,8 @@ async fn main() -> Result<()> {
     let feed_runtime_task = tokio::spawn(feed_runtime.run());
 
     info!(%address, version = env!("CARGO_PKG_VERSION"), "Raindrop listening");
-    let runtime_shutdown = feed_runtime_handle.clone();
-    let server_result = axum::serve(
+    let (server_shutdown_tx, server_shutdown_rx) = oneshot::channel();
+    let server = axum::serve(
         listener,
         build_router(AppState::with_feed_runtime(
             setup,
@@ -116,18 +120,17 @@ async fn main() -> Result<()> {
         .into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
     .with_graceful_shutdown(async move {
-        shutdown_signal().await;
-        runtime_shutdown.shutdown();
-    })
-    .await;
-    feed_runtime_handle.shutdown();
-    let runtime_result = feed_runtime_task
-        .await
-        .context("Raindrop feed runtime task failed")?;
-    server_result.context("Raindrop HTTP server failed")?;
-    runtime_result.context("Raindrop feed runtime failed")?;
-
-    Ok(())
+        let _ = server_shutdown_rx.await;
+    });
+    let runtime_shutdown = feed_runtime_handle.clone();
+    coordinate_server_and_feed_runtime(
+        shutdown_signal(),
+        move || runtime_shutdown.shutdown(),
+        feed_runtime_task,
+        server_shutdown_tx,
+        server,
+    )
+    .await
 }
 
 fn production_feed_runtime(
@@ -143,6 +146,38 @@ fn production_feed_runtime(
             transport,
         )))
     })
+}
+
+async fn coordinate_server_and_feed_runtime<Signal, Shutdown, Server>(
+    signal: Signal,
+    mut request_runtime_shutdown: Shutdown,
+    runtime_task: JoinHandle<Result<(), FeedServiceError>>,
+    server_shutdown_tx: oneshot::Sender<()>,
+    server: Server,
+) -> Result<()>
+where
+    Signal: Future<Output = ()>,
+    Shutdown: FnMut(),
+    Server: IntoFuture<Output = std::io::Result<()>>,
+{
+    let server = server.into_future();
+    tokio::pin!(signal);
+    tokio::pin!(server);
+    let server_result = tokio::select! {
+        result = &mut server => result,
+        () = &mut signal => {
+            request_runtime_shutdown();
+            let _ = server_shutdown_tx.send(());
+            server.await
+        }
+    };
+    request_runtime_shutdown();
+    let runtime_result = runtime_task
+        .await
+        .context("Raindrop feed runtime task failed")?;
+    server_result.context("Raindrop HTTP server failed")?;
+    runtime_result.context("Raindrop feed runtime failed")?;
+    Ok(())
 }
 
 fn init_tracing() {
@@ -179,7 +214,17 @@ async fn shutdown_signal() {
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        future, io,
+        sync::{
+            Arc,
+            atomic::{AtomicBool, AtomicUsize, Ordering},
+        },
+        time::Duration,
+    };
+
     use secrecy::SecretString;
+    use tokio::sync::oneshot;
 
     use super::*;
 
@@ -194,5 +239,100 @@ mod tests {
             .run()
             .await
             .expect("pre-start production runtime should stop without constructing transport");
+    }
+
+    #[tokio::test]
+    async fn coordinator_requests_runtime_shutdown_before_server_drain() {
+        let data = tempfile::tempdir().expect("temporary directory should be created");
+        let setup = SetupService::required(data.path(), SecretString::from("setup-token"), None);
+        let (runtime, handle) = production_feed_runtime(setup);
+        let runtime_stopped = Arc::new(AtomicBool::new(false));
+        let observed_runtime_stopped = runtime_stopped.clone();
+        let runtime_task = tokio::spawn(async move {
+            let result = runtime.run().await;
+            observed_runtime_stopped.store(true, Ordering::SeqCst);
+            result
+        });
+        let shutdown_calls = Arc::new(AtomicUsize::new(0));
+        let observed_shutdown_calls = shutdown_calls.clone();
+        let shutdown_handle = handle.clone();
+        let request_runtime_shutdown = move || {
+            observed_shutdown_calls.fetch_add(1, Ordering::SeqCst);
+            shutdown_handle.shutdown();
+        };
+        let (signal_tx, signal_rx) = oneshot::channel();
+        let (server_shutdown_tx, server_shutdown_rx) = oneshot::channel();
+        signal_tx
+            .send(())
+            .expect("test shutdown signal receiver should remain open");
+        let server_shutdown_calls = shutdown_calls.clone();
+        let server_runtime_stopped = runtime_stopped.clone();
+        let server = async move {
+            server_shutdown_rx
+                .await
+                .map_err(|_| io::Error::other("server shutdown sender dropped"))?;
+            assert_eq!(server_shutdown_calls.load(Ordering::SeqCst), 1);
+            tokio::time::timeout(Duration::from_secs(1), async {
+                while !server_runtime_stopped.load(Ordering::SeqCst) {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .map_err(|_| io::Error::other("runtime did not stop before server drain"))?;
+            Ok(())
+        };
+
+        coordinate_server_and_feed_runtime(
+            async {
+                signal_rx
+                    .await
+                    .expect("test shutdown signal sender should remain open");
+            },
+            request_runtime_shutdown,
+            runtime_task,
+            server_shutdown_tx,
+            server,
+        )
+        .await
+        .expect("coordinated shutdown should succeed");
+
+        assert_eq!(shutdown_calls.load(Ordering::SeqCst), 2);
+        assert!(runtime_stopped.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn coordinator_server_error_still_shuts_down_and_joins_runtime() {
+        let data = tempfile::tempdir().expect("temporary directory should be created");
+        let setup = SetupService::required(data.path(), SecretString::from("setup-token"), None);
+        let (runtime, handle) = production_feed_runtime(setup);
+        let runtime_stopped = Arc::new(AtomicBool::new(false));
+        let observed_runtime_stopped = runtime_stopped.clone();
+        let runtime_task = tokio::spawn(async move {
+            let result = runtime.run().await;
+            observed_runtime_stopped.store(true, Ordering::SeqCst);
+            result
+        });
+        let shutdown_calls = Arc::new(AtomicUsize::new(0));
+        let observed_shutdown_calls = shutdown_calls.clone();
+        let request_runtime_shutdown = move || {
+            observed_shutdown_calls.fetch_add(1, Ordering::SeqCst);
+            handle.shutdown();
+        };
+        let (server_shutdown_tx, _server_shutdown_rx) = oneshot::channel();
+        let server = async { Err(io::Error::other("injected server failure")) };
+
+        let error = coordinate_server_and_feed_runtime(
+            future::pending(),
+            request_runtime_shutdown,
+            runtime_task,
+            server_shutdown_tx,
+            server,
+        )
+        .await
+        .expect_err("server failure should be returned after runtime cleanup");
+
+        assert_eq!(error.to_string(), "Raindrop HTTP server failed");
+        assert_eq!(shutdown_calls.load(Ordering::SeqCst), 1);
+        assert!(runtime_stopped.load(Ordering::SeqCst));
     }
 }

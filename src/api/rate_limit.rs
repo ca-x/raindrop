@@ -195,18 +195,9 @@ impl UserMutationLimiter {
             .inner
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        state.users.retain(|_, bucket| {
-            while bucket
-                .attempts
-                .front()
-                .is_some_and(|attempt| now.saturating_duration_since(*attempt) >= self.window)
-            {
-                bucket.attempts.pop_front();
-            }
-            !bucket.attempts.is_empty()
-        });
 
         if let Some(bucket) = state.users.get_mut(user_id) {
+            cleanup_user_mutation_bucket(bucket, now, self.window);
             if bucket.attempts.len() >= self.limit as usize {
                 let oldest = *bucket
                     .attempts
@@ -219,14 +210,20 @@ impl UserMutationLimiter {
             return Ok(());
         }
 
-        if state.users.len() >= self.max_keys
-            && let Some(oldest_user) = state
-                .users
-                .iter()
-                .min_by_key(|(_, bucket)| bucket.updated_at)
-                .map(|(user_id, _)| user_id.clone())
-        {
-            state.users.remove(&oldest_user);
+        if state.users.len() >= self.max_keys {
+            state.users.retain(|_, bucket| {
+                cleanup_user_mutation_bucket(bucket, now, self.window);
+                !bucket.attempts.is_empty()
+            });
+            if state.users.len() >= self.max_keys
+                && let Some(oldest_user) = state
+                    .users
+                    .iter()
+                    .min_by_key(|(_, bucket)| bucket.updated_at)
+                    .map(|(user_id, _)| user_id.clone())
+            {
+                state.users.remove(&oldest_user);
+            }
         }
         state.users.insert(
             user_id.to_owned(),
@@ -236,6 +233,16 @@ impl UserMutationLimiter {
             },
         );
         Ok(())
+    }
+}
+
+fn cleanup_user_mutation_bucket(bucket: &mut UserMutationBucket, now: Instant, window: Duration) {
+    while bucket
+        .attempts
+        .front()
+        .is_some_and(|attempt| now.saturating_duration_since(*attempt) >= window)
+    {
+        bucket.attempts.pop_front();
     }
 }
 
@@ -324,6 +331,73 @@ mod tests {
         assert!(limiter.check_at("user-b", started_at, wall_clock).is_ok());
         assert!(limiter.check_at("user-b", started_at, wall_clock).is_ok());
         assert!(limiter.check_at("user-b", started_at, wall_clock).is_err());
+    }
+
+    #[test]
+    fn user_mutation_limiter_existing_accept_does_not_clean_another_user() {
+        let limiter = UserMutationLimiter::with_limits(2, Duration::from_secs(60), 10);
+        let started_at = Instant::now();
+        let wall_clock = datetime!(2026-07-17 12:00 UTC);
+        limiter
+            .check_at("user-b", started_at, wall_clock)
+            .expect("user B should be admitted");
+        limiter
+            .check_at(
+                "user-a",
+                started_at + Duration::from_secs(30),
+                wall_clock + time::Duration::seconds(30),
+            )
+            .expect("user A should be admitted");
+
+        limiter
+            .check_at(
+                "user-a",
+                started_at + Duration::from_secs(60),
+                wall_clock + time::Duration::seconds(60),
+            )
+            .expect("existing user A should retain an independent budget");
+
+        let state = limiter
+            .inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert_eq!(state.users["user-b"].attempts, VecDeque::from([started_at]));
+        assert_eq!(state.users["user-a"].attempts.len(), 2);
+    }
+
+    #[test]
+    fn user_mutation_limiter_rejection_does_not_clean_another_user() {
+        let limiter = UserMutationLimiter::with_limits(1, Duration::from_secs(60), 10);
+        let started_at = Instant::now();
+        let wall_clock = datetime!(2026-07-17 12:00 UTC);
+        limiter
+            .check_at("user-b", started_at, wall_clock)
+            .expect("user B should be admitted");
+        limiter
+            .check_at(
+                "user-a",
+                started_at + Duration::from_secs(30),
+                wall_clock + time::Duration::seconds(30),
+            )
+            .expect("user A should be admitted");
+
+        limiter
+            .check_at(
+                "user-a",
+                started_at + Duration::from_secs(60),
+                wall_clock + time::Duration::seconds(60),
+            )
+            .expect_err("user A should be rejected at its own threshold");
+
+        let state = limiter
+            .inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert_eq!(state.users["user-b"].attempts, VecDeque::from([started_at]));
+        assert_eq!(
+            state.users["user-a"].attempts,
+            VecDeque::from([started_at + Duration::from_secs(30)])
+        );
     }
 
     #[test]

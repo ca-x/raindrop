@@ -1,6 +1,6 @@
 use axum::{Json, Router, extract::FromRef, routing::get};
 use serde::Serialize;
-use std::sync::Arc;
+use std::{future::Future, sync::Arc};
 use tokio::sync::Semaphore;
 
 use crate::{
@@ -51,6 +51,13 @@ impl AppState {
         }
     }
 
+    pub async fn commit_and_notify_feed_runtime<F, T, E>(&self, command: F) -> Result<T, E>
+    where
+        F: Future<Output = Result<T, E>>,
+    {
+        notify_after_commit(command, || self.feed_runtime.notify()).await
+    }
+
     #[must_use]
     pub fn for_test() -> Self {
         Self::new(SetupService::required(
@@ -59,6 +66,16 @@ impl AppState {
             None,
         ))
     }
+}
+
+async fn notify_after_commit<F, T, E, N>(command: F, notify: N) -> Result<T, E>
+where
+    F: Future<Output = Result<T, E>>,
+    N: FnOnce(),
+{
+    let committed = command.await?;
+    notify();
+    Ok(committed)
 }
 
 impl FromRef<AppState> for SessionService {
@@ -126,5 +143,52 @@ mod tests {
             .run()
             .await
             .expect("pre-start shutdown should stop the production runtime cleanly");
+    }
+
+    #[tokio::test]
+    async fn post_commit_notification_runs_after_successful_command() {
+        let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let command_events = events.clone();
+        let notify_events = events.clone();
+
+        let committed = notify_after_commit(
+            async move {
+                command_events
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .push("command");
+                Ok::<_, ()>("committed")
+            },
+            move || {
+                notify_events
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .push("notify");
+            },
+        )
+        .await
+        .expect("successful command should preserve its result");
+
+        assert_eq!(committed, "committed");
+        assert_eq!(
+            *events
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+            ["command", "notify"]
+        );
+    }
+
+    #[tokio::test]
+    async fn failed_command_does_not_notify_feed_runtime() {
+        let notifications = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let observed_notifications = notifications.clone();
+
+        let result = notify_after_commit(async { Err::<(), _>("command failed") }, move || {
+            observed_notifications.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        })
+        .await;
+
+        assert_eq!(result, Err("command failed"));
+        assert_eq!(notifications.load(std::sync::atomic::Ordering::SeqCst), 0);
     }
 }

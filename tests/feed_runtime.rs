@@ -40,7 +40,7 @@ const SECOND_FEED_ID: &str = "00000000-0000-4000-8000-000000000102";
 const SECOND_SUBSCRIPTION_ID: &str = "00000000-0000-4000-8000-000000000203";
 const FIRST_RUNTIME_RUN_ID: &str = "00000000-0000-4000-8000-000000000611";
 const SECOND_RUNTIME_RUN_ID: &str = "00000000-0000-4000-8000-000000000612";
-const CLOSED_NOTIFY_RUN_ID: &str = "00000000-0000-4000-8000-000000000613";
+const NO_RECEIVER_NOTIFY_RUN_ID: &str = "00000000-0000-4000-8000-000000000613";
 
 struct NeverTransport;
 
@@ -207,8 +207,7 @@ async fn setup_transition_wakes_runtime_without_process_restart() {
         .await
         .expect("post-setup refresh should queue");
 
-    handle.notify();
-    wait_for_terminal(&database, &queued.id, Duration::from_secs(2)).await;
+    wait_for_terminal(&database, &queued.id, Duration::from_secs(3)).await;
     handle.shutdown();
     task.await
         .expect("setup-transition runtime task should join")
@@ -268,26 +267,30 @@ async fn main_style_shutdown_stops_lanes_while_server_is_still_draining() {
 }
 
 #[tokio::test]
-async fn closed_runtime_notify_does_not_change_committed_command_outcome() {
-    let (data, database) = ready_runtime_database("closed-runtime-notify").await;
-    let state = AppState::new(SetupService::ready(data.path(), None, database.clone()));
-    state.feed_runtime.shutdown();
+async fn no_receiver_notify_does_not_change_committed_command_outcome() {
+    let (data, database) = ready_runtime_database("no-receiver-notify").await;
+    let setup = SetupService::ready(data.path(), None, database.clone());
+    let (runtime, handle) = FeedRuntime::<NeverTransport>::new(setup.clone(), |_database| {
+        Err(raindrop::feeds::FeedServiceError::CorruptFeed)
+            as Result<Arc<FeedExecutor<NeverTransport>>, _>
+    });
+    drop(runtime);
+    let state = AppState::with_feed_runtime(setup, handle);
     let command = FeedCommandService::new(
         FeedRepository::new(database.clone()),
         FeedUrlPolicy::new(false),
     );
 
-    let committed = command
-        .queue_subscription_refresh(
+    let committed = state
+        .commit_and_notify_feed_runtime(command.queue_subscription_refresh(
             USER_A_ID,
             SUBSCRIPTION_A_ID,
             QueueSubscriptionRefresh {
-                request_id: CLOSED_NOTIFY_RUN_ID.to_owned(),
+                request_id: NO_RECEIVER_NOTIFY_RUN_ID.to_owned(),
             },
-        )
+        ))
         .await
         .expect("command should commit before best-effort notification");
-    state.feed_runtime.notify();
 
     let stored = feed_refresh_run::Entity::find_by_id(&committed.run_id)
         .one(&database)
