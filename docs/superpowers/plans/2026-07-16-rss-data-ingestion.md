@@ -597,6 +597,7 @@ git commit -m "feat: fence feed refresh claims"
 
 **Files:**
 
+- Modify: `.github/workflows/ci.yml`
 - Create: `src/db/migration/rss/entry_storage.rs`
 - Modify: `src/db/migration/rss/mod.rs`
 - Modify: `src/db/migration.rs`
@@ -624,6 +625,7 @@ git commit -m "feat: fence feed refresh claims"
 - `PersistFeed` owns the exact final validator URL plus optional `OpaqueValidator` ETag/Last-Modified values. The same feed transaction encodes them to canonical storage text; repository readback decodes them before the next fetch. Corrupt/unknown validator storage is a typed repository error and is never forwarded as a header.
 - Keep `FeedRepository` as the public repository type, but put Task 7 entry persistence SQL and methods in `src/feeds/persistence.rs` via a separate `impl FeedRepository`. Keep the database field private and add a `pub(super)` connection accessor; do not grow the refresh-claim SQL file with entry upsert logic.
 - Backend-specific exact unique-conflict/upsert functions are private. Broad MySQL `INSERT IGNORE` is forbidden. Transaction retry reuses parsed content and never repeats network I/O.
+- The Rust CI job runs serial `feed_entry_persistence` filters for SQLite, PostgreSQL, and MySQL with the existing masked service URLs; the ordinary all-features suite continues to unset external database URLs.
 
 - [ ] **Step 1: Add the storage envelope and schema-evolution contract**
 
@@ -651,7 +653,7 @@ cargo test --locked --test rss_migrations -- --nocapture
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/db src/feeds tests/support/database.rs tests/rss_migrations.rs tests/feed_entry_persistence.rs
+git add .github/workflows/ci.yml src/db src/feeds tests/support/database.rs tests/rss_migrations.rs tests/feed_entry_persistence.rs
 git commit -m "feat: persist feed entries idempotently"
 ```
 
