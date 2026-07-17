@@ -5,6 +5,7 @@ use sea_orm::{
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+use super::lifecycle::{record_completed_event, valid_error_code};
 use super::{
     ClaimRequest, QueueRefreshRequest, RefreshClaim, RefreshCounts, RefreshFailure,
     RefreshRepositoryError, RefreshRun, RefreshStatus,
@@ -249,7 +250,7 @@ impl FeedRepository {
         claim: &RefreshClaim,
         failure: RefreshFailure,
     ) -> Result<(), RefreshRepositoryError> {
-        if failure.error_code.is_empty() || failure.error_code.len() > 64 {
+        if !valid_error_code(&failure.error_code) {
             return Err(RefreshRepositoryError::InvalidRequest);
         }
         if let Some(http_status) = failure.http_status {
@@ -348,6 +349,13 @@ impl FeedRepository {
     ) -> Result<(), RefreshRepositoryError> {
         validate_owner(&claim.owner)?;
         validate_active_token(claim.lease_token)?;
+        let records_lifecycle_event = matches!(
+            terminal.status,
+            RefreshStatus::Success
+                | RefreshStatus::Partial
+                | RefreshStatus::NotModified
+                | RefreshStatus::Error
+        );
         let backend = self.database.get_database_backend();
         let transaction = self.database.begin().await?;
         if backend == DatabaseBackend::MySql {
@@ -374,6 +382,18 @@ impl FeedRepository {
         if run_result.rows_affected() != 1 {
             transaction.rollback().await?;
             return Err(RefreshRepositoryError::InvalidTransition);
+        }
+        if records_lifecycle_event {
+            record_completed_event(
+                &transaction,
+                backend,
+                claim,
+                terminal.status,
+                terminal.http_status,
+                terminal.counts,
+                terminal.error_code,
+            )
+            .await?;
         }
         transaction.commit().await?;
         Ok(())

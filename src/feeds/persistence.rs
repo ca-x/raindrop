@@ -18,6 +18,7 @@ use uuid::Uuid;
 
 use crate::content::sanitize::canonical_summary_text;
 
+use super::lifecycle::{record_completed_event, record_persisted_event};
 use super::{
     EncodedEntryContent, EntryIdentity, FeedRepository, FeedUrlPolicy, OpaqueValidator,
     ParsedEnclosure, ParsedFeed, RefreshClaim, RefreshCounts, RefreshRepositoryError, ValidatorSet,
@@ -381,6 +382,23 @@ impl FeedRepository {
             transaction.rollback().await?;
             return Err(RefreshRepositoryError::LeaseLost);
         }
+
+        record_persisted_event(&transaction, backend, claim, counts, generation).await?;
+        let completion_status = if counts.dropped_count == 0 {
+            super::RefreshStatus::Success
+        } else {
+            super::RefreshStatus::Partial
+        };
+        record_completed_event(
+            &transaction,
+            backend,
+            claim,
+            completion_status,
+            Some(200),
+            counts,
+            None,
+        )
+        .await?;
 
         transaction.commit().await?;
         Ok(PersistResult { counts, generation })

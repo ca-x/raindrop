@@ -43,6 +43,7 @@ impl MigratorTrait for Migrator {
             Box::new(bootstrap_state::CreateBootstrapState),
             Box::new(rss::entry_storage::EntryStorage),
             Box::new(rss::feed_metadata::FeedMetadata),
+            Box::new(rss::outbox::CreateLifecycleOutbox),
         ]
     }
 }

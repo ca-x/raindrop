@@ -5,6 +5,7 @@ mod decode;
 mod error;
 mod fetch;
 mod identity;
+mod lifecycle;
 mod model;
 mod parse;
 mod persistence;

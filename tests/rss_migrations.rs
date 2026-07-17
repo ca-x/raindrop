@@ -1,7 +1,10 @@
 mod support;
 
 use raindrop::db::{
-    entities::{entry, entry_state, feed, feed_refresh_run, rss_counter, subscription, user},
+    entities::{
+        entry, entry_state, feed, feed_refresh_run, lifecycle_outbox, rss_counter, subscription,
+        user,
+    },
     migrate, rollback,
 };
 use raindrop::feeds::EntryContentDetail;
@@ -9,7 +12,7 @@ use sea_orm::{
     ActiveModelTrait,
     ActiveValue::Set,
     ColumnTrait, ConnectionTrait, DatabaseBackend, DatabaseConnection, EntityTrait, PaginatorTrait,
-    QueryFilter, Statement,
+    QueryFilter, QueryResult, Statement,
     sea_query::{Alias, Expr, Query},
 };
 use sea_orm_migration::SchemaManager;
@@ -88,12 +91,14 @@ async fn rss_schema_contract(database_url: SecretString) {
     assert_operational_timestamp_schema(&database).await;
     assert_entry_storage_physical_schema(&database).await;
     assert_feed_metadata_schema(&database).await;
+    assert_lifecycle_outbox_schema(&database).await;
     assert_multiple_pool_connections_use_utc(&database).await;
 
     insert_user(&database, USER_A_ID, "reader-a").await;
     insert_user(&database, USER_B_ID, "reader-b").await;
     insert_feed(&database, ROUNDTRIP_AT).await;
     assert_feed_metadata_upgrade_reentry(&database).await;
+    assert_lifecycle_outbox_upgrade_reentry(&database).await;
     insert_subscription(&database, SUBSCRIPTION_A_ID, USER_A_ID, ROUNDTRIP_AT).await;
     refresh_run_model(
         "00000000-0000-4000-8000-000000000401",
@@ -281,6 +286,7 @@ async fn rss_schema_contract(database_url: SecretString) {
         .await
         .unwrap_or_else(|_| panic!("RSS migrations should reapply after rollback"));
     assert_feed_metadata_schema(&database).await;
+    assert_lifecycle_outbox_schema(&database).await;
     rollback(&database)
         .await
         .unwrap_or_else(|_| panic!("reapplied RSS contract database should roll back"));
@@ -520,6 +526,405 @@ async fn assert_feed_metadata_upgrade_reentry(database: &DatabaseConnection) {
         .expect("upgraded feed should remain present");
     assert_eq!(feed.title, None);
     assert_eq!(feed.site_url, None);
+}
+
+async fn assert_lifecycle_outbox_schema(database: &DatabaseConnection) {
+    let manager = SchemaManager::new(database);
+    for column in [
+        "id",
+        "event_type",
+        "aggregate_type",
+        "aggregate_id",
+        "refresh_id",
+        "event_sequence",
+        "payload_version",
+        "payload_json",
+        "idempotency_key",
+        "status",
+        "available_at",
+        "attempts",
+        "lease_owner",
+        "lease_until",
+        "created_at",
+        "completed_at",
+    ] {
+        assert!(
+            manager
+                .has_column("lifecycle_outbox", column)
+                .await
+                .expect("lifecycle outbox column should query"),
+            "missing lifecycle outbox column {column}"
+        );
+    }
+    assert_lifecycle_outbox_columns(database).await;
+    assert_lifecycle_outbox_indexes(database).await;
+
+    let backend = database.get_database_backend();
+    let foreign_key_sql = match backend {
+        DatabaseBackend::Sqlite => "PRAGMA foreign_key_list('lifecycle_outbox')",
+        DatabaseBackend::Postgres => {
+            "SELECT kcu.column_name
+             FROM information_schema.table_constraints tc
+             JOIN information_schema.key_column_usage kcu
+               ON tc.constraint_name = kcu.constraint_name
+              AND tc.constraint_schema = kcu.constraint_schema
+             WHERE tc.table_schema = current_schema()
+               AND tc.table_name = 'lifecycle_outbox'
+               AND tc.constraint_type = 'FOREIGN KEY'"
+        }
+        DatabaseBackend::MySql => {
+            "SELECT column_name
+             FROM information_schema.key_column_usage
+             WHERE table_schema = DATABASE()
+               AND table_name = 'lifecycle_outbox'
+               AND referenced_table_name IS NOT NULL"
+        }
+    };
+    assert!(
+        database
+            .query_all(Statement::from_string(backend, foreign_key_sql.to_owned()))
+            .await
+            .expect("lifecycle outbox foreign keys should query")
+            .is_empty(),
+        "lifecycle outbox must not have foreign keys"
+    );
+
+    const ORPHAN_EVENT_ID: &str = "00000000-0000-4000-8000-000000000499";
+    const ORPHAN_REFRESH_ID: &str = "00000000-0000-4000-8000-000000009999";
+    let insert_sql = match backend {
+        DatabaseBackend::Sqlite => {
+            "INSERT INTO lifecycle_outbox (
+                id,event_type,aggregate_type,aggregate_id,refresh_id,event_sequence,payload_version,
+                payload_json,idempotency_key,available_at,created_at
+             ) VALUES (?,?,?,?,?,?,?,?,?,
+                strftime('%Y-%m-%dT%H:%M:%f000Z','now'),
+                strftime('%Y-%m-%dT%H:%M:%f000Z','now'))"
+        }
+        DatabaseBackend::Postgres => {
+            "INSERT INTO lifecycle_outbox (
+                id,event_type,aggregate_type,aggregate_id,refresh_id,event_sequence,payload_version,
+                payload_json,idempotency_key,available_at,created_at
+             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,clock_timestamp(),clock_timestamp())"
+        }
+        DatabaseBackend::MySql => {
+            "INSERT INTO lifecycle_outbox (
+                id,event_type,aggregate_type,aggregate_id,refresh_id,event_sequence,payload_version,
+                payload_json,idempotency_key,available_at,created_at
+             ) VALUES (?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))"
+        }
+    };
+    database
+        .execute(Statement::from_sql_and_values(
+            backend,
+            insert_sql,
+            [
+                ORPHAN_EVENT_ID.into(),
+                "feed.refresh.completed".into(),
+                "FEED".into(),
+                "00000000-0000-4000-8000-000000008888".into(),
+                ORPHAN_REFRESH_ID.into(),
+                20.into(),
+                1.into(),
+                "{}".into(),
+                "refresh:orphan:completed:v1".into(),
+            ],
+        ))
+        .await
+        .expect("outbox refresh ID without a refresh row should insert");
+    let orphan = lifecycle_outbox::Entity::find_by_id(ORPHAN_EVENT_ID)
+        .one(database)
+        .await
+        .expect("orphan lifecycle event should query")
+        .expect("orphan lifecycle event should exist");
+    assert_eq!(orphan.refresh_id, ORPHAN_REFRESH_ID);
+    assert_eq!(orphan.status, "PENDING");
+    assert_eq!(orphan.attempts, 0);
+    assert_eq!(orphan.lease_owner, None);
+    assert_eq!(orphan.lease_until, None);
+    assert_eq!(orphan.completed_at, None);
+    lifecycle_outbox::Entity::delete_by_id(ORPHAN_EVENT_ID)
+        .exec(database)
+        .await
+        .expect("orphan lifecycle fixture should delete");
+}
+
+#[derive(Debug)]
+struct LifecycleColumnInfo {
+    name: String,
+    data_type: String,
+    nullable: bool,
+    default_value: Option<String>,
+    character_length: Option<i64>,
+}
+
+async fn assert_lifecycle_outbox_columns(database: &DatabaseConnection) {
+    let backend = database.get_database_backend();
+    let sql = match backend {
+        DatabaseBackend::Sqlite => {
+            "SELECT name AS column_name, type AS data_type,
+                    CASE WHEN \"notnull\" = 0 AND pk = 0 THEN 1 ELSE 0 END AS nullable,
+                    dflt_value AS column_default, NULL AS character_length
+             FROM pragma_table_info('lifecycle_outbox') ORDER BY cid"
+        }
+        DatabaseBackend::Postgres => {
+            "SELECT column_name, data_type,
+                    CASE WHEN is_nullable = 'YES' THEN 1 ELSE 0 END::BIGINT AS nullable,
+                    column_default, character_maximum_length::BIGINT AS character_length
+             FROM information_schema.columns
+             WHERE table_schema = current_schema() AND table_name = 'lifecycle_outbox'
+             ORDER BY ordinal_position"
+        }
+        DatabaseBackend::MySql => {
+            "SELECT column_name, data_type,
+                    CASE WHEN is_nullable = 'YES' THEN 1 ELSE 0 END AS nullable,
+                    column_default, CAST(character_maximum_length AS SIGNED) AS character_length
+             FROM information_schema.columns
+             WHERE table_schema = DATABASE() AND table_name = 'lifecycle_outbox'
+             ORDER BY ordinal_position"
+        }
+    };
+    let columns = database
+        .query_all(Statement::from_string(backend, sql.to_owned()))
+        .await
+        .expect("lifecycle outbox physical columns should query")
+        .into_iter()
+        .map(decode_lifecycle_column)
+        .collect::<Vec<_>>();
+    let expected = [
+        ("id", "varchar", false, None, Some(36)),
+        ("event_type", "varchar", false, None, Some(64)),
+        ("aggregate_type", "varchar", false, None, Some(32)),
+        ("aggregate_id", "varchar", false, None, Some(64)),
+        ("refresh_id", "varchar", false, None, Some(36)),
+        ("event_sequence", "integer", false, None, None),
+        ("payload_version", "integer", false, None, None),
+        ("payload_json", "text", false, None, None),
+        ("idempotency_key", "varchar", false, None, Some(128)),
+        ("status", "varchar", false, Some("PENDING"), Some(16)),
+        ("available_at", "timestamp", false, None, None),
+        ("attempts", "integer", false, Some("0"), None),
+        ("lease_owner", "varchar", true, None, Some(64)),
+        ("lease_until", "timestamp", true, None, None),
+        ("created_at", "timestamp", false, None, None),
+        ("completed_at", "timestamp", true, None, None),
+    ];
+    assert_eq!(columns.len(), expected.len());
+    for (column, (name, kind, nullable, expected_default, length)) in columns.iter().zip(expected) {
+        assert_eq!(column.name, name);
+        assert_eq!(column.nullable, nullable, "nullable mismatch for {name}");
+        assert_column_type(column, kind, length);
+        match expected_default {
+            Some(expected_default) => assert!(
+                column
+                    .default_value
+                    .as_deref()
+                    .is_some_and(|value| value.contains(expected_default)),
+                "default mismatch for {name}: {:?}",
+                column.default_value
+            ),
+            None => assert_eq!(column.default_value, None, "unexpected default for {name}"),
+        }
+    }
+}
+
+fn decode_lifecycle_column(row: QueryResult) -> LifecycleColumnInfo {
+    let nullable: i64 = row.try_get("", "nullable").expect("column nullable flag");
+    LifecycleColumnInfo {
+        name: row.try_get("", "column_name").expect("column name"),
+        data_type: row.try_get("", "data_type").expect("column data type"),
+        nullable: nullable == 1,
+        default_value: row.try_get("", "column_default").expect("column default"),
+        character_length: row
+            .try_get("", "character_length")
+            .expect("column character length"),
+    }
+}
+
+fn assert_column_type(column: &LifecycleColumnInfo, kind: &str, expected_length: Option<i64>) {
+    let data_type = column.data_type.to_ascii_uppercase();
+    match kind {
+        "varchar" => {
+            assert!(
+                data_type.contains("CHAR"),
+                "type mismatch for {}",
+                column.name
+            );
+            let actual_length = column
+                .character_length
+                .or_else(|| parse_parenthesized_length(&data_type));
+            assert_eq!(
+                actual_length, expected_length,
+                "length mismatch for {}",
+                column.name
+            );
+        }
+        "integer" => assert!(
+            data_type.contains("INT"),
+            "type mismatch for {}: {}",
+            column.name,
+            column.data_type
+        ),
+        "text" => assert!(
+            data_type.contains("TEXT"),
+            "type mismatch for {}: {}",
+            column.name,
+            column.data_type
+        ),
+        "timestamp" => assert!(
+            data_type.contains("TIME") || data_type.contains("DATE"),
+            "type mismatch for {}: {}",
+            column.name,
+            column.data_type
+        ),
+        _ => panic!("unknown expected lifecycle column kind"),
+    }
+}
+
+fn parse_parenthesized_length(data_type: &str) -> Option<i64> {
+    let start = data_type.find('(')? + 1;
+    let end = data_type[start..].find(')')? + start;
+    data_type[start..end].parse().ok()
+}
+
+async fn assert_lifecycle_outbox_indexes(database: &DatabaseConnection) {
+    for (name, unique, columns) in [
+        ("uq_lifecycle_outbox_idem", true, vec!["idempotency_key"]),
+        (
+            "uq_lifecycle_outbox_order",
+            true,
+            vec!["refresh_id", "event_sequence"],
+        ),
+        (
+            "idx_lifecycle_outbox_due",
+            false,
+            vec!["status", "available_at", "lease_until", "id"],
+        ),
+    ] {
+        let (actual_unique, actual_columns) = lifecycle_index_contract(database, name).await;
+        assert_eq!(actual_unique, unique, "uniqueness mismatch for {name}");
+        assert_eq!(actual_columns, columns, "column order mismatch for {name}");
+    }
+}
+
+async fn lifecycle_index_contract(
+    database: &DatabaseConnection,
+    index_name: &str,
+) -> (bool, Vec<String>) {
+    let backend = database.get_database_backend();
+    match backend {
+        DatabaseBackend::Sqlite => {
+            let unique = database
+                .query_one(Statement::from_sql_and_values(
+                    backend,
+                    "SELECT CAST(\"unique\" AS INTEGER) AS is_unique
+                     FROM pragma_index_list('lifecycle_outbox') WHERE name = ?",
+                    [index_name.into()],
+                ))
+                .await
+                .expect("SQLite lifecycle index uniqueness should query")
+                .expect("SQLite lifecycle index should exist")
+                .try_get::<i64>("", "is_unique")
+                .expect("SQLite lifecycle index uniqueness")
+                == 1;
+            let sql = format!(
+                "SELECT name AS column_name FROM pragma_index_info('{}') ORDER BY seqno",
+                index_name
+            );
+            let columns = database
+                .query_all(Statement::from_string(backend, sql))
+                .await
+                .expect("SQLite lifecycle index columns should query")
+                .into_iter()
+                .map(|row| row.try_get("", "column_name").expect("index column name"))
+                .collect();
+            (unique, columns)
+        }
+        DatabaseBackend::Postgres => {
+            lifecycle_index_rows(
+                database,
+                "SELECT a.attname AS column_name,
+                        CASE WHEN ix.indisunique THEN 1 ELSE 0 END::BIGINT AS is_unique
+                 FROM pg_class t
+                 JOIN pg_index ix ON t.oid = ix.indrelid
+                 JOIN pg_class i ON i.oid = ix.indexrelid
+                 JOIN LATERAL unnest(ix.indkey) WITH ORDINALITY AS keys(attnum, ord) ON TRUE
+                 JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = keys.attnum
+                 WHERE t.relname = 'lifecycle_outbox' AND i.relname = $1
+                 ORDER BY keys.ord",
+                index_name,
+            )
+            .await
+        }
+        DatabaseBackend::MySql => {
+            lifecycle_index_rows(
+                database,
+                "SELECT column_name,
+                        CASE WHEN non_unique = 0 THEN 1 ELSE 0 END AS is_unique
+                 FROM information_schema.statistics
+                 WHERE table_schema = DATABASE() AND table_name = 'lifecycle_outbox'
+                   AND index_name = ?
+                 ORDER BY seq_in_index",
+                index_name,
+            )
+            .await
+        }
+    }
+}
+
+async fn lifecycle_index_rows(
+    database: &DatabaseConnection,
+    sql: &str,
+    index_name: &str,
+) -> (bool, Vec<String>) {
+    let rows = database
+        .query_all(Statement::from_sql_and_values(
+            database.get_database_backend(),
+            sql,
+            [index_name.into()],
+        ))
+        .await
+        .expect("lifecycle index metadata should query");
+    assert!(
+        !rows.is_empty(),
+        "lifecycle index {index_name} should exist"
+    );
+    let unique = rows[0]
+        .try_get::<i64>("", "is_unique")
+        .expect("lifecycle index uniqueness")
+        == 1;
+    let columns = rows
+        .into_iter()
+        .map(|row| row.try_get("", "column_name").expect("index column name"))
+        .collect();
+    (unique, columns)
+}
+
+async fn assert_lifecycle_outbox_upgrade_reentry(database: &DatabaseConnection) {
+    delete_migration_marker(database, "outbox").await;
+    let backend = database.get_database_backend();
+    let drop_index = match backend {
+        DatabaseBackend::Sqlite | DatabaseBackend::Postgres => {
+            "DROP INDEX idx_lifecycle_outbox_due"
+        }
+        DatabaseBackend::MySql => {
+            "ALTER TABLE lifecycle_outbox DROP INDEX idx_lifecycle_outbox_due"
+        }
+    };
+    database
+        .execute(Statement::from_string(backend, drop_index.to_owned()))
+        .await
+        .expect("partial lifecycle outbox fixture should drop due index");
+
+    migrate(database)
+        .await
+        .expect("existing lifecycle outbox should recover missing indexes");
+    assert_lifecycle_outbox_schema(database).await;
+    assert!(
+        SchemaManager::new(database)
+            .has_index("lifecycle_outbox", "idx_lifecycle_outbox_due")
+            .await
+            .expect("lifecycle due index should query")
+    );
 }
 
 async fn assert_operational_timestamp_roundtrip(database: &DatabaseConnection) {
@@ -776,6 +1181,7 @@ async fn assert_operational_timestamp_schema(database: &DatabaseConnection) {
                  OR (table_name = 'entries' AND column_name IN ('inserted_at','updated_at'))
                  OR (table_name = 'entry_states' AND column_name IN ('starred_at','updated_at'))
                  OR (table_name = 'feed_refresh_runs' AND column_name IN ('queued_at','started_at','fetched_at','persisted_at','completed_at','retry_at'))
+                 OR (table_name = 'lifecycle_outbox' AND column_name IN ('available_at','lease_until','created_at','completed_at'))
                )",
         ),
         DatabaseBackend::Postgres => Some(
@@ -789,6 +1195,7 @@ async fn assert_operational_timestamp_schema(database: &DatabaseConnection) {
                  OR (table_name = 'entries' AND column_name IN ('inserted_at','updated_at'))
                  OR (table_name = 'entry_states' AND column_name IN ('starred_at','updated_at'))
                  OR (table_name = 'feed_refresh_runs' AND column_name IN ('queued_at','started_at','fetched_at','persisted_at','completed_at','retry_at'))
+                 OR (table_name = 'lifecycle_outbox' AND column_name IN ('available_at','lease_until','created_at','completed_at'))
                )",
         ),
         DatabaseBackend::Sqlite => None,
@@ -806,7 +1213,7 @@ async fn assert_operational_timestamp_schema(database: &DatabaseConnection) {
         let matching_count: i64 = row
             .try_get("", "matching_count")
             .expect("operational timestamp count should decode");
-        assert_eq!(matching_count, 21);
+        assert_eq!(matching_count, 25);
     }
 }
 
@@ -830,6 +1237,9 @@ async fn assert_expected_indexes(database: &DatabaseConnection) {
         ("feed_refresh_runs", "uq_refresh_runs_generation"),
         ("feed_refresh_runs", "idx_refresh_runs_feed"),
         ("feed_refresh_runs", "idx_refresh_runs_status"),
+        ("lifecycle_outbox", "uq_lifecycle_outbox_idem"),
+        ("lifecycle_outbox", "uq_lifecycle_outbox_order"),
+        ("lifecycle_outbox", "idx_lifecycle_outbox_due"),
     ] {
         assert!(
             manager

@@ -165,6 +165,12 @@ pub enum RefreshRepositoryError {
     InvalidRequest,
     #[error("refresh idempotency key has conflicting semantics")]
     IdempotencyConflict,
+    #[error("refresh lifecycle event has conflicting semantics")]
+    LifecycleEventConflict,
+    #[error("refresh lifecycle payload exceeds the size limit")]
+    LifecyclePayloadTooLarge,
+    #[error("refresh lifecycle payload serialization failed")]
+    InvalidLifecyclePayload,
     #[error("refresh lease token is exhausted")]
     TokenExhausted,
     #[error("refresh repository data is corrupt")]
@@ -197,6 +203,9 @@ impl fmt::Debug for RefreshRepositoryError {
             Self::Database(_) => "RefreshRepositoryError::Database([REDACTED])",
             Self::InvalidRequest => "RefreshRepositoryError::InvalidRequest",
             Self::IdempotencyConflict => "RefreshRepositoryError::IdempotencyConflict",
+            Self::LifecycleEventConflict => "RefreshRepositoryError::LifecycleEventConflict",
+            Self::LifecyclePayloadTooLarge => "RefreshRepositoryError::LifecyclePayloadTooLarge",
+            Self::InvalidLifecyclePayload => "RefreshRepositoryError::InvalidLifecyclePayload",
             Self::TokenExhausted => "RefreshRepositoryError::TokenExhausted",
             Self::CorruptData => "RefreshRepositoryError::CorruptData",
             Self::LeaseLost => "RefreshRepositoryError::LeaseLost",
