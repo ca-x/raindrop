@@ -421,7 +421,8 @@ GET    /api/v1/auth/session
 GET    /api/v1/auth/oidc/:provider/start
 GET    /api/v1/auth/oidc/:provider/callback
 
-GET    /api/v1/feeds?cursor=&limit=&categoryId=&state=
+GET    /api/v1/subscriptions?cursor=&limit=
+GET    /api/v1/subscriptions/:id
 POST   /api/v1/subscriptions
 PATCH  /api/v1/subscriptions/:id
 DELETE /api/v1/subscriptions/:id
@@ -469,7 +470,7 @@ DELETE /api/v1/tokens/:id
 
 首版 `GET /plugins` 只返回官方 `raindrop.ai-content` descriptor（全局禁用时仍返回 disabled state），不提供 install、uninstall、upload、catalog 或 marketplace endpoint。插件配置使用 manifest 内的 JSON Schema 验证并以 revision/`If-Match` 防止丢失更新；config 只引用 provider、connection 和 exact tool ID，不保存 secret。未来分发能力通过新增 endpoint additive 引入。
 
-OpenAPI JSON 由后端生成并在 CI 中校验。前端 DTO 从 OpenAPI 生成或由共享 schema 生成，禁止手工维护两套漂移类型。
+OpenAPI JSON 由后端生成并在 CI 中校验。前端 DTO 从 OpenAPI 生成或由共享 schema 生成，禁止手工维护两套漂移类型。首个 Reader API client 任务必须以 `docs/openapi/subscription-v1.json` 为唯一 Subscription DTO 输入生成 TypeScript 类型，不得手写第二份 wire contract。
 
 ## 13. Web UI 与 UX
 

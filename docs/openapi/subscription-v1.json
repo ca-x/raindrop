@@ -1,0 +1,709 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Raindrop Subscription API",
+    "version": "1.0.0",
+    "description": "User-scoped subscription commands and refresh projection. This committed fragment is the DTO source for Reader clients."
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Subscriptions"
+    }
+  ],
+  "paths": {
+    "/api/v1/subscriptions": {
+      "get": {
+        "tags": [
+          "Subscriptions"
+        ],
+        "operationId": "listSubscriptions",
+        "summary": "List the current user's subscriptions",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SubscriptionPage"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Subscriptions"
+        ],
+        "operationId": "createSubscription",
+        "summary": "Subscribe the current user to a feed",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSubscriptionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/CreateSubscription"
+          },
+          "201": {
+            "$ref": "#/components/responses/CreateSubscription"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/subscriptions/{subscriptionId}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SubscriptionId"
+        }
+      ],
+      "get": {
+        "tags": [
+          "Subscriptions"
+        ],
+        "operationId": "getSubscription",
+        "summary": "Get one current-user subscription",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Subscription"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Subscriptions"
+        ],
+        "operationId": "deleteSubscription",
+        "summary": "Idempotently unsubscribe the current user",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          }
+        ],
+        "responses": {
+          "204": {
+            "$ref": "#/components/responses/NoContent"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/subscriptions/{subscriptionId}/refresh": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SubscriptionId"
+        }
+      ],
+      "post": {
+        "tags": [
+          "Subscriptions"
+        ],
+        "operationId": "refreshSubscription",
+        "summary": "Queue or replay a manual subscription refresh",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshSubscriptionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Refresh"
+          },
+          "202": {
+            "$ref": "#/components/responses/Refresh"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "sessionCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "raindrop_session"
+      }
+    },
+    "parameters": {
+      "Cursor": {
+        "name": "cursor",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "Limit": {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 50
+        }
+      },
+      "SubscriptionId": {
+        "name": "subscriptionId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "CsrfToken": {
+        "name": "x-csrf-token",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      }
+    },
+    "headers": {
+      "CacheControl": {
+        "description": "Sensitive responses are never stored.",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "no-store"
+          ]
+        }
+      },
+      "Pragma": {
+        "description": "Compatibility cache directive.",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "no-cache"
+          ]
+        }
+      },
+      "Location": {
+        "description": "Canonical detail path for the subscription.",
+        "schema": {
+          "type": "string",
+          "pattern": "^/api/v1/subscriptions/[0-9a-f-]{36}$"
+        }
+      },
+      "RetryAfter": {
+        "description": "Optional integer delay in seconds when a truthful retry time is known.",
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "responses": {
+      "SubscriptionPage": {
+        "description": "Current-user subscription page.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/CacheControl"
+          },
+          "Pragma": {
+            "$ref": "#/components/headers/Pragma"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SubscriptionPage"
+            }
+          }
+        }
+      },
+      "Subscription": {
+        "description": "Current-user subscription.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/CacheControl"
+          },
+          "Pragma": {
+            "$ref": "#/components/headers/Pragma"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Subscription"
+            }
+          }
+        }
+      },
+      "CreateSubscription": {
+        "description": "Created or existing subscription. A newly created relation uses status 201; an existing relation uses status 200.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/CacheControl"
+          },
+          "Pragma": {
+            "$ref": "#/components/headers/Pragma"
+          },
+          "Location": {
+            "$ref": "#/components/headers/Location"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/CreateSubscriptionResponse"
+            }
+          }
+        }
+      },
+      "Refresh": {
+        "description": "Public refresh projection. Pending work uses status 202; an exact terminal replay uses status 200.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/CacheControl"
+          },
+          "Pragma": {
+            "$ref": "#/components/headers/Pragma"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Refresh"
+            }
+          }
+        }
+      },
+      "NoContent": {
+        "description": "The subscription relation is absent after the command. The response body is empty.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/CacheControl"
+          },
+          "Pragma": {
+            "$ref": "#/components/headers/Pragma"
+          }
+        }
+      },
+      "Error": {
+        "description": "Stable public error envelope.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/CacheControl"
+          },
+          "Pragma": {
+            "$ref": "#/components/headers/Pragma"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorEnvelope"
+            }
+          }
+        }
+      },
+      "RateLimited": {
+        "description": "Rate or quota rejection. Retry-After and error.fields.retryAt are present only for temporal limits with a known retry time.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/CacheControl"
+          },
+          "Pragma": {
+            "$ref": "#/components/headers/Pragma"
+          },
+          "Retry-After": {
+            "description": "Optional integer delay in seconds when a truthful retry time is known.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorEnvelope"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "CreateSubscriptionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "url"
+        ],
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "maxLength": 4096
+          }
+        }
+      },
+      "RefreshSubscriptionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "requestId"
+        ],
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "SubscriptionPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Subscription"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CreateSubscriptionResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "created",
+          "subscription"
+        ],
+        "properties": {
+          "created": {
+            "type": "boolean"
+          },
+          "subscription": {
+            "$ref": "#/components/schemas/Subscription"
+          }
+        }
+      },
+      "Subscription": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "subscriptionId",
+          "feedId",
+          "title",
+          "siteUrl",
+          "unreadCount",
+          "refresh"
+        ],
+        "properties": {
+          "subscriptionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "feedId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "siteUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri"
+          },
+          "unreadCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "refresh": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Refresh"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "Refresh": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operationId",
+          "state",
+          "newCount",
+          "updatedCount",
+          "droppedCount",
+          "generation",
+          "errorCode",
+          "retryAt",
+          "queuedAt",
+          "startedAt",
+          "completedAt"
+        ],
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "READY",
+              "DEGRADED",
+              "BACKING_OFF",
+              "ERROR"
+            ]
+          },
+          "newCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "updatedCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "droppedCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "generation": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "errorCode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "REFRESH_FAILED",
+              "UPSTREAM_RATE_LIMITED",
+              null
+            ]
+          },
+          "retryAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z$"
+          },
+          "queuedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z$"
+          },
+          "startedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z$"
+          },
+          "completedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z$"
+          }
+        }
+      },
+      "ErrorEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ApiError"
+          }
+        }
+      },
+      "ApiError": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "message",
+          "requestId"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "AUTHENTICATION_REQUIRED",
+              "FORBIDDEN",
+              "VALIDATION_ERROR",
+              "NOT_FOUND",
+              "METHOD_NOT_ALLOWED",
+              "CONFLICT",
+              "REFRESH_IN_PROGRESS",
+              "RATE_LIMITED",
+              "INTERNAL_ERROR"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "fields": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      }
+    }
+  }
+}
