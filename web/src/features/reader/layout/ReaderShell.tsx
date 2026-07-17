@@ -13,9 +13,10 @@ import { EntryQueue } from "../components/EntryQueue"
 import { CompactArticleNavigation } from "../components/ReaderToolbar"
 import { SourceTree } from "../components/SourceTree"
 import { SubscriptionDialog } from "../components/SubscriptionDialog"
-import type { ReaderSource } from "../model/types"
+import { useReaderHotkeys } from "../keyboard/useReaderHotkeys"
+import { sourceKey, type ReaderSource } from "../model/types"
 import type { ReaderController } from "../model/useReaderController"
-import type { ReaderRouteMatch } from "../routes/readerRoute"
+import { pathForEntry, type ReaderRouteMatch } from "../routes/readerRoute"
 
 interface ReaderShellProps {
   controller: ReaderController
@@ -26,6 +27,10 @@ interface ReaderShellProps {
   sessionError?: string | null
   onSelectSource: (source: ReaderSource) => void
   onSelectEntry: (entryId: string) => void
+  onOpenEntryFromHotkey: (entryId: string) => void
+  cursorEntryId: string | null
+  cursorFocusNonce: number
+  onCursorChange: (entryId: string) => void
   onBack: () => void
 }
 
@@ -36,6 +41,22 @@ export function ReaderShell(props: ReaderShellProps) {
   const mobileNavRef = useRef<HTMLDialogElement>(null)
   const sources = useResizable({ defaultSize: 240, minSizePx: 200, maxSizePx: 340, autoSaveId: "reader-sources" })
   const queue = useResizable({ defaultSize: 380, minSizePx: 300, maxSizePx: 560, autoSaveId: "reader-queue" })
+  const queueEntryIds = props.controller.state.queueBySourceKey[sourceKey(props.controller.state.selectedSource)] ?? []
+  const entryRoute = props.route.entryId ? pathForEntry(props.route.sourcePath, props.route.entryId) : null
+  useReaderHotkeys({
+    queueEntryIds,
+    cursorEntryId: props.cursorEntryId,
+    openEntryId: props.route.entryId,
+    isDisabled: isNavOpen || isAddOpen,
+    isUnread: (entryId) => {
+      const entry = props.controller.state.entriesById[entryId] ?? props.controller.state.detailsById[entryId]
+      return entry ? !entry.isRead : false
+    },
+    onCursorChange: props.onCursorChange,
+    onOpenEntry: props.onOpenEntryFromHotkey,
+    onToggleRead: props.controller.toggleRead,
+    onToggleStar: props.controller.toggleStar,
+  })
   const sourceTree = (
     <SourceTree
       state={props.controller.state}
@@ -59,6 +80,11 @@ export function ReaderShell(props: ReaderShellProps) {
       isCompact={props.viewportMode === "compact"}
       onOpenSources={() => setIsNavOpen(true)}
       onSelect={props.onSelectEntry}
+      cursorEntryId={props.cursorEntryId}
+      cursorFocusNonce={props.cursorFocusNonce}
+      sourceRoute={props.route.sourcePath}
+      savedScrollOffset={props.controller.state.scrollAnchorByRoute[props.route.sourcePath] ?? 0}
+      onRecordScroll={props.controller.recordScrollAnchor}
       onReload={props.controller.reloadEntries}
       onMergePending={props.controller.mergePendingEntries}
     />
@@ -66,6 +92,10 @@ export function ReaderShell(props: ReaderShellProps) {
   const articlePane = (
     <ArticleReader
       state={props.controller.state}
+      entryRoute={entryRoute}
+      savedScrollOffset={entryRoute ? props.controller.state.scrollAnchorByRoute[entryRoute] ?? 0 : 0}
+      shouldFocusArticle={props.viewportMode === "compact"}
+      onRecordScroll={props.controller.recordScrollAnchor}
       onToggleRead={props.controller.toggleRead}
       onToggleStar={props.controller.toggleStar}
     />

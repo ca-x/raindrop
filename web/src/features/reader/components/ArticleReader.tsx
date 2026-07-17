@@ -2,19 +2,36 @@ import { Banner } from "@astryxdesign/core/Banner"
 import { EmptyState } from "@astryxdesign/core/EmptyState"
 import { Skeleton } from "@astryxdesign/core/Skeleton"
 import { useLingui } from "@lingui/react"
+import { useEffect, useLayoutEffect, useRef } from "react"
 
 import type { ReaderState } from "../model/types"
 import { ArticleToolbar } from "./ReaderToolbar"
 
 interface ArticleReaderProps {
   state: ReaderState
+  entryRoute: string | null
+  savedScrollOffset: number
+  shouldFocusArticle: boolean
+  onRecordScroll: (route: string, offset: number) => void
   onToggleRead: (entryId: string) => Promise<void>
   onToggleStar: (entryId: string) => Promise<void>
 }
 
 export function ArticleReader(props: ArticleReaderProps) {
   const { i18n } = useLingui()
+  const articleRef = useRef<HTMLElement>(null)
+  const headingRef = useRef<HTMLHeadingElement>(null)
   const detail = props.state.selectedEntryId ? props.state.detailsById[props.state.selectedEntryId] : undefined
+  useLayoutEffect(() => {
+    const node = articleRef.current
+    const entryRoute = props.entryRoute
+    if (!node || !detail || !entryRoute) return
+    node.scrollTop = clampOffset(node, props.savedScrollOffset)
+    return () => props.onRecordScroll(entryRoute, node.scrollTop)
+  }, [detail?.entryId, props.entryRoute])
+  useEffect(() => {
+    if (detail && props.shouldFocusArticle) headingRef.current?.focus({ preventScroll: true })
+  }, [detail?.entryId, props.shouldFocusArticle])
   if (props.state.selectedEntryId && props.state.paneStatus.detail === "error") {
     return (
       <Banner
@@ -53,11 +70,21 @@ export function ArticleReader(props: ArticleReaderProps) {
         onToggleRead={() => props.onToggleRead(detail.entryId)}
         onToggleStar={() => props.onToggleStar(detail.entryId)}
       />
-      <article className="reader-article">
+      <article
+        ref={articleRef}
+        className="reader-article"
+        onScroll={(event) => {
+          if (props.entryRoute) props.onRecordScroll(props.entryRoute, event.currentTarget.scrollTop)
+        }}
+      >
         <p className="reader-article-kicker">{detail.feedTitle}</p>
-        <h1>{detail.title ?? i18n._("reader.untitled")}</h1>
+        <h1 ref={headingRef} tabIndex={-1}>{detail.title ?? i18n._("reader.untitled")}</h1>
         <div className="reader-article-body" dangerouslySetInnerHTML={{ __html: detail.contentHtml }} />
       </article>
     </div>
   )
+}
+
+function clampOffset(element: HTMLElement, offset: number): number {
+  return Math.max(0, Math.min(offset, Math.max(0, element.scrollHeight - element.clientHeight)))
 }

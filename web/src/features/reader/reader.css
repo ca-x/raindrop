@@ -47,6 +47,19 @@
   gap: 8px;
 }
 
+.reader-queue-shortcuts,
+.reader-toolbar-shortcut {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.reader-shortcut-label {
+  color: var(--color-text-secondary);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
 .reader-source-status,
 .reader-entry-item time {
   color: var(--color-text-secondary);
@@ -71,10 +84,16 @@
   padding-block-end: env(safe-area-inset-bottom);
 }
 
-.reader-queue > [role="list"] {
+.reader-queue-scroll {
+  flex: 1;
   min-block-size: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   overscroll-behavior: contain;
+}
+
+.reader-queue-scroll > [role="list"] {
+  min-inline-size: 0;
 }
 
 .reader-entry-item {
@@ -161,6 +180,11 @@
   line-height: 1.08;
   letter-spacing: -0.022em;
   text-wrap: balance;
+}
+
+.reader-article h1:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 4px;
 }
 
 .reader-article-body {

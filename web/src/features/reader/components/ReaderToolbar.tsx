@@ -1,5 +1,6 @@
 import { Button } from "@astryxdesign/core/Button"
 import { Icon } from "@astryxdesign/core/Icon"
+import { Kbd } from "@astryxdesign/core/Kbd"
 import { Stack } from "@astryxdesign/core/Stack"
 import { Text } from "@astryxdesign/core/Text"
 import { ToggleButton } from "@astryxdesign/core/ToggleButton"
@@ -73,14 +74,24 @@ export function QueueToolbar({ showMenu, isCompact, onOpenSources, onReload }: Q
       ) : undefined}
       centerContent={<strong>{i18n._("reader.queue")}</strong>}
       endContent={
-        <Button
-          label={i18n._("reader.reloadStored")}
-          icon={<Icon icon="arrowsUpDown" />}
-          isIconOnly
-          tooltip={i18n._("reader.reloadStored")}
-          clickAction={onReload}
-          variant="ghost"
-        />
+        <>
+          {!isCompact ? (
+            <span className="reader-queue-shortcuts" aria-label={i18n._("reader.queueShortcuts")}>
+              <span className="reader-shortcut-label">{i18n._("reader.openEntryShortcut")}</span>
+              <Kbd keys="j" /><Kbd keys="k" />
+              <span className="reader-shortcut-label">{i18n._("reader.moveCursorShortcut")}</span>
+              <Kbd keys="n" /><Kbd keys="p" />
+            </span>
+          ) : null}
+          <Button
+            label={i18n._("reader.reloadStored")}
+            icon={<Icon icon="arrowsUpDown" />}
+            isIconOnly
+            tooltip={i18n._("reader.reloadStored")}
+            clickAction={onReload}
+            variant="ghost"
+          />
+        </>
       }
     />
   )
@@ -140,21 +151,31 @@ export function ArticleToolbar(props: ArticleToolbarProps) {
       dividers={["bottom"]}
       endContent={
         <>
-          <ToggleButton
-            label={i18n._(props.isRead ? "reader.markUnread" : "reader.markRead")}
-            icon={<Icon icon="checkDouble" />}
-            isIconOnly
-            isPressed={props.isRead}
-            pressedChangeAction={props.onToggleRead}
-          />
-          <ToggleButton
-            label={i18n._(props.isStarred ? "reader.unstarEntry" : "reader.starEntry")}
-            icon={<span aria-hidden="true">☆</span>}
-            pressedIcon={<span aria-hidden="true">★</span>}
-            isIconOnly
-            isPressed={props.isStarred}
-            pressedChangeAction={props.onToggleStar}
-          />
+          <span className="reader-toolbar-shortcut">
+            <ToggleButton
+              label={i18n._(props.isRead ? "reader.markUnread" : "reader.markRead")}
+              icon={<Icon icon="checkDouble" />}
+              isIconOnly
+              isPressed={props.isRead}
+              pressedChangeAction={props.onToggleRead}
+              aria-keyshortcuts="M"
+            />
+            <span className="reader-shortcut-label">{i18n._("reader.readStateShortcut")}</span>
+            <Kbd keys="m" />
+          </span>
+          <span className="reader-toolbar-shortcut">
+            <ToggleButton
+              label={i18n._(props.isStarred ? "reader.unstarEntry" : "reader.starEntry")}
+              icon={<span aria-hidden="true">☆</span>}
+              pressedIcon={<span aria-hidden="true">★</span>}
+              isIconOnly
+              isPressed={props.isStarred}
+              pressedChangeAction={props.onToggleStar}
+              aria-keyshortcuts="S"
+            />
+            <span className="reader-shortcut-label">{i18n._("reader.starStateShortcut")}</span>
+            <Kbd keys="s" />
+          </span>
           {props.canonicalUrl ? (
             <Button
               label={i18n._("reader.openOriginal")}
