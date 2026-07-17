@@ -310,6 +310,8 @@ pub enum FeedServiceError {
     RunMismatch,
     #[error("stored feed data is corrupt")]
     CorruptFeed,
+    #[error("feed executor initialization failed")]
+    ExecutorInitialization(#[source] FeedFetchError),
     #[error("refresh repository operation failed")]
     RefreshRepository(#[source] RefreshRepositoryError),
     #[error("entry repository operation failed")]
@@ -327,6 +329,9 @@ impl fmt::Debug for FeedServiceError {
             Self::Unauthorized => "FeedServiceError::Unauthorized",
             Self::RunMismatch => "FeedServiceError::RunMismatch",
             Self::CorruptFeed => "FeedServiceError::CorruptFeed",
+            Self::ExecutorInitialization(_) => {
+                "FeedServiceError::ExecutorInitialization([REDACTED])"
+            }
             Self::RefreshRepository(_) => "FeedServiceError::RefreshRepository([REDACTED])",
             Self::EntryRepository(_) => "FeedServiceError::EntryRepository([REDACTED])",
             Self::Schedule(_) => "FeedServiceError::Schedule([REDACTED])",
@@ -370,5 +375,26 @@ impl JitterSource for SystemJitter {
     fn sample_inclusive_us(&mut self, upper_bound_us: u64) -> u64 {
         let mut rng = OsRng;
         rng.next_u64() % (upper_bound_us + 1)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::feeds::{FeedUrlPolicy, HttpFeedTransport};
+
+    #[test]
+    fn executor_initialization_error_redacts_transport_details() {
+        let fetch_error = match HttpFeedTransport::new_observed(FeedUrlPolicy::new(false), 0) {
+            Ok(_) => panic!("zero request budget should fail transport construction"),
+            Err(error) => error,
+        };
+        let error = FeedServiceError::ExecutorInitialization(fetch_error);
+
+        assert_eq!(
+            format!("{error:?}"),
+            "FeedServiceError::ExecutorInitialization([REDACTED])"
+        );
+        assert_eq!(error.to_string(), "feed executor initialization failed");
     }
 }

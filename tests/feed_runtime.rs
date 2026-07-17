@@ -11,16 +11,17 @@ use std::{
 
 use async_trait::async_trait;
 use raindrop::{
+    app::AppState,
     db::{
         entities::{feed, feed_refresh_run, subscription},
         migrate, rollback,
     },
     feeds::{
-        FeedExecutor, FeedFetchError, FeedRepository, FeedRuntime, FeedTransport, FeedUrlPolicy,
-        FetchOutcome, FetchRequest, JitterSource, QueueRefreshRequest, RefreshStatus,
-        RefreshTrigger,
+        FeedCommandService, FeedExecutor, FeedFetchError, FeedRepository, FeedRuntime,
+        FeedTransport, FeedUrlPolicy, FetchOutcome, FetchRequest, JitterSource,
+        QueueRefreshRequest, QueueSubscriptionRefresh, RefreshStatus, RefreshTrigger,
     },
-    setup::SetupService,
+    setup::{SetupCompleteInput, SetupService},
 };
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ConnectionTrait, DatabaseBackend, EntityTrait, Statement,
@@ -39,6 +40,7 @@ const SECOND_FEED_ID: &str = "00000000-0000-4000-8000-000000000102";
 const SECOND_SUBSCRIPTION_ID: &str = "00000000-0000-4000-8000-000000000203";
 const FIRST_RUNTIME_RUN_ID: &str = "00000000-0000-4000-8000-000000000611";
 const SECOND_RUNTIME_RUN_ID: &str = "00000000-0000-4000-8000-000000000612";
+const CLOSED_NOTIFY_RUN_ID: &str = "00000000-0000-4000-8000-000000000613";
 
 struct NeverTransport;
 
@@ -150,6 +152,150 @@ async fn setup_required_runtime_makes_zero_transport_calls() {
         .expect("setup-required runtime should stop cleanly");
 
     assert_eq!(factory_calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn setup_transition_wakes_runtime_without_process_restart() {
+    let data = tempfile::tempdir().expect("temporary directory should be created");
+    let database_url = format!(
+        "sqlite://{}?mode=rwc",
+        data.path().join("setup-transition.db").display()
+    );
+    let setup = SetupService::required(data.path(), SecretString::from("setup-token"), None);
+    let factory_calls = Arc::new(AtomicUsize::new(0));
+    let transport_calls = Arc::new(AtomicUsize::new(0));
+    let observed_factory = factory_calls.clone();
+    let observed_transport = transport_calls.clone();
+    let (runtime, handle) = FeedRuntime::new(setup.clone(), move |database| {
+        observed_factory.fetch_add(1, Ordering::SeqCst);
+        Ok(Arc::new(FeedExecutor::with_jitter(
+            FeedRepository::new(database),
+            FeedUrlPolicy::new(false),
+            NotModifiedTransport {
+                calls: observed_transport.clone(),
+            },
+            ZeroJitter,
+        )))
+    });
+    let task = tokio::spawn(runtime.run());
+
+    tokio::time::sleep(Duration::from_millis(25)).await;
+    assert_eq!(factory_calls.load(Ordering::SeqCst), 0);
+    setup
+        .complete(
+            "setup-token",
+            SetupCompleteInput {
+                database_url: SecretString::from(database_url),
+                username: "runtime-admin".to_owned(),
+                password: SecretString::from("correct horse battery staple".to_owned()),
+                email: None,
+            },
+        )
+        .await
+        .expect("setup transition should complete");
+    let database = setup
+        .database()
+        .expect("completed setup should expose its database");
+    seed_future_subscribed_feed(&database).await;
+    let queued = FeedRepository::new(database.clone())
+        .queue_refresh(QueueRefreshRequest {
+            feed_id: FEED_ID.to_owned(),
+            requested_by_user_id: None,
+            trigger: RefreshTrigger::Retry,
+            idempotency_key: "runtime:setup-transition".to_owned(),
+        })
+        .await
+        .expect("post-setup refresh should queue");
+
+    handle.notify();
+    wait_for_terminal(&database, &queued.id, Duration::from_secs(2)).await;
+    handle.shutdown();
+    task.await
+        .expect("setup-transition runtime task should join")
+        .expect("setup-transition runtime should stop cleanly");
+    assert_eq!(factory_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(transport_calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn main_style_shutdown_stops_lanes_while_server_is_still_draining() {
+    let (data, database) = ready_runtime_database("main-style-shutdown").await;
+    insert_queued_run(
+        &database,
+        FIRST_RUNTIME_RUN_ID,
+        FEED_ID,
+        "runtime:main-style-shutdown",
+    )
+    .await;
+    let transport = BlockedNotModifiedTransport {
+        calls: Arc::new(AtomicUsize::new(0)),
+        entered: Arc::new(Semaphore::new(0)),
+        release: Arc::new(Semaphore::new(0)),
+    };
+    let setup = SetupService::ready(data.path(), None, database.clone());
+    let observed = transport.clone();
+    let (runtime, handle) = FeedRuntime::new(setup.clone(), move |database| {
+        Ok(Arc::new(FeedExecutor::with_jitter(
+            FeedRepository::new(database),
+            FeedUrlPolicy::new(false),
+            observed.clone(),
+            ZeroJitter,
+        )))
+    });
+    let state = AppState::with_feed_runtime(setup, handle);
+    let runtime_task = tokio::spawn(runtime.run());
+    let server_release = Arc::new(Semaphore::new(0));
+    let observed_server_release = server_release.clone();
+    let server_task = tokio::spawn(async move {
+        observed_server_release
+            .acquire()
+            .await
+            .expect("server drain semaphore should remain open")
+            .forget();
+    });
+
+    wait_for_entries(&transport.entered, 1, Duration::from_secs(1)).await;
+    state.feed_runtime.shutdown();
+    transport.release.add_permits(1);
+    runtime_task
+        .await
+        .expect("main-style runtime task should join")
+        .expect("main-style runtime should stop cleanly");
+    assert!(!server_task.is_finished());
+
+    server_release.add_permits(1);
+    server_task.await.expect("server drain task should join");
+}
+
+#[tokio::test]
+async fn closed_runtime_notify_does_not_change_committed_command_outcome() {
+    let (data, database) = ready_runtime_database("closed-runtime-notify").await;
+    let state = AppState::new(SetupService::ready(data.path(), None, database.clone()));
+    state.feed_runtime.shutdown();
+    let command = FeedCommandService::new(
+        FeedRepository::new(database.clone()),
+        FeedUrlPolicy::new(false),
+    );
+
+    let committed = command
+        .queue_subscription_refresh(
+            USER_A_ID,
+            SUBSCRIPTION_A_ID,
+            QueueSubscriptionRefresh {
+                request_id: CLOSED_NOTIFY_RUN_ID.to_owned(),
+            },
+        )
+        .await
+        .expect("command should commit before best-effort notification");
+    state.feed_runtime.notify();
+
+    let stored = feed_refresh_run::Entity::find_by_id(&committed.run_id)
+        .one(&database)
+        .await
+        .expect("committed command should remain queryable")
+        .expect("committed command should remain persisted");
+    assert_eq!(stored.id, committed.run_id);
+    assert_eq!(stored.status, RefreshStatus::Queued.as_str());
 }
 
 #[tokio::test]
@@ -1069,6 +1215,31 @@ async fn seed_due_subscribed_feed(database: &sea_orm::DatabaseConnection) {
         .update(database)
         .await
         .expect("feed should become due");
+}
+
+async fn seed_future_subscribed_feed(database: &sea_orm::DatabaseConnection) {
+    let now = OffsetDateTime::now_utc();
+    insert_user(database, USER_A_ID, "runtime-reader").await;
+    insert_feed(database, now - time::Duration::hours(1)).await;
+    let model = feed::Entity::find_by_id(FEED_ID)
+        .one(database)
+        .await
+        .expect("future feed should query")
+        .expect("future feed should exist");
+    let mut active: feed::ActiveModel = model.into();
+    active.orphaned_at = Set(None);
+    active.lease_owner = Set(None);
+    active.lease_until = Set(None);
+    active.next_fetch_at = Set(now + time::Duration::hours(1));
+    active.retry_after_at = Set(None);
+    active.validator_url = Set(None);
+    active.etag = Set(None);
+    active.last_modified = Set(None);
+    active
+        .update(database)
+        .await
+        .expect("future feed schedule should update");
+    insert_subscription(database, SUBSCRIPTION_A_ID, USER_A_ID, now).await;
 }
 
 async fn ready_runtime_database(name: &str) -> (tempfile::TempDir, sea_orm::DatabaseConnection) {
