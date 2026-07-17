@@ -48,5 +48,35 @@ export default defineConfig({
         isMobile: true,
       },
     },
+    {
+      name: "reader-1280x800",
+      testMatch: /reader-workspace\.spec\.ts/,
+      use: { viewport: { width: 1280, height: 800 } },
+    },
+    {
+      name: "reader-900x800",
+      testMatch: /reader-workspace\.spec\.ts/,
+      use: { viewport: { width: 900, height: 800 } },
+    },
+    {
+      name: "reader-390x844",
+      testMatch: /reader-workspace\.spec\.ts/,
+      use: {
+        viewport: { width: 390, height: 844 },
+        deviceScaleFactor: 1,
+        hasTouch: true,
+        isMobile: true,
+      },
+    },
+    {
+      name: "reader-360x800",
+      testMatch: /reader-workspace\.spec\.ts/,
+      use: {
+        viewport: { width: 360, height: 800 },
+        deviceScaleFactor: 1,
+        hasTouch: true,
+        isMobile: true,
+      },
+    },
   ],
 })

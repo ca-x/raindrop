@@ -221,7 +221,15 @@ html[lang^="zh"] .reader-article-body {
   background: var(--color-background-muted);
 }
 
-.reader-article-body :where(pre, table) {
+.reader-article-body pre {
+  display: block;
+  max-inline-size: 100%;
+  overflow-x: auto;
+}
+
+.reader-article-body table {
+  display: block;
+  inline-size: 100%;
   max-inline-size: 100%;
   overflow-x: auto;
 }

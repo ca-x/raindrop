@@ -1,7 +1,8 @@
-import { act, renderHook } from "@testing-library/react"
+import { act, renderHook, waitFor } from "@testing-library/react"
 import { expect, it, vi } from "vitest"
 
 import type { EntryStateResponse } from "../api/reader.generated"
+import type { Refresh, RefreshState, Subscription } from "../api/subscription.generated"
 import { ApiClientError } from "../../../shared/api/client"
 import type { ReaderApi } from "./controllerApi"
 import {
@@ -109,24 +110,18 @@ it("adds, refreshes, and deletes subscriptions through CSRF-aware actions", asyn
     subscriptionId: "00000000-0000-4000-8000-000000000202",
     title: "Created Feed",
   })
-  const refresh = {
-    operationId: "00000000-0000-4000-8000-000000000801",
-    state: "PENDING" as const,
-    newCount: 0,
-    updatedCount: 0,
-    droppedCount: 0,
-    generation: null,
-    errorCode: null,
-    retryAt: null,
-    queuedAt: "2026-07-18T02:00:00.000000Z",
-    startedAt: null,
-    completedAt: null,
-  }
+  const refresh = makeRefresh("PENDING")
+  const completedRefresh = makeRefresh("READY")
   const createSubscription = vi.fn(async () => ({
     created: true,
     subscription: created,
   }))
   const refreshSubscription = vi.fn(async () => refresh)
+  const getSubscription = vi.fn(async () => makeSubscription({
+    ...created,
+    unreadCount: 4,
+    refresh: completedRefresh,
+  }))
   const deleteSubscription = vi.fn(async () => undefined)
   const requestId = "00000000-0000-4000-8000-000000000901"
   const { result } = renderHook(() =>
@@ -136,6 +131,7 @@ it("adds, refreshes, and deletes subscriptions through CSRF-aware actions", asyn
       createRequestId: () => requestId,
       api: makeApi({
         createSubscription,
+        getSubscription,
         refreshSubscription,
         deleteSubscription,
       }),
@@ -158,8 +154,15 @@ it("adds, refreshes, and deletes subscriptions through CSRF-aware actions", asyn
     "csrf-memory",
     expect.any(AbortSignal),
   )
-  expect(result.current.state.subscriptionsById[created.subscriptionId]?.refresh).toEqual(
-    refresh,
+  await waitFor(() => {
+    expect(result.current.state.subscriptionsById[created.subscriptionId]).toMatchObject({
+      unreadCount: 4,
+      refresh: completedRefresh,
+    })
+  })
+  expect(getSubscription).toHaveBeenCalledWith(
+    created.subscriptionId,
+    expect.any(AbortSignal),
   )
 
   await act(async () => result.current.deleteSubscription(created.subscriptionId))
@@ -169,6 +172,112 @@ it("adds, refreshes, and deletes subscriptions through CSRF-aware actions", asyn
     expect.any(AbortSignal),
   )
   expect(result.current.state.subscriptionsById[created.subscriptionId]).toBeUndefined()
+})
+
+it("reconciles provisional subscription metadata after create refresh completes", async () => {
+  const pending = makeRefresh("PENDING")
+  const ready = makeRefresh("READY")
+  const provisional = makeSubscription({ title: "www.ithome.com", unreadCount: 0, refresh: pending })
+  const resolved = makeSubscription({ title: "IT之家", unreadCount: 60, refresh: ready })
+  const poll = deferred<Subscription>()
+  const getSubscription = vi.fn(() => poll.promise)
+  const { result } = renderHook(() =>
+    useReaderController({
+      csrfToken: "csrf-memory",
+      onUnauthenticated: vi.fn(),
+      api: makeApi({
+        createSubscription: vi.fn(async () => ({ created: true, subscription: provisional })),
+        getSubscription,
+      }),
+    }),
+  )
+  await act(async () => result.current.load())
+
+  await act(async () => result.current.addSubscription("https://www.ithome.com/rss/"))
+
+  expect(result.current.state.subscriptionsById[subscriptionId]).toMatchObject({
+    title: "www.ithome.com",
+    refresh: pending,
+  })
+  await act(async () => poll.resolve(resolved))
+  await waitFor(() => {
+    expect(result.current.state.subscriptionsById[subscriptionId]).toMatchObject({
+      title: "IT之家",
+      unreadCount: 60,
+      refresh: ready,
+    })
+  })
+  expect(getSubscription).toHaveBeenCalledWith(subscriptionId, expect.any(AbortSignal))
+})
+
+it("aborts an in-flight refresh poll when its subscription is deleted", async () => {
+  const pending = makeRefresh("PENDING")
+  const poll = deferred<Subscription>()
+  let pollSignal: AbortSignal | undefined
+  const getSubscription = vi.fn((_subscriptionId: string, signal?: AbortSignal) => {
+    pollSignal = signal
+    return poll.promise
+  })
+  const { result } = renderHook(() =>
+    useReaderController({
+      csrfToken: "csrf-memory",
+      onUnauthenticated: vi.fn(),
+      api: makeApi({
+        getSubscription,
+        refreshSubscription: vi.fn(async () => pending),
+        deleteSubscription: vi.fn(async () => undefined),
+      }),
+    }),
+  )
+  await act(async () => result.current.load())
+
+  await act(async () => result.current.refreshSubscription(subscriptionId))
+  await waitFor(() => expect(getSubscription).toHaveBeenCalledOnce())
+  await act(async () => result.current.deleteSubscription(subscriptionId))
+
+  expect(pollSignal?.aborted).toBe(true)
+  await act(async () => poll.resolve(makeSubscription({ title: "Stale poll result" })))
+  expect(result.current.state.subscriptionsById[subscriptionId]).toBeUndefined()
+  expect(result.current.state.errors.mutation).toBeNull()
+})
+
+it("continues polling pending refreshes and stops at the first terminal subscription", async () => {
+  vi.useFakeTimers()
+  try {
+    const pending = makeRefresh("PENDING")
+    const ready = makeRefresh("READY")
+    const getSubscription = vi
+      .fn()
+      .mockResolvedValueOnce(makeSubscription({ refresh: pending }))
+      .mockResolvedValueOnce(makeSubscription({ title: "Resolved Feed", refresh: ready }))
+    const { result } = renderHook(() =>
+      useReaderController({
+        csrfToken: "csrf-memory",
+        onUnauthenticated: vi.fn(),
+        api: makeApi({
+          getSubscription,
+          refreshSubscription: vi.fn(async () => pending),
+        }),
+      }),
+    )
+    await act(async () => result.current.load())
+
+    await act(async () => result.current.refreshSubscription(subscriptionId))
+    expect(getSubscription).toHaveBeenCalledTimes(1)
+    expect(result.current.state.subscriptionsById[subscriptionId]?.refresh).toEqual(pending)
+
+    await act(async () => vi.advanceTimersByTimeAsync(1_000))
+
+    expect(getSubscription).toHaveBeenCalledTimes(2)
+    expect(result.current.state.subscriptionsById[subscriptionId]).toMatchObject({
+      title: "Resolved Feed",
+      refresh: ready,
+    })
+    await act(async () => vi.advanceTimersByTimeAsync(5_000))
+    expect(getSubscription).toHaveBeenCalledTimes(2)
+  } finally {
+    vi.useRealTimers()
+  }
 })
 
 function makeApi(overrides: Partial<ReaderApi> = {}): ReaderApi {
@@ -198,4 +307,21 @@ function deferred<T>() {
     resolve = resolvePromise
   })
   return { promise, resolve }
+}
+
+function makeRefresh(state: RefreshState): Refresh {
+  const isPending = state === "PENDING"
+  return {
+    operationId: "00000000-0000-4000-8000-000000000801",
+    state,
+    newCount: isPending ? 0 : 1,
+    updatedCount: 0,
+    droppedCount: 0,
+    generation: isPending ? null : 2,
+    errorCode: null,
+    retryAt: null,
+    queuedAt: "2026-07-18T02:00:00.000000Z",
+    startedAt: isPending ? null : "2026-07-18T02:00:00.100000Z",
+    completedAt: isPending ? null : "2026-07-18T02:00:00.200000Z",
+  }
 }

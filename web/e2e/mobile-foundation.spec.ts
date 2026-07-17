@@ -45,40 +45,31 @@ test("mobile setup and authenticated shell preserve touch, keyboard, and history
   await expectNoHorizontalScroll(page)
   await expectActionableTargets(page)
 
-  const menu = page.getByRole("button", { name: "Open menu" })
+  const menu = page.getByRole("button", { name: "Open sources" })
   await expect(menu).toBeVisible()
   await focusWithKeyboard(page, menu)
   await page.keyboard.press("Enter")
-  await expect(page.getByRole("dialog", { name: "Open menu" })).toBeVisible()
+  const sources = page.getByRole("dialog", { name: "Sources" })
+  await expect(sources).toBeVisible()
+  await expect(
+    sources.getByRole("heading", { name: `Raindrop · ${credentials.username}` }),
+  ).toBeVisible()
   await expectActionableTargets(page)
   await page.keyboard.press("Escape")
-  await expect(page.getByRole("dialog", { name: "Open menu" })).not.toBeVisible()
+  await expect(sources).not.toBeVisible()
 
   await menu.tap()
-  await expect(page.getByRole("dialog", { name: "Open menu" })).toBeVisible()
+  await expect(sources).toBeVisible()
   await expectActionableTargets(page)
   await page.getByRole("button", { name: "Close navigation" }).tap()
-  await expect(page.getByRole("dialog", { name: "Open menu" })).not.toBeVisible()
+  await expect(sources).not.toBeVisible()
 
-  const authenticatedIdentity = page
-    .getByTestId("mobile-ready-page")
-    .getByText(credentials.username, { exact: true })
-  await expect(page).toHaveURL(`${server.baseURL}/`)
-  await expect(authenticatedIdentity).toBeVisible()
-
-  await page.evaluate(() => {
-    window.history.pushState({ route: "library" }, "", "/library")
-  })
-  await expect(page).toHaveURL(`${server.baseURL}/library`)
-  await expect(
-    page.getByRole("heading", { name: "Your reading space is ready" }),
-  ).toBeVisible()
+  await menu.tap()
+  await sources.getByText("All entries", { exact: true }).click()
+  await expect(page).toHaveURL(`${server.baseURL}/reader/all`)
   await page.goBack()
-  await expect(page).toHaveURL(`${server.baseURL}/`)
-  await expect(
-    page.getByRole("heading", { name: "Your reading space is ready" }),
-  ).toBeVisible()
-  await expect(authenticatedIdentity).toBeVisible()
+  await expect(page).toHaveURL(`${server.baseURL}/reader/unread`)
+  await expect(page.getByRole("region", { name: "Entry queue" })).toBeVisible()
 })
 
 async function expectNoHorizontalScroll(page: Page): Promise<void> {

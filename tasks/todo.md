@@ -18,10 +18,12 @@
 - [x] 将 `https://www.ithome.com/rss/` 作为 opt-in/live smoke，覆盖真实抓取、RSS 2.0 解析、HTML 清洗、`60-item` 级入库、二次刷新幂等无重复，以及列表/正文展示；live smoke 与确定性 CI fixture 分开。
 - [x] Subscription API/runtime：用户范围 list/detail/create/manual refresh/unsubscribe、调度租约、退避、stale recovery、scheduled enqueue、刷新事件和 OpenAPI drift gate。
 - [ ] Feed 保留策略。
-- [ ] 首个 Reader API client 任务从 `docs/openapi/subscription-v1.json` 生成 TypeScript Subscription DTO，禁止手写第二份 wire contract。
-- [ ] 订阅树、文章列表、阅读器、已读/未读/收藏。
-- [ ] CommaFeed 效率内核：All/Unread/Starred、J/K 与 N/P、批量已读快照、下一未读来源、来源内搜索和非打扰式新文章合并。
-- [ ] 列表重载与 Feed 网络抓取分离，queued/running/cooldown/partial failure 状态可见。
+- [x] Reader API client 从 committed OpenAPI 生成 TypeScript Subscription/Reader DTO，并由 drift gate 阻止手写第二份 wire contract。
+- [x] 订阅树、文章列表、阅读器、已读/未读/收藏与刷新终态同步。
+- [x] CommaFeed 效率首片：All/Unread/Starred、J/K 与 N/P、M/S、路由/焦点/滚动恢复和非打扰式新文章合并。
+- [ ] CommaFeed 后续：批量已读快照、下一未读来源和来源内搜索。
+- [x] 列表重载与 Feed 网络抓取分离，pending/ready/delayed/error 状态可见。
+- [ ] 将 queued/running 拆分显示，并补充 partial failure 的条目级反馈。
 
 ## 3. Multi-user organization
 
@@ -60,12 +62,13 @@
 
 ## 9. Product UX
 
-- [ ] ASTRYX `AppShell + Layout + TreeList + List/Item` 响应式三栏。
-- [ ] `>=1100px` 三栏、`720–1099px` 两区、`<720px` 单任务深链接路由，并恢复订阅树/列表/正文滚动锚点。
-- [ ] Reader 规范化实体状态保证树、列表、正文的已读/收藏/计数一致；新条目不自动重排当前队列。
+- [x] ASTRYX `AppShell + Layout + TreeList + List/Item` 响应式三栏。
+- [x] `>=1100px` 三栏、`720–1099px` 两区、`<720px` 单任务深链接路由，并恢复列表/正文滚动锚点与返回焦点。
+- [x] Reader 规范化实体状态保证树、列表、正文的已读/收藏/计数一致；新条目不自动重排当前队列。
 - [ ] 摘要/翻译/plugin artifact 作为非阻塞 sidecar，原文默认且始终可读。
 - [ ] light/dark/system、Kami 排版、中文/英文完整覆盖。
-- [ ] Emil motion、键盘、screen reader、reduced-motion 和移动端验证。
+- [x] 键盘、screen-reader 语义、reduced-motion 和 390×844/360×800 移动端验证。
+- [ ] 前端完成后执行 Emil motion 机会审计并只加入克制的高价值动效。
 
 ## 10. Release
 

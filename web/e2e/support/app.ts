@@ -45,18 +45,20 @@ export async function completeAdministrator(
   await page.getByLabel(/^Username/u).fill(credentials.username)
   await fillSecret(page.getByLabel(/^Password/u), credentials.password)
   await page.getByRole("button", { name: "Complete setup" }).click()
-  await expect(
-    page.getByRole("heading", { name: "Your reading space is ready" }),
-  ).toBeVisible()
+  await expectReaderReady(page)
 }
 
 export async function signIn(page: Page, credentials: Credentials): Promise<void> {
   await page.getByLabel("Username or email").fill(credentials.username)
   await fillSecret(page.getByLabel(/^Password/u), credentials.password)
   await page.getByRole("button", { name: "Sign in" }).click()
-  await expect(
-    page.getByRole("heading", { name: "Your reading space is ready" }),
-  ).toBeVisible()
+  await expectReaderReady(page)
+}
+
+export async function expectReaderReady(page: Page): Promise<void> {
+  await expect(page).toHaveURL(/\/reader\/unread$/u)
+  await expect(page.getByRole("region", { name: "Entry queue" })).toBeVisible()
+  await expect(page.getByRole("button", { name: "Reload stored entries" })).toBeVisible()
 }
 
 async function fillSecret(locator: Locator, secret: string): Promise<void> {

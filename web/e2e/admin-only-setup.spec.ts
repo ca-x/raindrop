@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test"
 
-import { createCredentials } from "./support/app"
+import { createCredentials, expectReaderReady } from "./support/app"
 import { startProductionServer, type ProductionServer } from "./support/productionServer"
 
 let server: ProductionServer
@@ -30,9 +30,7 @@ test("managed empty database exposes only first-administrator setup", async ({ p
   await page.getByLabel(/^Username/u).fill(credentials.username)
   await page.getByLabel(/^Password/u).fill(credentials.password)
   await page.getByRole("button", { name: "Complete setup" }).click()
-  await expect(
-    page.getByRole("heading", { name: "Your reading space is ready" }),
-  ).toBeVisible()
+  await expectReaderReady(page)
 
   const bootstrap = await page.request.get(`${server.baseURL}/api/v1/bootstrap`)
   await expect(bootstrap.json()).resolves.toEqual({

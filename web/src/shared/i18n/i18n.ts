@@ -1,8 +1,8 @@
-import { setupI18n } from "@lingui/core"
+import { setupI18n, type Messages } from "@lingui/core"
 
 export type AppLocale = "zh-CN" | "en"
 
-const catalogs: Record<AppLocale, Record<string, string>> = {
+const catalogs: Record<AppLocale, Messages> = {
   "zh-CN": {
     "app.loading": "正在准备 Raindrop",
     "app.loadError": "无法加载 Raindrop",
@@ -77,11 +77,11 @@ const catalogs: Record<AppLocale, Record<string, string>> = {
     "reader.refreshError": "刷新失败",
     "reader.refreshDelayed": "刷新延迟",
     "reader.refreshIdle": "尚未刷新",
-    "reader.refreshFeed": "刷新 {title}",
+    "reader.refreshFeed": ["刷新 ", ["title"]],
     "reader.reloadStored": "重新载入已存文章",
     "reader.loadingEntries": "正在加载文章",
-    "reader.newEntriesAvailable": "有 {count} 篇新文章可用",
-    "reader.showNewEntries": "显示 {count} 篇新文章",
+    "reader.newEntriesAvailable": ["有 ", ["count"], " 篇新文章可用"],
+    "reader.showNewEntries": ["显示 ", ["count"], " 篇新文章"],
     "reader.queueError": "无法载入文章队列",
     "reader.genericError": "请稍后重试。",
     "reader.noSubscriptions": "还没有订阅",
@@ -186,11 +186,11 @@ const catalogs: Record<AppLocale, Record<string, string>> = {
     "reader.refreshError": "Refresh failed",
     "reader.refreshDelayed": "Refresh delayed",
     "reader.refreshIdle": "Not refreshed",
-    "reader.refreshFeed": "Refresh {title}",
+    "reader.refreshFeed": ["Refresh ", ["title"]],
     "reader.reloadStored": "Reload stored entries",
     "reader.loadingEntries": "Loading entries",
-    "reader.newEntriesAvailable": "{count} new entries available",
-    "reader.showNewEntries": "Show {count} new entries",
+    "reader.newEntriesAvailable": [["count"], " new entries available"],
+    "reader.showNewEntries": ["Show ", ["count"], " new entries"],
     "reader.queueError": "The entry queue could not load",
     "reader.genericError": "Try again in a moment.",
     "reader.noSubscriptions": "No subscriptions yet",
@@ -223,9 +223,24 @@ const catalogs: Record<AppLocale, Record<string, string>> = {
 export const i18n = setupI18n()
 
 export function activateLocale(locale: AppLocale) {
-  i18n.load(locale, catalogs[locale])
+  i18n.load(locale, compileStaticCatalog(catalogs[locale]))
   i18n.activate(locale)
   document.documentElement.lang = locale
+}
+
+function compileStaticCatalog(catalog: Messages): Messages {
+  const compiled: Messages = {}
+  for (const [id, message] of Object.entries(catalog)) {
+    if (typeof message !== "string") {
+      compiled[id] = message
+      continue
+    }
+    if (/[{}]/u.test(message)) {
+      throw new Error(`Translation ${id} must use Lingui's compiled placeholder form`)
+    }
+    compiled[id] = [message]
+  }
+  return compiled
 }
 
 export function detectLocale(): AppLocale {
