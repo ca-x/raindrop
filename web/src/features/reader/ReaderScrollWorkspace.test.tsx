@@ -25,6 +25,7 @@ describe("Reader scroll anchors", () => {
           isCompact={false}
           onOpenSources={vi.fn()}
           onSelect={vi.fn()}
+          isRouteReady
           cursorEntryId="second"
           cursorFocusNonce={1}
           sourceRoute="/reader/unread"
@@ -32,6 +33,7 @@ describe("Reader scroll anchors", () => {
           onRecordScroll={record}
           onReload={vi.fn().mockResolvedValue(undefined)}
           onMergePending={vi.fn()}
+          onMergedEntryFocus={vi.fn()}
         />
       </Providers>,
     )
@@ -63,15 +65,50 @@ describe("Reader scroll anchors", () => {
     expect(screen.getByRole("article").scrollTop).toBe(540)
     expect(record).toHaveBeenCalledWith("/reader/unread/entry/second", 210)
   })
+
+  it("never binds a pending route to the previously rendered article node", () => {
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (this: HTMLElement) {
+      return this.textContent?.includes("First article") ? 300 : 1_000
+    })
+    const anchors: Record<string, number> = {
+      "/reader/unread/entry/first": 80,
+      "/reader/unread/entry/second": 640,
+    }
+    const record = vi.fn((route: string, offset: number) => { anchors[route] = offset })
+    const { rerender } = render(articleView("first", "first", "ready", anchors, record))
+    expect(screen.getByRole("article").scrollTop).toBe(80)
+
+    rerender(articleView("second", "first", "ready", anchors, record))
+    expect(screen.getByRole("article").scrollTop).toBe(80)
+    rerender(articleView("second", "second", "loading", anchors, record))
+    expect(anchors["/reader/unread/entry/second"]).toBe(640)
+
+    rerender(articleView("second", "second", "ready", anchors, record))
+    expect(screen.getByRole("article").scrollTop).toBe(640)
+    expect(record).not.toHaveBeenCalledWith("/reader/unread/entry/second", 100)
+  })
 })
 
 function article(entryId: "first" | "second", anchors: Record<string, number>, record: (route: string, offset: number) => void) {
-  const route = `/reader/unread/entry/${entryId}`
+  return articleView(entryId, entryId, "ready", anchors, record)
+}
+
+function articleView(
+  routeEntryId: "first" | "second",
+  selectedEntryId: "first" | "second",
+  detailStatus: "loading" | "ready",
+  anchors: Record<string, number>,
+  record: (route: string, offset: number) => void,
+) {
+  const route = `/reader/unread/entry/${routeEntryId}`
+  const state = readerState(selectedEntryId)
+  state.paneStatus.detail = detailStatus
   return (
     <Providers>
       <ArticleReader
-        state={readerState(entryId)}
+        state={state}
         entryRoute={route}
+        routeEntryId={routeEntryId}
         savedScrollOffset={anchors[route] ?? 0}
         shouldFocusArticle
         onRecordScroll={record}

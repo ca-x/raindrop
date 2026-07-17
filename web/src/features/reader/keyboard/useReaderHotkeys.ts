@@ -21,11 +21,12 @@ const editableSelector = [
   "[role='slider']",
 ].join(",")
 const modalSelector = "dialog[open], [role='dialog'][aria-modal='true'], [role='alertdialog'][aria-modal='true']"
+const readerKeys = new Set(["j", "k", "n", "p", "m", "s"])
 
 export function useReaderHotkeys(options: UseReaderHotkeysOptions): void {
+  useImmediateModalGuard()
   const hasEditableFocus = useReaderEditableFocus()
-  const hasUncontrolledModal = useModalPresence()
-  const isDisabled = options.isDisabled || hasEditableFocus || hasUncontrolledModal
+  const isDisabled = options.isDisabled || hasEditableFocus
   const move = (direction: 1 | -1, open: boolean) => {
     const target = adjacentEntry(options.queueEntryIds, options.cursorEntryId, direction)
     if (!target) return
@@ -86,19 +87,14 @@ function isAdditionalEditable(target: EventTarget | null): boolean {
   return target instanceof Element && target.closest(editableSelector) !== null
 }
 
-function useModalPresence(): boolean {
-  const [isPresent, setIsPresent] = useState(() => Boolean(document.querySelector(modalSelector)))
+function useImmediateModalGuard(): void {
   useEffect(() => {
-    const update = () => setIsPresent(Boolean(document.querySelector(modalSelector)))
-    const observer = new MutationObserver(update)
-    observer.observe(document.body, {
-      attributes: true,
-      attributeFilter: ["open", "role", "aria-modal"],
-      childList: true,
-      subtree: true,
-    })
-    update()
-    return () => observer.disconnect()
+    const guard = (event: KeyboardEvent) => {
+      if (!readerKeys.has(event.key.toLowerCase())) return
+      if (event.ctrlKey || event.metaKey || event.altKey) return
+      if (document.querySelector(modalSelector)) event.stopImmediatePropagation()
+    }
+    window.addEventListener("keydown", guard, { capture: true })
+    return () => window.removeEventListener("keydown", guard, { capture: true })
   }, [])
-  return isPresent
 }

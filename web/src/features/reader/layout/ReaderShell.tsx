@@ -21,6 +21,7 @@ import { pathForEntry, type ReaderRouteMatch } from "../routes/readerRoute"
 interface ReaderShellProps {
   controller: ReaderController
   route: ReaderRouteMatch
+  isSourceReady: boolean
   username: string
   viewportMode: ViewportMode
   onLogout: () => Promise<void>
@@ -41,13 +42,15 @@ export function ReaderShell(props: ReaderShellProps) {
   const mobileNavRef = useRef<HTMLDialogElement>(null)
   const sources = useResizable({ defaultSize: 240, minSizePx: 200, maxSizePx: 340, autoSaveId: "reader-sources" })
   const queue = useResizable({ defaultSize: 380, minSizePx: 300, maxSizePx: 560, autoSaveId: "reader-queue" })
-  const queueEntryIds = props.controller.state.queueBySourceKey[sourceKey(props.controller.state.selectedSource)] ?? []
+  const queueEntryIds = props.isSourceReady
+    ? props.controller.state.queueBySourceKey[sourceKey(props.controller.state.selectedSource)] ?? []
+    : []
   const entryRoute = props.route.entryId ? pathForEntry(props.route.sourcePath, props.route.entryId) : null
   useReaderHotkeys({
     queueEntryIds,
     cursorEntryId: props.cursorEntryId,
     openEntryId: props.route.entryId,
-    isDisabled: isNavOpen || isAddOpen,
+    isDisabled: isNavOpen || isAddOpen || !props.isSourceReady,
     isUnread: (entryId) => {
       const entry = props.controller.state.entriesById[entryId] ?? props.controller.state.detailsById[entryId]
       return entry ? !entry.isRead : false
@@ -80,6 +83,7 @@ export function ReaderShell(props: ReaderShellProps) {
       isCompact={props.viewportMode === "compact"}
       onOpenSources={() => setIsNavOpen(true)}
       onSelect={props.onSelectEntry}
+      isRouteReady={props.isSourceReady}
       cursorEntryId={props.cursorEntryId}
       cursorFocusNonce={props.cursorFocusNonce}
       sourceRoute={props.route.sourcePath}
@@ -87,12 +91,14 @@ export function ReaderShell(props: ReaderShellProps) {
       onRecordScroll={props.controller.recordScrollAnchor}
       onReload={props.controller.reloadEntries}
       onMergePending={props.controller.mergePendingEntries}
+      onMergedEntryFocus={props.onCursorChange}
     />
   )
   const articlePane = (
     <ArticleReader
       state={props.controller.state}
       entryRoute={entryRoute}
+      routeEntryId={props.route.entryId}
       savedScrollOffset={entryRoute ? props.controller.state.scrollAnchorByRoute[entryRoute] ?? 0 : 0}
       shouldFocusArticle={props.viewportMode === "compact"}
       onRecordScroll={props.controller.recordScrollAnchor}

@@ -80,7 +80,67 @@ describe("Reader keyboard workspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Back to entry queue" }))
     await waitFor(() => expect(window.location.pathname).toBe("/reader/unread"))
 
-    expect(queueRow("Second article").querySelector("button")).toHaveFocus()
+    await waitFor(() => expect(queueRow("Second article").querySelector("button")).toHaveFocus())
+  })
+
+  it("does not use stale queue entries while a new source route is settling", async () => {
+    const controller = keyboardController()
+    window.history.replaceState(null, "", "/reader/unread/entry/first")
+    render(workspace(controller))
+    await screen.findByRole("heading", { name: "First article" })
+
+    act(() => {
+      window.history.pushState(null, "", "/reader/feed/feed-b")
+      window.dispatchEvent(new PopStateEvent("popstate"))
+    })
+    await waitFor(() => expect(controller.selectSource).toHaveBeenCalledWith({ kind: "feed", feedId: "feed-b" }))
+    vi.clearAllMocks()
+
+    for (const key of ["j", "k", "m", "s"]) {
+      const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })
+      window.dispatchEvent(event)
+      expect(event.defaultPrevented).toBe(false)
+    }
+    const scroller = screen.getByTestId("entry-queue-scroll")
+    scroller.scrollTop = 120
+    fireEvent.scroll(scroller)
+
+    expect(window.location.pathname).toBe("/reader/feed/feed-b")
+    expect(controller.selectEntry).not.toHaveBeenCalled()
+    expect(controller.toggleRead).not.toHaveBeenCalled()
+    expect(controller.toggleStar).not.toHaveBeenCalled()
+    expect(controller.recordScrollAnchor).not.toHaveBeenCalled()
+  })
+
+  it("merges pending entries at the top without replacing the open article", async () => {
+    const controller = keyboardController()
+    const pending = { ...controller.state.entriesById.second, entryId: "pending", title: "Pending article" }
+    controller.state.entriesById.pending = pending
+    controller.state.pendingNewEntriesBySource["smart:UNREAD"] = ["pending"]
+    controller.state.pendingNewEntryCountBySource["smart:UNREAD"] = 1
+    vi.mocked(controller.mergePendingEntries).mockImplementation(() => {
+      controller.state.queueBySourceKey["smart:UNREAD"] = ["pending", "first", "second", "third"]
+      controller.state.pendingNewEntriesBySource["smart:UNREAD"] = []
+      controller.state.pendingNewEntryCountBySource["smart:UNREAD"] = 0
+    })
+    window.history.replaceState(null, "", "/reader/unread/entry/first")
+    render(workspace(controller))
+    await screen.findByRole("heading", { name: "First article" })
+    const scroller = screen.getByTestId("entry-queue-scroll")
+    scroller.scrollTop = 260
+    fireEvent.scroll(scroller)
+    vi.clearAllMocks()
+
+    fireEvent.click(screen.getByRole("button", { name: "Show 1 new entries" }))
+
+    const pendingRow = await screen.findByText("Pending article")
+    expect(window.location.pathname).toBe("/reader/unread/entry/first")
+    expect(screen.getByRole("heading", { name: "First article" })).toBeVisible()
+    expect(scroller.scrollTop).toBe(0)
+    expect(pendingRow.closest("li")).toHaveAttribute("aria-selected", "true")
+    expect(pendingRow.closest("li")?.querySelector("button")).toHaveFocus()
+    expect(controller.recordScrollAnchor).toHaveBeenCalledWith("/reader/unread", 0)
+    expect(controller.selectEntry).not.toHaveBeenCalled()
   })
 })
 

@@ -27,7 +27,14 @@ export function ReaderRoutes(props: ReaderRoutesProps) {
   const [cursorEntryId, setCursorEntryId] = useState<string | null>(route?.entryId ?? null)
   const [cursorFocusNonce, setCursorFocusNonce] = useState(0)
   const previousRoute = useRef({ sourcePath: route?.sourcePath, entryId: route?.entryId })
-  const queue = props.controller.state.queueBySourceKey[sourceKey(props.controller.state.selectedSource)] ?? []
+  const isSourceReady = Boolean(
+    route &&
+    sameReaderSource(route.source, props.controller.state.selectedSource) &&
+    props.controller.state.paneStatus.queue === "ready",
+  )
+  const queue = isSourceReady
+    ? props.controller.state.queueBySourceKey[sourceKey(props.controller.state.selectedSource)] ?? []
+    : []
 
   useEffect(() => {
     if (!route || sameReaderSource(route.source, props.controller.state.selectedSource)) return
@@ -42,6 +49,11 @@ export function ReaderRoutes(props: ReaderRoutesProps) {
   useEffect(() => {
     if (!route) return
     const previous = previousRoute.current
+    if (!isSourceReady) {
+      if (previous.sourcePath !== route.sourcePath) setCursorEntryId(null)
+      previousRoute.current = { sourcePath: route.sourcePath, entryId: route.entryId }
+      return
+    }
     if (previous.sourcePath !== route.sourcePath) {
       setCursorEntryId(route.entryId && queue.includes(route.entryId) ? route.entryId : null)
     } else if (previous.entryId !== route.entryId && route.entryId && queue.includes(route.entryId)) {
@@ -52,11 +64,11 @@ export function ReaderRoutes(props: ReaderRoutesProps) {
       setCursorFocusNonce((value) => value + 1)
     }
     previousRoute.current = { sourcePath: route.sourcePath, entryId: route.entryId }
-  }, [cursorEntryId, queue, route?.entryId, route?.sourcePath])
+  }, [cursorEntryId, isSourceReady, queue, route?.entryId, route?.sourcePath])
 
   useEffect(() => {
-    if (cursorEntryId && !queue.includes(cursorEntryId)) setCursorEntryId(null)
-  }, [cursorEntryId, queue])
+    if (isSourceReady && cursorEntryId && !queue.includes(cursorEntryId)) setCursorEntryId(null)
+  }, [cursorEntryId, isSourceReady, queue])
 
   if (!route) return <Navigate to="/reader/unread" replace />
   const readerQueuePath = (location.state as { readerQueuePath?: unknown } | null)?.readerQueuePath
@@ -65,6 +77,7 @@ export function ReaderRoutes(props: ReaderRoutesProps) {
     <ReaderShell
       {...props}
       route={route}
+      isSourceReady={isSourceReady}
       cursorEntryId={cursorEntryId}
       cursorFocusNonce={cursorFocusNonce}
       onCursorChange={(entryId) => {

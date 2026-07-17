@@ -152,6 +152,25 @@ describe("useReaderHotkeys", () => {
     expect(event.defaultPrevented).toBe(false)
     expect(options.onToggleRead).not.toHaveBeenCalled()
   })
+
+  it.each(["native", "aria"])(
+    "blocks an immediately opened %s modal before ASTRYX prevents default",
+    (kind) => {
+      const options = hotkeyOptions()
+      renderHook(() => useReaderHotkeys(options))
+      const dialog = kind === "native"
+        ? element("dialog", { open: "" })
+        : element("div", { role: "dialog", "aria-modal": "true" })
+      const button = element("button")
+      dialog.append(button)
+      document.body.append(dialog)
+
+      const event = keyEvent("j")
+      expect(button.dispatchEvent(event)).toBe(true)
+      expect(event.defaultPrevented).toBe(false)
+      expect(options.onCursorChange).not.toHaveBeenCalled()
+    },
+  )
 })
 
 function hotkeyOptions(overrides: Partial<UseReaderHotkeysOptions> & { unread?: Set<string> } = {}): UseReaderHotkeysOptions {

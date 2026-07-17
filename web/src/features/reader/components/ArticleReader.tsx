@@ -10,6 +10,7 @@ import { ArticleToolbar } from "./ReaderToolbar"
 interface ArticleReaderProps {
   state: ReaderState
   entryRoute: string | null
+  routeEntryId: string | null
   savedScrollOffset: number
   shouldFocusArticle: boolean
   onRecordScroll: (route: string, offset: number) => void
@@ -22,16 +23,18 @@ export function ArticleReader(props: ArticleReaderProps) {
   const articleRef = useRef<HTMLElement>(null)
   const headingRef = useRef<HTMLHeadingElement>(null)
   const detail = props.state.selectedEntryId ? props.state.detailsById[props.state.selectedEntryId] : undefined
+  const detailMatchesRoute = Boolean(detail && detail.entryId === props.routeEntryId)
+  const canBindArticle = detailMatchesRoute && props.state.paneStatus.detail === "ready"
   useLayoutEffect(() => {
     const node = articleRef.current
     const entryRoute = props.entryRoute
-    if (!node || !detail || !entryRoute) return
+    if (!node || !canBindArticle || !entryRoute) return
     node.scrollTop = clampOffset(node, props.savedScrollOffset)
     return () => props.onRecordScroll(entryRoute, node.scrollTop)
-  }, [detail?.entryId, props.entryRoute])
+  }, [canBindArticle, detail?.entryId, props.entryRoute])
   useEffect(() => {
-    if (detail && props.shouldFocusArticle) headingRef.current?.focus({ preventScroll: true })
-  }, [detail?.entryId, props.shouldFocusArticle])
+    if (canBindArticle && props.shouldFocusArticle) headingRef.current?.focus({ preventScroll: true })
+  }, [canBindArticle, detail?.entryId, props.shouldFocusArticle])
   if (props.state.selectedEntryId && props.state.paneStatus.detail === "error") {
     return (
       <Banner
@@ -74,7 +77,9 @@ export function ArticleReader(props: ArticleReaderProps) {
         ref={articleRef}
         className="reader-article"
         onScroll={(event) => {
-          if (props.entryRoute) props.onRecordScroll(props.entryRoute, event.currentTarget.scrollTop)
+          if (canBindArticle && props.entryRoute) {
+            props.onRecordScroll(props.entryRoute, event.currentTarget.scrollTop)
+          }
         }}
       >
         <p className="reader-article-kicker">{detail.feedTitle}</p>
