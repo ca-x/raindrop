@@ -639,7 +639,7 @@ pub trait AiProvider: Send + Sync {
 }
 ```
 
-首版提供 OpenAI-compatible HTTP adapter，可连接 OpenAI、兼容网关和实现兼容接口的本地服务；provider/plugin 接口不暴露供应商专有 DTO。后续 provider 只新增 adapter。
+首版固定提供四类 HTTP adapter：Anthropic Messages-compatible（Claude 格式）、OpenAI Responses、OpenAI Chat Completions-compatible，以及 Google Gemini native API。Chat Completions-compatible adapter 可连接兼容网关和本地服务；其它 adapter 也允许管理员配置经过 URL policy 校验的兼容 base URL。provider/plugin 接口不暴露供应商专有 DTO，四类响应统一映射为 canonical structured generation、usage、finish reason 和 provider-safe error。后续 provider 只新增 adapter。
 
 Provider 可由管理员设置为实例共享，或由用户设置为个人 provider。secret 使用实例 master key 加密；API 响应只能返回 `isSecretConfigured`。
 

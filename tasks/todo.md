@@ -34,7 +34,7 @@
 
 ## 5. AI content
 
-- [ ] provider/processor 接口和 OpenAI-compatible adapter。
+- [ ] provider/processor 统一接口，以及 Anthropic Messages-compatible、OpenAI Responses、OpenAI Chat Completions-compatible、Google Gemini 四类 adapter。
 - [ ] content jobs/artifacts、摘要、翻译、缓存、版本和额度。
 - [ ] AI artifact UI 与 prompt injection 安全测试。
 

@@ -10,7 +10,7 @@
 2. RSS core：订阅、Feed 租约调度、抓取/解析/清洗、幂等条目、文章列表、稀疏阅读状态。
 3. Multi-user organization：分类、用户设置、注册策略、管理员和跨用户隔离契约。
 4. OIDC：provider discovery、PKCE、账号绑定、claim 策略和管理 UI。
-5. AI content：OpenAI-compatible provider、任务、摘要、翻译、artifact、配额和缓存。
+5. AI content：Anthropic Messages-compatible、OpenAI Responses、OpenAI Chat Completions-compatible、Google Gemini provider adapters，以及任务、摘要、翻译、artifact、配额和缓存。
 6. Plugin ecosystem：WIT SDK、Wasmtime host、内容管线、Feed 生命周期 outbox 和示例插件。
 7. MCP：Raindrop MCP client，以及 Streamable HTTP/stdio MCP server。
 8. Portability/import：PostgreSQL/MySQL 契约、OPML 导入/导出、设置 JSON、保留和备份。
