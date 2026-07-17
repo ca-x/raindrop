@@ -16,6 +16,7 @@ mod repository;
 mod resolver;
 mod schedule;
 mod service;
+mod state;
 mod subscription;
 mod url_policy;
 
@@ -25,8 +26,8 @@ mod test_support;
 pub use address_policy::AddressPolicy;
 pub use content_storage::{EncodedEntryContent, EntryContentDetail, EntryContentError};
 pub use dto::{
-    EnclosureDto, EntryDetailDto, EntryListItemDto, EntryPage, InertImageDto, RefreshDto,
-    SubscribeInput, SubscriptionDto,
+    EnclosureDto, EntryDetailDto, EntryListItemDto, EntryPage, EntryStateDto, InertImageDto,
+    RefreshDto, SubscribeInput, SubscriptionDto, UpdateEntryState,
 };
 pub use error::{
     AddressPolicyError, FeedUrlError, IdentityError, RetryAfterError, ScheduleError, ValidatorError,

@@ -65,6 +65,8 @@ pub enum RepositoryError {
     InvalidLimit,
     #[error("entry list cursor is invalid")]
     InvalidCursor,
+    #[error("entry state patch is empty")]
+    InvalidStatePatch,
     #[error("entry repository data is corrupt")]
     CorruptData,
     #[error("stored entry content is invalid")]
@@ -80,6 +82,7 @@ impl fmt::Debug for RepositoryError {
             Self::InvalidEntryId => "RepositoryError::InvalidEntryId",
             Self::InvalidLimit => "RepositoryError::InvalidLimit",
             Self::InvalidCursor => "RepositoryError::InvalidCursor",
+            Self::InvalidStatePatch => "RepositoryError::InvalidStatePatch",
             Self::CorruptData => "RepositoryError::CorruptData",
             Self::Content(_) => "RepositoryError::Content([REDACTED])",
         })
@@ -213,7 +216,7 @@ fn validate_query(query: &ListEntriesQuery) -> Result<(), RepositoryError> {
     Ok(())
 }
 
-fn validate_uuid(value: &str) -> Result<(), ()> {
+pub(super) fn validate_uuid(value: &str) -> Result<(), ()> {
     let parsed = Uuid::parse_str(value).map_err(|_| ())?;
     (parsed.to_string() == value).then_some(()).ok_or(())
 }

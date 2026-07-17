@@ -90,6 +90,19 @@ pub struct EntryPage {
     pub snapshot_generation: i64,
 }
 
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct UpdateEntryState {
+    pub is_read: Option<bool>,
+    pub is_starred: Option<bool>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EntryStateDto {
+    pub entry_id: String,
+    pub is_read: bool,
+    pub is_starred: bool,
+}
+
 #[derive(Clone, Eq, PartialEq)]
 pub struct EntryDetailDto {
     pub entry_id: String,

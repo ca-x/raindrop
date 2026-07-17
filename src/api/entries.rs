@@ -287,6 +287,7 @@ fn map_repository_error(error: RepositoryError) -> ApiError {
         RepositoryError::InvalidCursor => {
             ApiError::validation().with_field("cursor", "Cursor is invalid")
         }
+        RepositoryError::InvalidStatePatch => ApiError::validation(),
         RepositoryError::Database(_)
         | RepositoryError::CorruptData
         | RepositoryError::Content(_) => ApiError::internal(),
