@@ -13,6 +13,10 @@ use raindrop::feeds::{
     FeedRepository, FeedUrlPolicy, FetchOutcome, FetchedDocument, OpaqueValidator, PersistFeed,
     QueueRefreshRequest, RefreshRepositoryError, RefreshTrigger,
 };
+#[cfg(debug_assertions)]
+use raindrop::feeds::{
+    persistence_peak_full_existing_entry_batch, reset_persistence_batch_observation,
+};
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DatabaseBackend, EntityTrait,
     QueryFilter, QueryOrder, Statement,
@@ -314,6 +318,38 @@ async fn sqlite_persistence_database(
     active.update(&database).await.expect("feed should unlock");
     let repository = FeedRepository::new(database.clone());
     (data, database, repository)
+}
+
+async fn sqlite_retry_database(
+    name: &str,
+) -> (
+    tempfile::TempDir,
+    String,
+    sea_orm::DatabaseConnection,
+    FeedRepository,
+) {
+    let data = tempfile::tempdir().expect("temporary directory should be created");
+    let url = format!(
+        "sqlite://{}?mode=rwc",
+        data.path().join(format!("{name}.db")).display()
+    );
+    let database = connect_for_contract(SecretString::from(url.clone())).await;
+    migrate(&database)
+        .await
+        .expect("entry persistence migrations should apply");
+    insert_feed(&database, time::OffsetDateTime::now_utc()).await;
+    let model = feed::Entity::find_by_id(FEED_ID)
+        .one(&database)
+        .await
+        .expect("feed should query")
+        .expect("feed should exist");
+    let mut active: feed::ActiveModel = model.into();
+    active.entry_sequence_head = Set(0);
+    active.lease_owner = Set(None);
+    active.lease_until = Set(None);
+    active.update(&database).await.expect("feed should unlock");
+    let repository = FeedRepository::new(database.clone());
+    (data, url, database, repository)
 }
 
 async fn claim_refresh(repository: &FeedRepository, key: &str) -> raindrop::feeds::RefreshClaim {
@@ -1228,4 +1264,140 @@ async fn sqlite_sort_keys_accept_pre_epoch_and_post_2038_dates_and_use_db_time_f
     assert!(rows[2].sort_at_us < 2_211_854_706_000_000);
 
     database.close().await.expect("database should close");
+}
+
+fn rss_many(count: usize) -> Vec<u8> {
+    let items = (0..count)
+        .map(|index| {
+            format!(
+                "<item><guid>batch-guid-{index:03}</guid><title>Batch {index:03}</title><description>body {index:03}</description></item>"
+            )
+        })
+        .collect::<String>();
+    format!(
+        "<rss version=\"2.0\"><channel><title>x</title><link>https://example.test/</link>{items}</channel></rss>"
+    )
+    .into_bytes()
+}
+
+#[cfg(debug_assertions)]
+#[tokio::test]
+async fn sqlite_existing_large_entries_are_compared_and_written_in_fixed_batches() {
+    let (_data, database, repository) =
+        sqlite_persistence_database("bounded-existing-batches").await;
+    let first_claim = claim_refresh(&repository, "bounded-first").await;
+    repository
+        .persist_feed(
+            &first_claim,
+            PersistFeed::try_from(parsed_feed(rss_many(129)).await)
+                .expect("first bounded input should map"),
+        )
+        .await
+        .expect("first bounded input should persist");
+
+    let large_html = format!("<p>{}</p>", "x".repeat(64 * 1024));
+    let large_envelope = format!(
+        "rdsc:v1:{{\"html\":{},\"inertImages\":[]}}",
+        serde_json::to_string(&large_html).expect("large HTML should serialize")
+    );
+    database
+        .execute(Statement::from_sql_and_values(
+            DatabaseBackend::Sqlite,
+            "UPDATE entries SET sanitized_content=? WHERE feed_id=?",
+            [large_envelope.into(), FEED_ID.into()],
+        ))
+        .await
+        .expect("large envelope fixture should update");
+
+    reset_persistence_batch_observation();
+    let second_claim = claim_refresh(&repository, "bounded-second").await;
+    let result = repository
+        .persist_feed(
+            &second_claim,
+            PersistFeed::try_from(parsed_feed(rss_many(129)).await)
+                .expect("second bounded input should map"),
+        )
+        .await
+        .expect("second bounded input should persist");
+    assert_eq!(
+        (result.counts.new_count, result.counts.updated_count),
+        (0, 129)
+    );
+    assert!(persistence_peak_full_existing_entry_batch() <= 128);
+
+    let rows = entry::Entity::find()
+        .filter(entry::Column::FeedId.eq(FEED_ID))
+        .order_by_asc(entry::Column::FeedSequence)
+        .all(&database)
+        .await
+        .expect("bounded entries should query");
+    assert_eq!(rows.len(), 129);
+    assert_eq!(
+        rows.iter().map(|row| row.feed_sequence).collect::<Vec<_>>(),
+        (1_i64..=129).collect::<Vec<_>>()
+    );
+
+    database.close().await.expect("database should close");
+}
+
+#[tokio::test]
+async fn sqlite_transient_busy_retries_reuse_owned_input_and_write_once() {
+    let (_data, url, database, repository) = sqlite_retry_database("transient-retry").await;
+    database
+        .execute(Statement::from_string(
+            DatabaseBackend::Sqlite,
+            "PRAGMA busy_timeout = 0".to_owned(),
+        ))
+        .await
+        .expect("persistence connection should use immediate busy errors");
+    let claim = claim_refresh(&repository, "transient-retry").await;
+    let input = PersistFeed::try_from(parsed_feed(rss_item("<p>retry once</p>")).await)
+        .expect("retry input should map once");
+
+    let blocker = connect_for_contract(SecretString::from(url)).await;
+    blocker
+        .execute(Statement::from_string(
+            DatabaseBackend::Sqlite,
+            "BEGIN IMMEDIATE".to_owned(),
+        ))
+        .await
+        .expect("temporary write lock should start");
+    let release = async {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        blocker
+            .execute(Statement::from_string(
+                DatabaseBackend::Sqlite,
+                "COMMIT".to_owned(),
+            ))
+            .await
+            .expect("temporary write lock should release");
+    };
+    let (result, ()) = tokio::join!(repository.persist_feed(&claim, input), release);
+    let result = result.expect("transient busy should retry and persist");
+    assert_eq!(
+        (result.counts.new_count, result.counts.updated_count),
+        (1, 0)
+    );
+    assert_eq!(result.generation, Some(1));
+    assert_eq!(
+        entry::Entity::find()
+            .filter(entry::Column::FeedId.eq(FEED_ID))
+            .all(&database)
+            .await
+            .expect("retried entry should query")
+            .len(),
+        1
+    );
+    assert_eq!(
+        rss_counter::Entity::find_by_id("INGEST_GENERATION")
+            .one(&database)
+            .await
+            .expect("generation should query")
+            .expect("generation should exist")
+            .value,
+        1
+    );
+
+    database.close().await.expect("database should close");
+    blocker.close().await.expect("blocker should close");
 }

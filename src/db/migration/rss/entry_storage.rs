@@ -4,7 +4,7 @@ use serde::Serialize;
 
 use crate::feeds::EntryContentDetail;
 
-const STORAGE_PREFIX: &str = "rdsc:";
+const MIGRATED_STORAGE_PREFIX: &str = "rdsc:v1:";
 const MYSQL_TEXT_MAX_BYTES: usize = 65_535;
 const MIGRATION_BATCH_SIZE: usize = 32;
 
@@ -52,7 +52,7 @@ async fn backfill_legacy_content(manager: &SchemaManager<'_>) -> Result<(), DbEr
         for row in rows {
             let id: String = row.try_get("", "id")?;
             let content: String = row.try_get("", "sanitized_content")?;
-            if content.starts_with(STORAGE_PREFIX) {
+            if content.starts_with(MIGRATED_STORAGE_PREFIX) {
                 EntryContentDetail::decode(&content)
                     .map_err(|_| migration_error("existing entry content envelope is invalid"))?;
                 last_id = id;
@@ -151,7 +151,7 @@ fn encode_legacy_envelope(content: &str) -> Result<String, DbErr> {
 }
 
 fn decode_legacy_html(backend: DbBackend, storage: &str) -> Result<String, DbErr> {
-    let html = if storage.starts_with(STORAGE_PREFIX) {
+    let html = if storage.starts_with(MIGRATED_STORAGE_PREFIX) {
         let detail = EntryContentDetail::decode(storage)
             .map_err(|_| migration_error("entry content envelope is invalid"))?;
         if !detail.inert_images().is_empty() {

@@ -33,6 +33,11 @@ pub use parse::{
     ParsedEnclosure, ParsedEntry, ParsedFeed, ParsedFeedVersion, ParsedSource,
 };
 pub use persistence::{PersistEntry, PersistFeed, PersistResult};
+#[cfg(debug_assertions)]
+#[doc(hidden)]
+pub use persistence::{
+    persistence_peak_full_existing_entry_batch, reset_persistence_batch_observation,
+};
 pub use refresh::{
     ClaimRequest, QueueRefreshRequest, RefreshClaim, RefreshCounts, RefreshFailure,
     RefreshRepositoryError, RefreshRun, RefreshStatus, RefreshTrigger, UnknownRefreshValue,

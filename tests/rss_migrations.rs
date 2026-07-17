@@ -313,7 +313,7 @@ async fn assert_entry_storage_reentry(database: &DatabaseConnection) {
                     "UPDATE entries SET sanitized_content = ? WHERE id = ?"
                 }
             },
-            ["<p>Legacy safe content</p>".into(), ENTRY_A_ID.into()],
+            ["rdsc:notes".into(), ENTRY_A_ID.into()],
         ))
         .await
         .expect("legacy bare HTML fixture should update");
@@ -340,7 +340,7 @@ async fn assert_entry_storage_reentry(database: &DatabaseConnection) {
         .expect("backfilled entry should exist");
     let detail = EntryContentDetail::decode(&entry.sanitized_content)
         .expect("legacy HTML should become a valid envelope");
-    assert_eq!(detail.html(), "<p>Legacy safe content</p>");
+    assert_eq!(detail.html(), "rdsc:notes");
     assert!(detail.inert_images().is_empty());
     for id in &batch_ids {
         let entry = entry::Entity::find_by_id(id)

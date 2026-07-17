@@ -1,7 +1,14 @@
-use std::{collections::HashMap, fmt};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt,
+};
+
+#[cfg(debug_assertions)]
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use sea_orm::{
-    ConnectionTrait, DatabaseBackend, DbBackend, QueryResult, Statement, TransactionTrait,
+    ConnectionTrait, DatabaseBackend, DbBackend, DbErr, QueryResult, RuntimeErr, SqlxError,
+    SqlxMySqlError, Statement, TransactionTrait,
 };
 use serde::Serialize;
 use uuid::Uuid;
@@ -15,6 +22,34 @@ use super::{
 
 const PIPELINE_VERSION: &str = "sanitize-v1";
 const GENERATION_KEY: &str = "INGEST_GENERATION";
+const RETRY_BACKOFFS: [std::time::Duration; 2] = [
+    std::time::Duration::from_millis(25),
+    std::time::Duration::from_millis(50),
+];
+
+#[cfg(debug_assertions)]
+static PEAK_FULL_EXISTING_ENTRY_BATCH: AtomicUsize = AtomicUsize::new(0);
+
+#[cfg(debug_assertions)]
+#[doc(hidden)]
+pub fn reset_persistence_batch_observation() {
+    PEAK_FULL_EXISTING_ENTRY_BATCH.store(0, Ordering::SeqCst);
+}
+
+#[cfg(debug_assertions)]
+#[doc(hidden)]
+#[must_use]
+pub fn persistence_peak_full_existing_entry_batch() -> usize {
+    PEAK_FULL_EXISTING_ENTRY_BATCH.load(Ordering::SeqCst)
+}
+
+#[cfg(debug_assertions)]
+fn observe_full_existing_entry_batch(rows: usize) {
+    PEAK_FULL_EXISTING_ENTRY_BATCH.fetch_max(rows, Ordering::SeqCst);
+}
+
+#[cfg(not(debug_assertions))]
+fn observe_full_existing_entry_batch(_rows: usize) {}
 
 #[derive(Clone)]
 pub struct PersistFeed {
@@ -147,6 +182,24 @@ impl FeedRepository {
         claim: &RefreshClaim,
         feed: PersistFeed,
     ) -> Result<PersistResult, RefreshRepositoryError> {
+        for backoff in RETRY_BACKOFFS {
+            match self.persist_feed_once(claim, &feed).await {
+                Err(RefreshRepositoryError::Database(error))
+                    if is_transient_database_error(&error) =>
+                {
+                    tokio::time::sleep(backoff).await;
+                }
+                result => return result,
+            }
+        }
+        self.persist_feed_once(claim, &feed).await
+    }
+
+    async fn persist_feed_once(
+        &self,
+        claim: &RefreshClaim,
+        feed: &PersistFeed,
+    ) -> Result<PersistResult, RefreshRepositoryError> {
         validate_claim(claim)?;
         let backend = self.connection().get_database_backend();
         let transaction = self.connection().begin().await?;
@@ -161,22 +214,13 @@ impl FeedRepository {
         }
         let insertion_time_us = read_database_time_us(&transaction, backend).await?;
 
-        let existing =
-            lock_existing_entries(&transaction, backend, &claim.feed_id, &feed.entries).await?;
-        let mut existing_by_hash = existing
-            .into_iter()
-            .map(|row| (row.identity_hash.clone(), row))
-            .collect::<HashMap<_, _>>();
-        for entry in &feed.entries {
-            if let Some(existing) = existing_by_hash.get(entry.identity.index_hash()) {
-                ensure_same_identity(existing, &entry.identity)?;
-            }
-        }
+        let existing_hashes =
+            lock_existing_identities(&transaction, backend, &claim.feed_id, &feed.entries).await?;
 
         let new_count = feed
             .entries
             .iter()
-            .filter(|entry| !existing_by_hash.contains_key(entry.identity.index_hash()))
+            .filter(|entry| !existing_hashes.contains(entry.identity.index_hash()))
             .count();
         let generation = if new_count == 0 {
             None
@@ -190,27 +234,44 @@ impl FeedRepository {
             .ok_or(RefreshRepositoryError::SequenceExhausted)?;
         let mut updated_count = 0_i32;
 
-        for entry in &feed.entries {
-            if let Some(existing) = existing_by_hash.remove(entry.identity.index_hash()) {
-                if update_existing_entry(&transaction, backend, &existing, entry).await? {
-                    updated_count = updated_count
+        for entry_batch in feed.entries.chunks(IDENTITY_BATCH_SIZE) {
+            let existing =
+                lock_existing_entry_batch(&transaction, backend, &claim.feed_id, entry_batch)
+                    .await?;
+            observe_full_existing_entry_batch(existing.len());
+            let mut existing_by_hash = existing
+                .into_iter()
+                .map(|row| (row.identity_hash.clone(), row))
+                .collect::<HashMap<_, _>>();
+            for entry in entry_batch {
+                if existing_hashes.contains(entry.identity.index_hash()) {
+                    let existing = existing_by_hash
+                        .remove(entry.identity.index_hash())
+                        .ok_or(RefreshRepositoryError::CorruptData)?;
+                    if update_existing_entry(&transaction, backend, &existing, entry).await? {
+                        updated_count = updated_count
+                            .checked_add(1)
+                            .ok_or(RefreshRepositoryError::CountOverflow)?;
+                    }
+                } else {
+                    sequence_head = sequence_head
                         .checked_add(1)
-                        .ok_or(RefreshRepositoryError::CountOverflow)?;
+                        .ok_or(RefreshRepositoryError::SequenceExhausted)?;
+                    insert_entry(
+                        &transaction,
+                        backend,
+                        &claim.feed_id,
+                        entry,
+                        sequence_head,
+                        generation.ok_or(RefreshRepositoryError::CorruptData)?,
+                        entry.published_at_us.unwrap_or(insertion_time_us),
+                    )
+                    .await?;
                 }
-            } else {
-                sequence_head = sequence_head
-                    .checked_add(1)
-                    .ok_or(RefreshRepositoryError::SequenceExhausted)?;
-                insert_entry(
-                    &transaction,
-                    backend,
-                    &claim.feed_id,
-                    entry,
-                    sequence_head,
-                    generation.ok_or(RefreshRepositoryError::CorruptData)?,
-                    entry.published_at_us.unwrap_or(insertion_time_us),
-                )
-                .await?;
+            }
+            if !existing_by_hash.is_empty() {
+                transaction.rollback().await?;
+                return Err(RefreshRepositoryError::CorruptData);
             }
         }
 
@@ -229,7 +290,7 @@ impl FeedRepository {
             .execute(update_feed_statement(
                 backend,
                 claim,
-                &feed,
+                feed,
                 final_sequence_head,
                 counts.new_count != 0 || counts.updated_count != 0,
             ))
@@ -316,6 +377,33 @@ impl FeedRepository {
     }
 }
 
+fn is_transient_database_error(error: &DbErr) -> bool {
+    let runtime = match error {
+        DbErr::Conn(runtime) | DbErr::Exec(runtime) | DbErr::Query(runtime) => runtime,
+        _ => return false,
+    };
+    let RuntimeErr::SqlxError(SqlxError::Database(database_error)) = runtime else {
+        return false;
+    };
+
+    let code = database_error.code();
+    if code
+        .as_deref()
+        .is_some_and(|code| matches!(code, "40001" | "40P01"))
+    {
+        return true;
+    }
+    if database_error
+        .try_downcast_ref::<SqlxMySqlError>()
+        .is_some_and(|error| matches!(error.number(), 1205 | 1213))
+    {
+        return true;
+    }
+    code.as_deref()
+        .and_then(|code| code.parse::<i32>().ok())
+        .is_some_and(|code| matches!(code & 0xff, 5 | 6))
+}
+
 #[derive(Debug)]
 struct ExistingEntry {
     id: String,
@@ -333,6 +421,8 @@ struct ExistingEntry {
     pipeline_version: String,
     enclosure_json: Option<String>,
 }
+
+const IDENTITY_BATCH_SIZE: usize = 128;
 
 fn validate_claim(claim: &RefreshClaim) -> Result<(), RefreshRepositoryError> {
     if claim.run_id.is_empty()
@@ -439,57 +529,103 @@ async fn read_database_time_us<C: ConnectionTrait>(
         .map_err(|_| RefreshRepositoryError::InvalidTime)
 }
 
-async fn lock_existing_entries<C: ConnectionTrait>(
+async fn lock_existing_identities<C: ConnectionTrait>(
     connection: &C,
     backend: DbBackend,
     feed_id: &str,
     entries: &[PersistEntry],
-) -> Result<Vec<ExistingEntry>, RefreshRepositoryError> {
-    const IDENTITY_BATCH_SIZE: usize = 128;
+) -> Result<HashSet<String>, RefreshRepositoryError> {
     let mut identity_hashes = entries
         .iter()
         .map(|entry| entry.identity.index_hash())
         .collect::<Vec<_>>();
     identity_hashes.sort_unstable();
     identity_hashes.dedup();
-    let mut existing = Vec::with_capacity(identity_hashes.len());
+    let incoming = entries
+        .iter()
+        .map(|entry| (entry.identity.index_hash(), &entry.identity))
+        .collect::<HashMap<_, _>>();
+    let mut existing_hashes = HashSet::with_capacity(identity_hashes.len());
+    for batch in identity_hashes.chunks(IDENTITY_BATCH_SIZE) {
+        let rows = connection
+            .query_all(identity_lookup_statement(backend, feed_id, batch, false))
+            .await?;
+        for row in rows {
+            let identity_kind: String = required(&row, "identity_kind")?;
+            let identity: String = required(&row, "identity")?;
+            let identity_hash: String = required(&row, "identity_hash")?;
+            let incoming_identity = incoming
+                .get(identity_hash.as_str())
+                .ok_or(RefreshRepositoryError::CorruptData)?;
+            ensure_identity_parts(&identity_kind, &identity, incoming_identity)?;
+            existing_hashes.insert(identity_hash);
+        }
+    }
+    Ok(existing_hashes)
+}
+
+async fn lock_existing_entry_batch<C: ConnectionTrait>(
+    connection: &C,
+    backend: DbBackend,
+    feed_id: &str,
+    entries: &[PersistEntry],
+) -> Result<Vec<ExistingEntry>, RefreshRepositoryError> {
+    let mut identity_hashes = entries
+        .iter()
+        .map(|entry| entry.identity.index_hash())
+        .collect::<Vec<_>>();
+    identity_hashes.sort_unstable();
+    identity_hashes.dedup();
+    connection
+        .query_all(identity_lookup_statement(
+            backend,
+            feed_id,
+            &identity_hashes,
+            true,
+        ))
+        .await?
+        .into_iter()
+        .map(decode_existing_entry)
+        .collect()
+}
+
+fn identity_lookup_statement(
+    backend: DbBackend,
+    feed_id: &str,
+    identity_hashes: &[&str],
+    full: bool,
+) -> Statement {
+    let mut values = Vec::with_capacity(identity_hashes.len() + 1);
+    values.push(feed_id.into());
+    values.extend(identity_hashes.iter().map(|hash| (*hash).into()));
+    let (feed_placeholder, hash_placeholders) = if backend == DatabaseBackend::Postgres {
+        (
+            "$1".to_owned(),
+            (2..=identity_hashes.len() + 1)
+                .map(|index| format!("${index}"))
+                .collect::<Vec<_>>()
+                .join(","),
+        )
+    } else {
+        ("?".to_owned(), vec!["?"; identity_hashes.len()].join(","))
+    };
+    let columns = if full {
+        "id, identity_kind, identity, identity_hash, canonical_url, title, author,
+         sanitized_content, summary, published_at_us, source_content_hash, content_hash,
+         pipeline_version, enclosure_json"
+    } else {
+        "identity_kind, identity, identity_hash"
+    };
     let lock = if backend == DatabaseBackend::Sqlite {
         ""
     } else {
         " FOR UPDATE"
     };
-    for batch in identity_hashes.chunks(IDENTITY_BATCH_SIZE) {
-        let mut values = Vec::with_capacity(batch.len() + 1);
-        values.push(feed_id.into());
-        values.extend(batch.iter().map(|hash| (*hash).into()));
-        let (feed_placeholder, hash_placeholders) = if backend == DatabaseBackend::Postgres {
-            (
-                "$1".to_owned(),
-                (2..=batch.len() + 1)
-                    .map(|index| format!("${index}"))
-                    .collect::<Vec<_>>()
-                    .join(","),
-            )
-        } else {
-            ("?".to_owned(), vec!["?"; batch.len()].join(","))
-        };
-        let sql = format!(
-            "SELECT id, identity_kind, identity, identity_hash, canonical_url, title, author,
-                    sanitized_content, summary, published_at_us, source_content_hash, content_hash,
-                    pipeline_version, enclosure_json
-             FROM entries WHERE feed_id = {feed_placeholder}
-               AND identity_hash IN ({hash_placeholders}) ORDER BY identity_hash{lock}"
-        );
-        let rows = connection
-            .query_all(Statement::from_sql_and_values(backend, sql, values))
-            .await?;
-        existing.extend(
-            rows.into_iter()
-                .map(decode_existing_entry)
-                .collect::<Result<Vec<_>, _>>()?,
-        );
-    }
-    Ok(existing)
+    let sql = format!(
+        "SELECT {columns} FROM entries WHERE feed_id = {feed_placeholder}
+         AND identity_hash IN ({hash_placeholders}) ORDER BY identity_hash{lock}"
+    );
+    Statement::from_sql_and_values(backend, sql, values)
 }
 
 fn decode_existing_entry(row: QueryResult) -> Result<ExistingEntry, RefreshRepositoryError> {
@@ -531,8 +667,16 @@ fn ensure_same_identity(
     existing: &ExistingEntry,
     identity: &EntryIdentity,
 ) -> Result<(), RefreshRepositoryError> {
-    if existing.identity_kind != identity.kind().as_database_str()
-        || existing.identity != identity.identity()
+    ensure_identity_parts(&existing.identity_kind, &existing.identity, identity)
+}
+
+fn ensure_identity_parts(
+    identity_kind: &str,
+    persisted_identity: &str,
+    identity: &EntryIdentity,
+) -> Result<(), RefreshRepositoryError> {
+    if identity_kind != identity.kind().as_database_str()
+        || persisted_identity != identity.identity()
     {
         Err(RefreshRepositoryError::IdentityHashCollision)
     } else {
