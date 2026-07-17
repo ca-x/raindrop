@@ -1,4 +1,4 @@
-import { act, render, renderHook, screen, waitFor } from "@testing-library/react"
+import { act, render, renderHook, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
 
@@ -10,6 +10,7 @@ import type { ReaderController } from "./model/useReaderController"
 import { initialReaderState } from "./model/reducer"
 import type { ReaderState } from "./model/types"
 import { ReaderRoutes } from "./routes/ReaderRoutes"
+import "./reader.css"
 
 describe("Reader workspace", () => {
   it("shows source, queue, and article panes on a wide canonical route", async () => {
@@ -189,12 +190,30 @@ describe("Reader workspace", () => {
     )
 
     await user.click(screen.getByRole("button", { name: "Open sources" }))
-    expect(screen.getByRole("dialog", { name: "Sources" })).toHaveAttribute("open")
+    const dialog = screen.getByRole("dialog", { name: "Sources" })
+    expect(dialog).toHaveAttribute("open")
     expect(screen.getByRole("tree", { name: "Sources" })).toBeVisible()
+    const close = within(dialog).getByRole("button", { name: "Close navigation" })
+    expect(getComputedStyle(close).minInlineSize).toBe("44px")
+    expect(getComputedStyle(close).minBlockSize).toBe("44px")
+    expect(screen.getByRole("toolbar", { name: "Queue actions" }).closest(".reader-compact-navigation")).toBeNull()
   })
 
   it("redirects unknown ready-state paths to unread", async () => {
     window.history.replaceState(null, "", "/reader/not-a-source")
+    render(
+      <Providers>
+        <ReaderRoutes controller={fakeController()} username="reader" onLogout={vi.fn()} viewportMode="wide" />
+      </Providers>,
+    )
+    await waitFor(() => expect(window.location.pathname).toBe("/reader/unread"))
+  })
+
+  it.each([
+    "/reader/feed/%E0%A4%A",
+    "/reader/unread/entry/%E0%A4%A",
+  ])("redirects malformed encoded route %s to unread", async (path) => {
+    window.history.replaceState(null, "", path)
     render(
       <Providers>
         <ReaderRoutes controller={fakeController()} username="reader" onLogout={vi.fn()} viewportMode="wide" />

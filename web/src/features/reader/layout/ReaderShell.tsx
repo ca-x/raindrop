@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from "react"
 import type { ViewportMode } from "../../../shared/responsive/useViewportMode"
 import { ArticleReader } from "../components/ArticleReader"
 import { EntryQueue } from "../components/EntryQueue"
+import { CompactArticleNavigation } from "../components/ReaderToolbar"
 import { SourceTree } from "../components/SourceTree"
 import { SubscriptionDialog } from "../components/SubscriptionDialog"
 import type { ReaderSource } from "../model/types"
@@ -55,6 +56,7 @@ export function ReaderShell(props: ReaderShellProps) {
     <EntryQueue
       state={props.controller.state}
       showMenu={props.viewportMode !== "wide"}
+      isCompact={props.viewportMode === "compact"}
       onOpenSources={() => setIsNavOpen(true)}
       onSelect={props.onSelectEntry}
       onReload={props.controller.reloadEntries}
@@ -64,8 +66,6 @@ export function ReaderShell(props: ReaderShellProps) {
   const articlePane = (
     <ArticleReader
       state={props.controller.state}
-      showBack={props.viewportMode === "compact"}
-      onBack={props.onBack}
       onToggleRead={props.controller.toggleRead}
       onToggleStar={props.controller.toggleStar}
     />
@@ -87,6 +87,7 @@ export function ReaderShell(props: ReaderShellProps) {
             onOpenChange={setIsNavOpen}
             label={i18n._("reader.sources")}
             header={`Raindrop · ${props.username}`}
+            className="reader-mobile-nav"
           >
             {sourceTree}
           </MobileNav>
@@ -119,7 +120,15 @@ export function ReaderShell(props: ReaderShellProps) {
             label={hasEntry ? i18n._("reader.article") : i18n._("reader.queue")}
             aria-busy={hasEntry ? props.controller.state.paneStatus.detail === "loading" : props.controller.state.paneStatus.queue === "loading"}
           >
-            {hasEntry ? articlePane : queuePane}
+            {hasEntry ? (
+              <div className="reader-compact-detail">
+                <CompactArticleNavigation
+                  onOpenSources={() => setIsNavOpen(true)}
+                  onBack={props.onBack}
+                />
+                <div className="reader-compact-article-content">{articlePane}</div>
+              </div>
+            ) : queuePane}
           </LayoutContent>
         } />
       )

@@ -49,13 +49,14 @@ export function SourceToolbar({ onAdd, onLogout, refresh }: SourceToolbarProps) 
 
 interface QueueToolbarProps {
   showMenu: boolean
+  isCompact: boolean
   onOpenSources: () => void
   onReload: () => Promise<void>
 }
 
-export function QueueToolbar({ showMenu, onOpenSources, onReload }: QueueToolbarProps) {
+export function QueueToolbar({ showMenu, isCompact, onOpenSources, onReload }: QueueToolbarProps) {
   const { i18n } = useLingui()
-  return (
+  const toolbar = (
     <Toolbar
       label={i18n._("reader.queue.actions")}
       size="lg"
@@ -83,14 +84,49 @@ export function QueueToolbar({ showMenu, onOpenSources, onReload }: QueueToolbar
       }
     />
   )
+  return isCompact ? <div className="reader-compact-navigation">{toolbar}</div> : toolbar
+}
+
+interface CompactArticleNavigationProps {
+  onOpenSources: () => void
+  onBack: () => void
+}
+
+export function CompactArticleNavigation({ onOpenSources, onBack }: CompactArticleNavigationProps) {
+  const { i18n } = useLingui()
+  return (
+    <div className="reader-compact-navigation">
+      <Toolbar
+        label={i18n._("reader.articleNavigation")}
+        size="lg"
+        dividers={["bottom"]}
+        startContent={(
+          <>
+            <Button
+              label={i18n._("reader.openSources")}
+              icon={<Icon icon="menu" />}
+              isIconOnly
+              tooltip={i18n._("reader.openSources")}
+              onClick={onOpenSources}
+              variant="ghost"
+            />
+            <Button
+              label={i18n._("reader.backToQueue")}
+              icon={<Icon icon="chevronLeft" />}
+              onClick={onBack}
+              variant="ghost"
+            />
+          </>
+        )}
+      />
+    </div>
+  )
 }
 
 interface ArticleToolbarProps {
-  showBack: boolean
   isRead: boolean
   isStarred: boolean
   canonicalUrl: string | null
-  onBack: () => void
   onToggleRead: () => Promise<void>
   onToggleStar: () => Promise<void>
 }
@@ -102,14 +138,6 @@ export function ArticleToolbar(props: ArticleToolbarProps) {
       label={i18n._("reader.articleActions")}
       size="lg"
       dividers={["bottom"]}
-      startContent={props.showBack ? (
-        <Button
-          label={i18n._("reader.backToQueue")}
-          icon={<Icon icon="chevronLeft" />}
-          onClick={props.onBack}
-          variant="ghost"
-        />
-      ) : undefined}
       endContent={
         <>
           <ToggleButton

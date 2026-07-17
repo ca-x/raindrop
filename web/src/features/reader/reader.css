@@ -21,10 +21,14 @@
 }
 
 .reader-source-tree [role="treeitem"],
-.reader-source-tree button,
-.reader-queue button,
-.reader-article-plane button,
-.reader-dialog-actions button {
+.reader-source-tree :where(button, a),
+.reader-queue :where(button, a),
+.reader-article-plane [role="toolbar"] :where(button, a),
+.reader-compact-navigation :where(button, a),
+.reader-subscription-dialog :where(button, a),
+.reader-mobile-nav :where(button, a, [role="treeitem"]),
+.reader-touch-target {
+  min-inline-size: 44px;
   min-block-size: 44px;
   touch-action: manipulation;
 }
@@ -99,6 +103,24 @@
 .reader-article-plane {
   background: var(--color-background-surface);
   padding-block-end: env(safe-area-inset-bottom);
+}
+
+.reader-compact-detail,
+.reader-compact-article-content {
+  display: flex;
+  flex-direction: column;
+  min-inline-size: 0;
+  min-block-size: 0;
+  block-size: 100%;
+}
+
+.reader-compact-article-content {
+  flex: 1;
+  overflow: hidden;
+}
+
+.reader-compact-article-content > .reader-article-plane {
+  block-size: 100%;
 }
 
 .reader-article,
@@ -199,6 +221,10 @@ html[lang^="zh"] .reader-article-body {
 }
 
 @media (max-width: 719px) {
+  .reader-compact-navigation {
+    padding-block-start: env(safe-area-inset-top);
+  }
+
   .reader-queue,
   .reader-article-plane {
     inline-size: 100%;

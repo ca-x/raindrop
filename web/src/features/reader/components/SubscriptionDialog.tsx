@@ -65,6 +65,7 @@ export function SubscriptionDialog(props: SubscriptionDialogProps) {
       }}
       purpose="form"
       width={520}
+      className="reader-subscription-dialog"
     >
       <Layout
         height="auto"
@@ -96,6 +97,7 @@ export function SubscriptionDialog(props: SubscriptionDialogProps) {
                   status={error ? { type: "error", message: error } : undefined}
                   isRequired
                   width="100%"
+                  className="reader-touch-target"
                 />
               </FormLayout>
             </form>

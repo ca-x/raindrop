@@ -8,8 +8,6 @@ import { ArticleToolbar } from "./ReaderToolbar"
 
 interface ArticleReaderProps {
   state: ReaderState
-  showBack: boolean
-  onBack: () => void
   onToggleRead: (entryId: string) => Promise<void>
   onToggleStar: (entryId: string) => Promise<void>
 }
@@ -49,11 +47,9 @@ export function ArticleReader(props: ArticleReaderProps) {
   return (
     <div className="reader-article-plane">
       <ArticleToolbar
-        showBack={props.showBack}
         isRead={detail.isRead}
         isStarred={detail.isStarred}
         canonicalUrl={detail.canonicalUrl}
-        onBack={props.onBack}
         onToggleRead={() => props.onToggleRead(detail.entryId)}
         onToggleStar={() => props.onToggleStar(detail.entryId)}
       />

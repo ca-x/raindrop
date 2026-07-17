@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react"
+import { act, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
 
@@ -7,6 +7,7 @@ import { activateLocale } from "../../shared/i18n/i18n"
 import { initialReaderState } from "./model/reducer"
 import type { ReaderController } from "./model/useReaderController"
 import { ReaderRoutes } from "./routes/ReaderRoutes"
+import "./reader.css"
 
 describe("Reader article workspace", () => {
   it("renders compact detail actions and keeps inert publisher image URLs disabled", async () => {
@@ -25,6 +26,12 @@ describe("Reader article workspace", () => {
     expect(screen.getByText("Safe original article.")) .toBeVisible()
     expect(document.querySelector(".reader-article img")).not.toHaveAttribute("src")
     expect(document.body).not.toHaveTextContent("publisher.example/tracker.gif")
+    const navigation = screen.getByRole("toolbar", { name: "Article navigation" })
+    expect(navigation.closest(".reader-compact-navigation")).toBeInTheDocument()
+
+    const original = screen.getByRole("link", { name: "Open original article" })
+    expect(getComputedStyle(original).minInlineSize).toBe("44px")
+    expect(getComputedStyle(original).minBlockSize).toBe("44px")
 
     await user.click(screen.getByRole("button", { name: "Mark as read" }))
     await user.click(screen.getByRole("button", { name: "Star entry" }))
@@ -34,6 +41,28 @@ describe("Reader article workspace", () => {
     await user.click(screen.getByRole("button", { name: "Back to entry queue" }))
     expect(window.location.pathname).toBe("/reader/unread")
   })
+
+  it.each(["loading", "error"] as const)(
+    "keeps compact source and Back navigation available while detail is %s",
+    async (status) => {
+      const user = userEvent.setup()
+      const controller = articleController()
+      controller.state.paneStatus.detail = status
+      controller.state.errors.detail = status === "error" ? "Detail unavailable." : null
+      window.history.replaceState(null, "", "/reader/unread/entry/entry")
+
+      render(
+        <Providers>
+          <ReaderRoutes controller={controller} username="reader" onLogout={vi.fn()} viewportMode="compact" />
+        </Providers>,
+      )
+
+      expect(screen.getByRole("button", { name: "Back to entry queue" })).toBeVisible()
+      await user.click(screen.getByRole("button", { name: "Open sources" }))
+      expect(screen.getByRole("dialog", { name: "Sources" })).toHaveAttribute("open")
+      expect(within(screen.getByRole("dialog", { name: "Sources" })).getByRole("tree", { name: "Sources" })).toBeVisible()
+    },
+  )
 
   it("moves compact mode from queue route to detail route", async () => {
     const user = userEvent.setup()
@@ -46,10 +75,46 @@ describe("Reader article workspace", () => {
     )
 
     expect(screen.getByRole("region", { name: "Entry queue" })).toBeVisible()
+    expect(screen.getByRole("toolbar", { name: "Queue actions" }).closest(".reader-compact-navigation")).toBeInTheDocument()
     await user.click(screen.getByText("Reading without trackers"))
     expect(window.location.pathname).toBe("/reader/unread/entry/entry")
     expect(screen.getByRole("region", { name: "Article" })).toBeVisible()
     expect(screen.queryByRole("region", { name: "Entry queue" })).not.toBeInTheDocument()
+  })
+
+  it("uses history Back for an internally opened detail without reopening it", async () => {
+    const user = userEvent.setup()
+    window.history.replaceState(null, "", "/reader/all")
+    window.history.pushState(null, "", "/reader/unread")
+    render(
+      <Providers>
+        <ReaderRoutes controller={articleController()} username="reader" onLogout={vi.fn()} viewportMode="compact" />
+      </Providers>,
+    )
+
+    await user.click(screen.getByText("Reading without trackers"))
+    await user.click(screen.getByRole("button", { name: "Back to entry queue" }))
+    await waitFor(() => expect(window.location.pathname).toBe("/reader/unread"))
+
+    act(() => window.history.back())
+    await waitFor(() => expect(window.location.pathname).toBe("/reader/all"))
+  })
+
+  it("replaces a direct-linked detail with its queue before browser Back", async () => {
+    const user = userEvent.setup()
+    window.history.replaceState(null, "", "/reader/all")
+    window.history.pushState(null, "", "/reader/unread/entry/entry")
+    render(
+      <Providers>
+        <ReaderRoutes controller={articleController()} username="reader" onLogout={vi.fn()} viewportMode="compact" />
+      </Providers>,
+    )
+
+    await user.click(screen.getByRole("button", { name: "Back to entry queue" }))
+    await waitFor(() => expect(window.location.pathname).toBe("/reader/unread"))
+
+    act(() => window.history.back())
+    await waitFor(() => expect(window.location.pathname).toBe("/reader/all"))
   })
 })
 

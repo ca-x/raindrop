@@ -35,14 +35,20 @@ export function ReaderRoutes(props: ReaderRoutesProps) {
   }, [props.controller.selectEntry, route?.entryId, route?.sourcePath])
 
   if (!route) return <Navigate to="/reader/unread" replace />
+  const readerQueuePath = (location.state as { readerQueuePath?: unknown } | null)?.readerQueuePath
 
   return (
     <ReaderShell
       {...props}
       route={route}
       onSelectSource={(source) => navigate(pathForSource(source))}
-      onSelectEntry={(entryId) => navigate(pathForEntry(route.sourcePath, entryId))}
-      onBack={() => navigate(route.sourcePath)}
+      onSelectEntry={(entryId) => navigate(pathForEntry(route.sourcePath, entryId), {
+        state: { readerQueuePath: route.sourcePath },
+      })}
+      onBack={() => {
+        if (readerQueuePath === route.sourcePath) navigate(-1)
+        else navigate(route.sourcePath, { replace: true })
+      }}
     />
   )
 }

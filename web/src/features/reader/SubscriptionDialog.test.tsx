@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest"
 import { Providers } from "../../app/Providers"
 import { activateLocale } from "../../shared/i18n/i18n"
 import { SubscriptionDialog } from "./components/SubscriptionDialog"
+import "./reader.css"
 
 describe("SubscriptionDialog", () => {
   it("validates HTTPS feed URLs and retains input after a failed add", async () => {
@@ -20,6 +21,9 @@ describe("SubscriptionDialog", () => {
     )
 
     const input = screen.getByRole("textbox", { name: /^Feed URL/ })
+    expect(input.parentElement).toHaveClass("reader-touch-target")
+    expect(getComputedStyle(input.parentElement!).minInlineSize).toBe("44px")
+    expect(getComputedStyle(input.parentElement!).minBlockSize).toBe("44px")
     await user.type(input, "http://feeds.example/rss")
     await user.click(screen.getByRole("button", { name: "Add subscription" }))
     expect(screen.getByText("Enter an HTTPS feed URL.")).toBeVisible()

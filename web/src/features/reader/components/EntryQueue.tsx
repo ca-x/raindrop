@@ -13,20 +13,21 @@ import { QueueToolbar } from "./ReaderToolbar"
 interface EntryQueueProps {
   state: ReaderState
   showMenu: boolean
+  isCompact: boolean
   onOpenSources: () => void
   onSelect: (entryId: string) => void
   onReload: () => Promise<void>
   onMergePending: () => void
 }
 
-export function EntryQueue({ state, showMenu, onOpenSources, onSelect, onReload, onMergePending }: EntryQueueProps) {
+export function EntryQueue({ state, showMenu, isCompact, onOpenSources, onSelect, onReload, onMergePending }: EntryQueueProps) {
   const { i18n } = useLingui()
   const key = sourceKey(state.selectedSource)
   const queue = state.queueBySourceKey[key] ?? []
   const pendingCount = state.pendingNewEntryCountBySource[key] ?? 0
   return (
     <div className="reader-queue" aria-busy={state.paneStatus.queue === "loading"}>
-      <QueueToolbar showMenu={showMenu} onOpenSources={onOpenSources} onReload={onReload} />
+      <QueueToolbar showMenu={showMenu} isCompact={isCompact} onOpenSources={onOpenSources} onReload={onReload} />
       {pendingCount > 0 ? (
         <Banner
           container="section"

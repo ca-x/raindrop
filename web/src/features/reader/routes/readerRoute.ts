@@ -17,18 +17,22 @@ export function parseReaderPath(pathname: string): ReaderRouteMatch | null {
   const entryMarker = "/entry/"
   const markerIndex = pathname.indexOf(entryMarker)
   const sourcePath = markerIndex === -1 ? pathname : pathname.slice(0, markerIndex)
-  const entryId = markerIndex === -1 ? null : pathname.slice(markerIndex + entryMarker.length)
-  if (entryId === "" || entryId?.includes("/")) return null
+  const encodedEntryId = markerIndex === -1 ? null : pathname.slice(markerIndex + entryMarker.length)
+  if (encodedEntryId === "" || encodedEntryId?.includes("/")) return null
+  const entryId = encodedEntryId === null ? null : safeDecode(encodedEntryId)
+  if (encodedEntryId !== null && entryId === null) return null
 
   const smartState = smartPaths[sourcePath]
   if (smartState) return { source: { kind: "smart", state: smartState }, sourcePath, entryId }
 
   const feedMatch = /^\/reader\/feed\/([^/]+)$/.exec(sourcePath)
   if (!feedMatch) return null
+  const feedId = safeDecode(feedMatch[1])
+  if (feedId === null) return null
   return {
-    source: { kind: "feed", feedId: decodeURIComponent(feedMatch[1]) },
+    source: { kind: "feed", feedId },
     sourcePath,
-    entryId: entryId ? decodeURIComponent(entryId) : null,
+    entryId,
   }
 }
 
@@ -44,4 +48,12 @@ export function pathForEntry(sourcePath: string, entryId: string): string {
 export function sameReaderSource(left: ReaderSource, right: ReaderSource): boolean {
   return left.kind === right.kind &&
     (left.kind === "feed" ? left.feedId === (right as typeof left).feedId : left.state === (right as typeof left).state)
+}
+
+function safeDecode(value: string): string | null {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return null
+  }
 }
