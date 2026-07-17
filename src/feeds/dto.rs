@@ -18,6 +18,51 @@ pub struct SubscriptionDto {
     pub refresh: RefreshDto,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ListSubscriptionsQuery {
+    pub cursor: Option<String>,
+    pub limit: u16,
+}
+
+impl Default for ListSubscriptionsQuery {
+    fn default() -> Self {
+        Self {
+            cursor: None,
+            limit: 50,
+        }
+    }
+}
+
+#[derive(Clone, Eq, PartialEq)]
+pub struct SubscriptionListItemDto {
+    pub subscription_id: String,
+    pub feed_id: String,
+    pub title: String,
+    pub site_url: Option<String>,
+    pub unread_count: i64,
+    pub refresh: Option<RefreshDto>,
+}
+
+impl fmt::Debug for SubscriptionListItemDto {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("SubscriptionListItemDto")
+            .field("subscription_id", &self.subscription_id)
+            .field("feed_id", &self.feed_id)
+            .field("title", &"[REDACTED]")
+            .field("site_url", &self.site_url.as_ref().map(|_| "[REDACTED]"))
+            .field("unread_count", &self.unread_count)
+            .field("refresh", &self.refresh)
+            .finish()
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SubscriptionPage {
+    pub items: Vec<SubscriptionListItemDto>,
+    pub next_cursor: Option<String>,
+}
+
 impl fmt::Debug for SubscriptionDto {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter

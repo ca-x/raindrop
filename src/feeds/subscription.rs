@@ -1,15 +1,35 @@
 use std::fmt;
 
+use base64::Engine;
 use sea_orm::{
     ConnectionTrait, DatabaseBackend, DbBackend, DbErr, QueryResult, Statement, TransactionTrait,
+    Value,
 };
+use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
 use super::lifecycle::is_unique_violation;
+use super::query::{RepositoryError, validate_uuid};
 use super::{
-    FeedRepository, NormalizedFeedUrl, RefreshDto, RefreshStatus, RefreshTrigger, SubscriptionDto,
+    FeedRepository, ListSubscriptionsQuery, NormalizedFeedUrl, RefreshDto, RefreshStatus,
+    RefreshTrigger, SubscriptionDto, SubscriptionListItemDto, SubscriptionPage,
 };
+
+const SUBSCRIPTION_CURSOR_VERSION: u8 = 1;
+const SUBSCRIPTION_CURSOR_ORDER: &str = "CREATED_DESC_ID_DESC";
+const MAX_SUBSCRIPTION_CURSOR_BYTES: usize = 1_024;
+const MAX_SUBSCRIPTION_LIMIT: u16 = 100;
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SubscriptionCursorV1 {
+    version: u8,
+    user_hash: String,
+    order: String,
+    created_at_us: i64,
+    subscription_id: String,
+}
 
 #[derive(Clone)]
 pub(super) struct SubscribeRecord {
@@ -60,6 +80,111 @@ impl From<DbErr> for SubscriptionRepositoryError {
 }
 
 impl FeedRepository {
+    pub async fn list_subscriptions_for_user(
+        &self,
+        user_id: &str,
+        query: ListSubscriptionsQuery,
+    ) -> Result<SubscriptionPage, RepositoryError> {
+        validate_uuid(user_id).map_err(|()| RepositoryError::InvalidUserId)?;
+        validate_subscription_query(&query)?;
+        let expected_user_hash = subscription_user_hash(user_id);
+        let cursor = query
+            .cursor
+            .as_deref()
+            .map(decode_subscription_cursor)
+            .transpose()?;
+        if cursor
+            .as_ref()
+            .is_some_and(|cursor| cursor.user_hash != expected_user_hash)
+        {
+            return Err(RepositoryError::InvalidCursor);
+        }
+        let backend = self.connection().get_database_backend();
+        let rows = self
+            .connection()
+            .query_all(subscription_list_statement(
+                backend,
+                user_id,
+                query.limit,
+                cursor.as_ref(),
+            ))
+            .await?;
+        let mut projected = rows
+            .into_iter()
+            .map(decode_subscription_projection)
+            .collect::<Result<Vec<_>, _>>()?;
+        let has_more = projected.len() > usize::from(query.limit);
+        if has_more {
+            projected.pop();
+        }
+        let next_cursor = if has_more {
+            let last = projected.last().ok_or(RepositoryError::CorruptData)?;
+            Some(encode_subscription_cursor(&SubscriptionCursorV1 {
+                version: SUBSCRIPTION_CURSOR_VERSION,
+                user_hash: expected_user_hash,
+                order: SUBSCRIPTION_CURSOR_ORDER.to_owned(),
+                created_at_us: timestamp_to_micros(last.created_at)?,
+                subscription_id: last.item.subscription_id.clone(),
+            })?)
+        } else {
+            None
+        };
+
+        Ok(SubscriptionPage {
+            items: projected.into_iter().map(|row| row.item).collect(),
+            next_cursor,
+        })
+    }
+
+    pub async fn get_subscription_for_user(
+        &self,
+        user_id: &str,
+        subscription_id: &str,
+    ) -> Result<Option<SubscriptionListItemDto>, RepositoryError> {
+        validate_uuid(user_id).map_err(|()| RepositoryError::InvalidUserId)?;
+        let backend = self.connection().get_database_backend();
+        self.connection()
+            .query_one(subscription_detail_statement(
+                backend,
+                user_id,
+                subscription_id,
+            ))
+            .await?
+            .map(decode_subscription_projection)
+            .transpose()
+            .map(|projection| projection.map(|row| row.item))
+    }
+
+    #[doc(hidden)]
+    pub async fn explain_list_subscriptions_for_user(
+        &self,
+        user_id: &str,
+        query: ListSubscriptionsQuery,
+    ) -> Result<Vec<String>, RepositoryError> {
+        validate_uuid(user_id).map_err(|()| RepositoryError::InvalidUserId)?;
+        validate_subscription_query(&query)?;
+        let expected_user_hash = subscription_user_hash(user_id);
+        let cursor = query
+            .cursor
+            .as_deref()
+            .map(decode_subscription_cursor)
+            .transpose()?;
+        if cursor
+            .as_ref()
+            .is_some_and(|cursor| cursor.user_hash != expected_user_hash)
+        {
+            return Err(RepositoryError::InvalidCursor);
+        }
+        let backend = self.connection().get_database_backend();
+        let statement = subscription_list_statement(backend, user_id, query.limit, cursor.as_ref());
+        self.connection()
+            .query_all(subscription_explain_statement(statement))
+            .await?
+            .into_iter()
+            .map(|row| subscription_explain_line(backend, &row))
+            .collect()
+    }
+
     pub(super) async fn database_now(&self) -> Result<OffsetDateTime, SubscriptionRepositoryError> {
         let backend = self.connection().get_database_backend();
         let row = self
@@ -278,29 +403,18 @@ impl FeedRepository {
                 match backend {
                     DatabaseBackend::Postgres => {
                         "SELECT id, status, http_status, new_count, updated_count, dropped_count,
-                                commit_generation FROM feed_refresh_runs WHERE id = $1"
+                                commit_generation AS generation FROM feed_refresh_runs WHERE id = $1"
                     }
                     DatabaseBackend::Sqlite | DatabaseBackend::MySql => {
                         "SELECT id, status, http_status, new_count, updated_count, dropped_count,
-                                commit_generation FROM feed_refresh_runs WHERE id = ?"
+                                commit_generation AS generation FROM feed_refresh_runs WHERE id = ?"
                     }
                 },
                 [run_id.into()],
             ))
             .await?
             .ok_or(SubscriptionRepositoryError::CorruptData)?;
-        let status: String = required(&row, "status")?;
-        Ok(RefreshDto {
-            run_id: required(&row, "id")?,
-            status: status
-                .parse()
-                .map_err(|_| SubscriptionRepositoryError::CorruptData)?,
-            http_status: optional(&row, "http_status")?,
-            new_count: required(&row, "new_count")?,
-            updated_count: required(&row, "updated_count")?,
-            dropped_count: required(&row, "dropped_count")?,
-            generation: optional(&row, "commit_generation")?,
-        })
+        decode_refresh_row(&row, "").map_err(|()| SubscriptionRepositoryError::CorruptData)
     }
 
     pub(super) async fn subscription_dto(
@@ -355,6 +469,308 @@ impl FeedRepository {
             read_through_sequence: required(&row, "read_through_sequence")?,
             refresh,
         })
+    }
+}
+
+struct SubscriptionProjection {
+    item: SubscriptionListItemDto,
+    created_at: OffsetDateTime,
+}
+
+fn validate_subscription_query(query: &ListSubscriptionsQuery) -> Result<(), RepositoryError> {
+    if !(1..=MAX_SUBSCRIPTION_LIMIT).contains(&query.limit) {
+        return Err(RepositoryError::InvalidLimit);
+    }
+    Ok(())
+}
+
+fn subscription_list_statement(
+    backend: DbBackend,
+    user_id: &str,
+    limit: u16,
+    cursor: Option<&SubscriptionCursorV1>,
+) -> Statement {
+    let mut sql = SubscriptionSql::new(backend);
+    let user = sql.bind(user_id);
+    let mut text = subscription_projection_sql(&user);
+    if let Some(cursor) = cursor {
+        let created_before = sql.bind(
+            micros_to_timestamp(cursor.created_at_us)
+                .expect("validated subscription cursor timestamp is representable"),
+        );
+        let created_tie = sql.bind(
+            micros_to_timestamp(cursor.created_at_us)
+                .expect("validated subscription cursor timestamp is representable"),
+        );
+        let id_before = sql.bind(cursor.subscription_id.as_str());
+        text.push_str(&format!(
+            " WHERE (s.created_at < {created_before}
+                     OR (s.created_at = {created_tie} AND s.id < {id_before}))"
+        ));
+    }
+    let bound_limit = sql.bind(i64::from(limit) + 1);
+    text.push_str(&format!(
+        " ORDER BY s.created_at DESC, s.id DESC LIMIT {bound_limit}"
+    ));
+    sql.finish(text)
+}
+
+fn subscription_detail_statement(
+    backend: DbBackend,
+    user_id: &str,
+    subscription_id: &str,
+) -> Statement {
+    let mut sql = SubscriptionSql::new(backend);
+    let user = sql.bind(user_id);
+    let subscription = sql.bind(subscription_id);
+    let mut text = subscription_projection_sql(&user);
+    text.push_str(&format!(" WHERE s.id = {subscription} LIMIT 1"));
+    sql.finish(text)
+}
+
+fn subscription_projection_sql(user: &str) -> String {
+    format!(
+        "WITH user_subscriptions AS (
+            SELECT id, user_id, feed_id, title_override, start_sequence,
+                   read_through_sequence, created_at
+            FROM subscriptions
+            WHERE user_id = {user}
+         ),
+         user_feeds AS (
+            SELECT DISTINCT feed_id FROM user_subscriptions
+         ),
+         latest_runs AS (
+            SELECT r.id, r.feed_id, r.status, r.http_status, r.new_count, r.updated_count,
+                   r.dropped_count, r.commit_generation,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY r.feed_id ORDER BY r.queued_at DESC, r.id DESC
+                   ) AS row_number
+            FROM feed_refresh_runs r
+            JOIN user_feeds uf ON uf.feed_id = r.feed_id
+         )
+         SELECT s.id AS subscription_id, s.feed_id AS feed_id, s.created_at AS created_at,
+                s.title_override AS title_override, f.title AS feed_title,
+                f.site_url AS site_url, f.normalized_url AS normalized_url,
+                (SELECT COUNT(*)
+                 FROM entries e
+                 LEFT JOIN entry_states es ON es.user_id = s.user_id AND es.entry_id = e.id
+                                          AND es.feed_id = e.feed_id
+                                          AND es.feed_sequence = e.feed_sequence
+                 WHERE e.feed_id = s.feed_id AND e.feed_sequence > s.start_sequence
+                   AND (es.read_override = FALSE
+                        OR (es.read_override IS NULL
+                            AND e.feed_sequence > s.read_through_sequence))) AS unread_count,
+                r.id AS refresh_id, r.status AS refresh_status,
+                r.http_status AS refresh_http_status, r.new_count AS refresh_new_count,
+                r.updated_count AS refresh_updated_count,
+                r.dropped_count AS refresh_dropped_count,
+                r.commit_generation AS refresh_generation
+         FROM user_subscriptions s
+         JOIN feeds f ON f.id = s.feed_id
+         LEFT JOIN latest_runs r ON r.feed_id = s.feed_id AND r.row_number = 1"
+    )
+}
+
+fn decode_subscription_projection(
+    row: QueryResult,
+) -> Result<SubscriptionProjection, RepositoryError> {
+    let normalized_url: String = projection_required(&row, "normalized_url")?;
+    let title = effective_subscription_title(
+        projection_optional(&row, "title_override")?,
+        projection_optional(&row, "feed_title")?,
+        &normalized_url,
+    )?;
+    let unread_count: i64 = projection_required(&row, "unread_count")?;
+    if unread_count < 0 {
+        return Err(RepositoryError::CorruptData);
+    }
+    let refresh = projection_optional::<String>(&row, "refresh_id")?
+        .map(|_| decode_refresh_row(&row, "refresh_").map_err(|()| RepositoryError::CorruptData))
+        .transpose()?;
+    Ok(SubscriptionProjection {
+        item: SubscriptionListItemDto {
+            subscription_id: projection_required(&row, "subscription_id")?,
+            feed_id: projection_required(&row, "feed_id")?,
+            title,
+            site_url: projection_optional(&row, "site_url")?,
+            unread_count,
+            refresh,
+        },
+        created_at: projection_required(&row, "created_at")?,
+    })
+}
+
+fn decode_refresh_row(row: &QueryResult, prefix: &str) -> Result<RefreshDto, ()> {
+    let column = |name: &str| format!("{prefix}{name}");
+    let status: String = row.try_get("", &column("status")).map_err(|_| ())?;
+    Ok(RefreshDto {
+        run_id: row.try_get("", &column("id")).map_err(|_| ())?,
+        status: status.parse().map_err(|_| ())?,
+        http_status: row.try_get("", &column("http_status")).map_err(|_| ())?,
+        new_count: row.try_get("", &column("new_count")).map_err(|_| ())?,
+        updated_count: row.try_get("", &column("updated_count")).map_err(|_| ())?,
+        dropped_count: row.try_get("", &column("dropped_count")).map_err(|_| ())?,
+        generation: row.try_get("", &column("generation")).map_err(|_| ())?,
+    })
+}
+
+fn effective_subscription_title(
+    title_override: Option<String>,
+    feed_title: Option<String>,
+    normalized_url: &str,
+) -> Result<String, RepositoryError> {
+    title_override
+        .filter(|title| !title.trim().is_empty())
+        .or(feed_title.filter(|title| !title.trim().is_empty()))
+        .or_else(|| {
+            url::Url::parse(normalized_url)
+                .ok()
+                .and_then(|url| url.host_str().map(str::to_owned))
+        })
+        .filter(|title| !title.is_empty())
+        .ok_or(RepositoryError::CorruptData)
+}
+
+fn subscription_user_hash(user_id: &str) -> String {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"raindrop-subscription-user\0v1");
+    subscription_hash_frame(&mut hasher, user_id.as_bytes());
+    subscription_hash_frame(&mut hasher, SUBSCRIPTION_CURSOR_ORDER.as_bytes());
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(hasher.finalize().as_bytes())
+}
+
+fn subscription_hash_frame(hasher: &mut blake3::Hasher, value: &[u8]) {
+    let length = u32::try_from(value.len()).expect("validated user identifier fits in u32");
+    hasher.update(&length.to_be_bytes());
+    hasher.update(value);
+}
+
+fn encode_subscription_cursor(cursor: &SubscriptionCursorV1) -> Result<String, RepositoryError> {
+    let json = serde_json::to_vec(cursor).map_err(|_| RepositoryError::CorruptData)?;
+    Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(json))
+}
+
+fn decode_subscription_cursor(encoded: &str) -> Result<SubscriptionCursorV1, RepositoryError> {
+    if encoded.is_empty()
+        || encoded.len() > MAX_SUBSCRIPTION_CURSOR_BYTES
+        || !encoded
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+    {
+        return Err(RepositoryError::InvalidCursor);
+    }
+    let json = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(encoded)
+        .map_err(|_| RepositoryError::InvalidCursor)?;
+    if json.len() > 768 {
+        return Err(RepositoryError::InvalidCursor);
+    }
+    let cursor: SubscriptionCursorV1 =
+        serde_json::from_slice(&json).map_err(|_| RepositoryError::InvalidCursor)?;
+    let decoded_user_hash = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(&cursor.user_hash)
+        .map_err(|_| RepositoryError::InvalidCursor)?;
+    if cursor.version != SUBSCRIPTION_CURSOR_VERSION
+        || cursor.order != SUBSCRIPTION_CURSOR_ORDER
+        || cursor.user_hash.len() != 43
+        || decoded_user_hash.len() != 32
+        || base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&decoded_user_hash)
+            != cursor.user_hash
+        || validate_uuid(&cursor.subscription_id).is_err()
+        || micros_to_timestamp(cursor.created_at_us).is_none()
+        || serde_json::to_vec(&cursor).map_err(|_| RepositoryError::InvalidCursor)? != json
+        || base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&json) != encoded
+    {
+        return Err(RepositoryError::InvalidCursor);
+    }
+    Ok(cursor)
+}
+
+fn timestamp_to_micros(timestamp: OffsetDateTime) -> Result<i64, RepositoryError> {
+    i64::try_from(timestamp.unix_timestamp_nanos() / 1_000)
+        .map_err(|_| RepositoryError::CorruptData)
+}
+
+fn micros_to_timestamp(micros: i64) -> Option<OffsetDateTime> {
+    OffsetDateTime::from_unix_timestamp_nanos(i128::from(micros) * 1_000).ok()
+}
+
+fn projection_required<T>(row: &QueryResult, column: &str) -> Result<T, RepositoryError>
+where
+    T: sea_orm::TryGetable,
+{
+    row.try_get("", column)
+        .map_err(|_| RepositoryError::CorruptData)
+}
+
+fn projection_optional<T>(row: &QueryResult, column: &str) -> Result<Option<T>, RepositoryError>
+where
+    T: sea_orm::TryGetable,
+{
+    row.try_get("", column)
+        .map_err(|_| RepositoryError::CorruptData)
+}
+
+struct SubscriptionSql {
+    backend: DbBackend,
+    values: Vec<Value>,
+}
+
+impl SubscriptionSql {
+    fn new(backend: DbBackend) -> Self {
+        Self {
+            backend,
+            values: Vec::new(),
+        }
+    }
+
+    fn bind(&mut self, value: impl Into<Value>) -> String {
+        self.values.push(value.into());
+        if self.backend == DatabaseBackend::Postgres {
+            format!("${}", self.values.len())
+        } else {
+            "?".to_owned()
+        }
+    }
+
+    fn finish(self, sql: String) -> Statement {
+        Statement::from_sql_and_values(self.backend, sql, self.values)
+    }
+}
+
+fn subscription_explain_statement(statement: Statement) -> Statement {
+    let prefix = match statement.db_backend {
+        DatabaseBackend::Sqlite => "EXPLAIN QUERY PLAN ",
+        DatabaseBackend::Postgres => "EXPLAIN (FORMAT TEXT) ",
+        DatabaseBackend::MySql => "EXPLAIN ",
+    };
+    Statement::from_sql_and_values(
+        statement.db_backend,
+        format!("{prefix}{}", statement.sql),
+        statement.values.map(|values| values.0).unwrap_or_default(),
+    )
+}
+
+fn subscription_explain_line(
+    backend: DbBackend,
+    row: &QueryResult,
+) -> Result<String, RepositoryError> {
+    match backend {
+        DatabaseBackend::Sqlite => projection_required(row, "detail"),
+        DatabaseBackend::Postgres => projection_required(row, "QUERY PLAN"),
+        DatabaseBackend::MySql => {
+            let table: Option<String> = projection_optional(row, "table")?;
+            let key: Option<String> = projection_optional(row, "key")?;
+            let access: Option<String> = projection_optional(row, "type")?;
+            let extra: Option<String> = projection_optional(row, "Extra")?;
+            Ok(format!(
+                "table={} key={} type={} extra={}",
+                table.as_deref().unwrap_or(""),
+                key.as_deref().unwrap_or(""),
+                access.as_deref().unwrap_or(""),
+                extra.as_deref().unwrap_or("")
+            ))
+        }
     }
 }
 

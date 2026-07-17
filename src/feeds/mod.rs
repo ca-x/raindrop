@@ -27,7 +27,8 @@ pub use address_policy::AddressPolicy;
 pub use content_storage::{EncodedEntryContent, EntryContentDetail, EntryContentError};
 pub use dto::{
     EnclosureDto, EntryDetailDto, EntryListItemDto, EntryPage, EntryStateDto, InertImageDto,
-    RefreshDto, SubscribeInput, SubscriptionDto, UpdateEntryState,
+    ListSubscriptionsQuery, RefreshDto, SubscribeInput, SubscriptionDto, SubscriptionListItemDto,
+    SubscriptionPage, UpdateEntryState,
 };
 pub use error::{
     AddressPolicyError, FeedUrlError, IdentityError, RetryAfterError, ScheduleError, ValidatorError,
