@@ -1,23 +1,34 @@
 import { useEffect, useState } from "react"
 
-export type ViewportMode = "compact" | "wide"
+export type ViewportMode = "compact" | "medium" | "wide"
 
 const compactQuery = "(max-width: 719px)"
+const wideQuery = "(min-width: 1100px)"
 
 export function useViewportMode(): ViewportMode {
   const [mode, setMode] = useState<ViewportMode>(() => currentMode())
 
   useEffect(() => {
-    const media = window.matchMedia(compactQuery)
-    const update = () => setMode(media.matches ? "compact" : "wide")
+    const compactMedia = window.matchMedia(compactQuery)
+    const wideMedia = window.matchMedia(wideQuery)
+    const update = () => setMode(modeFromMedia(compactMedia, wideMedia))
     update()
-    media.addEventListener("change", update)
-    return () => media.removeEventListener("change", update)
+    compactMedia.addEventListener("change", update)
+    wideMedia.addEventListener("change", update)
+    return () => {
+      compactMedia.removeEventListener("change", update)
+      wideMedia.removeEventListener("change", update)
+    }
   }, [])
 
   return mode
 }
 
 function currentMode(): ViewportMode {
-  return window.matchMedia(compactQuery).matches ? "compact" : "wide"
+  return modeFromMedia(window.matchMedia(compactQuery), window.matchMedia(wideQuery))
+}
+
+function modeFromMedia(compact: MediaQueryList, wide: MediaQueryList): ViewportMode {
+  if (compact.matches) return "compact"
+  return wide.matches ? "wide" : "medium"
 }

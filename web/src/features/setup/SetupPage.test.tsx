@@ -88,6 +88,7 @@ describe("Setup flow", () => {
       .mockResolvedValueOnce(jsonResponse({ status: "OK", databaseKind: "SQLITE" }))
       .mockReturnValueOnce(completion.promise)
       .mockResolvedValueOnce(jsonResponse(sessionResponse))
+    mockReaderWorkspace()
     renderApp()
 
     await user.type(await screen.findByLabelText(/设置令牌/), "rd_setup_valid")
@@ -121,7 +122,7 @@ describe("Setup flow", () => {
 
     completion.resolve(jsonResponse({ status: "READY", user: publicUser }))
 
-    expect(await screen.findByRole("heading", { name: "阅读空间已就绪" })).toBeVisible()
+    expect(await screen.findByRole("heading", { name: "这里没有文章" })).toBeVisible()
     const [path, init] = fetchMock.mock.calls[1]
     expect(path).toBe("/api/v1/setup/database-check")
     expect(new Headers(init?.headers).get("x-setup-token")).toBe("rd_setup_valid")
@@ -203,6 +204,12 @@ describe("Setup flow", () => {
 
 function renderApp() {
   render(<Providers><App /></Providers>)
+}
+
+function mockReaderWorkspace() {
+  fetchMock
+    .mockResolvedValueOnce(jsonResponse({ items: [], nextCursor: null }))
+    .mockResolvedValueOnce(jsonResponse({ items: [], nextCursor: null, snapshotGeneration: 1 }))
 }
 
 async function replace(user: ReturnType<typeof userEvent.setup>, label: RegExp, value: string) {

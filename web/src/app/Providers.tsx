@@ -22,7 +22,7 @@ const RouterLink = forwardRef<HTMLAnchorElement, RouterLinkProps>(function Route
 export function Providers({ children }: { children: ReactNode }) {
   return (
     <Theme theme={neutralTheme} mode="system">
-      <LayerProvider>
+      <LayerProvider toast={{ position: "bottomEnd", maxVisible: 3 }}>
         <I18nProvider i18n={i18n}>
           <BrowserRouter>
             <LinkProvider component={RouterLink}>{children}</LinkProvider>

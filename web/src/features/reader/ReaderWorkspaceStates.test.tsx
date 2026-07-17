@@ -1,0 +1,79 @@
+import { render, screen, within } from "@testing-library/react"
+import { describe, expect, it, vi } from "vitest"
+
+import { Providers } from "../../app/Providers"
+import { activateLocale } from "../../shared/i18n/i18n"
+import { initialReaderState } from "./model/reducer"
+import type { ReaderController } from "./model/useReaderController"
+import { ReaderRoutes } from "./routes/ReaderRoutes"
+
+describe("Reader workspace pane states", () => {
+  it("keeps subscription and article failures visible while the queue is busy", () => {
+    activateLocale("en")
+    window.history.replaceState(null, "", "/reader/unread/entry/entry")
+    const controller = fakeController()
+
+    render(
+      <Providers>
+        <ReaderRoutes controller={controller} username="reader" onLogout={vi.fn()} viewportMode="wide" />
+      </Providers>,
+    )
+
+    expect(screen.getByText("Subscriptions are unavailable.")).toBeVisible()
+    expect(screen.getByText("Article detail is unavailable.")).toBeVisible()
+    const queue = screen.getByRole("region", { name: "Entry queue" })
+    expect(within(queue).getByRole("status", { name: "Loading entries" })).toBeVisible()
+    expect(queue).toHaveAttribute("aria-busy", "true")
+  })
+
+  it("announces transient mutation failures in the root toast viewport", async () => {
+    const controller = fakeController()
+    controller.state = {
+      ...controller.state,
+      paneStatus: { subscriptions: "ready", queue: "ready", detail: "idle" },
+      selectedEntryId: null,
+      errors: { ...controller.state.errors, mutation: "The entry could not be updated." },
+    }
+    window.history.replaceState(null, "", "/reader/unread")
+    render(
+      <Providers>
+        <ReaderRoutes controller={controller} username="reader" onLogout={vi.fn()} viewportMode="wide" />
+      </Providers>,
+    )
+
+    await vi.waitFor(() => expect(controller.clearMutationError).toHaveBeenCalledOnce())
+    const dismiss = await screen.findByRole("button", {
+      name: "Dismiss notification",
+      hidden: true,
+    })
+    expect(dismiss.closest('[role="alert"]')).toHaveTextContent("The entry could not be updated.")
+  })
+})
+
+function fakeController(): ReaderController {
+  return {
+    state: {
+      ...structuredClone(initialReaderState),
+      selectedEntryId: "entry",
+      paneStatus: { subscriptions: "error", queue: "loading", detail: "error" },
+      errors: {
+        subscriptions: "Subscriptions are unavailable.",
+        queue: null,
+        detail: "Article detail is unavailable.",
+        mutation: null,
+      },
+    },
+    load: vi.fn().mockResolvedValue(undefined),
+    selectSource: vi.fn().mockResolvedValue(undefined),
+    selectEntry: vi.fn().mockResolvedValue(undefined),
+    reloadEntries: vi.fn().mockResolvedValue(undefined),
+    mergePendingEntries: vi.fn(),
+    toggleRead: vi.fn().mockResolvedValue(undefined),
+    toggleStar: vi.fn().mockResolvedValue(undefined),
+    addSubscription: vi.fn().mockResolvedValue(undefined),
+    deleteSubscription: vi.fn().mockResolvedValue(undefined),
+    refreshSubscription: vi.fn().mockResolvedValue(undefined),
+    recordScrollAnchor: vi.fn(),
+    clearMutationError: vi.fn(),
+  }
+}

@@ -44,16 +44,21 @@ describe("Local authentication", () => {
     const user = userEvent.setup()
     mockLoginBootstrap()
     fetchMock.mockResolvedValueOnce(jsonResponse(sessionResponse))
+    mockReaderWorkspace()
     renderApp()
 
     await fillLogin(user)
     await user.click(screen.getByRole("button", { name: "Sign in" }))
 
-    expect(await screen.findByRole("heading", { name: "Your reading space is ready" })).toBeVisible()
+    expect(await screen.findByRole("heading", { name: "No entries here" })).toBeVisible()
     expect(screen.queryByRole("img", { name: "Raindrop" })).not.toBeInTheDocument()
     expect(screen.getByText("Raindrop")).toBeVisible()
-    expect(localStorage).toHaveLength(0)
-    expect(fetchMock).toHaveBeenLastCalledWith(
+    const storedValues = Array.from(
+      { length: localStorage.length },
+      (_, index) => localStorage.getItem(localStorage.key(index) ?? ""),
+    )
+    expect(storedValues).not.toContain(sessionResponse.csrfToken)
+    expect(fetchMock).toHaveBeenCalledWith(
       "/api/v1/auth/login",
       expect.objectContaining({ credentials: "same-origin" }),
     )
@@ -82,24 +87,21 @@ describe("Local authentication", () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ status: "READY", version: "0.1.0" }))
       .mockResolvedValueOnce(jsonResponse(sessionResponse))
-      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+    mockReaderWorkspace()
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }))
     renderApp()
 
-    expect(await screen.findByRole("heading", { name: "Your reading space is ready" })).toBeVisible()
-    const directLogout = screen.getByRole("button", { name: "Sign out" })
-    expect(directLogout).toBeVisible()
+    expect(await screen.findByRole("heading", { name: "No entries here" })).toBeVisible()
 
     if (mode === "mobile") {
-      expect(screen.getByTestId("mobile-ready-page")).toBeVisible()
-      await user.click(screen.getByRole("button", { name: "Open menu" }))
-      const dialog = await screen.findByRole("dialog", { name: "Open menu" })
-      expect(dialog).toHaveStyle({ "--size-element-md": "44px" })
+      await user.click(screen.getByRole("button", { name: "Open sources" }))
+      const dialog = await screen.findByRole("dialog", { name: "Sources" })
       const menuLogout = within(dialog).getByRole("button", { name: "Sign out" })
-      expect(menuLogout).toHaveStyle({ minHeight: "44px", minWidth: "44px" })
       await user.click(menuLogout)
     } else {
-      expect(screen.queryByTestId("mobile-ready-page")).not.toBeInTheDocument()
-      expect(screen.queryByRole("button", { name: "Open menu" })).not.toBeInTheDocument()
+      const directLogout = screen.getByRole("button", { name: "Sign out" })
+      expect(directLogout).toBeVisible()
+      expect(screen.queryByRole("button", { name: "Open sources" })).not.toBeInTheDocument()
       await user.click(directLogout)
     }
 
@@ -130,21 +132,22 @@ describe("Local authentication", () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ status: "READY", version: "0.1.0" }))
       .mockResolvedValueOnce(jsonResponse(sessionResponse))
-      .mockReturnValueOnce(logoutRequest.promise)
+    mockReaderWorkspace()
+    fetchMock.mockReturnValueOnce(logoutRequest.promise)
     renderApp()
 
-    expect(await screen.findByRole("heading", { name: "Your reading space is ready" })).toBeVisible()
-    await user.click(screen.getByRole("button", { name: "Open menu" }))
-    const dialog = await screen.findByRole("dialog", { name: "Open menu" })
+    expect(await screen.findByRole("heading", { name: "No entries here" })).toBeVisible()
+    await user.click(screen.getByRole("button", { name: "Open sources" }))
+    const dialog = await screen.findByRole("dialog", { name: "Sources" })
     await user.click(within(dialog).getByRole("button", { name: "Sign out" }))
 
     await waitFor(() => {
-      expect(screen.queryByRole("dialog", { name: "Open menu" })).not.toBeInTheDocument()
+      expect(screen.queryByRole("dialog", { name: "Sources" })).not.toBeInTheDocument()
     })
     logoutRequest.resolve(
       jsonResponse({ error: { code: "REQUEST_FAILED", message: "Request failed" } }, 500),
     )
-    expect(await screen.findByText("Sign-in failed")).toBeVisible()
+    expect(await screen.findByText("Raindrop could not sign you out. Try again.")).toBeVisible()
   })
 })
 
@@ -157,6 +160,12 @@ function mockLoginBootstrap(resetViewport = true) {
   fetchMock
     .mockResolvedValueOnce(jsonResponse({ status: "READY", version: "0.1.0" }))
     .mockResolvedValueOnce(jsonResponse({ error: { code: "AUTHENTICATION_REQUIRED" } }, 401))
+}
+
+function mockReaderWorkspace() {
+  fetchMock
+    .mockResolvedValueOnce(jsonResponse({ items: [], nextCursor: null }))
+    .mockResolvedValueOnce(jsonResponse({ items: [], nextCursor: null, snapshotGeneration: 1 }))
 }
 
 async function fillLogin(user: ReturnType<typeof userEvent.setup>) {

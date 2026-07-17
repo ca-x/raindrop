@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react"
+import { useCallback, useLayoutEffect, useMemo, useRef } from "react"
 
 import type { ReaderAction } from "./reducer"
 
@@ -60,7 +60,7 @@ export function useReaderSession(
     [dispatch, onUnauthenticated],
   )
 
-  useEffect(
+  useLayoutEffect(
     () => {
       sessionRef.current.expired = false
       return () => {

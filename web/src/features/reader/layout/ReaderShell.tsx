@@ -1,0 +1,185 @@
+import { AppShell } from "@astryxdesign/core/AppShell"
+import { Banner } from "@astryxdesign/core/Banner"
+import { Layout, LayoutContent, LayoutPanel } from "@astryxdesign/core/Layout"
+import { MobileNav } from "@astryxdesign/core/MobileNav"
+import { ResizeHandle, useResizable } from "@astryxdesign/core/Resizable"
+import { useToast } from "@astryxdesign/core/Toast"
+import { useLingui } from "@lingui/react"
+import { useEffect, useRef, useState } from "react"
+
+import type { ViewportMode } from "../../../shared/responsive/useViewportMode"
+import { ArticleReader } from "../components/ArticleReader"
+import { EntryQueue } from "../components/EntryQueue"
+import { SourceTree } from "../components/SourceTree"
+import { SubscriptionDialog } from "../components/SubscriptionDialog"
+import type { ReaderSource } from "../model/types"
+import type { ReaderController } from "../model/useReaderController"
+import type { ReaderRouteMatch } from "../routes/readerRoute"
+
+interface ReaderShellProps {
+  controller: ReaderController
+  route: ReaderRouteMatch
+  username: string
+  viewportMode: ViewportMode
+  onLogout: () => Promise<void>
+  sessionError?: string | null
+  onSelectSource: (source: ReaderSource) => void
+  onSelectEntry: (entryId: string) => void
+  onBack: () => void
+}
+
+export function ReaderShell(props: ReaderShellProps) {
+  const { i18n } = useLingui()
+  const [isNavOpen, setIsNavOpen] = useState(false)
+  const [isAddOpen, setIsAddOpen] = useState(false)
+  const mobileNavRef = useRef<HTMLDialogElement>(null)
+  const sources = useResizable({ defaultSize: 240, minSizePx: 200, maxSizePx: 340, autoSaveId: "reader-sources" })
+  const queue = useResizable({ defaultSize: 380, minSizePx: 300, maxSizePx: 560, autoSaveId: "reader-queue" })
+  const sourceTree = (
+    <SourceTree
+      state={props.controller.state}
+      onSelect={(source) => {
+        setIsNavOpen(false)
+        props.onSelectSource(source)
+      }}
+      onAdd={() => setIsAddOpen(true)}
+      onRefresh={props.controller.refreshSubscription}
+      onLogout={async () => {
+        mobileNavRef.current?.close()
+        setIsNavOpen(false)
+        await props.onLogout()
+      }}
+    />
+  )
+  const queuePane = (
+    <EntryQueue
+      state={props.controller.state}
+      showMenu={props.viewportMode !== "wide"}
+      onOpenSources={() => setIsNavOpen(true)}
+      onSelect={props.onSelectEntry}
+      onReload={props.controller.reloadEntries}
+      onMergePending={props.controller.mergePendingEntries}
+    />
+  )
+  const articlePane = (
+    <ArticleReader
+      state={props.controller.state}
+      showBack={props.viewportMode === "compact"}
+      onBack={props.onBack}
+      onToggleRead={props.controller.toggleRead}
+      onToggleStar={props.controller.toggleStar}
+    />
+  )
+
+  return (
+    <AppShell
+      contentPadding={0}
+      height="fill"
+      variant="section"
+      banner={props.sessionError ? (
+        <Banner container="section" status="error" title={props.sessionError} />
+      ) : undefined}
+      mobileNav={
+        props.viewportMode === "wide" ? false : (
+          <MobileNav
+            ref={mobileNavRef}
+            isOpen={isNavOpen}
+            onOpenChange={setIsNavOpen}
+            label={i18n._("reader.sources")}
+            header={`Raindrop · ${props.username}`}
+          >
+            {sourceTree}
+          </MobileNav>
+        )
+      }
+    >
+      {renderWorkspace(props.viewportMode, Boolean(props.route.entryId))}
+      <SubscriptionDialog
+        isOpen={isAddOpen}
+        mutationError={props.controller.state.errors.mutation}
+        onOpenChange={setIsAddOpen}
+        onClearError={props.controller.clearMutationError}
+        onAdd={props.controller.addSubscription}
+      />
+      <MutationFeedback
+        error={props.controller.state.errors.mutation}
+        isDialogOpen={isAddOpen}
+        onClear={props.controller.clearMutationError}
+      />
+    </AppShell>
+  )
+
+  function renderWorkspace(mode: ViewportMode, hasEntry: boolean) {
+    if (mode === "compact") {
+      return (
+        <Layout height="fill" padding={0} content={
+          <LayoutContent
+            padding={0}
+            role="region"
+            label={hasEntry ? i18n._("reader.article") : i18n._("reader.queue")}
+            aria-busy={hasEntry ? props.controller.state.paneStatus.detail === "loading" : props.controller.state.paneStatus.queue === "loading"}
+          >
+            {hasEntry ? articlePane : queuePane}
+          </LayoutContent>
+        } />
+      )
+    }
+    return (
+      <Layout
+        height="fill"
+        padding={0}
+        start={
+          <>
+            {mode === "wide" ? (
+              <>
+                <LayoutPanel padding={0} role="navigation" label={i18n._("reader.sources")} resizable={sources.props}>{sourceTree}</LayoutPanel>
+                <ResizeHandle hasDivider label={i18n._("reader.resizeSources")} resizable={sources.props} />
+              </>
+            ) : null}
+            <LayoutPanel
+              padding={0}
+              role="region"
+              label={i18n._("reader.queue")}
+              aria-busy={props.controller.state.paneStatus.queue === "loading"}
+              resizable={mode === "wide" ? queue.props : undefined}
+              width={380}
+            >{queuePane}</LayoutPanel>
+            {mode === "wide" ? <ResizeHandle hasDivider label={i18n._("reader.resizeQueue")} resizable={queue.props} /> : null}
+          </>
+        }
+        content={
+          <LayoutContent
+            padding={0}
+            role="complementary"
+            label={i18n._("reader.article")}
+            aria-busy={props.controller.state.paneStatus.detail === "loading"}
+          >{articlePane}</LayoutContent>
+        }
+      />
+    )
+  }
+}
+
+function MutationFeedback({
+  error,
+  isDialogOpen,
+  onClear,
+}: {
+  error: string | null
+  isDialogOpen: boolean
+  onClear: () => void
+}) {
+  const showToast = useToast()
+  useEffect(() => {
+    if (!error || isDialogOpen) return
+    showToast({
+      body: error,
+      type: "error",
+      isAutoHide: false,
+      uniqueID: "reader-mutation-error",
+      collisionBehavior: "overwrite",
+    })
+    onClear()
+  }, [error, isDialogOpen, onClear, showToast])
+  return null
+}

@@ -55,6 +55,22 @@ Object.defineProperty(window, "matchMedia", {
   },
 })
 
+Object.defineProperty(window, "scrollTo", {
+  configurable: true,
+  value: () => undefined,
+})
+
+if (typeof HTMLElement.prototype.showPopover === "undefined") {
+  Object.defineProperty(HTMLElement.prototype, "showPopover", {
+    configurable: true,
+    value: () => undefined,
+  })
+  Object.defineProperty(HTMLElement.prototype, "hidePopover", {
+    configurable: true,
+    value: () => undefined,
+  })
+}
+
 export function setTestViewport(width: number, height = 800) {
   const previousMatches = new Map(
     [...mediaQueries].map(([query, media]) => [query, media.matches]),

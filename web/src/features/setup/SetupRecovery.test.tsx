@@ -28,6 +28,7 @@ describe("Setup recovery and mobile targets", () => {
       .mockResolvedValueOnce(jsonResponse({ status: "READY", user: publicUser }))
       .mockResolvedValueOnce(jsonResponse({ error: { code: "INVALID_CREDENTIALS" } }, 401))
       .mockResolvedValueOnce(jsonResponse(sessionResponse))
+    mockReaderWorkspace()
     renderApp()
 
     await user.type(await screen.findByLabelText(/Setup token/), "rd_setup_recovery")
@@ -42,7 +43,7 @@ describe("Setup recovery and mobile targets", () => {
     await user.type(screen.getByLabelText(/Password/), "correct horse battery staple")
     await user.click(screen.getByRole("button", { name: "Sign in" }))
 
-    expect(await screen.findByRole("heading", { name: "Your reading space is ready" })).toBeVisible()
+    expect(await screen.findByRole("heading", { name: "No entries here" })).toBeVisible()
     expect(paths("/api/v1/setup/complete")).toHaveLength(1)
     expect(paths("/api/v1/auth/login")).toHaveLength(2)
   })
@@ -80,6 +81,12 @@ function renderApp() {
 
 function paths(path: string) {
   return fetchMock.mock.calls.filter(([calledPath]) => calledPath === path)
+}
+
+function mockReaderWorkspace() {
+  fetchMock
+    .mockResolvedValueOnce(jsonResponse({ items: [], nextCursor: null }))
+    .mockResolvedValueOnce(jsonResponse({ items: [], nextCursor: null, snapshotGeneration: 1 }))
 }
 
 const publicUser = {

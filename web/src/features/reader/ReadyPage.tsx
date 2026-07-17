@@ -1,20 +1,12 @@
-import { AppShell } from "@astryxdesign/core/AppShell"
-import { Banner } from "@astryxdesign/core/Banner"
-import { Button } from "@astryxdesign/core/Button"
-import { Center } from "@astryxdesign/core/Center"
-import { EmptyState } from "@astryxdesign/core/EmptyState"
-import { Layout } from "@astryxdesign/core/Layout"
-import { Section } from "@astryxdesign/core/Section"
-import { Stack } from "@astryxdesign/core/Stack"
-import { Text } from "@astryxdesign/core/Text"
 import { useLingui } from "@lingui/react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 
-import { BrandMark } from "../../shared/brand/BrandMark"
+import { useViewportMode } from "../../shared/responsive/useViewportMode"
 import { logout } from "../auth/api"
 import type { SessionResponse } from "../auth/session"
-import { useViewportMode } from "../../shared/responsive/useViewportMode"
+import { useReaderController } from "./model/useReaderController"
 import { ReadyMobilePage } from "./ReadyMobilePage"
+import { ReaderRoutes } from "./routes/ReaderRoutes"
 
 interface ReadyPageProps {
   session: SessionResponse
@@ -23,70 +15,35 @@ interface ReadyPageProps {
 
 export function ReadyPage({ session, onLoggedOut }: ReadyPageProps) {
   const { i18n } = useLingui()
-  const mode = useViewportMode()
-  const [isLoading, setIsLoading] = useState(false)
-  const [hasError, setHasError] = useState(false)
+  const viewportMode = useViewportMode()
+  const [sessionError, setSessionError] = useState<string | null>(null)
+  const controller = useReaderController({
+    csrfToken: session.csrfToken,
+    onUnauthenticated: onLoggedOut,
+  })
+
+  useEffect(() => {
+    void controller.load()
+  }, [controller.load])
 
   const signOut = async () => {
-    setHasError(false)
-    setIsLoading(true)
+    setSessionError(null)
     try {
       await logout(session.csrfToken)
       onLoggedOut()
     } catch {
-      setHasError(true)
-    } finally {
-      setIsLoading(false)
+      setSessionError(i18n._("reader.logoutError"))
     }
   }
 
-  if (mode === "compact") {
-    return (
-      <ReadyMobilePage
-        username={session.user.username}
-        isLoading={isLoading}
-        hasError={hasError}
-        onLogout={signOut}
-      />
-    )
+  const workspaceProps = {
+    controller,
+    username: session.user.username,
+    onLogout: signOut,
+    sessionError,
   }
-
-  return (
-    <AppShell contentPadding={0} height="fill" variant="section">
-      {hasError ? (
-        <Banner status="error" title={i18n._("login.error")} />
-      ) : null}
-      <Layout
-        height="fill"
-        padding={4}
-        contentWidth={760}
-        header={
-          <Section variant="section" padding={3} dividers={["bottom"]}>
-            <Stack direction="horizontal" gap={2} align="center">
-              <BrandMark size="sm" decorative />
-              <Text type="label">Raindrop</Text>
-            </Stack>
-          </Section>
-        }
-        content={
-          <Center minHeight="100%">
-            <EmptyState
-              headingLevel={1}
-              title={i18n._("ready.title")}
-              description={i18n._("ready.description")}
-              actions={
-                <Button
-                  label={i18n._("common.logout")}
-                  variant="secondary"
-                  isLoading={isLoading}
-                  clickAction={signOut}
-                  style={{ minHeight: 44 }}
-                />
-              }
-            />
-          </Center>
-        }
-      />
-    </AppShell>
-  )
+  if (viewportMode === "compact") {
+    return <ReadyMobilePage {...workspaceProps} />
+  }
+  return <ReaderRoutes {...workspaceProps} viewportMode={viewportMode} />
 }
