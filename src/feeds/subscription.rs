@@ -185,6 +185,24 @@ impl FeedRepository {
             .collect()
     }
 
+    #[doc(hidden)]
+    pub async fn explain_subscription_detail_for_user(
+        &self,
+        user_id: &str,
+        subscription_id: &str,
+    ) -> Result<Vec<String>, RepositoryError> {
+        validate_uuid(user_id).map_err(|()| RepositoryError::InvalidUserId)?;
+        let backend = self.connection().get_database_backend();
+        self.connection()
+            .query_all(subscription_explain_statement(
+                subscription_detail_statement(backend, user_id, subscription_id),
+            ))
+            .await?
+            .into_iter()
+            .map(|row| subscription_explain_line(backend, &row))
+            .collect()
+    }
+
     pub(super) async fn database_now(&self) -> Result<OffsetDateTime, SubscriptionRepositoryError> {
         let backend = self.connection().get_database_backend();
         let row = self
@@ -492,7 +510,12 @@ fn subscription_list_statement(
 ) -> Statement {
     let mut sql = SubscriptionSql::new(backend);
     let user = sql.bind(user_id);
-    let mut text = subscription_projection_sql(&user);
+    let mut selected = format!(
+        "SELECT s.id, s.user_id, s.feed_id, s.title_override, s.start_sequence,
+                s.read_through_sequence, s.created_at
+         FROM subscriptions s
+         WHERE s.user_id = {user}"
+    );
     if let Some(cursor) = cursor {
         let created_before = sql.bind(
             micros_to_timestamp(cursor.created_at_us)
@@ -503,15 +526,17 @@ fn subscription_list_statement(
                 .expect("validated subscription cursor timestamp is representable"),
         );
         let id_before = sql.bind(cursor.subscription_id.as_str());
-        text.push_str(&format!(
-            " WHERE (s.created_at < {created_before}
-                     OR (s.created_at = {created_tie} AND s.id < {id_before}))"
+        selected.push_str(&format!(
+            " AND (s.created_at < {created_before}
+                   OR (s.created_at = {created_tie} AND s.id < {id_before}))"
         ));
     }
     let bound_limit = sql.bind(i64::from(limit) + 1);
-    text.push_str(&format!(
+    selected.push_str(&format!(
         " ORDER BY s.created_at DESC, s.id DESC LIMIT {bound_limit}"
     ));
+    let mut text = subscription_projection_sql(&selected);
+    text.push_str(" ORDER BY s.created_at DESC, s.id DESC");
     sql.finish(text)
 }
 
@@ -523,21 +548,23 @@ fn subscription_detail_statement(
     let mut sql = SubscriptionSql::new(backend);
     let user = sql.bind(user_id);
     let subscription = sql.bind(subscription_id);
-    let mut text = subscription_projection_sql(&user);
-    text.push_str(&format!(" WHERE s.id = {subscription} LIMIT 1"));
-    sql.finish(text)
+    let selected = format!(
+        "SELECT s.id, s.user_id, s.feed_id, s.title_override, s.start_sequence,
+                s.read_through_sequence, s.created_at
+         FROM subscriptions s
+         WHERE s.user_id = {user} AND s.id = {subscription}
+         LIMIT 1"
+    );
+    sql.finish(subscription_projection_sql(&selected))
 }
 
-fn subscription_projection_sql(user: &str) -> String {
+fn subscription_projection_sql(selected_subscriptions: &str) -> String {
     format!(
-        "WITH user_subscriptions AS (
-            SELECT id, user_id, feed_id, title_override, start_sequence,
-                   read_through_sequence, created_at
-            FROM subscriptions
-            WHERE user_id = {user}
+        "WITH selected_subscriptions AS (
+            {selected_subscriptions}
          ),
          user_feeds AS (
-            SELECT DISTINCT feed_id FROM user_subscriptions
+            SELECT DISTINCT feed_id FROM selected_subscriptions
          ),
          latest_runs AS (
             SELECT r.id, r.feed_id, r.status, r.http_status, r.new_count, r.updated_count,
@@ -565,7 +592,7 @@ fn subscription_projection_sql(user: &str) -> String {
                 r.updated_count AS refresh_updated_count,
                 r.dropped_count AS refresh_dropped_count,
                 r.commit_generation AS refresh_generation
-         FROM user_subscriptions s
+         FROM selected_subscriptions s
          JOIN feeds f ON f.id = s.feed_id
          LEFT JOIN latest_runs r ON r.feed_id = s.feed_id AND r.row_number = 1"
     )

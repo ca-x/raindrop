@@ -395,6 +395,80 @@ async fn sqlite_subscription_latest_refresh_uses_queued_at_then_run_id() {
     assert!(without_refresh.refresh.is_none());
 }
 
+#[tokio::test]
+async fn sqlite_subscription_projection_bounds_refresh_fanout_to_selected_subscriptions() {
+    let fixture = SubscriptionFixture::new().await;
+    seed_target_user_refresh_fanout(&fixture.database).await;
+    fixture
+        .database
+        .execute_unprepared("ANALYZE")
+        .await
+        .expect("SQLite statistics should collect");
+
+    let page = fixture
+        .repository
+        .list_subscriptions_for_user(
+            USER_A_ID,
+            ListSubscriptionsQuery {
+                cursor: None,
+                limit: 1,
+            },
+        )
+        .await
+        .expect("bounded subscription page should query");
+    assert_eq!(page.items.len(), 1);
+    assert_eq!(page.items[0].subscription_id, SUBSCRIPTION_A_ID);
+    assert_eq!(
+        page.items[0]
+            .refresh
+            .as_ref()
+            .expect("selected feed should retain its latest refresh")
+            .run_id,
+        REFRESH_RUN_2_ID
+    );
+    let detail = fixture
+        .repository
+        .get_subscription_for_user(USER_A_ID, SUBSCRIPTION_A_ID)
+        .await
+        .expect("bounded subscription detail should query")
+        .expect("selected subscription should remain visible");
+    assert_eq!(detail.subscription_id, SUBSCRIPTION_A_ID);
+    assert_eq!(
+        detail
+            .refresh
+            .expect("selected detail should retain its latest refresh")
+            .run_id,
+        REFRESH_RUN_2_ID
+    );
+
+    let list_plan = fixture
+        .repository
+        .explain_list_subscriptions_for_user(
+            USER_A_ID,
+            ListSubscriptionsQuery {
+                cursor: None,
+                limit: 1,
+            },
+        )
+        .await
+        .expect("bounded list EXPLAIN should execute")
+        .join("\n");
+    assert!(
+        list_plan.contains("selected_subscriptions"),
+        "list must bind latest-run work to the requested page: {list_plan}"
+    );
+    let detail_plan = fixture
+        .repository
+        .explain_subscription_detail_for_user(USER_A_ID, SUBSCRIPTION_A_ID)
+        .await
+        .expect("bounded detail EXPLAIN should execute")
+        .join("\n");
+    assert!(
+        detail_plan.contains("selected_subscriptions"),
+        "detail must bind latest-run work to the selected subscription: {detail_plan}"
+    );
+}
+
 fn reorder_cursor_json(cursor: &str) -> String {
     let json = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(cursor)
@@ -556,6 +630,49 @@ async fn seed_explain_noise(database: &DatabaseConnection) {
             .insert(database)
             .await
             .expect("noise refresh run should insert");
+    }
+}
+
+async fn seed_target_user_refresh_fanout(database: &DatabaseConnection) {
+    for feed_index in 0..12_u128 {
+        let feed_id =
+            Uuid::from_u128(0x6000_0000_0000_4000_8000_0000_0000_0000 + feed_index).to_string();
+        feed_model(
+            &feed_id,
+            &format!("https://fanout-{feed_index:03}.example.test/feed.xml"),
+            Some("Fan-out feed"),
+            None,
+        )
+        .insert(database)
+        .await
+        .expect("fan-out feed should insert");
+        subscription_model(
+            &Uuid::from_u128(0x6100_0000_0000_4000_8000_0000_0000_0000 + feed_index).to_string(),
+            USER_A_ID,
+            &feed_id,
+            None,
+            FIXTURE_AT - time::Duration::days(1) - time::Duration::seconds(feed_index as i64),
+            0,
+        )
+        .insert(database)
+        .await
+        .expect("fan-out subscription should insert");
+        for run_index in 0..16_u128 {
+            let generation = 20_000 + (feed_index * 16 + run_index) as i64;
+            let mut run = refresh_run_model(
+                &Uuid::from_u128(
+                    0x6200_0000_0000_4000_8000_0000_0000_0000 + feed_index * 16 + run_index,
+                )
+                .to_string(),
+                "SUCCESS",
+                generation,
+            );
+            run.feed_id = Set(feed_id.clone());
+            run.queued_at = Set(FIXTURE_AT + time::Duration::seconds(run_index as i64));
+            run.insert(database)
+                .await
+                .expect("fan-out refresh run should insert");
+        }
     }
 }
 
