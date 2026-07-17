@@ -4,11 +4,14 @@ use std::{
 };
 
 #[cfg(debug_assertions)]
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{
+    Mutex,
+    atomic::{AtomicUsize, Ordering},
+};
 
 use sea_orm::{
     ConnectionTrait, DatabaseBackend, DbBackend, DbErr, QueryResult, RuntimeErr, SqlxError,
-    SqlxMySqlError, SqlxPostgresError, SqlxSqliteError, Statement, TransactionTrait,
+    SqlxMySqlError, SqlxPostgresError, SqlxSqliteError, Statement, TransactionTrait, Value,
 };
 use serde::Serialize;
 use uuid::Uuid;
@@ -31,6 +34,10 @@ const RETRY_BACKOFFS: [std::time::Duration; 2] = [
 static PEAK_FULL_EXISTING_ENTRY_BATCH: AtomicUsize = AtomicUsize::new(0);
 
 #[cfg(debug_assertions)]
+static NEW_ENTRY_INSERT_BATCH_OBSERVATIONS: Mutex<Vec<(String, Vec<usize>)>> =
+    Mutex::new(Vec::new());
+
+#[cfg(debug_assertions)]
 #[doc(hidden)]
 pub fn reset_persistence_batch_observation() {
     PEAK_FULL_EXISTING_ENTRY_BATCH.store(0, Ordering::SeqCst);
@@ -44,6 +51,28 @@ pub fn persistence_peak_full_existing_entry_batch() -> usize {
 }
 
 #[cfg(debug_assertions)]
+#[doc(hidden)]
+pub fn reset_new_entry_insert_batch_observation(invocation_key: &str) {
+    if let Ok(mut observations) = NEW_ENTRY_INSERT_BATCH_OBSERVATIONS.lock() {
+        observations.retain(|(key, _)| key != invocation_key);
+        observations.push((invocation_key.to_owned(), Vec::new()));
+    }
+}
+
+#[cfg(debug_assertions)]
+#[doc(hidden)]
+#[must_use]
+pub fn persistence_new_entry_insert_batch_sizes(invocation_key: &str) -> Vec<usize> {
+    let Ok(mut observations) = NEW_ENTRY_INSERT_BATCH_OBSERVATIONS.lock() else {
+        return Vec::new();
+    };
+    observations
+        .iter()
+        .position(|(key, _)| key == invocation_key)
+        .map_or_else(Vec::new, |index| observations.swap_remove(index).1)
+}
+
+#[cfg(debug_assertions)]
 fn observe_full_existing_entry_batch(rows: usize) {
     PEAK_FULL_EXISTING_ENTRY_BATCH.fetch_max(rows, Ordering::SeqCst);
 }
@@ -51,9 +80,25 @@ fn observe_full_existing_entry_batch(rows: usize) {
 #[cfg(not(debug_assertions))]
 fn observe_full_existing_entry_batch(_rows: usize) {}
 
+#[cfg(debug_assertions)]
+fn observe_new_entry_insert_batch(invocation_key: &str, rows: usize) {
+    if let Ok(mut observations) = NEW_ENTRY_INSERT_BATCH_OBSERVATIONS.lock()
+        && let Some((_, sizes)) = observations
+            .iter_mut()
+            .find(|(key, _)| key == invocation_key)
+    {
+        sizes.push(rows);
+    }
+}
+
+#[cfg(not(debug_assertions))]
+fn observe_new_entry_insert_batch(_invocation_key: &str, _rows: usize) {}
+
 #[derive(Clone)]
 pub struct PersistFeed {
     final_url: String,
+    title: Option<String>,
+    site_url: Option<String>,
     etag: Option<OpaqueValidator>,
     last_modified: Option<OpaqueValidator>,
     response_content_hash: String,
@@ -74,6 +119,8 @@ impl TryFrom<ParsedFeed> for PersistFeed {
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Self {
             final_url: parsed.source.final_url().to_owned(),
+            title: parsed.title,
+            site_url: parsed.canonical_url,
             etag: parsed.source.etag().cloned(),
             last_modified: parsed.source.last_modified().cloned(),
             response_content_hash: hash_hex(*parsed.source.source_document_hash()),
@@ -88,6 +135,8 @@ impl fmt::Debug for PersistFeed {
         formatter
             .debug_struct("PersistFeed")
             .field("final_url", &"[REDACTED]")
+            .field("title", &self.title.as_ref().map(|_| "[REDACTED]"))
+            .field("site_url", &self.site_url.as_ref().map(|_| "[REDACTED]"))
             .field("etag", &self.etag.as_ref().map(|_| "[REDACTED]"))
             .field(
                 "last_modified",
@@ -233,6 +282,7 @@ impl FeedRepository {
             .checked_add(new_count_i64)
             .ok_or(RefreshRepositoryError::SequenceExhausted)?;
         let mut updated_count = 0_i32;
+        let mut new_entry_batch = Vec::with_capacity(NEW_ENTRY_INSERT_BATCH_SIZE);
 
         for entry_batch in feed.entries.chunks(IDENTITY_BATCH_SIZE) {
             let existing =
@@ -257,22 +307,40 @@ impl FeedRepository {
                     sequence_head = sequence_head
                         .checked_add(1)
                         .ok_or(RefreshRepositoryError::SequenceExhausted)?;
-                    insert_entry(
-                        &transaction,
-                        backend,
-                        &claim.feed_id,
+                    new_entry_batch.push(NewEntryInsert {
                         entry,
-                        sequence_head,
-                        generation.ok_or(RefreshRepositoryError::CorruptData)?,
-                        entry.published_at_us.unwrap_or(insertion_time_us),
-                    )
-                    .await?;
+                        sequence: sequence_head,
+                        sort_at_us: entry.published_at_us.unwrap_or(insertion_time_us),
+                    });
+                    if new_entry_batch.len() == NEW_ENTRY_INSERT_BATCH_SIZE {
+                        insert_entry_batch(
+                            &transaction,
+                            backend,
+                            &claim.run_id,
+                            &claim.feed_id,
+                            generation.ok_or(RefreshRepositoryError::CorruptData)?,
+                            &new_entry_batch,
+                        )
+                        .await?;
+                        new_entry_batch.clear();
+                    }
                 }
             }
             if !existing_by_hash.is_empty() {
                 transaction.rollback().await?;
                 return Err(RefreshRepositoryError::CorruptData);
             }
+        }
+        if !new_entry_batch.is_empty() {
+            insert_entry_batch(
+                &transaction,
+                backend,
+                &claim.run_id,
+                &claim.feed_id,
+                generation.ok_or(RefreshRepositoryError::CorruptData)?,
+                &new_entry_batch,
+            )
+            .await?;
         }
 
         let counts = RefreshCounts {
@@ -470,6 +538,7 @@ struct ExistingEntry {
 }
 
 const IDENTITY_BATCH_SIZE: usize = 128;
+const NEW_ENTRY_INSERT_BATCH_SIZE: usize = 32;
 
 fn validate_claim(claim: &RefreshClaim) -> Result<(), RefreshRepositoryError> {
     if claim.run_id.is_empty()
@@ -924,102 +993,151 @@ fn update_entry_with_hashes_statement(
     )
 }
 
-async fn insert_entry<C: ConnectionTrait>(
+struct NewEntryInsert<'a> {
+    entry: &'a PersistEntry,
+    sequence: i64,
+    sort_at_us: i64,
+}
+
+async fn insert_entry_batch<C: ConnectionTrait>(
     connection: &C,
     backend: DbBackend,
+    invocation_key: &str,
     feed_id: &str,
-    entry: &PersistEntry,
-    sequence: i64,
     generation: i64,
-    sort_at_us: i64,
+    entries: &[NewEntryInsert<'_>],
 ) -> Result<(), RefreshRepositoryError> {
+    if entries.is_empty() || entries.len() > NEW_ENTRY_INSERT_BATCH_SIZE {
+        return Err(RefreshRepositoryError::CorruptData);
+    }
     let result = connection
-        .execute(insert_entry_statement(
-            backend, feed_id, entry, sequence, generation, sort_at_us,
+        .execute(insert_entry_batch_statement(
+            backend, feed_id, generation, entries,
         ))
         .await;
     match result {
-        Ok(result) if result.rows_affected() == 1 => Ok(()),
+        Ok(result)
+            if result.rows_affected()
+                == u64::try_from(entries.len())
+                    .map_err(|_| RefreshRepositoryError::CountOverflow)? =>
+        {
+            observe_new_entry_insert_batch(invocation_key, entries.len());
+            Ok(())
+        }
         Ok(_) => Err(RefreshRepositoryError::CorruptData),
         Err(error) => {
             if insert_error_disposition(&error) == InsertErrorDisposition::ReturnForRetry {
                 return Err(RefreshRepositoryError::Database(error));
             }
-            let existing = find_entry_by_identity_hash(
-                connection,
-                backend,
-                feed_id,
-                entry.identity.index_hash(),
-            )
-            .await?;
-            if let Some(existing) = existing {
-                ensure_same_identity(&existing, &entry.identity)?;
-                Err(RefreshRepositoryError::Database(error))
-            } else {
-                Err(RefreshRepositoryError::Database(error))
+            for pending in entries {
+                let existing = find_entry_by_identity_hash(
+                    connection,
+                    backend,
+                    feed_id,
+                    pending.entry.identity.index_hash(),
+                )
+                .await?;
+                if let Some(existing) = existing {
+                    ensure_same_identity(&existing, &pending.entry.identity)?;
+                }
             }
+            Err(RefreshRepositoryError::Database(error))
         }
     }
 }
 
-fn insert_entry_statement(
+fn insert_entry_batch_statement(
     backend: DbBackend,
     feed_id: &str,
-    entry: &PersistEntry,
-    sequence: i64,
     generation: i64,
-    sort_at_us: i64,
+    entries: &[NewEntryInsert<'_>],
 ) -> Statement {
-    let sql = match backend {
+    let mut values = Vec::with_capacity(entries.len() * 19);
+    let value_rows = entries
+        .iter()
+        .enumerate()
+        .map(|(row_index, pending)| {
+            append_insert_entry_values(&mut values, feed_id, generation, pending);
+            insert_entry_value_row(backend, row_index)
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    let sql = format!(
+        "INSERT INTO entries (id,feed_id,feed_sequence,ingest_generation,identity_kind,identity,
+            identity_hash,canonical_url,title,author,sanitized_content,summary,published_at_us,
+            sort_at_us,inserted_at,updated_at,source_content_hash,content_hash,pipeline_version,
+            direction,enclosure_json) VALUES {value_rows}"
+    );
+    Statement::from_sql_and_values(backend, sql, values)
+}
+
+fn insert_entry_value_row(backend: DbBackend, row_index: usize) -> String {
+    match backend {
         DatabaseBackend::Sqlite => {
-            "INSERT INTO entries (id,feed_id,feed_sequence,ingest_generation,identity_kind,identity,
-                identity_hash,canonical_url,title,author,sanitized_content,summary,published_at_us,
-                sort_at_us,inserted_at,updated_at,source_content_hash,content_hash,pipeline_version,
-                direction,enclosure_json)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,strftime('%Y-%m-%dT%H:%M:%f000Z','now'),
-                strftime('%Y-%m-%dT%H:%M:%f000Z','now'),?,?,?,?,?)"
-        }
-        DatabaseBackend::Postgres => {
-            "INSERT INTO entries (id,feed_id,feed_sequence,ingest_generation,identity_kind,identity,
-                identity_hash,canonical_url,title,author,sanitized_content,summary,published_at_us,
-                sort_at_us,inserted_at,updated_at,source_content_hash,content_hash,pipeline_version,
-                direction,enclosure_json)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,clock_timestamp(),
-                clock_timestamp(),$15,$16,$17,$18,$19)"
+            "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,strftime('%Y-%m-%dT%H:%M:%f000Z','now'),strftime('%Y-%m-%dT%H:%M:%f000Z','now'),?,?,?,?,?)".to_owned()
         }
         DatabaseBackend::MySql => {
-            "INSERT INTO entries (id,feed_id,feed_sequence,ingest_generation,identity_kind,identity,
-                identity_hash,canonical_url,title,author,sanitized_content,summary,published_at_us,
-                sort_at_us,inserted_at,updated_at,source_content_hash,content_hash,pipeline_version,
-                direction,enclosure_json)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),?,?,?,?,?)"
+            "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),?,?,?,?,?)".to_owned()
         }
-    };
-    Statement::from_sql_and_values(
-        backend,
-        sql,
-        [
-            entry.id.as_str().into(),
-            feed_id.into(),
-            sequence.into(),
-            generation.into(),
-            entry.identity.kind().as_database_str().into(),
-            entry.identity.identity().into(),
-            entry.identity.index_hash().into(),
-            entry.canonical_url.as_deref().into(),
-            entry.title.as_deref().into(),
-            entry.author.as_deref().into(),
-            entry.sanitized_content.as_storage_str().into(),
-            entry.summary.as_deref().into(),
-            entry.published_at_us.into(),
-            sort_at_us.into(),
-            entry.source_content_hash.as_str().into(),
-            entry.content_hash.as_str().into(),
-            PIPELINE_VERSION.into(),
-            Option::<&str>::None.into(),
-            entry.enclosure_json.as_deref().into(),
-        ],
-    )
+        DatabaseBackend::Postgres => {
+            let first = row_index * 19 + 1;
+            let placeholders = (first..first + 19)
+                .map(|index| format!("${index}"))
+                .collect::<Vec<_>>();
+            format!(
+                "({},{},{},{},{},{},{},{},{},{},{},{},{},{},clock_timestamp(),clock_timestamp(),{},{},{},{},{})",
+                placeholders[0],
+                placeholders[1],
+                placeholders[2],
+                placeholders[3],
+                placeholders[4],
+                placeholders[5],
+                placeholders[6],
+                placeholders[7],
+                placeholders[8],
+                placeholders[9],
+                placeholders[10],
+                placeholders[11],
+                placeholders[12],
+                placeholders[13],
+                placeholders[14],
+                placeholders[15],
+                placeholders[16],
+                placeholders[17],
+                placeholders[18],
+            )
+        }
+    }
+}
+
+fn append_insert_entry_values(
+    values: &mut Vec<Value>,
+    feed_id: &str,
+    generation: i64,
+    pending: &NewEntryInsert<'_>,
+) {
+    let entry = pending.entry;
+    values.extend([
+        entry.id.as_str().into(),
+        feed_id.into(),
+        pending.sequence.into(),
+        generation.into(),
+        entry.identity.kind().as_database_str().into(),
+        entry.identity.identity().into(),
+        entry.identity.index_hash().into(),
+        entry.canonical_url.as_deref().into(),
+        entry.title.as_deref().into(),
+        entry.author.as_deref().into(),
+        entry.sanitized_content.as_storage_str().into(),
+        entry.summary.as_deref().into(),
+        entry.published_at_us.into(),
+        pending.sort_at_us.into(),
+        entry.source_content_hash.as_str().into(),
+        entry.content_hash.as_str().into(),
+        PIPELINE_VERSION.into(),
+        Option::<&str>::None.into(),
+        entry.enclosure_json.as_deref().into(),
+    ]);
 }
 
 async fn find_entry_by_identity_hash<C: ConnectionTrait>(
@@ -1072,23 +1190,25 @@ fn update_feed_statement(
     let (clock, placeholders) = match backend {
         DatabaseBackend::Sqlite => (
             "strftime('%Y-%m-%dT%H:%M:%f000Z','now')",
-            ["?", "?", "?", "?", "?", "?", "?", "?", "?"],
+            ["?", "?", "?", "?", "?", "?", "?", "?", "?", "?", "?"],
         ),
         DatabaseBackend::Postgres => (
             "clock_timestamp()",
-            ["$1", "$2", "$3", "$4", "$5", "$6", "$7", "$8", "$9"],
+            [
+                "$1", "$2", "$3", "$4", "$5", "$6", "$7", "$8", "$9", "$10", "$11",
+            ],
         ),
         DatabaseBackend::MySql => (
             "UTC_TIMESTAMP(6)",
-            ["?", "?", "?", "?", "?", "?", "?", "?", "?"],
+            ["?", "?", "?", "?", "?", "?", "?", "?", "?", "?", "?"],
         ),
     };
     let sql = format!(
-        "UPDATE feeds SET fetch_url={0}, validator_url={1}, etag={2}, last_modified={3},
-            response_content_hash={4}, entry_sequence_head={5}, last_attempt_at={clock},
+        "UPDATE feeds SET fetch_url={0}, title={1}, site_url={2}, validator_url={3}, etag={4},
+            last_modified={5}, response_content_hash={6}, entry_sequence_head={7}, last_attempt_at={clock},
             last_success_at={clock}, {changed_assignment} retry_after_at=NULL,
             consecutive_failures=0, last_error_code=NULL, orphaned_at=NULL, updated_at={clock}
-         WHERE id={6} AND lease_owner={7} AND lease_token={8}",
+         WHERE id={8} AND lease_owner={9} AND lease_token={10}",
         placeholders[0],
         placeholders[1],
         placeholders[2],
@@ -1097,13 +1217,17 @@ fn update_feed_statement(
         placeholders[5],
         placeholders[6],
         placeholders[7],
-        placeholders[8]
+        placeholders[8],
+        placeholders[9],
+        placeholders[10]
     );
     Statement::from_sql_and_values(
         backend,
         sql,
         [
             feed.final_url.as_str().into(),
+            feed.title.as_deref().into(),
+            feed.site_url.as_deref().into(),
             feed.final_url.as_str().into(),
             feed.etag
                 .as_ref()
@@ -1279,5 +1403,16 @@ mod tests {
             sqlstate: Some("40001"),
         }));
         assert!(!is_retryable_provenance(RetryErrorProvenance::Other));
+    }
+
+    #[test]
+    fn postgres_multi_value_insert_placeholders_are_contiguous_across_thirty_two_rows() {
+        let first = insert_entry_value_row(DatabaseBackend::Postgres, 0);
+        let last = insert_entry_value_row(DatabaseBackend::Postgres, 31);
+        assert!(first.starts_with("($1,$2,$3"));
+        assert!(first.ends_with("$17,$18,$19)"));
+        assert!(last.starts_with("($590,$591,$592"));
+        assert!(last.ends_with("$606,$607,$608)"));
+        assert!(!last.contains("$609"));
     }
 }

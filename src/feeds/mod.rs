@@ -36,7 +36,8 @@ pub use persistence::{PersistEntry, PersistFeed, PersistResult};
 #[cfg(debug_assertions)]
 #[doc(hidden)]
 pub use persistence::{
-    persistence_peak_full_existing_entry_batch, reset_persistence_batch_observation,
+    persistence_new_entry_insert_batch_sizes, persistence_peak_full_existing_entry_batch,
+    reset_new_entry_insert_batch_observation, reset_persistence_batch_observation,
 };
 pub use refresh::{
     ClaimRequest, QueueRefreshRequest, RefreshClaim, RefreshCounts, RefreshFailure,

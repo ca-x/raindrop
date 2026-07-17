@@ -10,6 +10,8 @@ pub struct Model {
     pub normalized_url: String,
     pub normalized_url_hash: String,
     pub fetch_url: String,
+    pub title: Option<String>,
+    pub site_url: Option<String>,
     pub validator_url: Option<String>,
     pub etag: Option<String>,
     pub last_modified: Option<String>,

@@ -87,11 +87,13 @@ async fn rss_schema_contract(database_url: SecretString) {
     assert_expected_indexes(&database).await;
     assert_operational_timestamp_schema(&database).await;
     assert_entry_storage_physical_schema(&database).await;
+    assert_feed_metadata_schema(&database).await;
     assert_multiple_pool_connections_use_utc(&database).await;
 
     insert_user(&database, USER_A_ID, "reader-a").await;
     insert_user(&database, USER_B_ID, "reader-b").await;
     insert_feed(&database, ROUNDTRIP_AT).await;
+    assert_feed_metadata_upgrade_reentry(&database).await;
     insert_subscription(&database, SUBSCRIPTION_A_ID, USER_A_ID, ROUNDTRIP_AT).await;
     refresh_run_model(
         "00000000-0000-4000-8000-000000000401",
@@ -275,6 +277,13 @@ async fn rss_schema_contract(database_url: SecretString) {
     rollback(&database)
         .await
         .unwrap_or_else(|_| panic!("RSS contract database should roll back"));
+    migrate(&database)
+        .await
+        .unwrap_or_else(|_| panic!("RSS migrations should reapply after rollback"));
+    assert_feed_metadata_schema(&database).await;
+    rollback(&database)
+        .await
+        .unwrap_or_else(|_| panic!("reapplied RSS contract database should roll back"));
     database
         .close()
         .await
@@ -440,6 +449,77 @@ async fn assert_entry_storage_physical_schema(database: &DatabaseConnection) {
     let medium_count: i64 = row.try_get("", "medium_count").expect("MEDIUMTEXT count");
     assert_eq!(long_count, 1);
     assert_eq!(medium_count, 5);
+}
+
+async fn assert_feed_metadata_schema(database: &DatabaseConnection) {
+    let manager = SchemaManager::new(database);
+    assert!(
+        manager
+            .has_column("feeds", "title")
+            .await
+            .expect("feed title column should query")
+    );
+    assert!(
+        manager
+            .has_column("feeds", "site_url")
+            .await
+            .expect("feed site URL column should query")
+    );
+    if database.get_database_backend() != DatabaseBackend::MySql {
+        return;
+    }
+    let row = database
+        .query_one(Statement::from_string(
+            DatabaseBackend::MySql,
+            "SELECT
+                CAST(SUM(column_name = 'title' AND data_type = 'mediumtext' AND is_nullable = 'YES') AS SIGNED) AS title_count,
+                CAST(SUM(column_name = 'site_url' AND data_type = 'text' AND is_nullable = 'YES') AS SIGNED) AS site_url_count
+             FROM information_schema.columns
+             WHERE table_schema = DATABASE() AND table_name = 'feeds'
+               AND column_name IN ('title', 'site_url')"
+                .to_owned(),
+        ))
+        .await
+        .expect("MySQL feed metadata column types should query")
+        .expect("MySQL feed metadata column type counts should exist");
+    let title_count: i64 = row
+        .try_get("", "title_count")
+        .expect("MEDIUMTEXT title count");
+    let site_url_count: i64 = row
+        .try_get("", "site_url_count")
+        .expect("TEXT site URL count");
+    assert_eq!(title_count, 1);
+    assert_eq!(site_url_count, 1);
+}
+
+async fn assert_feed_metadata_upgrade_reentry(database: &DatabaseConnection) {
+    delete_migration_marker(database, "feed_metadata").await;
+    database
+        .execute(Statement::from_string(
+            database.get_database_backend(),
+            "ALTER TABLE feeds DROP COLUMN title".to_owned(),
+        ))
+        .await
+        .expect("legacy feed schema fixture should drop title");
+    database
+        .execute(Statement::from_string(
+            database.get_database_backend(),
+            "ALTER TABLE feeds DROP COLUMN site_url".to_owned(),
+        ))
+        .await
+        .expect("legacy feed schema fixture should drop site URL");
+
+    migrate(database)
+        .await
+        .expect("existing feed schema should gain display metadata additively");
+    assert_feed_metadata_schema(database).await;
+    let feed = feed::Entity::find_by_id(FEED_ID)
+        .one(database)
+        .await
+        .expect("upgraded feed should query")
+        .expect("upgraded feed should remain present");
+    assert_eq!(feed.title, None);
+    assert_eq!(feed.site_url, None);
 }
 
 async fn assert_operational_timestamp_roundtrip(database: &DatabaseConnection) {

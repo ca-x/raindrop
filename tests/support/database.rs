@@ -48,6 +48,8 @@ pub async fn insert_feed(database: &DatabaseConnection, at: OffsetDateTime) {
         normalized_url: Set("https://example.com/feed.xml".to_owned()),
         normalized_url_hash: Set(HASH_A.to_owned()),
         fetch_url: Set("https://cdn.example.com/feed.xml".to_owned()),
+        title: Set(None),
+        site_url: Set(None),
         validator_url: Set(Some("https://cdn.example.com/feed.xml".to_owned())),
         etag: Set(Some("\"feed-v1\"".to_owned())),
         last_modified: Set(Some("Thu, 16 Jul 2026 12:00:00 GMT".to_owned())),

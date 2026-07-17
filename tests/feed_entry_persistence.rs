@@ -15,7 +15,8 @@ use raindrop::feeds::{
 };
 #[cfg(debug_assertions)]
 use raindrop::feeds::{
-    persistence_peak_full_existing_entry_batch, reset_persistence_batch_observation,
+    persistence_new_entry_insert_batch_sizes, persistence_peak_full_existing_entry_batch,
+    reset_new_entry_insert_batch_observation, reset_persistence_batch_observation,
 };
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DatabaseBackend, EntityTrait,
@@ -532,6 +533,133 @@ async fn only_entry(database: &sea_orm::DatabaseConnection) -> entry::Model {
         .expect("entry should exist")
 }
 
+async fn feed_display_metadata(
+    database: &sea_orm::DatabaseConnection,
+) -> (Option<String>, Option<String>) {
+    let backend = database.get_database_backend();
+    let sql = match backend {
+        DatabaseBackend::Postgres => "SELECT title, site_url FROM feeds WHERE id=$1",
+        DatabaseBackend::Sqlite | DatabaseBackend::MySql => {
+            "SELECT title, site_url FROM feeds WHERE id=?"
+        }
+    };
+    let row = database
+        .query_one(Statement::from_sql_and_values(
+            backend,
+            sql,
+            [FEED_ID.into()],
+        ))
+        .await
+        .expect("feed display metadata should query")
+        .expect("feed should exist");
+    (
+        row.try_get("", "title").expect("feed title should decode"),
+        row.try_get("", "site_url")
+            .expect("feed site URL should decode"),
+    )
+}
+
+fn rss_feed_metadata(title: Option<&str>, site_url: Option<&str>) -> Vec<u8> {
+    let title = title.map_or_else(String::new, |value| format!("<title>{value}</title>"));
+    let site_url = site_url.map_or_else(String::new, |value| format!("<link>{value}</link>"));
+    format!(
+        "<rss version=\"2.0\"><channel>{title}{site_url}<description>metadata fixture</description><item><guid>metadata-guid</guid><title>Stable entry</title><description>stable body</description></item></channel></rss>"
+    )
+    .into_bytes()
+}
+
+#[tokio::test]
+async fn sqlite_feed_display_metadata_persists_changes_and_nullable_values() {
+    let (_data, database, repository) = sqlite_persistence_database("feed-display-metadata").await;
+
+    let first_claim = claim_refresh(&repository, "metadata-feed-first").await;
+    repository
+        .persist_feed(
+            &first_claim,
+            PersistFeed::try_from(
+                parsed_feed(rss_feed_metadata(
+                    Some("First feed title"),
+                    Some("https://site.example.test/first#publisher-fragment"),
+                ))
+                .await,
+            )
+            .expect("first feed metadata should map"),
+        )
+        .await
+        .expect("first feed metadata should persist");
+    assert_eq!(
+        feed_display_metadata(&database).await,
+        (
+            Some("First feed title".to_owned()),
+            Some("https://site.example.test/first".to_owned())
+        )
+    );
+
+    let second_claim = claim_refresh(&repository, "metadata-feed-second").await;
+    let second = repository
+        .persist_feed(
+            &second_claim,
+            PersistFeed::try_from(
+                parsed_feed(rss_feed_metadata(
+                    Some("Second feed title"),
+                    Some("https://site.example.test/second"),
+                ))
+                .await,
+            )
+            .expect("changed feed metadata should map"),
+        )
+        .await
+        .expect("changed feed metadata should persist");
+    assert_eq!(
+        (second.counts.new_count, second.counts.updated_count),
+        (0, 0)
+    );
+    assert_eq!(
+        feed_display_metadata(&database).await,
+        (
+            Some("Second feed title".to_owned()),
+            Some("https://site.example.test/second".to_owned())
+        )
+    );
+
+    let nullable_claim = claim_refresh(&repository, "metadata-feed-nullable").await;
+    repository
+        .persist_feed(
+            &nullable_claim,
+            PersistFeed::try_from(parsed_feed(rss_feed_metadata(None, None)).await)
+                .expect("nullable feed metadata should map"),
+        )
+        .await
+        .expect("nullable feed metadata should persist");
+    assert_eq!(feed_display_metadata(&database).await, (None, None));
+
+    database.close().await.expect("database should close");
+}
+
+#[tokio::test]
+async fn sqlite_feed_title_accepts_the_parser_maximum_byte_budget() {
+    let (_data, database, repository) = sqlite_persistence_database("feed-title-capacity").await;
+    let title = "x".repeat(64 * 1024);
+    let claim = claim_refresh(&repository, "feed-title-capacity").await;
+    repository
+        .persist_feed(
+            &claim,
+            PersistFeed::try_from(
+                parsed_feed(rss_feed_metadata(
+                    Some(&title),
+                    Some("https://site.example.test/maximum"),
+                ))
+                .await,
+            )
+            .expect("maximum feed title should map"),
+        )
+        .await
+        .expect("maximum feed title should persist");
+    assert_eq!(feed_display_metadata(&database).await.0, Some(title));
+
+    database.close().await.expect("database should close");
+}
+
 #[tokio::test]
 async fn sqlite_tracking_image_source_and_content_changes_have_distinct_update_semantics() {
     let (_data, database, repository) =
@@ -846,6 +974,7 @@ async fn sqlite_stale_token_writes_nothing() {
         .expect("run should exist");
     assert_eq!(run.status, "RUNNING");
     assert_eq!(run.commit_generation, None);
+    assert_eq!(feed_display_metadata(&database).await, (None, None));
 
     database.close().await.expect("database should close");
 }
@@ -1091,6 +1220,91 @@ async fn external_backend_persistence_contract(url: String, key: &str) {
         1
     );
 
+    let parsed_batch = parsed_feed(rss_many(65)).await;
+    let expected_batch_titles = parsed_batch
+        .entries()
+        .iter()
+        .map(|entry| entry.title().map(str::to_owned))
+        .collect::<Vec<_>>();
+    let batch_claim = claim_refresh(&repository, "backend-batch").await;
+    let batch = repository
+        .persist_feed(
+            &batch_claim,
+            PersistFeed::try_from(parsed_batch).expect("backend batch input should map"),
+        )
+        .await
+        .expect("backend batch input should persist");
+    assert_eq!(
+        (batch.counts.new_count, batch.counts.updated_count),
+        (65, 0)
+    );
+    assert_eq!(batch.generation, Some(4));
+    let batch_rows = entry::Entity::find()
+        .filter(entry::Column::FeedId.eq(FEED_ID))
+        .order_by_asc(entry::Column::FeedSequence)
+        .all(&database)
+        .await
+        .expect("backend batch rows should query");
+    assert_eq!(batch_rows.len(), 68);
+    assert_eq!(
+        batch_rows[3..]
+            .iter()
+            .map(|row| row.feed_sequence)
+            .collect::<Vec<_>>(),
+        (4_i64..=68).collect::<Vec<_>>()
+    );
+    assert!(batch_rows[3..].iter().all(|row| row.ingest_generation == 4));
+    assert_eq!(
+        batch_rows[3..]
+            .iter()
+            .map(|row| row.title.clone())
+            .collect::<Vec<_>>(),
+        expected_batch_titles
+    );
+    let replay_claim = claim_refresh(&repository, "backend-batch-replay").await;
+    let replay = repository
+        .persist_feed(
+            &replay_claim,
+            PersistFeed::try_from(parsed_feed(rss_many(65)).await)
+                .expect("backend batch replay should map"),
+        )
+        .await
+        .expect("backend batch replay should persist idempotently");
+    assert_eq!(
+        (replay.counts.new_count, replay.counts.updated_count),
+        (0, 0)
+    );
+    assert_eq!(replay.generation, None);
+
+    let maximum_title = "x".repeat(64 * 1024);
+    let metadata_claim = claim_refresh(&repository, "backend-feed-metadata").await;
+    let metadata = repository
+        .persist_feed(
+            &metadata_claim,
+            PersistFeed::try_from(
+                parsed_feed(rss_feed_metadata(
+                    Some(&maximum_title),
+                    Some("https://site.example.test/backend#fragment"),
+                ))
+                .await,
+            )
+            .expect("backend maximum feed title should map"),
+        )
+        .await
+        .expect("backend maximum feed title should persist");
+    assert_eq!(
+        (metadata.counts.new_count, metadata.counts.updated_count),
+        (1, 0)
+    );
+    assert_eq!(metadata.generation, Some(5));
+    assert_eq!(
+        feed_display_metadata(&database).await,
+        (
+            Some(maximum_title.clone()),
+            Some("https://site.example.test/backend".to_owned())
+        )
+    );
+
     let stale_claim = claim_refresh(&repository, "backend-stale").await;
     let stale_input = PersistFeed::try_from(
         parsed_feed(rss_guid_item("backend-stale-guid", "Stale", "<p>stale</p>")).await,
@@ -1117,7 +1331,7 @@ async fn external_backend_persistence_contract(url: String, key: &str) {
         .all(&database)
         .await
         .expect("entry should query");
-    assert_eq!(rows.len(), 3);
+    assert_eq!(rows.len(), 69);
     assert_eq!(
         rss_counter::Entity::find_by_id("INGEST_GENERATION")
             .one(&database)
@@ -1125,7 +1339,14 @@ async fn external_backend_persistence_contract(url: String, key: &str) {
             .expect("generation should query")
             .expect("generation should exist")
             .value,
-        3
+        5
+    );
+    assert_eq!(
+        feed_display_metadata(&database).await,
+        (
+            Some(maximum_title),
+            Some("https://site.example.test/backend".to_owned())
+        )
     );
 
     rollback(&database)
@@ -1278,6 +1499,148 @@ fn rss_many(count: usize) -> Vec<u8> {
         "<rss version=\"2.0\"><channel><title>x</title><link>https://example.test/</link>{items}</channel></rss>"
     )
     .into_bytes()
+}
+
+#[cfg(debug_assertions)]
+#[tokio::test]
+async fn sqlite_sixty_five_new_entries_use_three_bounded_multi_value_inserts() {
+    let (_data, database, repository) = sqlite_persistence_database("bounded-new-batches").await;
+    let parsed = parsed_feed(rss_many(65)).await;
+    let expected_titles = parsed
+        .entries()
+        .iter()
+        .map(|entry| entry.title().map(str::to_owned))
+        .collect::<Vec<_>>();
+    let input = PersistFeed::try_from(parsed).expect("bounded new input should map");
+    let claim = claim_refresh(&repository, "bounded-new-first").await;
+
+    reset_new_entry_insert_batch_observation(&claim.run_id);
+    let result = repository
+        .persist_feed(&claim, input)
+        .await
+        .expect("bounded new input should persist");
+    assert_eq!(
+        (result.counts.new_count, result.counts.updated_count),
+        (65, 0)
+    );
+    assert_eq!(result.generation, Some(1));
+    assert_eq!(
+        persistence_new_entry_insert_batch_sizes(&claim.run_id),
+        vec![32, 32, 1]
+    );
+
+    let rows = entry::Entity::find()
+        .filter(entry::Column::FeedId.eq(FEED_ID))
+        .order_by_asc(entry::Column::FeedSequence)
+        .all(&database)
+        .await
+        .expect("bounded new entries should query");
+    assert_eq!(rows.len(), 65);
+    assert_eq!(
+        rows.iter().map(|row| row.feed_sequence).collect::<Vec<_>>(),
+        (1_i64..=65).collect::<Vec<_>>()
+    );
+    assert!(rows.iter().all(|row| row.ingest_generation == 1));
+    assert_eq!(
+        rows.iter().map(|row| row.title.clone()).collect::<Vec<_>>(),
+        expected_titles
+    );
+
+    let replay_claim = claim_refresh(&repository, "bounded-new-replay").await;
+    reset_new_entry_insert_batch_observation(&replay_claim.run_id);
+    let replay = repository
+        .persist_feed(
+            &replay_claim,
+            PersistFeed::try_from(parsed_feed(rss_many(65)).await)
+                .expect("bounded replay input should map"),
+        )
+        .await
+        .expect("bounded replay should be idempotent");
+    assert_eq!(
+        (replay.counts.new_count, replay.counts.updated_count),
+        (0, 0)
+    );
+    assert_eq!(replay.generation, None);
+    assert!(persistence_new_entry_insert_batch_sizes(&replay_claim.run_id).is_empty());
+    assert_eq!(
+        rss_counter::Entity::find_by_id("INGEST_GENERATION")
+            .one(&database)
+            .await
+            .expect("generation should query")
+            .expect("generation should exist")
+            .value,
+        1
+    );
+
+    database.close().await.expect("database should close");
+}
+
+#[tokio::test]
+async fn sqlite_failed_new_entry_batch_rolls_back_the_whole_feed_persist() {
+    let (_data, database, repository) = sqlite_persistence_database("failed-new-batch").await;
+    let claim = claim_refresh(&repository, "failed-new-batch").await;
+    database
+        .execute(Statement::from_string(
+            DatabaseBackend::Sqlite,
+            "CREATE TRIGGER fail_second_entry_batch BEFORE INSERT ON entries
+             WHEN NEW.feed_sequence = 33
+             BEGIN SELECT RAISE(ABORT, 'induced second batch failure'); END"
+                .to_owned(),
+        ))
+        .await
+        .expect("batch failure trigger should create");
+
+    assert!(matches!(
+        repository
+            .persist_feed(
+                &claim,
+                PersistFeed::try_from(parsed_feed(rss_many(65)).await)
+                    .expect("failed batch input should map"),
+            )
+            .await,
+        Err(RefreshRepositoryError::Database(_))
+    ));
+    assert!(
+        entry::Entity::find()
+            .filter(entry::Column::FeedId.eq(FEED_ID))
+            .all(&database)
+            .await
+            .expect("rolled back entries should query")
+            .is_empty()
+    );
+    assert_eq!(
+        rss_counter::Entity::find_by_id("INGEST_GENERATION")
+            .one(&database)
+            .await
+            .expect("generation should query")
+            .expect("generation should exist")
+            .value,
+        0
+    );
+    let feed = feed::Entity::find_by_id(FEED_ID)
+        .one(&database)
+        .await
+        .expect("feed should query")
+        .expect("feed should exist");
+    assert_eq!(feed.entry_sequence_head, 0);
+    assert_eq!(feed.title, None);
+    assert_eq!(feed.site_url, None);
+    assert_eq!(feed.lease_owner.as_deref(), Some(claim.owner.as_str()));
+    assert_eq!(feed.lease_token, claim.lease_token);
+    assert!(feed.lease_until.is_some());
+    let run = feed_refresh_run::Entity::find_by_id(&claim.run_id)
+        .one(&database)
+        .await
+        .expect("refresh run should query")
+        .expect("refresh run should exist");
+    assert_eq!(run.status, "RUNNING");
+    assert_eq!(run.commit_generation, None);
+    assert_eq!(
+        (run.new_count, run.updated_count, run.dropped_count),
+        (0, 0, 0)
+    );
+
+    database.close().await.expect("database should close");
 }
 
 #[cfg(debug_assertions)]
