@@ -165,6 +165,15 @@ jobs:
       - name: Verify RSS schema on MySQL
         run: cargo test --locked --test rss_migrations mysql -- --nocapture --test-threads=1
 
+      - name: Verify refresh claims on SQLite
+        run: cargo test --locked --test feed_refresh_claims sqlite -- --nocapture --test-threads=1
+
+      - name: Verify refresh claims on PostgreSQL
+        run: cargo test --locked --test feed_refresh_claims postgres -- --nocapture --test-threads=1
+
+      - name: Verify refresh claims on MySQL
+        run: cargo test --locked --test feed_refresh_claims mysql -- --nocapture --test-threads=1
+
       - name: Run Rust tests
         run: env -u RAINDROP_TEST_POSTGRES_URL -u RAINDROP_TEST_MYSQL_URL cargo test --locked --all-features
 

@@ -10,19 +10,31 @@ use raindrop::{
     },
     feeds::{
         ClaimRequest, FeedRepository, QueueRefreshRequest, RefreshCounts, RefreshFailure,
-        RefreshRepositoryError, RefreshTrigger,
+        RefreshRepositoryError, RefreshStatus, RefreshTrigger,
     },
 };
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ConnectionTrait, DatabaseBackend, EntityTrait, Statement,
+    TransactionTrait,
 };
 use secrecy::SecretString;
 use support::database::{FEED_ID, connect_for_contract, insert_feed};
 use tempfile::TempDir;
-use time::OffsetDateTime;
+use time::{OffsetDateTime, macros::datetime};
 
 const RUN_ID: &str = "00000000-0000-4000-8000-000000000401";
 const SECOND_RUN_ID: &str = "00000000-0000-4000-8000-000000000402";
+const RETRY_AT: OffsetDateTime = datetime!(2026-07-18 12:34:56.123456 UTC);
+
+#[tokio::test]
+async fn sqlite_refresh_claim_contract() {
+    let data = tempfile::tempdir().expect("temporary directory should be created");
+    let url = format!(
+        "sqlite://{}?mode=rwc",
+        data.path().join("shared-backend-contract.db").display()
+    );
+    backend_refresh_claim_contract(url).await;
+}
 
 #[tokio::test]
 async fn postgres_refresh_claim_contract() {
@@ -259,6 +271,20 @@ async fn sqlite_terminal_transitions_require_running_prior_state() {
         )
         .await
         .expect("running refresh should complete successfully");
+    assert_terminal_run(
+        &database,
+        &success_claim,
+        RefreshStatus::Success,
+        Some(200),
+        RefreshCounts {
+            new_count: 3,
+            updated_count: 2,
+            dropped_count: 1,
+        },
+        None,
+        None,
+    )
+    .await;
     assert!(matches!(
         repository.complete_not_modified(&success_claim).await,
         Err(RefreshRepositoryError::InvalidTransition)
@@ -270,6 +296,20 @@ async fn sqlite_terminal_transitions_require_running_prior_state() {
         .complete_not_modified(&not_modified_claim)
         .await
         .expect("running refresh should complete as not modified");
+    assert_terminal_run(
+        &database,
+        &not_modified_claim,
+        RefreshStatus::NotModified,
+        Some(304),
+        RefreshCounts {
+            new_count: 0,
+            updated_count: 0,
+            dropped_count: 0,
+        },
+        None,
+        None,
+    )
+    .await;
     assert!(matches!(
         repository
             .complete_failure(
@@ -277,7 +317,7 @@ async fn sqlite_terminal_transitions_require_running_prior_state() {
                 RefreshFailure {
                     error_code: "FETCH_FAILED".to_owned(),
                     http_status: Some(503),
-                    retry_at: None,
+                    retry_at: Some(RETRY_AT),
                 },
             )
             .await,
@@ -293,11 +333,25 @@ async fn sqlite_terminal_transitions_require_running_prior_state() {
             RefreshFailure {
                 error_code: "FETCH_FAILED".to_owned(),
                 http_status: Some(503),
-                retry_at: None,
+                retry_at: Some(RETRY_AT),
             },
         )
         .await
         .expect("running refresh should complete as error");
+    assert_terminal_run(
+        &database,
+        &failure_claim,
+        RefreshStatus::Error,
+        Some(503),
+        RefreshCounts {
+            new_count: 0,
+            updated_count: 0,
+            dropped_count: 0,
+        },
+        Some("FETCH_FAILED"),
+        Some(RETRY_AT),
+    )
+    .await;
     assert!(matches!(
         repository
             .complete_success(
@@ -328,6 +382,20 @@ async fn sqlite_terminal_transitions_require_running_prior_state() {
         )
         .await
         .expect("running refresh should complete as partial");
+    assert_terminal_run(
+        &database,
+        &partial_claim,
+        RefreshStatus::Partial,
+        Some(200),
+        RefreshCounts {
+            new_count: 2,
+            updated_count: 1,
+            dropped_count: 3,
+        },
+        None,
+        None,
+    )
+    .await;
     assert!(matches!(
         repository.complete_not_modified(&partial_claim).await,
         Err(RefreshRepositoryError::InvalidTransition)
@@ -340,6 +408,20 @@ async fn sqlite_terminal_transitions_require_running_prior_state() {
         .cancel_running(&cancelled_claim)
         .await
         .expect("owned running refresh should cancel explicitly");
+    assert_terminal_run(
+        &database,
+        &cancelled_claim,
+        RefreshStatus::Cancelled,
+        None,
+        RefreshCounts {
+            new_count: 0,
+            updated_count: 0,
+            dropped_count: 0,
+        },
+        None,
+        None,
+    )
+    .await;
     assert!(matches!(
         repository.complete_not_modified(&cancelled_claim).await,
         Err(RefreshRepositoryError::InvalidTransition)
@@ -462,6 +544,7 @@ async fn sqlite_system_transitions_are_explicit_and_state_checked() {
         .cancel_queued(RUN_ID)
         .await
         .expect("queued run should cancel");
+    assert_queued_cancellation(&database, RUN_ID).await;
     assert!(matches!(
         repository.cancel_queued(RUN_ID).await,
         Err(RefreshRepositoryError::InvalidTransition)
@@ -495,6 +578,20 @@ async fn sqlite_system_transitions_are_explicit_and_state_checked() {
         .record_lease_lost(&claim.run_id)
         .await
         .expect("expired running run should record lease loss");
+    assert_terminal_run(
+        &database,
+        &claim,
+        RefreshStatus::LeaseLost,
+        None,
+        RefreshCounts {
+            new_count: 0,
+            updated_count: 0,
+            dropped_count: 0,
+        },
+        None,
+        None,
+    )
+    .await;
     assert!(matches!(
         repository.record_lease_lost(&claim.run_id).await,
         Err(RefreshRepositoryError::InvalidTransition)
@@ -504,58 +601,396 @@ async fn sqlite_system_transitions_are_explicit_and_state_checked() {
 }
 
 async fn backend_refresh_claim_contract(url: String) {
-    let database = connect_for_contract(SecretString::from(url)).await;
+    concurrent_claim_contract(&url).await;
+    newer_token_fencing_contract(&url).await;
+    lock_wait_deadline_contract(&url).await;
+    diagnostic_deadline_contract(&url).await;
+    manual_idempotency_contract(&url).await;
+    terminal_transition_contract(&url).await;
+
+    let database = reset_contract_database(&url).await;
+    if database.get_database_backend() == DatabaseBackend::MySql {
+        database.close().await.expect("database should close");
+        mysql_lock_order_contract(&url).await;
+    } else {
+        database.close().await.expect("database should close");
+    }
+}
+
+async fn reset_contract_database(url: &str) -> sea_orm::DatabaseConnection {
+    let database = connect_for_contract(SecretString::from(url.to_owned())).await;
     rollback(&database)
         .await
         .unwrap_or_else(|_| panic!("dedicated refresh contract database should reset"));
     migrate(&database)
         .await
         .expect("refresh claim migrations should apply");
+    database
+}
+
+async fn concurrent_claim_contract(url: &str) {
+    let first_database = reset_contract_database(url).await;
+    seed_claimable_run(&first_database).await;
+    let second_database = connect_for_contract(SecretString::from(url.to_owned())).await;
+    let first_repository = FeedRepository::new(first_database.clone());
+    let second_repository = FeedRepository::new(second_database.clone());
+
+    let first = first_repository.claim_due(ClaimRequest {
+        owner: "worker-contract-a".to_owned(),
+        lease_duration: Duration::from_secs(30),
+    });
+    let second = second_repository.claim_due(ClaimRequest {
+        owner: "worker-contract-b".to_owned(),
+        lease_duration: Duration::from_secs(30),
+    });
+    let (first, second) = tokio::join!(first, second);
+    let outcomes = [
+        first.expect("first backend claim should not fail"),
+        second.expect("second backend claim should not fail"),
+    ];
+    assert_eq!(outcomes.iter().filter(|claim| claim.is_some()).count(), 1);
+    assert_eq!(outcomes.iter().filter(|claim| claim.is_none()).count(), 1);
+
+    first_database
+        .close()
+        .await
+        .expect("first database should close");
+    second_database
+        .close()
+        .await
+        .expect("second database should close");
+}
+
+async fn newer_token_fencing_contract(url: &str) {
+    let database = reset_contract_database(url).await;
+    seed_claimable_run(&database).await;
+    let repository = FeedRepository::new(database.clone());
+    let old_claim = repository
+        .claim_due(ClaimRequest {
+            owner: "worker-contract-old".to_owned(),
+            lease_duration: Duration::from_millis(250),
+        })
+        .await
+        .expect("old backend claim should not fail")
+        .expect("old backend run should claim");
+    repository
+        .extend_lease(&old_claim, Duration::from_millis(40))
+        .await
+        .expect("old backend lease should extend");
+    insert_queued_run(&database, SECOND_RUN_ID, "contract:new-token").await;
+    tokio::time::sleep(Duration::from_millis(80)).await;
+
+    let new_claim = repository
+        .claim_due(ClaimRequest {
+            owner: "worker-contract-new".to_owned(),
+            lease_duration: Duration::from_secs(30),
+        })
+        .await
+        .expect("new backend claim should not fail")
+        .expect("new backend run should claim");
+    assert_eq!(new_claim.lease_token, old_claim.lease_token + 1);
+    assert!(matches!(
+        repository
+            .extend_lease(&old_claim, Duration::from_secs(30))
+            .await,
+        Err(RefreshRepositoryError::LeaseLost)
+    ));
+
+    database.close().await.expect("database should close");
+}
+
+async fn lock_wait_deadline_contract(url: &str) {
+    let database = reset_contract_database(url).await;
+    seed_claimable_run(&database).await;
+    let backend = database.get_database_backend();
+    let repository = FeedRepository::new(database.clone());
+    let claim = repository
+        .claim_due(ClaimRequest {
+            owner: "worker-contract-lock-wait".to_owned(),
+            lease_duration: Duration::from_millis(150),
+        })
+        .await
+        .expect("backend claim should not fail")
+        .expect("backend run should claim");
+    let blocker = connect_for_contract(SecretString::from(url.to_owned())).await;
+
+    let result = if backend == DatabaseBackend::Sqlite {
+        blocker
+            .execute(Statement::from_string(
+                DatabaseBackend::Sqlite,
+                "BEGIN IMMEDIATE".to_owned(),
+            ))
+            .await
+            .expect("SQLite blocking transaction should start");
+        let completion = tokio::spawn(complete_empty_success(repository, claim));
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        blocker
+            .execute(Statement::from_string(
+                DatabaseBackend::Sqlite,
+                "COMMIT".to_owned(),
+            ))
+            .await
+            .expect("SQLite blocking transaction should commit");
+        completion.await.expect("completion task should join")
+    } else {
+        let transaction = blocker
+            .begin()
+            .await
+            .expect("blocking transaction should start");
+        let sql = if backend == DatabaseBackend::Postgres {
+            "SELECT id FROM feeds WHERE id = $1 FOR UPDATE"
+        } else {
+            "SELECT id FROM feeds WHERE id = ? FOR UPDATE"
+        };
+        transaction
+            .query_one(Statement::from_sql_and_values(
+                backend,
+                sql,
+                [FEED_ID.into()],
+            ))
+            .await
+            .expect("feed row should lock")
+            .expect("feed row should exist");
+        let completion = tokio::spawn(complete_empty_success(repository, claim));
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        transaction
+            .commit()
+            .await
+            .expect("blocking transaction should commit");
+        completion.await.expect("completion task should join")
+    };
+    assert!(matches!(result, Err(RefreshRepositoryError::LeaseLost)));
+
+    database.close().await.expect("database should close");
+    blocker.close().await.expect("blocker should close");
+}
+
+async fn complete_empty_success(
+    repository: FeedRepository,
+    claim: raindrop::feeds::RefreshClaim,
+) -> Result<(), RefreshRepositoryError> {
+    repository
+        .complete_success(
+            &claim,
+            200,
+            RefreshCounts {
+                new_count: 0,
+                updated_count: 0,
+                dropped_count: 0,
+            },
+        )
+        .await
+}
+
+async fn diagnostic_deadline_contract(url: &str) {
+    let database = reset_contract_database(url).await;
+    seed_claimable_run(&database).await;
+    let repository = FeedRepository::new(database.clone());
+    let mut claim = claim_for(&repository, "worker-contract-clock").await;
+    claim.lease_deadline = OffsetDateTime::UNIX_EPOCH;
+    let mut claim = repository
+        .extend_lease(&claim, Duration::from_millis(40))
+        .await
+        .expect("past diagnostic deadline should not reject a live backend lease");
+    claim.lease_deadline = OffsetDateTime::UNIX_EPOCH + time::Duration::days(100_000);
+    tokio::time::sleep(Duration::from_millis(80)).await;
+    assert!(matches!(
+        repository.complete_not_modified(&claim).await,
+        Err(RefreshRepositoryError::LeaseLost)
+    ));
+
+    database.close().await.expect("database should close");
+}
+
+async fn manual_idempotency_contract(url: &str) {
+    let database = reset_contract_database(url).await;
     seed_feed(&database).await;
     let repository = FeedRepository::new(database.clone());
     let request = QueueRefreshRequest {
         feed_id: FEED_ID.to_owned(),
         requested_by_user_id: None,
         trigger: RefreshTrigger::Manual,
-        idempotency_key: "manual:backend-contract".to_owned(),
+        idempotency_key: "manual:shared-backend-contract".to_owned(),
     };
-    let queued = repository
+    let first = repository
         .queue_refresh(request.clone())
         .await
         .expect("backend refresh should queue");
     assert_eq!(
         repository
-            .queue_refresh(request)
+            .queue_refresh(request.clone())
             .await
             .expect("backend idempotent retry should return existing"),
-        queued
+        first
     );
-
-    let claim = repository
-        .claim_due(ClaimRequest {
-            owner: "worker-backend-contract".to_owned(),
-            lease_duration: Duration::from_secs(30),
-        })
-        .await
-        .expect("backend claim should not fail")
-        .expect("manual backend run should claim");
-    let claim = repository
-        .extend_lease(&claim, Duration::from_secs(30))
-        .await
-        .expect("backend lease should extend");
-    repository
-        .complete_not_modified(&claim)
-        .await
-        .expect("backend 304 should complete");
     assert!(matches!(
-        repository.complete_not_modified(&claim).await,
+        repository
+            .queue_refresh(QueueRefreshRequest {
+                trigger: RefreshTrigger::Retry,
+                ..request.clone()
+            })
+            .await,
+        Err(RefreshRepositoryError::IdempotencyConflict)
+    ));
+    assert!(matches!(
+        repository
+            .queue_refresh(QueueRefreshRequest {
+                requested_by_user_id: Some("00000000-0000-4000-8000-000000000099".to_owned()),
+                ..request
+            })
+            .await,
+        Err(RefreshRepositoryError::IdempotencyConflict)
+    ));
+
+    database.close().await.expect("database should close");
+}
+
+async fn terminal_transition_contract(url: &str) {
+    let database = reset_contract_database(url).await;
+    seed_claimable_run(&database).await;
+    let repository = FeedRepository::new(database.clone());
+
+    let success_claim = claim_for(&repository, "worker-contract-success").await;
+    let success_counts = RefreshCounts {
+        new_count: 3,
+        updated_count: 2,
+        dropped_count: 1,
+    };
+    repository
+        .complete_success(&success_claim, 200, success_counts)
+        .await
+        .expect("backend success should complete");
+    assert_terminal_run(
+        &database,
+        &success_claim,
+        RefreshStatus::Success,
+        Some(200),
+        success_counts,
+        None,
+        None,
+    )
+    .await;
+    assert!(matches!(
+        repository.complete_not_modified(&success_claim).await,
         Err(RefreshRepositoryError::InvalidTransition)
     ));
 
-    rollback(&database)
+    insert_queued_run(&database, SECOND_RUN_ID, "contract:not-modified").await;
+    let not_modified_claim = claim_for(&repository, "worker-contract-not-modified").await;
+    repository
+        .complete_not_modified(&not_modified_claim)
         .await
-        .expect("refresh contract database should roll back");
+        .expect("backend 304 should complete");
+    assert_terminal_run(
+        &database,
+        &not_modified_claim,
+        RefreshStatus::NotModified,
+        Some(304),
+        RefreshCounts {
+            new_count: 0,
+            updated_count: 0,
+            dropped_count: 0,
+        },
+        None,
+        None,
+    )
+    .await;
+
+    let error_run_id = "00000000-0000-4000-8000-000000000403";
+    insert_queued_run(&database, error_run_id, "contract:error").await;
+    let error_claim = claim_for(&repository, "worker-contract-error").await;
+    repository
+        .complete_failure(
+            &error_claim,
+            RefreshFailure {
+                error_code: "FETCH_FAILED".to_owned(),
+                http_status: Some(503),
+                retry_at: Some(RETRY_AT),
+            },
+        )
+        .await
+        .expect("backend error should complete");
+    assert_terminal_run(
+        &database,
+        &error_claim,
+        RefreshStatus::Error,
+        Some(503),
+        RefreshCounts {
+            new_count: 0,
+            updated_count: 0,
+            dropped_count: 0,
+        },
+        Some("FETCH_FAILED"),
+        Some(RETRY_AT),
+    )
+    .await;
+    assert!(matches!(
+        repository.complete_not_modified(&error_claim).await,
+        Err(RefreshRepositoryError::InvalidTransition)
+    ));
+
     database.close().await.expect("database should close");
+}
+
+async fn mysql_lock_order_contract(url: &str) {
+    let database = reset_contract_database(url).await;
+    seed_claimable_run(&database).await;
+    let completion_repository = FeedRepository::new(database.clone());
+    let claim = completion_repository
+        .claim_due(ClaimRequest {
+            owner: "worker-mysql-lock-order".to_owned(),
+            lease_duration: Duration::from_secs(5),
+        })
+        .await
+        .expect("MySQL lock-order claim should not fail")
+        .expect("MySQL lock-order run should claim");
+    let recorder_database = connect_for_contract(SecretString::from(url.to_owned())).await;
+    let recorder = FeedRepository::new(recorder_database.clone());
+    let blocker = connect_for_contract(SecretString::from(url.to_owned())).await;
+    let transaction = blocker
+        .begin()
+        .await
+        .expect("MySQL run blocker should start");
+    transaction
+        .query_one(Statement::from_sql_and_values(
+            DatabaseBackend::MySql,
+            "SELECT id FROM feed_refresh_runs WHERE id = ? FOR UPDATE",
+            [claim.run_id.as_str().into()],
+        ))
+        .await
+        .expect("MySQL run row should lock")
+        .expect("MySQL run row should exist");
+
+    let run_id = claim.run_id.clone();
+    let lease_loss = tokio::spawn(async move { recorder.record_lease_lost(&run_id).await });
+    tokio::time::sleep(Duration::from_millis(30)).await;
+    let completion = tokio::spawn(complete_empty_success(completion_repository, claim));
+    tokio::time::sleep(Duration::from_millis(30)).await;
+    transaction
+        .commit()
+        .await
+        .expect("MySQL run blocker should commit");
+
+    let lease_loss = tokio::time::timeout(Duration::from_secs(5), lease_loss)
+        .await
+        .expect("MySQL lease-loss transition must not deadlock")
+        .expect("MySQL lease-loss task should join");
+    let completion = tokio::time::timeout(Duration::from_secs(5), completion)
+        .await
+        .expect("MySQL owned completion must not deadlock")
+        .expect("MySQL completion task should join");
+    assert!(matches!(
+        lease_loss,
+        Err(RefreshRepositoryError::InvalidTransition)
+    ));
+    completion.expect("MySQL owned completion should succeed after lock serialization");
+
+    database.close().await.expect("database should close");
+    recorder_database
+        .close()
+        .await
+        .expect("recorder database should close");
+    blocker.close().await.expect("blocker should close");
 }
 
 async fn set_feed_token(database: &sea_orm::DatabaseConnection, token: i64) {
@@ -570,6 +1005,58 @@ async fn set_feed_token(database: &sea_orm::DatabaseConnection, token: i64) {
         .update(database)
         .await
         .expect("feed token fixture should update");
+}
+
+async fn assert_terminal_run(
+    database: &sea_orm::DatabaseConnection,
+    claim: &raindrop::feeds::RefreshClaim,
+    expected_status: RefreshStatus,
+    expected_http_status: Option<i32>,
+    expected_counts: RefreshCounts,
+    expected_error_code: Option<&str>,
+    expected_retry_at: Option<OffsetDateTime>,
+) {
+    let run = feed_refresh_run::Entity::find_by_id(&claim.run_id)
+        .one(database)
+        .await
+        .expect("terminal refresh should query")
+        .expect("terminal refresh should exist");
+    assert_eq!(run.status, expected_status.as_str());
+    assert_eq!(run.http_status, expected_http_status);
+    assert_eq!(run.new_count, expected_counts.new_count);
+    assert_eq!(run.updated_count, expected_counts.updated_count);
+    assert_eq!(run.dropped_count, expected_counts.dropped_count);
+    assert_eq!(run.error_code.as_deref(), expected_error_code);
+    assert_eq!(run.retry_at, expected_retry_at);
+    assert_eq!(run.lease_token, Some(claim.lease_token));
+    assert!(run.started_at.is_some());
+    assert!(run.completed_at.is_some());
+    assert!(run.completed_at >= run.started_at);
+    assert_eq!(run.commit_generation, None);
+    assert_eq!(run.fetched_at, None);
+    assert_eq!(run.persisted_at, None);
+}
+
+async fn assert_queued_cancellation(database: &sea_orm::DatabaseConnection, run_id: &str) {
+    let run = feed_refresh_run::Entity::find_by_id(run_id)
+        .one(database)
+        .await
+        .expect("cancelled queued refresh should query")
+        .expect("cancelled queued refresh should exist");
+    assert_eq!(run.status, RefreshStatus::Cancelled.as_str());
+    assert_eq!(run.http_status, None);
+    assert_eq!(
+        (run.new_count, run.updated_count, run.dropped_count),
+        (0, 0, 0)
+    );
+    assert_eq!(run.error_code, None);
+    assert_eq!(run.retry_at, None);
+    assert_eq!(run.lease_token, None);
+    assert_eq!(run.started_at, None);
+    assert!(run.completed_at.is_some());
+    assert_eq!(run.commit_generation, None);
+    assert_eq!(run.fetched_at, None);
+    assert_eq!(run.persisted_at, None);
 }
 
 async fn claim_for(repository: &FeedRepository, owner: &str) -> raindrop::feeds::RefreshClaim {

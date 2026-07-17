@@ -309,8 +309,10 @@ impl FeedRepository {
         }
         let backend = self.database.get_database_backend();
         if backend == DatabaseBackend::MySql {
+            let feed_id = read_run_feed_id(&self.database, backend, run_id).await?;
             let transaction = self.database.begin().await?;
-            lock_run_feed_for_mysql(&transaction, run_id).await?;
+            let current_token = lock_feed_for_mysql(&transaction, &feed_id).await?;
+            validate_active_token(current_token)?;
             let result = transaction
                 .execute(record_lease_lost_statement(backend, run_id))
                 .await?;
@@ -657,26 +659,30 @@ where
         .map_err(|_| RefreshRepositoryError::CorruptData)
 }
 
-async fn lock_run_feed_for_mysql<C>(
+async fn read_run_feed_id<C>(
     connection: &C,
+    backend: DbBackend,
     run_id: &str,
-) -> Result<(), RefreshRepositoryError>
+) -> Result<String, RefreshRepositoryError>
 where
     C: ConnectionTrait,
 {
-    connection
+    let sql = match backend {
+        DatabaseBackend::Postgres => "SELECT feed_id FROM feed_refresh_runs WHERE id = $1",
+        DatabaseBackend::Sqlite | DatabaseBackend::MySql => {
+            "SELECT feed_id FROM feed_refresh_runs WHERE id = ?"
+        }
+    };
+    let row = connection
         .query_one(Statement::from_sql_and_values(
-            DatabaseBackend::MySql,
-            "SELECT f.id
-             FROM feed_refresh_runs r
-             JOIN feeds f ON f.id = r.feed_id
-             WHERE r.id = ?
-             FOR UPDATE",
+            backend,
+            sql,
             [run_id.into()],
         ))
         .await?
         .ok_or(RefreshRepositoryError::CorruptData)?;
-    Ok(())
+    row.try_get("", "feed_id")
+        .map_err(|_| RefreshRepositoryError::CorruptData)
 }
 
 fn claim_statement(
