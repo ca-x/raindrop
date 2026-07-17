@@ -3,25 +3,26 @@ use axum::{
     extract::{FromRequestParts, Path, State},
     http::request::Parts,
     middleware,
-    routing::get,
+    routing::{get, patch},
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{
     app::AppState,
-    auth::CurrentUser,
+    auth::{CsrfGuard, CurrentUser},
     feeds::{
-        EnclosureDto, EntryDetailDto, EntryListItemDto, EntryListState, FeedRepository,
-        InertImageDto, ListEntriesQuery, RepositoryError,
+        EnclosureDto, EntryDetailDto, EntryListItemDto, EntryListState, EntryStateDto,
+        FeedRepository, InertImageDto, ListEntriesQuery, RepositoryError, UpdateEntryState,
     },
 };
 
-use super::{ApiError, routes::sensitive_cache_headers};
+use super::{ApiError, ApiJson, routes::sensitive_cache_headers};
 
 pub(super) fn router() -> Router<AppState> {
     let reader = Router::new()
         .route("/", get(list_entries))
         .route("/{entry_id}", get(get_entry))
+        .route("/{entry_id}/state", patch(patch_entry_state))
         .fallback(reader_not_found)
         .method_not_allowed_fallback(reader_method_not_allowed);
     Router::new()
@@ -195,6 +196,40 @@ impl From<EntryDetailDto> for EntryDetailResponse {
     }
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PatchEntryStateRequest {
+    #[serde(default, deserialize_with = "deserialize_present_bool")]
+    is_read: Option<bool>,
+    #[serde(default, deserialize_with = "deserialize_present_bool")]
+    is_starred: Option<bool>,
+}
+
+fn deserialize_present_bool<'de, D>(deserializer: D) -> Result<Option<bool>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    bool::deserialize(deserializer).map(Some)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EntryStateResponse {
+    entry_id: String,
+    is_read: bool,
+    is_starred: bool,
+}
+
+impl From<EntryStateDto> for EntryStateResponse {
+    fn from(state: EntryStateDto) -> Self {
+        Self {
+            entry_id: state.entry_id,
+            is_read: state.is_read,
+            is_starred: state.is_starred,
+        }
+    }
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct InertImageResponse {
@@ -270,6 +305,31 @@ async fn get_entry(
         .map_err(map_repository_error)?
         .ok_or_else(ApiError::not_found)?;
     Ok(Json(detail.into()))
+}
+
+async fn patch_entry_state(
+    State(state): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    _csrf: CsrfGuard,
+    Path(entry_id): Path<String>,
+    ApiJson(request): ApiJson<PatchEntryStateRequest>,
+) -> Result<Json<EntryStateResponse>, ApiError> {
+    if request.is_read.is_none() && request.is_starred.is_none() {
+        return Err(ApiError::validation());
+    }
+    let state = repository(&state)?
+        .update_state_for_user(
+            &user.id,
+            &entry_id,
+            UpdateEntryState {
+                is_read: request.is_read,
+                is_starred: request.is_starred,
+            },
+        )
+        .await
+        .map_err(map_repository_error)?
+        .ok_or_else(ApiError::not_found)?;
+    Ok(Json(state.into()))
 }
 
 fn map_repository_error(error: RepositoryError) -> ApiError {

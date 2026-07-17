@@ -6,7 +6,7 @@ use axum::{
     body::Body,
     http::{
         Method, Request, StatusCode,
-        header::{CACHE_CONTROL, COOKIE, PRAGMA},
+        header::{CACHE_CONTROL, CONTENT_TYPE, COOKIE, HOST, ORIGIN, PRAGMA},
     },
 };
 use http_body_util::BodyExt;
@@ -15,31 +15,38 @@ use raindrop::{
     auth::build_session_cookie,
     db::{
         DatabaseConfig, connect,
-        entities::{entry, entry_state, rss_counter},
+        entities::{entry, entry_state, feed, rss_counter, session, user},
         migrate,
     },
     setup::SetupService,
 };
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, DatabaseConnection, EntityTrait, IntoActiveModel,
+    ActiveModelTrait, ActiveValue::Set, ColumnTrait, DatabaseConnection, EntityTrait,
+    IntoActiveModel, QueryFilter,
 };
-use secrecy::SecretString;
-use serde_json::Value;
+use secrecy::{ExposeSecret, SecretString};
+use serde_json::{Value, json};
 use tempfile::TempDir;
 use time::OffsetDateTime;
 use tower::ServiceExt;
 
 use support::database::{
-    ENTRY_A_ID, ENTRY_B_ID, FEED_ID, HASH_A, HASH_B, SUBSCRIPTION_A_ID, SUBSCRIPTION_B_ID,
+    ENTRY_A_ID, ENTRY_B_ID, FEED_ID, HASH_A, HASH_B, HASH_C, SUBSCRIPTION_A_ID, SUBSCRIPTION_B_ID,
     USER_A_ID, USER_B_ID, entry_model, insert_feed, insert_user, subscription_model,
 };
+
+const CROSS_TENANT_FEED_ID: &str = "00000000-0000-4000-8000-000000000102";
+const CROSS_TENANT_SUBSCRIPTION_ID: &str = "00000000-0000-4000-8000-000000000203";
+const CROSS_TENANT_ENTRY_ID: &str = "00000000-0000-4000-8000-000000000303";
 
 struct ReaderFixture {
     _data: TempDir,
     app: Router,
     database: DatabaseConnection,
     user_a_cookie: String,
+    user_a_csrf: String,
     user_b_cookie: String,
+    user_b_csrf: String,
 }
 
 #[derive(Clone, Copy)]
@@ -136,7 +143,9 @@ impl ReaderFixture {
             .await
             .expect("user B session should create");
         let user_a_cookie = session_cookie(&user_a_session);
+        let user_a_csrf = user_a_session.csrf_token.expose_secret().to_owned();
         let user_b_cookie = session_cookie(&user_b_session);
+        let user_b_csrf = user_b_session.csrf_token.expose_secret().to_owned();
         let app = build_router(AppState::new(setup));
 
         Self {
@@ -144,8 +153,222 @@ impl ReaderFixture {
             app,
             database,
             user_a_cookie,
+            user_a_csrf,
             user_b_cookie,
+            user_b_csrf,
         }
+    }
+
+    async fn request_with_csrf(
+        &self,
+        method: Method,
+        uri: &str,
+        body: Value,
+        user: UserKind,
+        origin: Option<&str>,
+        host: Option<&str>,
+    ) -> axum::response::Response {
+        let (cookie, csrf) = match user {
+            UserKind::A => (&self.user_a_cookie, &self.user_a_csrf),
+            UserKind::B => (&self.user_b_cookie, &self.user_b_csrf),
+        };
+        let mut request = Request::builder()
+            .method(method)
+            .uri(uri)
+            .header(COOKIE, cookie)
+            .header("x-csrf-token", csrf)
+            .header(CONTENT_TYPE, "application/json");
+        if let Some(origin) = origin {
+            request = request.header(ORIGIN, origin);
+        }
+        if let Some(host) = host {
+            request = request.header(HOST, host);
+        }
+        let request = request
+            .body(Body::from(body.to_string()))
+            .expect("reader state request should build");
+        self.app
+            .clone()
+            .oneshot(request)
+            .await
+            .expect("reader state request should complete")
+    }
+
+    async fn request_state_body(
+        &self,
+        body: &str,
+        content_type: Option<&str>,
+        user: UserKind,
+    ) -> axum::response::Response {
+        let (cookie, csrf) = match user {
+            UserKind::A => (&self.user_a_cookie, &self.user_a_csrf),
+            UserKind::B => (&self.user_b_cookie, &self.user_b_csrf),
+        };
+        let mut request = Request::builder()
+            .method(Method::PATCH)
+            .uri(format!("/api/v1/entries/{ENTRY_A_ID}/state"))
+            .header(COOKIE, cookie)
+            .header("x-csrf-token", csrf)
+            .header(ORIGIN, "http://reader.test")
+            .header(HOST, "reader.test");
+        if let Some(content_type) = content_type {
+            request = request.header(CONTENT_TYPE, content_type);
+        }
+        let request = request
+            .body(Body::from(body.to_owned()))
+            .expect("reader state body request should build");
+        self.app
+            .clone()
+            .oneshot(request)
+            .await
+            .expect("reader state body request should complete")
+    }
+
+    async fn insert_cross_tenant_entry(&self) {
+        let now = OffsetDateTime::now_utc();
+        let mut cross_feed = feed::Entity::find_by_id(FEED_ID)
+            .one(&self.database)
+            .await
+            .expect("source feed should query")
+            .expect("source feed should exist")
+            .into_active_model();
+        cross_feed.id = Set(CROSS_TENANT_FEED_ID.to_owned());
+        cross_feed.source_url = Set("https://cross-tenant.example/feed.xml".to_owned());
+        cross_feed.normalized_url = Set("https://cross-tenant.example/feed.xml".to_owned());
+        cross_feed.normalized_url_hash = Set(HASH_C.to_owned());
+        cross_feed.fetch_url = Set("https://cross-tenant.example/feed.xml".to_owned());
+        cross_feed.validator_url = Set(Some("https://cross-tenant.example/feed.xml".to_owned()));
+        cross_feed
+            .insert(&self.database)
+            .await
+            .expect("cross-tenant feed should insert");
+
+        let mut subscription = subscription_model(CROSS_TENANT_SUBSCRIPTION_ID, USER_B_ID, now);
+        subscription.feed_id = Set(CROSS_TENANT_FEED_ID.to_owned());
+        subscription.start_sequence = Set(0);
+        subscription
+            .insert(&self.database)
+            .await
+            .expect("cross-tenant subscription should insert");
+
+        let mut cross_entry = entry_model(
+            CROSS_TENANT_ENTRY_ID,
+            1,
+            "cross-tenant-entry",
+            HASH_C,
+            None,
+            now,
+        );
+        cross_entry.feed_id = Set(CROSS_TENANT_FEED_ID.to_owned());
+        cross_entry
+            .insert(&self.database)
+            .await
+            .expect("cross-tenant entry should insert");
+    }
+
+    async fn request_state_without_session(&self) -> axum::response::Response {
+        let request = Request::builder()
+            .method(Method::PATCH)
+            .uri("/api/v1/entries/not-a-uuid/state")
+            .header("x-csrf-token", "not-a-token")
+            .header(CONTENT_TYPE, "application/json")
+            .header(ORIGIN, "http://reader.test")
+            .header(HOST, "reader.test")
+            .body(Body::from("{}"))
+            .expect("reader state unauthenticated request should build");
+        self.app
+            .clone()
+            .oneshot(request)
+            .await
+            .expect("reader state unauthenticated request should complete")
+    }
+
+    async fn expire_user_a_session(&self) {
+        let stored = session::Entity::find()
+            .filter(session::Column::UserId.eq(USER_A_ID))
+            .one(&self.database)
+            .await
+            .expect("user A session should query")
+            .expect("user A session should exist");
+        let mut active = stored.into_active_model();
+        active.expires_at = Set(OffsetDateTime::now_utc() - time::Duration::seconds(1));
+        active
+            .update(&self.database)
+            .await
+            .expect("user A session should expire");
+    }
+
+    async fn disable_user_a(&self) {
+        let stored = user::Entity::find_by_id(USER_A_ID)
+            .one(&self.database)
+            .await
+            .expect("user A should query")
+            .expect("user A should exist");
+        let mut active = stored.into_active_model();
+        active.is_disabled = Set(true);
+        active
+            .update(&self.database)
+            .await
+            .expect("user A should disable");
+    }
+
+    async fn request_state_with_csrf_headers(
+        &self,
+        csrf_headers: &[&str],
+    ) -> axum::response::Response {
+        let mut request = Request::builder()
+            .method(Method::PATCH)
+            .uri("/api/v1/entries/not-a-uuid/state")
+            .header(COOKIE, &self.user_a_cookie)
+            .header(CONTENT_TYPE, "application/json")
+            .header(ORIGIN, "http://reader.test")
+            .header(HOST, "reader.test");
+        for csrf in csrf_headers {
+            request = request.header("x-csrf-token", *csrf);
+        }
+        let request = request
+            .body(Body::from("{}"))
+            .expect("reader state CSRF request should build");
+        self.app
+            .clone()
+            .oneshot(request)
+            .await
+            .expect("reader state CSRF request should complete")
+    }
+
+    async fn request_state_with_origin_headers(
+        &self,
+        origin_headers: &[&str],
+        host: Option<&str>,
+    ) -> axum::response::Response {
+        let mut request = Request::builder()
+            .method(Method::PATCH)
+            .uri(format!("/api/v1/entries/{ENTRY_A_ID}/state"))
+            .header(COOKIE, &self.user_a_cookie)
+            .header("x-csrf-token", &self.user_a_csrf)
+            .header(CONTENT_TYPE, "application/json");
+        for origin in origin_headers {
+            request = request.header(ORIGIN, *origin);
+        }
+        if let Some(host) = host {
+            request = request.header(HOST, host);
+        }
+        let request = request
+            .body(Body::from(json!({ "isRead": true }).to_string()))
+            .expect("reader state origin request should build");
+        self.app
+            .clone()
+            .oneshot(request)
+            .await
+            .expect("reader state origin request should complete")
+    }
+
+    async fn close_database(&self) {
+        self.database
+            .clone()
+            .close()
+            .await
+            .expect("reader database should close");
     }
 
     async fn request(
@@ -231,6 +454,262 @@ async fn response_json(response: axum::response::Response) -> Value {
 fn assert_sensitive_cache_headers(response: &axum::response::Response) {
     assert_eq!(response.headers().get(CACHE_CONTROL).unwrap(), "no-store");
     assert_eq!(response.headers().get(PRAGMA).unwrap(), "no-cache");
+}
+
+#[tokio::test]
+async fn reader_state_patch_updates_only_supplied_fields() {
+    let fixture = ReaderFixture::new().await;
+    let response = fixture
+        .request_with_csrf(
+            Method::PATCH,
+            &format!("/api/v1/entries/{ENTRY_A_ID}/state"),
+            json!({ "isStarred": true }),
+            UserKind::A,
+            Some("http://reader.test"),
+            Some("reader.test"),
+        )
+        .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_sensitive_cache_headers(&response);
+    let body = response_json(response).await;
+    assert_eq!(body["entryId"], ENTRY_A_ID);
+    assert_eq!(body["isRead"], false);
+    assert_eq!(body["isStarred"], true);
+}
+
+#[tokio::test]
+async fn reader_state_rejects_invalid_bodies() {
+    let fixture = ReaderFixture::new().await;
+    for (body, content_type) in [
+        ("{}", Some("application/json")),
+        (r#"{"isRead":null}"#, Some("application/json")),
+        (r#"{"isRead":1}"#, Some("application/json")),
+        (r#"{"isRead":"true"}"#, Some("application/json")),
+        (
+            r#"{"isStarred":true,"unexpected":false}"#,
+            Some("application/json"),
+        ),
+        (r#"{"isRead":true"#, Some("application/json")),
+        (r#"{"isRead":true}"#, Some("text/plain")),
+    ] {
+        let response = fixture
+            .request_state_body(body, content_type, UserKind::A)
+            .await;
+        assert_eq!(
+            response.status(),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "unexpected status for body {body:?} and content type {content_type:?}"
+        );
+        let body = response_json(response).await;
+        assert_eq!(body["error"]["code"], "VALIDATION_ERROR");
+    }
+}
+
+#[tokio::test]
+async fn reader_state_hides_missing_and_cross_tenant_entries() {
+    let fixture = ReaderFixture::new().await;
+    fixture.insert_cross_tenant_entry().await;
+
+    let response = fixture
+        .request_with_csrf(
+            Method::PATCH,
+            "/api/v1/entries/not-a-uuid/state",
+            json!({ "isRead": true }),
+            UserKind::A,
+            Some("http://reader.test"),
+            Some("reader.test"),
+        )
+        .await;
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let body = response_json(response).await;
+    assert_eq!(body["error"]["code"], "VALIDATION_ERROR");
+
+    let mut envelopes = Vec::new();
+    for (entry_id, user) in [
+        ("00000000-0000-4000-8000-000000000399", UserKind::A),
+        (CROSS_TENANT_ENTRY_ID, UserKind::A),
+        (ENTRY_A_ID, UserKind::B),
+    ] {
+        let response = fixture
+            .request_with_csrf(
+                Method::PATCH,
+                &format!("/api/v1/entries/{entry_id}/state"),
+                json!({ "isRead": true }),
+                user,
+                Some("http://reader.test"),
+                Some("reader.test"),
+            )
+            .await;
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let body = response_json(response).await;
+        envelopes.push((
+            body["error"]["code"].clone(),
+            body["error"]["message"].clone(),
+        ));
+    }
+    assert!(envelopes.windows(2).all(|pair| pair[0] == pair[1]));
+}
+
+#[tokio::test]
+async fn reader_state_requires_active_session() {
+    let fixture = ReaderFixture::new().await;
+    let response = fixture.request_state_without_session().await;
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    let body = response_json(response).await;
+    assert_eq!(body["error"]["code"], "AUTHENTICATION_REQUIRED");
+
+    let fixture = ReaderFixture::new().await;
+    fixture.expire_user_a_session().await;
+    let response = fixture
+        .request_with_csrf(
+            Method::PATCH,
+            &format!("/api/v1/entries/{ENTRY_A_ID}/state"),
+            json!({ "isRead": true }),
+            UserKind::A,
+            Some("http://reader.test"),
+            Some("reader.test"),
+        )
+        .await;
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    let body = response_json(response).await;
+    assert_eq!(body["error"]["code"], "AUTHENTICATION_REQUIRED");
+
+    let fixture = ReaderFixture::new().await;
+    fixture.disable_user_a().await;
+    let response = fixture
+        .request_with_csrf(
+            Method::PATCH,
+            &format!("/api/v1/entries/{ENTRY_A_ID}/state"),
+            json!({ "isRead": true }),
+            UserKind::A,
+            Some("http://reader.test"),
+            Some("reader.test"),
+        )
+        .await;
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    let body = response_json(response).await;
+    assert_eq!(body["error"]["code"], "AUTHENTICATION_REQUIRED");
+}
+
+#[tokio::test]
+async fn reader_state_requires_valid_csrf() {
+    let fixture = ReaderFixture::new().await;
+    let valid_csrf = fixture.user_a_csrf.as_str();
+    for csrf_headers in [
+        Vec::new(),
+        vec![valid_csrf, valid_csrf],
+        vec!["not-a-token"],
+        vec!["AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],
+    ] {
+        let response = fixture.request_state_with_csrf_headers(&csrf_headers).await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let body = response_json(response).await;
+        assert_eq!(body["error"]["code"], "FORBIDDEN");
+    }
+}
+
+#[tokio::test]
+async fn reader_state_enforces_same_origin() {
+    let fixture = ReaderFixture::new().await;
+    let response = fixture
+        .request_state_with_origin_headers(&["http://reader.test"], Some("reader.test"))
+        .await;
+    assert_eq!(response.status(), StatusCode::OK);
+
+    for (origins, host) in [
+        (vec!["http://attacker.test"], Some("reader.test")),
+        (vec!["http://reader.test:8080"], Some("reader.test")),
+        (vec!["not-an-origin"], Some("reader.test")),
+        (
+            vec!["http://reader.test", "http://reader.test"],
+            Some("reader.test"),
+        ),
+        (vec!["http://reader.test"], None),
+    ] {
+        let response = fixture
+            .request_state_with_origin_headers(&origins, host)
+            .await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let body = response_json(response).await;
+        assert_eq!(body["error"]["code"], "FORBIDDEN");
+    }
+}
+
+#[tokio::test]
+async fn reader_state_responses_disable_caching() {
+    let fixture = ReaderFixture::new().await;
+    let cases = [
+        (
+            StatusCode::OK,
+            fixture
+                .request_with_csrf(
+                    Method::PATCH,
+                    &format!("/api/v1/entries/{ENTRY_A_ID}/state"),
+                    json!({ "isStarred": true }),
+                    UserKind::A,
+                    Some("http://reader.test"),
+                    Some("reader.test"),
+                )
+                .await,
+        ),
+        (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            fixture
+                .request_state_body("{}", Some("application/json"), UserKind::A)
+                .await,
+        ),
+        (
+            StatusCode::UNAUTHORIZED,
+            fixture.request_state_without_session().await,
+        ),
+        (
+            StatusCode::FORBIDDEN,
+            fixture.request_state_with_csrf_headers(&[]).await,
+        ),
+        (
+            StatusCode::NOT_FOUND,
+            fixture
+                .request_with_csrf(
+                    Method::PATCH,
+                    "/api/v1/entries/00000000-0000-4000-8000-000000000399/state",
+                    json!({ "isRead": true }),
+                    UserKind::A,
+                    Some("http://reader.test"),
+                    Some("reader.test"),
+                )
+                .await,
+        ),
+        (
+            StatusCode::METHOD_NOT_ALLOWED,
+            fixture
+                .request(
+                    Method::POST,
+                    &format!("/api/v1/entries/{ENTRY_A_ID}/state"),
+                    Some(json!({ "isRead": true })),
+                    UserKind::A,
+                )
+                .await,
+        ),
+    ];
+    for (expected_status, response) in cases {
+        assert_eq!(response.status(), expected_status);
+        assert_sensitive_cache_headers(&response);
+    }
+
+    let broken_fixture = ReaderFixture::new().await;
+    broken_fixture.close_database().await;
+    let response = broken_fixture
+        .request_with_csrf(
+            Method::PATCH,
+            &format!("/api/v1/entries/{ENTRY_A_ID}/state"),
+            json!({ "isRead": true }),
+            UserKind::A,
+            Some("http://reader.test"),
+            Some("reader.test"),
+        )
+        .await;
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    assert_sensitive_cache_headers(&response);
 }
 
 #[tokio::test]
@@ -408,6 +887,10 @@ async fn reader_known_paths_reject_wrong_methods() {
         (
             Method::PUT,
             "/api/v1/entries/00000000-0000-4000-8000-000000000301",
+        ),
+        (
+            Method::POST,
+            "/api/v1/entries/00000000-0000-4000-8000-000000000301/state",
         ),
     ] {
         let response = fixture.request(method, uri, None, UserKind::A).await;
