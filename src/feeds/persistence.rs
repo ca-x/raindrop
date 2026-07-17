@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use sea_orm::{
     ConnectionTrait, DatabaseBackend, DbBackend, DbErr, QueryResult, RuntimeErr, SqlxError,
-    SqlxMySqlError, Statement, TransactionTrait,
+    SqlxMySqlError, SqlxPostgresError, SqlxSqliteError, Statement, TransactionTrait,
 };
 use serde::Serialize;
 use uuid::Uuid;
@@ -378,30 +378,77 @@ impl FeedRepository {
 }
 
 fn is_transient_database_error(error: &DbErr) -> bool {
+    is_retryable_provenance(database_error_provenance(error))
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RetryErrorProvenance<'a> {
+    Postgres(&'a str),
+    MySql {
+        number: u16,
+        sqlstate: Option<&'a str>,
+    },
+    Sqlite(i32),
+    Other,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum InsertErrorDisposition {
+    ReturnForRetry,
+    ProbeCollision,
+}
+
+fn database_error_provenance(error: &DbErr) -> RetryErrorProvenance<'_> {
     let runtime = match error {
         DbErr::Conn(runtime) | DbErr::Exec(runtime) | DbErr::Query(runtime) => runtime,
-        _ => return false,
+        _ => return RetryErrorProvenance::Other,
     };
     let RuntimeErr::SqlxError(SqlxError::Database(database_error)) = runtime else {
-        return false;
+        return RetryErrorProvenance::Other;
     };
-
-    let code = database_error.code();
-    if code
-        .as_deref()
-        .is_some_and(|code| matches!(code, "40001" | "40P01"))
-    {
-        return true;
+    if let Some(error) = database_error.try_downcast_ref::<SqlxPostgresError>() {
+        return RetryErrorProvenance::Postgres(error.code());
+    }
+    if let Some(error) = database_error.try_downcast_ref::<SqlxMySqlError>() {
+        return RetryErrorProvenance::MySql {
+            number: error.number(),
+            sqlstate: error.code(),
+        };
     }
     if database_error
-        .try_downcast_ref::<SqlxMySqlError>()
-        .is_some_and(|error| matches!(error.number(), 1205 | 1213))
+        .try_downcast_ref::<SqlxSqliteError>()
+        .is_some()
     {
-        return true;
+        return database_error
+            .code()
+            .as_deref()
+            .and_then(|code| code.parse::<i32>().ok())
+            .map_or(RetryErrorProvenance::Other, RetryErrorProvenance::Sqlite);
     }
-    code.as_deref()
-        .and_then(|code| code.parse::<i32>().ok())
-        .is_some_and(|code| matches!(code & 0xff, 5 | 6))
+    RetryErrorProvenance::Other
+}
+
+fn is_retryable_provenance(provenance: RetryErrorProvenance<'_>) -> bool {
+    match provenance {
+        RetryErrorProvenance::Postgres(code) => matches!(code.as_bytes(), b"40001" | b"40P01"),
+        RetryErrorProvenance::MySql { number, sqlstate } => {
+            matches!(number, 1205 | 1213) || matches!(sqlstate, Some("40001"))
+        }
+        RetryErrorProvenance::Sqlite(code) => code >= 0 && matches!(code & 0xff, 5 | 6),
+        RetryErrorProvenance::Other => false,
+    }
+}
+
+fn insert_error_disposition_for(provenance: RetryErrorProvenance<'_>) -> InsertErrorDisposition {
+    if is_retryable_provenance(provenance) {
+        InsertErrorDisposition::ReturnForRetry
+    } else {
+        InsertErrorDisposition::ProbeCollision
+    }
+}
+
+fn insert_error_disposition(error: &DbErr) -> InsertErrorDisposition {
+    insert_error_disposition_for(database_error_provenance(error))
 }
 
 #[derive(Debug)]
@@ -895,6 +942,9 @@ async fn insert_entry<C: ConnectionTrait>(
         Ok(result) if result.rows_affected() == 1 => Ok(()),
         Ok(_) => Err(RefreshRepositoryError::CorruptData),
         Err(error) => {
+            if insert_error_disposition(&error) == InsertErrorDisposition::ReturnForRetry {
+                return Err(RefreshRepositoryError::Database(error));
+            }
             let existing = find_entry_by_identity_hash(
                 connection,
                 backend,
@@ -1191,4 +1241,43 @@ fn encode_enclosures(
 
 fn hash_hex(bytes: [u8; 32]) -> String {
     blake3::Hash::from_bytes(bytes).to_hex().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn postgres_insert_transients_return_before_collision_probe() {
+        for code in ["40001", "40P01"] {
+            assert_eq!(
+                insert_error_disposition_for(RetryErrorProvenance::Postgres(code)),
+                InsertErrorDisposition::ReturnForRetry
+            );
+        }
+    }
+
+    #[test]
+    fn retry_codes_are_whitelisted_by_backend_provenance() {
+        for code in ["22021", "22022"] {
+            assert_eq!(
+                insert_error_disposition_for(RetryErrorProvenance::Postgres(code)),
+                InsertErrorDisposition::ProbeCollision
+            );
+        }
+        for code in [5, 6, 261, 262, 517, 518] {
+            assert!(is_retryable_provenance(RetryErrorProvenance::Sqlite(code)));
+        }
+        for number in [1205, 1213] {
+            assert!(is_retryable_provenance(RetryErrorProvenance::MySql {
+                number,
+                sqlstate: None,
+            }));
+        }
+        assert!(is_retryable_provenance(RetryErrorProvenance::MySql {
+            number: 0,
+            sqlstate: Some("40001"),
+        }));
+        assert!(!is_retryable_provenance(RetryErrorProvenance::Other));
+    }
 }
