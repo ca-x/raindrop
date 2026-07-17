@@ -140,6 +140,15 @@ impl ApiError {
     }
 
     #[must_use]
+    pub fn method_not_allowed() -> Self {
+        Self::new(
+            StatusCode::METHOD_NOT_ALLOWED,
+            "METHOD_NOT_ALLOWED",
+            "The request method is not allowed",
+        )
+    }
+
+    #[must_use]
     pub fn username_invalid(message: &'static str) -> Self {
         Self::new(
             StatusCode::UNPROCESSABLE_ENTITY,

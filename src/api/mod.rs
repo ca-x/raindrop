@@ -1,3 +1,4 @@
+mod entries;
 mod error;
 mod json;
 mod rate_limit;

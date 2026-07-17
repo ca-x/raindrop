@@ -46,6 +46,7 @@ pub fn router() -> Router<AppState> {
         .route_layer(middleware::map_response(sensitive_cache_headers))
         .nest("/api/v1/setup", setup)
         .nest("/api/v1/auth", auth)
+        .merge(super::entries::router())
         .layer(DefaultBodyLimit::max(64 * 1024))
 }
 
@@ -53,7 +54,7 @@ async fn sensitive_not_found() -> ApiError {
     ApiError::not_found()
 }
 
-async fn sensitive_cache_headers(mut response: Response) -> Response {
+pub(super) async fn sensitive_cache_headers(mut response: Response) -> Response {
     response
         .headers_mut()
         .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
