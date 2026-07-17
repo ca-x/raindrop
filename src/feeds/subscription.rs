@@ -52,11 +52,6 @@ pub(super) struct SubscribeRecord {
     pub run_status: RefreshStatus,
 }
 
-struct SubscribeCommandRecord {
-    created: bool,
-    subscription_id: String,
-}
-
 #[derive(thiserror::Error)]
 pub(super) enum SubscriptionRepositoryError {
     #[error("subscription repository database operation failed")]
@@ -103,18 +98,8 @@ impl FeedRepository {
         if source_url.is_empty() || source_url.len() > 4_096 {
             return Err(RefreshRepositoryError::InvalidRequest);
         }
-        let record = self
-            .subscribe_command(user_id, source_url, normalized)
-            .await?;
-        let subscription = self
-            .get_subscription_for_user(user_id, &record.subscription_id)
+        self.subscribe_command(user_id, source_url, normalized)
             .await
-            .map_err(map_projection_command_error)?
-            .ok_or(RefreshRepositoryError::CorruptData)?;
-        Ok(SubscribeOutcome {
-            created: record.created,
-            subscription,
-        })
     }
 
     async fn subscribe_command(
@@ -122,7 +107,7 @@ impl FeedRepository {
         user_id: &str,
         source_url: &str,
         normalized: &NormalizedFeedUrl,
-    ) -> Result<SubscribeCommandRecord, RefreshRepositoryError> {
+    ) -> Result<SubscribeOutcome, RefreshRepositoryError> {
         for attempt in 0..3 {
             let candidate = find_feed_by_hash(
                 self.connection(),
@@ -149,7 +134,7 @@ impl FeedRepository {
         source_url: &str,
         normalized: &NormalizedFeedUrl,
         candidate: Option<(String, String)>,
-    ) -> Result<SubscribeCommandRecord, RefreshRepositoryError> {
+    ) -> Result<SubscribeOutcome, RefreshRepositoryError> {
         let backend = self.connection().get_database_backend();
         let transaction = self.connection().begin().await?;
         let result = async {
@@ -180,9 +165,14 @@ impl FeedRepository {
                     .await
                     .map_err(map_subscription_command_error)?
             {
-                return Ok(SubscribeCommandRecord {
+                let subscription =
+                    subscription_for_user_from(&transaction, backend, user_id, &subscription_id)
+                        .await
+                        .map_err(map_projection_command_error)?
+                        .ok_or(RefreshRepositoryError::CorruptData)?;
+                return Ok(SubscribeOutcome {
                     created: false,
-                    subscription_id,
+                    subscription,
                 });
             }
             if feed.is_disabled {
@@ -249,9 +239,14 @@ impl FeedRepository {
                         .await?;
                 }
             }
-            Ok(SubscribeCommandRecord {
+            let subscription =
+                subscription_for_user_from(&transaction, backend, user_id, &subscription_id)
+                    .await
+                    .map_err(map_projection_command_error)?
+                    .ok_or(RefreshRepositoryError::CorruptData)?;
+            Ok(SubscribeOutcome {
                 created: true,
-                subscription_id,
+                subscription,
             })
         }
         .await;
@@ -474,16 +469,7 @@ impl FeedRepository {
     ) -> Result<Option<SubscriptionListItemDto>, RepositoryError> {
         validate_uuid(user_id).map_err(|()| RepositoryError::InvalidUserId)?;
         let backend = self.connection().get_database_backend();
-        self.connection()
-            .query_one(subscription_detail_statement(
-                backend,
-                user_id,
-                subscription_id,
-            ))
-            .await?
-            .map(decode_subscription_projection)
-            .transpose()
-            .map(|projection| projection.map(|row| row.item))
+        subscription_for_user_from(self.connection(), backend, user_id, subscription_id).await
     }
 
     #[doc(hidden)]
@@ -877,6 +863,27 @@ fn subscription_detail_statement(
          LIMIT 1"
     );
     sql.finish(subscription_projection_sql(&selected))
+}
+
+async fn subscription_for_user_from<C>(
+    connection: &C,
+    backend: DbBackend,
+    user_id: &str,
+    subscription_id: &str,
+) -> Result<Option<SubscriptionListItemDto>, RepositoryError>
+where
+    C: ConnectionTrait,
+{
+    connection
+        .query_one(subscription_detail_statement(
+            backend,
+            user_id,
+            subscription_id,
+        ))
+        .await?
+        .map(decode_subscription_projection)
+        .transpose()
+        .map(|projection| projection.map(|row| row.item))
 }
 
 fn subscription_projection_sql(selected_subscriptions: &str) -> String {

@@ -437,24 +437,8 @@ async fn exact_run_claim_never_consumes_an_older_unrelated_run() {
     active.update(&database).await.expect("feed should unlock");
 
     let repository = FeedRepository::new(database.clone());
-    let older = repository
-        .queue_refresh(QueueRefreshRequest {
-            feed_id: FEED_ID.to_owned(),
-            requested_by_user_id: None,
-            trigger: RefreshTrigger::Manual,
-            idempotency_key: "older-unrelated".to_owned(),
-        })
-        .await
-        .expect("older run should queue");
-    let target = repository
-        .queue_refresh(QueueRefreshRequest {
-            feed_id: FEED_ID.to_owned(),
-            requested_by_user_id: None,
-            trigger: RefreshTrigger::Manual,
-            idempotency_key: "target-exact".to_owned(),
-        })
-        .await
-        .expect("target run should queue");
+    let older = seed_queued_refresh_run(&database, "older-unrelated").await;
+    let target = seed_queued_refresh_run(&database, "target-exact").await;
     let result = repository
         .claim_run(
             &target.id,
@@ -506,15 +490,7 @@ async fn exact_run_claim_never_consumes_an_older_unrelated_run() {
         Err(RefreshRepositoryError::RunNotFound)
     ));
 
-    let disabled_run = repository
-        .queue_refresh(QueueRefreshRequest {
-            feed_id: FEED_ID.to_owned(),
-            requested_by_user_id: None,
-            trigger: RefreshTrigger::Manual,
-            idempotency_key: "disabled-exact".to_owned(),
-        })
-        .await
-        .expect("disabled test run should queue");
+    let disabled_run = seed_queued_refresh_run(&database, "disabled-exact").await;
     feed::Entity::update_many()
         .col_expr(feed::Column::IsDisabled, true.into())
         .filter(feed::Column::Id.eq(FEED_ID))
@@ -554,6 +530,7 @@ async fn redirected_304_never_rebinds_old_validator_bytes() {
     let mut active: feed::ActiveModel = model.into();
     active.lease_owner = Set(None);
     active.lease_until = Set(None);
+    active.orphaned_at = Set(None);
     active.update(&database).await.expect("feed should unlock");
     let repository = FeedRepository::new(database.clone());
     let run = repository
@@ -755,6 +732,7 @@ async fn atomic_claim(
     active.entry_sequence_head = Set(0);
     active.lease_owner = Set(None);
     active.lease_until = Set(None);
+    active.orphaned_at = Set(None);
     active.update(&database).await.unwrap();
     let repository = FeedRepository::new(database.clone());
     let run = repository
@@ -808,6 +786,36 @@ async fn insert_conflicting_completed_event(
     .insert(database)
     .await
     .expect("conflicting event should insert");
+}
+
+async fn seed_queued_refresh_run(
+    database: &DatabaseConnection,
+    idempotency_key: &str,
+) -> feed_refresh_run::Model {
+    feed_refresh_run::ActiveModel {
+        id: Set(Uuid::new_v4().to_string()),
+        feed_id: Set(FEED_ID.to_owned()),
+        requested_by_user_id: Set(None),
+        trigger_kind: Set(RefreshTrigger::Manual.as_str().to_owned()),
+        status: Set("QUEUED".to_owned()),
+        idempotency_key: Set(idempotency_key.to_owned()),
+        lease_token: Set(None),
+        commit_generation: Set(None),
+        queued_at: Set(time::OffsetDateTime::now_utc()),
+        started_at: Set(None),
+        fetched_at: Set(None),
+        persisted_at: Set(None),
+        completed_at: Set(None),
+        http_status: Set(None),
+        new_count: Set(0),
+        updated_count: Set(0),
+        dropped_count: Set(0),
+        error_code: Set(None),
+        retry_at: Set(None),
+    }
+    .insert(database)
+    .await
+    .expect("queued refresh fixture should insert")
 }
 
 async fn assert_atomic_snapshot(

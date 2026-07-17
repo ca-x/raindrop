@@ -209,6 +209,7 @@ async fn sqlite_lock_wait_crossing_the_deadline_cannot_complete() {
 async fn sqlite_manual_idempotency_returns_existing_or_conflicts() {
     let (_data, _url, database) = sqlite_database("manual-idempotency").await;
     seed_feed(&database).await;
+    make_feed_queueable(&database).await;
     let repository = FeedRepository::new(database.clone());
     assert!(matches!(
         repository
@@ -261,6 +262,160 @@ async fn sqlite_manual_idempotency_returns_existing_or_conflicts() {
     ));
 
     database.close().await.expect("database should close");
+}
+
+#[tokio::test]
+async fn sqlite_queue_refresh_rejects_a_different_key_while_another_run_is_active() {
+    let (_data, _url, database) = sqlite_database("queue-active-admission").await;
+    seed_feed(&database).await;
+    make_feed_queueable(&database).await;
+    let repository = FeedRepository::new(database.clone());
+    let first = repository
+        .queue_refresh(QueueRefreshRequest {
+            feed_id: FEED_ID.to_owned(),
+            requested_by_user_id: None,
+            trigger: RefreshTrigger::Manual,
+            idempotency_key: "manual:first-active".to_owned(),
+        })
+        .await
+        .expect("first system refresh should queue");
+
+    let error = repository
+        .queue_refresh(QueueRefreshRequest {
+            feed_id: FEED_ID.to_owned(),
+            requested_by_user_id: None,
+            trigger: RefreshTrigger::Retry,
+            idempotency_key: "retry:different-active".to_owned(),
+        })
+        .await
+        .expect_err("different key must not create a second active run");
+    assert!(matches!(
+        error,
+        RefreshRepositoryError::RefreshInProgress { operation_id }
+            if operation_id == first.id
+    ));
+    let active = feed_refresh_run::Entity::find()
+        .all(&database)
+        .await
+        .expect("refresh runs should query")
+        .into_iter()
+        .filter(|run| matches!(run.status.as_str(), "QUEUED" | "RUNNING"))
+        .count();
+    assert_eq!(active, 1);
+
+    database.close().await.expect("database should close");
+}
+
+#[tokio::test]
+async fn sqlite_queue_refresh_revalidates_disabled_orphan_and_scheduled_due_state() {
+    let (_data, _url, exact_database) = sqlite_database("queue-exact-priority").await;
+    seed_feed(&exact_database).await;
+    make_feed_queueable(&exact_database).await;
+    let exact_repository = FeedRepository::new(exact_database.clone());
+    let exact_request = QueueRefreshRequest {
+        feed_id: FEED_ID.to_owned(),
+        requested_by_user_id: None,
+        trigger: RefreshTrigger::Manual,
+        idempotency_key: "manual:exact-before-state".to_owned(),
+    };
+    let first = exact_repository
+        .queue_refresh(exact_request.clone())
+        .await
+        .expect("initial exact request should queue");
+    set_feed_admission_state(
+        &exact_database,
+        true,
+        Some(OffsetDateTime::now_utc()),
+        OffsetDateTime::now_utc() + time::Duration::hours(1),
+    )
+    .await;
+    let replay = exact_repository
+        .queue_refresh(exact_request)
+        .await
+        .expect("exact replay must precede disabled and orphan checks");
+    assert_eq!(replay, first);
+    exact_database.close().await.expect("database should close");
+
+    let (_data, _url, disabled_database) = sqlite_database("queue-disabled").await;
+    seed_feed(&disabled_database).await;
+    set_feed_admission_state(
+        &disabled_database,
+        true,
+        None,
+        OffsetDateTime::now_utc() - time::Duration::minutes(1),
+    )
+    .await;
+    let disabled_repository = FeedRepository::new(disabled_database.clone());
+    assert!(matches!(
+        disabled_repository
+            .queue_refresh(QueueRefreshRequest {
+                feed_id: FEED_ID.to_owned(),
+                requested_by_user_id: None,
+                trigger: RefreshTrigger::Manual,
+                idempotency_key: "manual:disabled".to_owned(),
+            })
+            .await,
+        Err(RefreshRepositoryError::FeedDisabled)
+    ));
+    assert_no_refresh_runs(&disabled_database).await;
+    disabled_database
+        .close()
+        .await
+        .expect("database should close");
+
+    let (_data, _url, orphan_database) = sqlite_database("queue-orphan").await;
+    seed_feed(&orphan_database).await;
+    set_feed_admission_state(
+        &orphan_database,
+        false,
+        Some(OffsetDateTime::now_utc()),
+        OffsetDateTime::now_utc() - time::Duration::minutes(1),
+    )
+    .await;
+    let orphan_repository = FeedRepository::new(orphan_database.clone());
+    assert!(matches!(
+        orphan_repository
+            .queue_refresh(QueueRefreshRequest {
+                feed_id: FEED_ID.to_owned(),
+                requested_by_user_id: None,
+                trigger: RefreshTrigger::Retry,
+                idempotency_key: "retry:orphan".to_owned(),
+            })
+            .await,
+        Err(RefreshRepositoryError::InvalidRequest)
+    ));
+    assert_no_refresh_runs(&orphan_database).await;
+    orphan_database
+        .close()
+        .await
+        .expect("database should close");
+
+    let (_data, _url, future_database) = sqlite_database("queue-scheduled-future").await;
+    seed_feed(&future_database).await;
+    set_feed_admission_state(
+        &future_database,
+        false,
+        None,
+        OffsetDateTime::now_utc() + time::Duration::hours(1),
+    )
+    .await;
+    let future_repository = FeedRepository::new(future_database.clone());
+    assert!(matches!(
+        future_repository
+            .queue_refresh(QueueRefreshRequest {
+                feed_id: FEED_ID.to_owned(),
+                requested_by_user_id: None,
+                trigger: RefreshTrigger::Scheduled,
+                idempotency_key: "scheduled:not-due".to_owned(),
+            })
+            .await,
+        Err(RefreshRepositoryError::InvalidRequest)
+    ));
+    assert_no_refresh_runs(&future_database).await;
+    future_database
+        .close()
+        .await
+        .expect("database should close");
 }
 
 #[tokio::test]
@@ -816,6 +971,7 @@ async fn diagnostic_deadline_contract(url: &str) {
 async fn manual_idempotency_contract(url: &str) {
     let database = reset_contract_database(url).await;
     seed_feed(&database).await;
+    make_feed_queueable(&database).await;
     let repository = FeedRepository::new(database.clone());
     let request = QueueRefreshRequest {
         feed_id: FEED_ID.to_owned(),
@@ -1136,6 +1292,53 @@ async fn seed_feed(database: &sea_orm::DatabaseConnection) {
     active.lease_owner = Set(None);
     active.lease_until = Set(None);
     active.update(database).await.expect("feed should unlock");
+}
+
+async fn make_feed_queueable(database: &sea_orm::DatabaseConnection) {
+    let feed = feed::Entity::find_by_id(FEED_ID)
+        .one(database)
+        .await
+        .expect("feed should query")
+        .expect("feed should exist");
+    let mut active: feed::ActiveModel = feed.into();
+    active.is_disabled = Set(false);
+    active.orphaned_at = Set(None);
+    active.next_fetch_at = Set(OffsetDateTime::now_utc() - time::Duration::minutes(1));
+    active
+        .update(database)
+        .await
+        .expect("feed should become queueable");
+}
+
+async fn set_feed_admission_state(
+    database: &sea_orm::DatabaseConnection,
+    is_disabled: bool,
+    orphaned_at: Option<OffsetDateTime>,
+    next_fetch_at: OffsetDateTime,
+) {
+    let feed = feed::Entity::find_by_id(FEED_ID)
+        .one(database)
+        .await
+        .expect("feed should query")
+        .expect("feed should exist");
+    let mut active: feed::ActiveModel = feed.into();
+    active.is_disabled = Set(is_disabled);
+    active.orphaned_at = Set(orphaned_at);
+    active.next_fetch_at = Set(next_fetch_at);
+    active
+        .update(database)
+        .await
+        .expect("feed admission state should update");
+}
+
+async fn assert_no_refresh_runs(database: &sea_orm::DatabaseConnection) {
+    assert!(
+        feed_refresh_run::Entity::find()
+            .all(database)
+            .await
+            .expect("refresh runs should query")
+            .is_empty()
+    );
 }
 
 async fn insert_queued_run(

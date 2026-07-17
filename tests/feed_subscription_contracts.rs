@@ -872,6 +872,59 @@ async fn sqlite_concurrent_resubscribe_clears_orphan() {
 }
 
 #[tokio::test]
+async fn sqlite_subscribe_outcome_uses_the_locked_transaction_snapshot() {
+    let fixture = SubscriptionFixture::new().await;
+    fixture
+        .database
+        .execute_unprepared(&format!(
+            "CREATE TRIGGER slow_atomic_subscribe_user_lock
+             AFTER UPDATE OF is_disabled ON users
+             WHEN NEW.id = '{USER_B_ID}'
+             BEGIN
+                 SELECT length(randomblob(50000000));
+             END"
+        ))
+        .await
+        .expect("subscription lock trigger should install");
+    let first = fixture.repository.clone();
+    let delete_database = fixture.database.clone();
+    let normalized = FeedUrlPolicy::new(false)
+        .normalize(SHARED_FEED_URL)
+        .unwrap();
+    let subscribe = tokio::spawn(async move {
+        first
+            .subscribe(USER_B_ID, SHARED_FEED_URL, &normalized)
+            .await
+    });
+    tokio::time::sleep(StdDuration::from_millis(10)).await;
+    let unsubscribe = tokio::spawn(async move {
+        delete_database
+            .execute_unprepared(&format!(
+                "DELETE FROM subscriptions
+                 WHERE id = '{SUBSCRIPTION_B_ID}' AND user_id = '{USER_B_ID}'"
+            ))
+            .await
+    });
+    let (outcome, unsubscribed) = tokio::time::timeout(StdDuration::from_secs(10), async {
+        tokio::join!(subscribe, unsubscribe)
+    })
+    .await
+    .expect("subscribe/unsubscribe snapshot race must not deadlock");
+    let outcome = outcome
+        .expect("subscribe task should join")
+        .expect("subscribe outcome must survive the later unsubscribe");
+    assert!(!outcome.created);
+    assert_eq!(outcome.subscription.subscription_id, SUBSCRIPTION_B_ID);
+    assert_eq!(
+        unsubscribed
+            .expect("unsubscribe task should join")
+            .expect("concurrent unsubscribe should execute")
+            .rows_affected(),
+        1
+    );
+}
+
+#[tokio::test]
 async fn sqlite_subscription_and_active_run_quotas_are_atomic() {
     let subscription_fixture = SubscriptionFixture::with_feed_head(0).await;
     seed_subscription_quota(&subscription_fixture.database, 999).await;

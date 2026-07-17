@@ -316,6 +316,7 @@ async fn sqlite_persistence_database(
     active.entry_sequence_head = Set(0);
     active.lease_owner = Set(None);
     active.lease_until = Set(None);
+    active.orphaned_at = Set(None);
     active.update(&database).await.expect("feed should unlock");
     let repository = FeedRepository::new(database.clone());
     (data, database, repository)
@@ -348,6 +349,7 @@ async fn sqlite_retry_database(
     active.entry_sequence_head = Set(0);
     active.lease_owner = Set(None);
     active.lease_until = Set(None);
+    active.orphaned_at = Set(None);
     active.update(&database).await.expect("feed should unlock");
     let repository = FeedRepository::new(database.clone());
     (data, url, database, repository)
@@ -1110,6 +1112,7 @@ async fn external_backend_persistence_contract(url: String, key: &str) {
     active.entry_sequence_head = Set(0);
     active.lease_owner = Set(None);
     active.lease_until = Set(None);
+    active.orphaned_at = Set(None);
     active.update(&database).await.expect("feed should unlock");
     let repository = FeedRepository::new(database.clone());
 

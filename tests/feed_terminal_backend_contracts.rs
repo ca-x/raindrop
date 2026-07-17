@@ -396,6 +396,7 @@ async fn reset_database(url: SecretString) -> sea_orm::DatabaseConnection {
     active.entry_sequence_head = Set(0);
     active.lease_owner = Set(None);
     active.lease_until = Set(None);
+    active.orphaned_at = Set(None);
     active.update(&database).await.unwrap();
     database
 }

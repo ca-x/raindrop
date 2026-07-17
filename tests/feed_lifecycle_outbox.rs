@@ -492,6 +492,7 @@ async fn reset_contract_database(url: &str) -> DatabaseConnection {
     active.entry_sequence_head = Set(0);
     active.lease_owner = Set(None);
     active.lease_until = Set(None);
+    active.orphaned_at = Set(None);
     active.update(&database).await.expect("feed should unlock");
     database
 }

@@ -9,7 +9,7 @@ use super::lifecycle::{record_completed_event, valid_error_code};
 use super::{
     ClaimRequest, ExactClaimResult, NormalizedFeedUrl, OpaqueValidator, QueueRefreshRequest,
     RefreshClaim, RefreshCounts, RefreshFailure, RefreshRepositoryError, RefreshRun, RefreshStatus,
-    ScheduleOutcome,
+    RefreshTrigger, ScheduleOutcome,
 };
 
 const MAX_LEASE_TOKEN: i64 = i64::MAX;
@@ -74,7 +74,7 @@ impl FeedRepository {
         let backend = self.database.get_database_backend();
         let transaction = self.database.begin().await?;
         let result = async {
-            lock_feed_for_queue(&transaction, backend, &request.feed_id).await?;
+            let feed = lock_feed_for_queue(&transaction, backend, &request.feed_id).await?;
             if let Some(existing) = find_run_by_idempotency(
                 &transaction,
                 backend,
@@ -84,6 +84,22 @@ impl FeedRepository {
             .await?
             {
                 return idempotent_result(existing, &request);
+            }
+            if let Some(active) = find_active_run(&transaction, backend, &request.feed_id).await? {
+                return Err(RefreshRepositoryError::RefreshInProgress {
+                    operation_id: active.id,
+                });
+            }
+            if feed.is_disabled {
+                return Err(RefreshRepositoryError::FeedDisabled);
+            }
+            if feed.orphaned_at.is_some() {
+                return Err(RefreshRepositoryError::InvalidRequest);
+            }
+            if request.trigger == RefreshTrigger::Scheduled
+                && feed.next_fetch_at > queue_database_now(&transaction, backend).await?
+            {
+                return Err(RefreshRepositoryError::InvalidRequest);
             }
             if request.requested_by_user_id.is_some() {
                 return Err(RefreshRepositoryError::InvalidRequest);
@@ -709,6 +725,26 @@ where
             .try_get("", "orphaned_at")
             .map_err(|_| RefreshRepositoryError::CorruptData)?,
     })
+}
+
+async fn queue_database_now<C>(
+    connection: &C,
+    backend: DbBackend,
+) -> Result<OffsetDateTime, RefreshRepositoryError>
+where
+    C: ConnectionTrait,
+{
+    let sql = match backend {
+        DatabaseBackend::Sqlite => "SELECT strftime('%Y-%m-%dT%H:%M:%f000Z','now') AS database_now",
+        DatabaseBackend::Postgres => "SELECT clock_timestamp() AS database_now",
+        DatabaseBackend::MySql => "SELECT UTC_TIMESTAMP(6) AS database_now",
+    };
+    let row = connection
+        .query_one(Statement::from_string(backend, sql.to_owned()))
+        .await?
+        .ok_or(RefreshRepositoryError::CorruptData)?;
+    row.try_get("", "database_now")
+        .map_err(|_| RefreshRepositoryError::CorruptData)
 }
 
 fn validate_queue_request(request: &QueueRefreshRequest) -> Result<(), RefreshRepositoryError> {
