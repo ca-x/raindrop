@@ -14,6 +14,7 @@ mod query;
 mod refresh;
 mod repository;
 mod resolver;
+mod runtime;
 mod schedule;
 mod service;
 mod state;
@@ -58,6 +59,7 @@ pub use refresh::{
     UnknownRefreshValue,
 };
 pub use repository::FeedRepository;
+pub use runtime::{FeedRuntime, FeedRuntimeHandle};
 pub use schedule::{JitterSource, RefreshResult, RefreshSchedule, RetryAfter, ScheduleOutcome};
 pub use service::{FeedCommandService, FeedExecutor, FeedServiceError};
 pub use url_policy::{FeedUrlPolicy, NormalizedFeedUrl};
