@@ -248,16 +248,7 @@ where
     C: ConnectionTrait,
 {
     let row = connection
-        .query_one(Statement::from_sql_and_values(
-            backend,
-            match backend {
-                DatabaseBackend::Postgres => "SELECT value FROM rss_counters WHERE key = $1",
-                DatabaseBackend::Sqlite | DatabaseBackend::MySql => {
-                    "SELECT value FROM rss_counters WHERE key = ?"
-                }
-            },
-            ["INGEST_GENERATION".into()],
-        ))
+        .query_one(snapshot_generation_statement(backend))
         .await?
         .ok_or(RepositoryError::CorruptData)?;
     let value: i64 = required(&row, "value")?;
@@ -265,6 +256,18 @@ where
         return Err(RepositoryError::CorruptData);
     }
     Ok(value)
+}
+
+fn snapshot_generation_statement(backend: DbBackend) -> Statement {
+    Statement::from_sql_and_values(
+        backend,
+        match backend {
+            DatabaseBackend::Postgres => "SELECT value FROM rss_counters WHERE key = $1",
+            DatabaseBackend::Sqlite => "SELECT value FROM rss_counters WHERE key = ?",
+            DatabaseBackend::MySql => "SELECT value FROM rss_counters WHERE `key` = ?",
+        },
+        ["INGEST_GENERATION".into()],
+    )
 }
 
 fn list_statement(
@@ -580,6 +583,22 @@ fn explain_line(backend: DbBackend, row: &QueryResult) -> Result<String, Reposit
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn snapshot_generation_quotes_reserved_mysql_key() {
+        assert_eq!(
+            snapshot_generation_statement(DatabaseBackend::MySql).sql,
+            "SELECT value FROM rss_counters WHERE `key` = ?"
+        );
+        assert_eq!(
+            snapshot_generation_statement(DatabaseBackend::Postgres).sql,
+            "SELECT value FROM rss_counters WHERE key = $1"
+        );
+        assert_eq!(
+            snapshot_generation_statement(DatabaseBackend::Sqlite).sql,
+            "SELECT value FROM rss_counters WHERE key = ?"
+        );
+    }
 
     #[test]
     fn cursor_rejects_noncanonical_and_unknown_fields() {
