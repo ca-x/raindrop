@@ -6,5 +6,6 @@ pub mod content;
 pub mod db;
 pub mod feeds;
 pub mod organization;
+pub mod preferences;
 pub mod setup;
 pub mod web;

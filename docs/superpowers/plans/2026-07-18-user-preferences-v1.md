@@ -108,7 +108,7 @@ git push origin feature/foundation-bootstrap
 - Produces `PreferenceRepository::get(user_id, default_locale)` and `PreferenceRepository::update(user_id, default_locale, patch)`.
 - Produces `Locale`, `ThemeMode`, `LayoutDensity`, `UserPreferences`, `UpdateUserPreferences`, and `PreferenceError`.
 
-- [ ] **Step 1: Write repository RED tests**
+- [x] **Step 1: Write repository RED tests**
 
 Cover missing-row defaults, all single-field patches, complete patch, inclusive scale bounds, empty patch, two-user isolation, cascade behavior, invalid stored enum/scale as redacted corruption, and concurrent disjoint patches preserving both changes.
 
@@ -126,25 +126,25 @@ let updated = repository
 assert_eq!(updated.theme_mode, ThemeMode::Dark);
 ```
 
-- [ ] **Step 2: Run and confirm RED**
+- [x] **Step 2: Run and confirm RED**
 
 Run: `cargo test --locked --all-features --test preference_repository`
 
 Expected: compile failure because `raindrop::preferences` does not exist.
 
-- [ ] **Step 3: Implement typed validation and decoding**
+- [x] **Step 3: Implement typed validation and decoding**
 
 Each enum owns exact storage/wire names. `UserPreferences::defaults(locale)` returns `SYSTEM`, `BALANCED`, and `100`. `UpdateUserPreferences::validate()` rejects an empty patch and values outside `85..=130`. `PreferenceError::CorruptStorage` contains no stored value.
 
-- [ ] **Step 4: Implement short user-locked transactions**
+- [x] **Step 4: Implement short user-locked transactions**
 
 Lock the owning `users` row using the same backend-aware pattern as category creation. Select the preference row, apply the patch to stored values or defaults, then insert or update with database timestamps. Missing users return `NotFound`; public HTTP callers will only supply `CurrentUser.id`.
 
-- [ ] **Step 5: Verify repository and schema**
+- [x] **Step 5: Verify repository and schema**
 
 Run: `cargo test --locked --all-features --test preference_repository --test preference_migrations`
 
-- [ ] **Step 6: Commit and push**
+- [x] **Step 6: Commit and push**
 
 ```bash
 git add src/lib.rs src/preferences/mod.rs src/preferences/types.rs src/preferences/repository.rs tests/preference_repository.rs
