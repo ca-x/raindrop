@@ -39,10 +39,10 @@
 - Extends public `Refresh` with `pendingState`, `lastSuccessAt`, and `entryIssues`.
 - Produces `RefreshEntryIssue { code: "DUPLICATE_ENTRY", count }` only for degraded duplicate drops.
 
-- [ ] Write RED repository/API assertions for queued and running refinement, previous `last_success_at` after a failure, degraded duplicate issue counts, and empty issue arrays for non-degraded states.
-- [ ] Update subscription list/detail SQL to select `f.last_success_at AS refresh_last_success_at` and exact-run SQL to join `feeds` by `feed_id`.
-- [ ] Decode `last_success_at` into `RefreshDto` and update every literal fixture explicitly.
-- [ ] Add the public response types and pure mapping:
+- [x] Write RED repository/API assertions for queued and running refinement, previous `last_success_at` after a failure, degraded duplicate issue counts, and empty issue arrays for non-degraded states.
+- [x] Update subscription list/detail SQL to select `f.last_success_at AS refresh_last_success_at` and exact-run SQL to join `feeds` by `feed_id`.
+- [x] Decode `last_success_at` into `RefreshDto` and update every literal fixture explicitly.
+- [x] Add the public response types and pure mapping:
 
 ```rust
 #[derive(Serialize)]
@@ -61,9 +61,9 @@ fn public_pending_state(refresh: &RefreshDto) -> Option<&'static str> {
 }
 ```
 
-- [ ] Extend OpenAPI with `RefreshPendingState`, `RefreshEntryIssue`, date-time bounds, `maxItems: 8`, and strict required fields.
-- [ ] Regenerate TypeScript with `cd web && npm run generate:reader-types`, then run the drift gate.
-- [ ] Verify:
+- [x] Extend OpenAPI with `RefreshPendingState`, `RefreshEntryIssue`, date-time bounds, `maxItems: 8`, and strict required fields.
+- [x] Regenerate TypeScript with `cd web && npm run generate:reader-types`, then run the drift gate.
+- [x] Verify:
 
 ```bash
 cargo fmt --check
@@ -78,7 +78,7 @@ cd ..
 git diff --check
 ```
 
-- [ ] Commit and push: `feat: expose refresh observability`.
+- [x] Commit and push: `feat: expose refresh observability`.
 
 ### Task 2: Focused frontend presentation model
 

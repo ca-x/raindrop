@@ -1071,10 +1071,13 @@ async fn subscription_detail_hides_missing_and_cross_tenant() {
         std::collections::BTreeSet::from([
             "completedAt",
             "droppedCount",
+            "entryIssues",
             "errorCode",
             "generation",
+            "lastSuccessAt",
             "newCount",
             "operationId",
+            "pendingState",
             "queuedAt",
             "retryAt",
             "startedAt",
@@ -1209,6 +1212,31 @@ async fn subscription_refresh_is_exactly_idempotent_and_reports_active_conflict(
         .expect("accepted refresh should expose its operation")
         .to_owned();
     assert_eq!(accepted["state"], "PENDING");
+    assert_eq!(accepted["pendingState"], "QUEUED");
+    assert_eq!(accepted["entryIssues"], json!([]));
+
+    let manual_run = feed_refresh_run::Entity::find_by_id(&operation_id)
+        .one(&fixture.database)
+        .await
+        .expect("manual run should query before running projection")
+        .expect("manual run should exist before running projection");
+    let mut manual_run = manual_run.into_active_model();
+    manual_run.status = Set("RUNNING".to_owned());
+    manual_run.started_at = Set(Some(datetime!(2026-07-17 12:00:00.654321 UTC)));
+    manual_run
+        .update(&fixture.database)
+        .await
+        .expect("manual run should become running");
+    let running = fixture
+        .get(
+            &format!("/api/v1/subscriptions/{subscription_id}"),
+            UserKind::A,
+        )
+        .await;
+    assert_eq!(running.status(), StatusCode::OK);
+    let running = response_json(running).await;
+    assert_eq!(running["refresh"]["state"], "PENDING");
+    assert_eq!(running["refresh"]["pendingState"], "RUNNING");
 
     let replay = fixture
         .post_with_csrf(
@@ -1269,6 +1297,7 @@ async fn subscription_refresh_is_exactly_idempotent_and_reports_active_conflict(
         .expect("feed should exist");
     let mut stored_feed = stored_feed.into_active_model();
     stored_feed.last_attempt_at = Set(Some(datetime!(2036-07-17 12:00:00 UTC)));
+    stored_feed.last_success_at = Set(Some(datetime!(2026-07-17 11:59:59 UTC)));
     stored_feed
         .update(&fixture.database)
         .await
@@ -1285,6 +1314,7 @@ async fn subscription_refresh_is_exactly_idempotent_and_reports_active_conflict(
     let terminal = response_json(terminal_replay).await;
     assert_eq!(terminal["operationId"], operation_id);
     assert_eq!(terminal["state"], "BACKING_OFF");
+    assert_eq!(terminal["pendingState"], Value::Null);
     assert_eq!(terminal["newCount"], 3);
     assert_eq!(terminal["updatedCount"], 2);
     assert_eq!(terminal["droppedCount"], 1);
@@ -1294,6 +1324,39 @@ async fn subscription_refresh_is_exactly_idempotent_and_reports_active_conflict(
     assert_eq!(terminal["startedAt"], "2026-07-17T12:00:01.234567Z");
     assert_eq!(terminal["completedAt"], "2026-07-17T12:00:02.345678Z");
     assert_eq!(terminal["retryAt"], "2036-07-17T12:00:30.345678Z");
+    assert_eq!(terminal["lastSuccessAt"], "2026-07-17T11:59:59.000000Z");
+    assert_eq!(terminal["entryIssues"], json!([]));
+
+    let manual_run = feed_refresh_run::Entity::find_by_id(&operation_id)
+        .one(&fixture.database)
+        .await
+        .expect("manual run should query before degraded projection")
+        .expect("manual run should exist before degraded projection");
+    let mut manual_run = manual_run.into_active_model();
+    manual_run.status = Set("PARTIAL".to_owned());
+    manual_run.dropped_count = Set(2);
+    manual_run.error_code = Set(None);
+    manual_run.retry_at = Set(None);
+    manual_run
+        .update(&fixture.database)
+        .await
+        .expect("manual run should become degraded");
+    let degraded = fixture
+        .post_with_csrf(
+            &format!("/api/v1/subscriptions/{subscription_id}/refresh"),
+            json!({ "requestId": REQUEST_A }),
+            UserKind::A,
+        )
+        .await;
+    assert_eq!(degraded.status(), StatusCode::OK);
+    let degraded = response_json(degraded).await;
+    assert_eq!(degraded["state"], "DEGRADED");
+    assert_eq!(degraded["pendingState"], Value::Null);
+    assert_eq!(
+        degraded["entryIssues"],
+        json!([{ "code": "DUPLICATE_ENTRY", "count": 2 }])
+    );
+    assert_eq!(degraded["lastSuccessAt"], "2026-07-17T11:59:59.000000Z");
 
     let manual_run = feed_refresh_run::Entity::find_by_id(&operation_id)
         .one(&fixture.database)

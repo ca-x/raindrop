@@ -45,12 +45,15 @@ export interface Subscription {
 export interface Refresh {
   operationId: string
   state: RefreshState
+  pendingState: RefreshPendingState
   newCount: number
   updatedCount: number
   droppedCount: number
+  entryIssues: RefreshEntryIssue[]
   generation: number | null
   errorCode: RefreshErrorCode
   retryAt: string | null
+  lastSuccessAt: string | null
   queuedAt: string
   startedAt: string | null
   completedAt: string | null
@@ -58,7 +61,16 @@ export interface Refresh {
 
 export type RefreshState = "PENDING" | "READY" | "DEGRADED" | "BACKING_OFF" | "ERROR"
 
+export type RefreshPendingState = "QUEUED" | "RUNNING" | null
+
 export type RefreshErrorCode = "REFRESH_FAILED" | "UPSTREAM_RATE_LIMITED" | null
+
+export interface RefreshEntryIssue {
+  code: RefreshEntryIssueCode
+  count: number
+}
+
+export type RefreshEntryIssueCode = "DUPLICATE_ENTRY"
 
 export interface ErrorEnvelope {
   error: ApiError
@@ -130,7 +142,11 @@ export function isSubscription(value: unknown): value is Subscription {
 }
 
 export function isRefresh(value: unknown): value is Refresh {
-  return ((isRecord(value) && hasOnlyKeys(value, ["operationId","state","newCount","updatedCount","droppedCount","generation","errorCode","retryAt","queuedAt","startedAt","completedAt"]) && hasOwn(value, "operationId") && ((typeof value["operationId"] === "string" && isUuid(value["operationId"]))) && hasOwn(value, "state") && (value["state"] === "PENDING" || value["state"] === "READY" || value["state"] === "DEGRADED" || value["state"] === "BACKING_OFF" || value["state"] === "ERROR") && hasOwn(value, "newCount") && ((typeof value["newCount"] === "number" && Number.isFinite(value["newCount"]) && Number.isInteger(value["newCount"]) && value["newCount"] >= 0)) && hasOwn(value, "updatedCount") && ((typeof value["updatedCount"] === "number" && Number.isFinite(value["updatedCount"]) && Number.isInteger(value["updatedCount"]) && value["updatedCount"] >= 0)) && hasOwn(value, "droppedCount") && ((typeof value["droppedCount"] === "number" && Number.isFinite(value["droppedCount"]) && Number.isInteger(value["droppedCount"]) && value["droppedCount"] >= 0)) && hasOwn(value, "generation") && ((typeof value["generation"] === "number" && Number.isFinite(value["generation"]) && Number.isInteger(value["generation"]) && value["generation"] >= 0) || value["generation"] === null) && hasOwn(value, "errorCode") && (value["errorCode"] === "REFRESH_FAILED" || value["errorCode"] === "UPSTREAM_RATE_LIMITED" || value["errorCode"] === null) && hasOwn(value, "retryAt") && ((typeof value["retryAt"] === "string" && new RegExp("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z$").test(value["retryAt"])) || value["retryAt"] === null) && hasOwn(value, "queuedAt") && ((typeof value["queuedAt"] === "string" && new RegExp("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z$").test(value["queuedAt"]))) && hasOwn(value, "startedAt") && ((typeof value["startedAt"] === "string" && new RegExp("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z$").test(value["startedAt"])) || value["startedAt"] === null) && hasOwn(value, "completedAt") && ((typeof value["completedAt"] === "string" && new RegExp("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z$").test(value["completedAt"])) || value["completedAt"] === null)))
+  return ((isRecord(value) && hasOnlyKeys(value, ["operationId","state","pendingState","newCount","updatedCount","droppedCount","entryIssues","generation","errorCode","retryAt","lastSuccessAt","queuedAt","startedAt","completedAt"]) && hasOwn(value, "operationId") && ((typeof value["operationId"] === "string" && isUuid(value["operationId"]))) && hasOwn(value, "state") && (value["state"] === "PENDING" || value["state"] === "READY" || value["state"] === "DEGRADED" || value["state"] === "BACKING_OFF" || value["state"] === "ERROR") && hasOwn(value, "pendingState") && (value["pendingState"] === "QUEUED" || value["pendingState"] === "RUNNING" || value["pendingState"] === null) && hasOwn(value, "newCount") && ((typeof value["newCount"] === "number" && Number.isFinite(value["newCount"]) && Number.isInteger(value["newCount"]) && value["newCount"] >= 0)) && hasOwn(value, "updatedCount") && ((typeof value["updatedCount"] === "number" && Number.isFinite(value["updatedCount"]) && Number.isInteger(value["updatedCount"]) && value["updatedCount"] >= 0)) && hasOwn(value, "droppedCount") && ((typeof value["droppedCount"] === "number" && Number.isFinite(value["droppedCount"]) && Number.isInteger(value["droppedCount"]) && value["droppedCount"] >= 0)) && hasOwn(value, "entryIssues") && ((Array.isArray(value["entryIssues"]) && value["entryIssues"].length <= 8 && value["entryIssues"].every((item1) => isRefreshEntryIssue(item1)))) && hasOwn(value, "generation") && ((typeof value["generation"] === "number" && Number.isFinite(value["generation"]) && Number.isInteger(value["generation"]) && value["generation"] >= 0) || value["generation"] === null) && hasOwn(value, "errorCode") && (value["errorCode"] === "REFRESH_FAILED" || value["errorCode"] === "UPSTREAM_RATE_LIMITED" || value["errorCode"] === null) && hasOwn(value, "retryAt") && ((typeof value["retryAt"] === "string" && new RegExp("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z$").test(value["retryAt"])) || value["retryAt"] === null) && hasOwn(value, "lastSuccessAt") && ((typeof value["lastSuccessAt"] === "string" && new RegExp("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z$").test(value["lastSuccessAt"])) || value["lastSuccessAt"] === null) && hasOwn(value, "queuedAt") && ((typeof value["queuedAt"] === "string" && new RegExp("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z$").test(value["queuedAt"]))) && hasOwn(value, "startedAt") && ((typeof value["startedAt"] === "string" && new RegExp("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z$").test(value["startedAt"])) || value["startedAt"] === null) && hasOwn(value, "completedAt") && ((typeof value["completedAt"] === "string" && new RegExp("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z$").test(value["completedAt"])) || value["completedAt"] === null)))
+}
+
+export function isRefreshEntryIssue(value: unknown): value is RefreshEntryIssue {
+  return ((isRecord(value) && hasOnlyKeys(value, ["code","count"]) && hasOwn(value, "code") && (value["code"] === "DUPLICATE_ENTRY") && hasOwn(value, "count") && ((typeof value["count"] === "number" && Number.isFinite(value["count"]) && Number.isInteger(value["count"]) && value["count"] >= 1))))
 }
 
 export function isErrorEnvelope(value: unknown): value is ErrorEnvelope {

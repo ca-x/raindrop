@@ -1512,6 +1512,7 @@ async fn sqlite_subscription_latest_refresh_uses_queued_at_then_run_id() {
     assert_eq!(refresh.run_id, REFRESH_RUN_2_ID);
     assert_eq!(refresh.status.as_str(), "ERROR");
     assert_eq!(refresh.generation, Some(2));
+    assert_eq!(refresh.last_success_at, Some(FIXTURE_AT));
     assert_eq!(refresh.queued_at, FIXTURE_AT + time::Duration::minutes(5));
     assert_eq!(
         refresh.started_at,
@@ -1543,6 +1544,7 @@ async fn sqlite_subscription_latest_refresh_uses_queued_at_then_run_id() {
     assert_eq!(refresh.run_id, REFRESH_RUN_3_ID);
     assert_eq!(refresh.status.as_str(), "PARTIAL");
     assert_eq!(refresh.generation, Some(3));
+    assert_eq!(refresh.last_success_at, Some(FIXTURE_AT));
 
     let without_refresh = fixture
         .repository

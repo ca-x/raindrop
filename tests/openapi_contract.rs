@@ -252,6 +252,20 @@ fn subscription_openapi_declares_only_the_real_public_surface() {
             "UPSTREAM_RATE_LIMITED".to_owned(),
         ])
     );
+    assert_eq!(
+        string_set(
+            &document["components"]["schemas"]["Refresh"]["properties"]["pendingState"]["enum"]
+        ),
+        BTreeSet::from(["QUEUED".to_owned(), "RUNNING".to_owned()])
+    );
+    assert_eq!(
+        document["components"]["schemas"]["Refresh"]["properties"]["entryIssues"]["maxItems"],
+        8
+    );
+    assert_eq!(
+        document["components"]["schemas"]["RefreshEntryIssue"]["properties"]["count"]["minimum"],
+        1
+    );
 
     assert_required_fields(
         &document,
@@ -280,12 +294,15 @@ fn subscription_openapi_declares_only_the_real_public_surface() {
         &[
             "operationId",
             "state",
+            "pendingState",
             "newCount",
             "updatedCount",
             "droppedCount",
+            "entryIssues",
             "generation",
             "errorCode",
             "retryAt",
+            "lastSuccessAt",
             "queuedAt",
             "startedAt",
             "completedAt",
@@ -1614,12 +1631,15 @@ fn frozen_schema_manifest() -> Value {
             "required": [
                 "operationId",
                 "state",
+                "pendingState",
                 "newCount",
                 "updatedCount",
                 "droppedCount",
+                "entryIssues",
                 "generation",
                 "errorCode",
                 "retryAt",
+                "lastSuccessAt",
                 "queuedAt",
                 "startedAt",
                 "completedAt"
@@ -1630,15 +1650,28 @@ fn frozen_schema_manifest() -> Value {
                     "type": "string",
                     "enum": ["PENDING", "READY", "DEGRADED", "BACKING_OFF", "ERROR"]
                 },
+                "pendingState": {
+                    "type": ["string", "null"],
+                    "enum": ["QUEUED", "RUNNING", null]
+                },
                 "newCount": { "type": "integer", "minimum": 0 },
                 "updatedCount": { "type": "integer", "minimum": 0 },
                 "droppedCount": { "type": "integer", "minimum": 0 },
+                "entryIssues": {
+                    "type": "array",
+                    "items": { "$ref": "#/components/schemas/RefreshEntryIssue" }
+                },
                 "generation": { "type": ["integer", "null"], "minimum": 0 },
                 "errorCode": {
                     "type": ["string", "null"],
                     "enum": ["REFRESH_FAILED", "UPSTREAM_RATE_LIMITED", null]
                 },
                 "retryAt": {
+                    "type": ["string", "null"],
+                    "format": "date-time",
+                    "pattern": PUBLIC_TIME_PATTERN
+                },
+                "lastSuccessAt": {
                     "type": ["string", "null"],
                     "format": "date-time",
                     "pattern": PUBLIC_TIME_PATTERN
@@ -1658,6 +1691,15 @@ fn frozen_schema_manifest() -> Value {
                     "format": "date-time",
                     "pattern": PUBLIC_TIME_PATTERN
                 }
+            }
+        },
+        "RefreshEntryIssue": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["code", "count"],
+            "properties": {
+                "code": { "type": "string", "enum": ["DUPLICATE_ENTRY"] },
+                "count": { "type": "integer", "minimum": 1 }
             }
         },
         "ErrorEnvelope": {

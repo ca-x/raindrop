@@ -666,12 +666,15 @@
         "required": [
           "operationId",
           "state",
+          "pendingState",
           "newCount",
           "updatedCount",
           "droppedCount",
+          "entryIssues",
           "generation",
           "errorCode",
           "retryAt",
+          "lastSuccessAt",
           "queuedAt",
           "startedAt",
           "completedAt"
@@ -691,6 +694,17 @@
               "ERROR"
             ]
           },
+          "pendingState": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "QUEUED",
+              "RUNNING",
+              null
+            ]
+          },
           "newCount": {
             "type": "integer",
             "minimum": 0
@@ -702,6 +716,13 @@
           "droppedCount": {
             "type": "integer",
             "minimum": 0
+          },
+          "entryIssues": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+              "$ref": "#/components/schemas/RefreshEntryIssue"
+            }
           },
           "generation": {
             "type": [
@@ -729,6 +750,14 @@
             "format": "date-time",
             "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z$"
           },
+          "lastSuccessAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z$"
+          },
           "queuedAt": {
             "type": "string",
             "format": "date-time",
@@ -749,6 +778,26 @@
             ],
             "format": "date-time",
             "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z$"
+          }
+        }
+      },
+      "RefreshEntryIssue": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "count"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "DUPLICATE_ENTRY"
+            ]
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1
           }
         }
       },

@@ -229,6 +229,7 @@ pub struct RefreshDto {
     pub generation: Option<i64>,
     pub error_code: Option<String>,
     pub retry_at: Option<OffsetDateTime>,
+    pub last_success_at: Option<OffsetDateTime>,
     pub queued_at: OffsetDateTime,
     pub started_at: Option<OffsetDateTime>,
     pub completed_at: Option<OffsetDateTime>,
@@ -247,6 +248,10 @@ impl fmt::Debug for RefreshDto {
             .field("generation", &self.generation)
             .field("error_code", &self.error_code)
             .field("retry_at", &self.retry_at.map(|_| "[REDACTED]"))
+            .field(
+                "last_success_at",
+                &self.last_success_at.map(|_| "[REDACTED]"),
+            )
             .field("queued_at", &"[REDACTED]")
             .field("started_at", &self.started_at.map(|_| "[REDACTED]"))
             .field("completed_at", &self.completed_at.map(|_| "[REDACTED]"))

@@ -206,34 +206,71 @@ impl TryFrom<SubscriptionListItemDto> for SubscriptionResponse {
 struct RefreshResponse {
     operation_id: String,
     state: &'static str,
+    pending_state: Option<&'static str>,
     new_count: i32,
     updated_count: i32,
     dropped_count: i32,
+    entry_issues: Vec<RefreshEntryIssueResponse>,
     generation: Option<i64>,
     error_code: Option<&'static str>,
     retry_at: Option<String>,
+    last_success_at: Option<String>,
     queued_at: String,
     started_at: Option<String>,
     completed_at: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RefreshEntryIssueResponse {
+    code: &'static str,
+    count: i32,
 }
 
 impl TryFrom<RefreshDto> for RefreshResponse {
     type Error = ApiError;
 
     fn try_from(refresh: RefreshDto) -> Result<Self, Self::Error> {
+        let pending_state = public_pending_state(&refresh);
+        let entry_issues = public_entry_issues(&refresh);
         Ok(Self {
             operation_id: refresh.run_id,
             state: public_refresh_state(refresh.status, refresh.retry_at),
+            pending_state,
             new_count: refresh.new_count,
             updated_count: refresh.updated_count,
             dropped_count: refresh.dropped_count,
+            entry_issues,
             generation: refresh.generation,
             error_code: refresh.error_code.as_deref().map(public_refresh_error_code),
             retry_at: refresh.retry_at.map(format_public_time).transpose()?,
+            last_success_at: refresh
+                .last_success_at
+                .map(format_public_time)
+                .transpose()?,
             queued_at: format_public_time(refresh.queued_at)?,
             started_at: refresh.started_at.map(format_public_time).transpose()?,
             completed_at: refresh.completed_at.map(format_public_time).transpose()?,
         })
+    }
+}
+
+fn public_pending_state(refresh: &RefreshDto) -> Option<&'static str> {
+    match (refresh.status, refresh.started_at, refresh.completed_at) {
+        (RefreshStatus::Queued, None, None) => Some("QUEUED"),
+        (RefreshStatus::Running, Some(_), None) => Some("RUNNING"),
+        _ => None,
+    }
+}
+
+fn public_entry_issues(refresh: &RefreshDto) -> Vec<RefreshEntryIssueResponse> {
+    if refresh.status == RefreshStatus::Partial && refresh.dropped_count > 0 {
+        vec![RefreshEntryIssueResponse {
+            code: "DUPLICATE_ENTRY",
+            count: refresh.dropped_count,
+        }]
+    } else {
+        Vec::new()
     }
 }
 

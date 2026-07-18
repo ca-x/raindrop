@@ -849,6 +849,7 @@ fn subscription_projection_sql(selected_subscriptions: &str) -> String {
                 r.dropped_count AS refresh_dropped_count,
                 r.commit_generation AS refresh_generation,
                 r.error_code AS refresh_error_code, r.retry_at AS refresh_retry_at,
+                f.last_success_at AS refresh_last_success_at,
                 r.queued_at AS refresh_queued_at, r.started_at AS refresh_started_at,
                 r.completed_at AS refresh_completed_at
          FROM selected_subscriptions s
@@ -914,6 +915,9 @@ fn decode_refresh_row(row: &QueryResult, prefix: &str) -> Result<RefreshDto, ()>
         generation: row.try_get("", &column("generation")).map_err(|_| ())?,
         error_code: row.try_get("", &column("error_code")).map_err(|_| ())?,
         retry_at: row.try_get("", &column("retry_at")).map_err(|_| ())?,
+        last_success_at: row
+            .try_get("", &column("last_success_at"))
+            .map_err(|_| ())?,
         queued_at: row.try_get("", &column("queued_at")).map_err(|_| ())?,
         started_at: row.try_get("", &column("started_at")).map_err(|_| ())?,
         completed_at: row.try_get("", &column("completed_at")).map_err(|_| ())?,
@@ -930,14 +934,16 @@ where
 {
     let sql = match backend {
         DatabaseBackend::Postgres => {
-            "SELECT id, status, http_status, new_count, updated_count, dropped_count,
-                    commit_generation AS generation, error_code, retry_at, queued_at,
-                    started_at, completed_at FROM feed_refresh_runs WHERE id = $1"
+            "SELECT r.id, r.status, r.http_status, r.new_count, r.updated_count, r.dropped_count,
+                    r.commit_generation AS generation, r.error_code, r.retry_at,
+                    f.last_success_at, r.queued_at, r.started_at, r.completed_at
+             FROM feed_refresh_runs r JOIN feeds f ON f.id = r.feed_id WHERE r.id = $1"
         }
         DatabaseBackend::Sqlite | DatabaseBackend::MySql => {
-            "SELECT id, status, http_status, new_count, updated_count, dropped_count,
-                    commit_generation AS generation, error_code, retry_at, queued_at,
-                    started_at, completed_at FROM feed_refresh_runs WHERE id = ?"
+            "SELECT r.id, r.status, r.http_status, r.new_count, r.updated_count, r.dropped_count,
+                    r.commit_generation AS generation, r.error_code, r.retry_at,
+                    f.last_success_at, r.queued_at, r.started_at, r.completed_at
+             FROM feed_refresh_runs r JOIN feeds f ON f.id = r.feed_id WHERE r.id = ?"
         }
     };
     let row = connection
