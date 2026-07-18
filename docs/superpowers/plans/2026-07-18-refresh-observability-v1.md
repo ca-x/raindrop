@@ -88,15 +88,14 @@ git diff --check
 - Modify: `web/src/features/reader/categories/CategoryList.tsx`
 - Modify: `web/src/features/reader/categories/CategoryList.test.tsx`
 - Modify: `web/src/shared/i18n/i18n.ts`
-- Modify: `web/src/shared/i18n/locales/en/messages.po`
-- Modify: `web/src/shared/i18n/locales/zh-CN/messages.po`
+- Modify: `web/src/shared/i18n/i18n.test.ts`
 
 **Interfaces:**
 - Produces `refreshPresentation(refresh)` and `formatRefreshTimestamp(value, locale)`.
 - Produces distinct source-dot labels for queued, running, degraded, cooldown, error, and ready.
 
-- [ ] Write RED tests for all presentation kinds, invalid/null timestamps, duplicate issue counts, retry timing, and last-success fallback inputs.
-- [ ] Implement the pure model using the generated `Refresh` type:
+- [x] Write RED tests for all presentation kinds, invalid/null timestamps, duplicate issue counts, retry timing, and last-success fallback inputs.
+- [x] Implement the pure model using the generated `Refresh` type:
 
 ```ts
 export function refreshPresentation(refresh: Refresh | null): RefreshPresentation {
@@ -110,9 +109,9 @@ export function refreshPresentation(refresh: Refresh | null): RefreshPresentatio
 }
 ```
 
-- [ ] Replace the local `CategoryList` switch with the shared presentation mapping and distinct accessible labels.
-- [ ] Add concise English/Chinese copy for queue, running, cooldown, partial duplicate count, retry time, and last success.
-- [ ] Verify:
+- [x] Replace the local `CategoryList` switch with the shared presentation mapping and distinct accessible labels.
+- [x] Add concise English/Chinese copy for queue, running, cooldown, partial duplicate count, retry time, and last success.
+- [x] Verify:
 
 ```bash
 cd web
@@ -122,7 +121,7 @@ cd ..
 git diff --check
 ```
 
-- [ ] Commit and push: `feat: distinguish refresh activity`.
+- [x] Commit and push: `feat: distinguish refresh activity`.
 
 ### Task 3: ASTRYX selected-Feed summary and responsive behavior
 

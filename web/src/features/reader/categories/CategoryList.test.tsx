@@ -56,3 +56,45 @@ it("renders empty categories, categorized feeds, and Uncategorized in one TreeLi
   await user.click(screen.getByRole("button", { name: "Example Feed" }))
   expect(onSelect).toHaveBeenCalledWith({ kind: "feed", feedId: makeSubscription().feedId })
 })
+
+it.each([
+  ["QUEUED", "Queued for refresh"],
+  ["RUNNING", "Refreshing"],
+] as const)("announces %s refresh activity distinctly", (pendingState, label) => {
+  activateLocale("en")
+  render(
+    <Providers>
+      <CategoryList
+        state={{
+          ...initialReaderState,
+          subscriptionsById: {
+            [subscriptionId]: makeSubscription({
+              refresh: {
+                operationId: "00000000-0000-4000-8000-000000000401",
+                state: "PENDING",
+                pendingState,
+                newCount: 0,
+                updatedCount: 0,
+                droppedCount: 0,
+                entryIssues: [],
+                generation: null,
+                errorCode: null,
+                retryAt: null,
+                lastSuccessAt: null,
+                queuedAt: "2026-07-18T02:00:00.000000Z",
+                startedAt:
+                  pendingState === "RUNNING" ? "2026-07-18T02:00:01.000000Z" : null,
+                completedAt: null,
+              },
+            }),
+          },
+          subscriptionOrder: [subscriptionId],
+        }}
+        onSelect={vi.fn()}
+        density="balanced"
+      />
+    </Providers>,
+  )
+
+  expect(screen.getByLabelText(label)).toBeVisible()
+})

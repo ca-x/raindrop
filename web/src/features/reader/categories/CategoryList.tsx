@@ -1,4 +1,4 @@
-import { StatusDot, type StatusDotVariant } from "@astryxdesign/core/StatusDot"
+import { StatusDot } from "@astryxdesign/core/StatusDot"
 import {
   TreeList,
   type TreeListDensity,
@@ -6,8 +6,8 @@ import {
 } from "@astryxdesign/core/TreeList"
 import { useLingui } from "@lingui/react"
 
-import type { Subscription } from "../api/subscription.generated"
 import type { ReaderSource, ReaderState } from "../model/types"
+import { refreshPresentation } from "../refresh/refreshPresentation"
 import { groupSubscriptions, type SubscriptionGroup } from "./groupSubscriptions"
 
 interface CategoryListProps {
@@ -73,7 +73,7 @@ function feedItems(
   translate: (id: string) => string,
 ): TreeListItemData[] {
   return group.subscriptions.map((subscription) => {
-    const status = refreshStatus(subscription)
+    const status = refreshPresentation(subscription.refresh)
     return {
       id: `feed:${subscription.feedId}`,
       label: subscription.title,
@@ -85,7 +85,7 @@ function feedItems(
       endContent: (
         <span className="reader-source-status">
           <StatusDot
-            variant={status.variant}
+            variant={status.tone}
             label={translate(status.label)}
             isPulsing={status.isPulsing}
           />
@@ -98,24 +98,4 @@ function feedItems(
 
 function UnreadCount({ count }: { count: number }) {
   return <span className="reader-category-unread-count">{count}</span>
-}
-
-function refreshStatus(subscription: Subscription): {
-  variant: StatusDotVariant
-  label: string
-  isPulsing?: boolean
-} {
-  switch (subscription.refresh?.state) {
-    case "READY":
-      return { variant: "success", label: "reader.refreshReady" }
-    case "PENDING":
-      return { variant: "warning", label: "reader.refreshPending", isPulsing: true }
-    case "ERROR":
-      return { variant: "error", label: "reader.refreshError" }
-    case "DEGRADED":
-    case "BACKING_OFF":
-      return { variant: "warning", label: "reader.refreshDelayed" }
-    default:
-      return { variant: "neutral", label: "reader.refreshIdle" }
-  }
 }

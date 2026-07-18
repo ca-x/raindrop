@@ -18,6 +18,8 @@ describe("production-safe message catalogs", () => {
     expect(i18n._("reader.refreshFeed", { title: "IT Home" })).toBe(
       "Refresh IT Home",
     )
+    expect(i18n._("reader.refreshQueued")).toBe("Queued for refresh")
+    expect(i18n._("reader.refreshRunning")).toBe("Refreshing")
 
     activateLocale("zh-CN")
     expect(i18n._("reader.newEntriesAvailable", { count: 3 })).toBe(
@@ -26,5 +28,7 @@ describe("production-safe message catalogs", () => {
     expect(i18n._("reader.refreshFeed", { title: "IT之家" })).toBe(
       "刷新 IT之家",
     )
+    expect(i18n._("reader.refreshQueued")).toBe("已加入刷新队列")
+    expect(i18n._("reader.refreshRunning")).toBe("正在刷新")
   })
 })
