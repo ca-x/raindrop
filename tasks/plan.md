@@ -2,9 +2,9 @@
 
 权威设计规格：`docs/superpowers/specs/2026-07-16-raindrop-design.md`。
 
-当前详细计划：`docs/superpowers/plans/2026-07-18-ai-provider-adapters-v1.md`。
+当前详细计划：`docs/superpowers/plans/2026-07-18-ai-provider-core-v1.md`。
 
-当前进展：Refresh Observability v1 已由 CI run `29646491921` 验证。AI Provider Adapters v1 已完成本地交付门禁：Anthropic Messages-compatible、OpenAI Responses、OpenAI Chat Completions-compatible 和 Google Gemini 四类非流式 structured-generation 请求/响应已收敛为同一 bounded/redacted canonical contract，并有确定性 hostile fixture 覆盖。下一 AI 切片是 provider 持久化、secret 加密和 SSRF-safe HTTP 执行；在真实 provider、官方 Wasm 插件、job/artifact、MCP 与 Reader sidecar 接通前，AI、插件和 MCP 总任务继续保持未完成。OIDC、OPML、排序/阅读游标和真实 `v*` 发布 smoke 仍保留在后续任务。
+当前进展：Refresh Observability v1 已由 CI run `29646491921` 验证。AI Provider Adapters v1 已由 CI run `29648253330` 完整验证，四类非流式 structured-generation 请求/响应已收敛为同一 bounded/redacted canonical contract。当前开始 AI Provider Core v1：三数据库 provider 记录、独立可轮换 secret 加密、不可变 provider kind、canonical capability/quota/cost policy，以及 SSRF-safe HTTPS 执行。在 provider 管理 API/UI、官方 Wasm 插件、job/artifact、MCP 与 Reader sidecar 接通前，AI、插件和 MCP 总任务继续保持未完成。OIDC、OPML、排序/阅读游标和真实 `v*` 发布 smoke 仍保留在后续任务。
 
 ## 依赖顺序
 
