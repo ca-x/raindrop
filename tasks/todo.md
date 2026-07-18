@@ -75,7 +75,8 @@
 ## 10. Release
 
 - [ ] 跟踪 SeaORM 依赖链中的 `proc-macro-error2 2.0.1` future-incompatibility；上游修复后升级，current-stable CI 预警 lane 在此之前保持 `continue-on-error`，Rust 1.94 MSRV gate 继续阻塞。
-- [ ] CI 质量门、依赖审计和 OpenAPI drift。
-- [ ] Linux/Windows/macOS binary 与 checksums。
-- [ ] GHCR + 可选 Docker Hub 的 amd64/arm64 Docker workflow。
-- [ ] 非 root 容器、healthcheck、README、配置和运维文档。
+- [x] CI 质量门、依赖审计和 OpenAPI drift。
+- [x] Linux/Windows/macOS binary 与 checksums workflow。
+- [x] GHCR + 可选 Docker Hub 的 amd64/arm64 Docker workflow。
+- [x] 非 root 容器、healthcheck、README、配置和运维文档。
+- [ ] 使用真实 `v*` tag 验证 GitHub Release 五个平台归档、`SHA256SUMS`、多架构镜像 manifest、provenance 和 SBOM。

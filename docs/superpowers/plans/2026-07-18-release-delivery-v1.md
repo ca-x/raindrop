@@ -267,11 +267,11 @@ git push origin feature/foundation-bootstrap
 **Interfaces:**
 - Produces operator instructions for setup-wizard Docker, environment-managed Docker, persistent storage, reverse proxy, health, and release verification.
 
-- [ ] **Step 1: Document exact container workflows**
+- [x] **Step 1: Document exact container workflows**
 
 Add build/run examples, `/data` ownership, setup token handling, `RAINDROP_PUBLIC_URL`, external PostgreSQL/MySQL, health endpoint, tags, GHCR/Docker Hub behavior, and release archive contents. Do not claim OIDC, OPML, AI/plugin/MCP, or final release readiness.
 
-- [ ] **Step 2: Run bounded final gates**
+- [x] **Step 2: Run bounded final gates**
 
 ```bash
 npm --prefix web run check:release-contracts
@@ -285,11 +285,11 @@ cargo test --locked --all-features
 git diff --check
 ```
 
-- [ ] **Step 3: Update authoritative state**
+- [x] **Step 3: Update authoritative state**
 
 Mark only release CI quality, binary/checksum workflow, Docker workflow, and non-root container documentation complete. Keep the SeaORM future-incompatibility item open until upstream is upgraded. Keep OIDC, OPML, AI/plugin/MCP, full portability CI, and release smoke open.
 
-- [ ] **Step 4: Commit and push**
+- [x] **Step 4: Commit and push**
 
 ```bash
 git add README.md docs/configuration.md tasks/todo.md tasks/plan.md docs/superpowers/plans/2026-07-18-release-delivery-v1.md

@@ -29,6 +29,37 @@
 
 `RUST_LOG` 由 `tracing` 读取，不属于 `RAINDROP_*` 配置。未设置时使用 `raindrop=info,tower_http=info`。
 
+## Docker 中的路径与变量
+
+正式镜像设置了两个默认环境变量：
+
+```text
+RAINDROP_DATA_DIR=/data
+RAINDROP_BIND=0.0.0.0:8080
+```
+
+命令行 `--env`、`--env-file` 或容器平台注入的同名变量会覆盖镜像默认值。通常不需要修改这两个值，只需把 volume 或宿主机目录挂载到 `/data`，并把容器的 `8080` 端口发布给本机反向代理。
+
+镜像的工作目录是 `/`。设置向导中的默认 URL `sqlite://data/raindrop.db?mode=rwc` 因此指向 `/data/raindrop.db`。环境托管容器建议写成绝对路径，避免以后修改工作目录时改变数据库位置：
+
+```text
+RAINDROP_DATABASE_URL=sqlite:///data/raindrop.db?mode=rwc
+```
+
+容器以 UID/GID `10001:10001` 运行。命名 volume 会保留镜像中 `/data` 的所有权；宿主机 bind mount 需要由部署方授予映射后的容器用户读写权限。不要为了绕过权限问题把容器改为 root，也不要把 SQLite 放到容器可写层或网络文件系统。
+
+不设置数据库 URL 时，setup token 只写入容器标准错误，可以通过 `docker logs <container>` 在受控终端读取。日志采集平台可能长期保存该 token，完成设置前应限制读取权限。设置完成或容器重启后，旧 token 失效。
+
+使用外部 PostgreSQL 或 MySQL 时，把数据库 URL 放在 secret/env 管理中，不要写进镜像。首次自动创建管理员后删除整组 `RAINDROP_BOOTSTRAP_ADMIN_*` 变量，再重建容器；只留下用户名、密码或邮箱中的一部分会导致启动配置错误。反向代理部署仍需设置浏览器实际访问的 `RAINDROP_PUBLIC_URL` 并保留外部 `Host`。
+
+镜像的 Docker healthcheck 请求现有存活端点：
+
+```text
+GET /api/v1/health/live
+```
+
+该端点不需要会话或 setup token。它只表示进程可响应存活请求，不替代数据库备份、业务读写探针或外部监控。
+
 ## TOML 示例
 
 手工管理配置文件时，可以使用下面的结构：
@@ -124,7 +155,7 @@ RAINDROP_TEST_MYSQL_URL='mysql://USER:PASSWORD@127.0.0.1/raindrop_test' \
 - 把 `public_url` 设置为浏览器访问的外部 HTTPS URL。
 - 让代理把浏览器使用的外部 `Host` 传给 Raindrop，包括非默认端口。
 - 不要依赖 `X-Forwarded-Proto` 自动开启 `Secure`；当前实现不从 forwarded headers 推导 cookie 属性。
-- 在配置可信代理之前，登录不从 TCP peer、`X-Forwarded-For` 或 `Forwarded` 派生硬预算。进程使用无客户端键表的 15 分钟全局安全熔断器，并限制同时进行的昂贵认证操作；账户维度只增加 5–100 ms 的软延迟，不会硬锁账户。
+- 在配置可信代理之前，登录不从 TCP peer、`X-Forwarded-For` 或 `Forwarded` 派生硬预算。进程使用无客户端键表的 15 分钟全局安全熔断器，并限制同时进行的昂贵认证操作；账户维度只增加 5 到 100 ms 的软延迟，不会硬锁账户。
 - 修改请求带有 `Origin` 时，Raindrop 会比较 `Origin` 与收到的 `Host`。代理若把 `Host` 改成内部地址，CSRF 校验会拒绝请求。
 
 若外部站点使用 HTTPS 但 `public_url` 未设置或仍是 `http://`，浏览器会收到不带 `Secure` 的 session cookie。

@@ -2,9 +2,9 @@
 
 权威设计规格：`docs/superpowers/specs/2026-07-16-raindrop-design.md`。
 
-当前详细计划：`docs/superpowers/plans/2026-07-18-user-preferences-v1.md`。
+当前详细计划：`docs/superpowers/plans/2026-07-18-release-delivery-v1.md`。
 
-当前进展：用户设置 v1 已形成可运行纵向切片并通过三数据库、前端、四视口 E2E 与真实生产浏览器验证；排序与阅读游标仍留在后续独立计划。
+当前进展：Release Delivery v1 已在功能分支完成容器、五平台 binary、checksums 和双架构镜像 workflow，并由 CI run `29636161752` 验证质量门、生产资源嵌入、14 个 E2E 场景、非 root 容器启动和 healthcheck。真实 `v*` tag 的 GitHub Release 与 registry 发布 smoke 仍保留在后续任务。
 
 ## 依赖顺序
 
