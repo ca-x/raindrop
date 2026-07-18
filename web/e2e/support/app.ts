@@ -55,6 +55,12 @@ export async function signIn(page: Page, credentials: Credentials): Promise<void
   await expectReaderReady(page)
 }
 
+export async function signOut(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "Open menu" }).click()
+  await page.getByRole("menuitem", { name: "Sign out" }).click()
+  await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible()
+}
+
 export async function expectReaderReady(page: Page): Promise<void> {
   await expect(page).toHaveURL(/\/reader\/unread$/u)
   await expect(page.getByRole("region", { name: "Entry queue" })).toBeVisible()

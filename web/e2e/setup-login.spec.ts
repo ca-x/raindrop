@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test"
 
-import { completeSetup, createCredentials, signIn } from "./support/app"
+import { completeSetup, createCredentials, signIn, signOut } from "./support/app"
 import { startProductionServer, type ProductionServer } from "./support/productionServer"
 
 let server: ProductionServer
@@ -19,12 +19,10 @@ test("production bundle completes setup, logs in, logs out, and keeps setup clos
   const credentials = createCredentials()
   await completeSetup(page, server, credentials)
 
-  await page.getByRole("button", { name: "Sign out" }).click()
-  await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible()
+  await signOut(page)
 
   await signIn(page, credentials)
-  await page.getByRole("button", { name: "Sign out" }).click()
-  await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible()
+  await signOut(page)
 
   await page.reload({ waitUntil: "domcontentloaded" })
   await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible()
