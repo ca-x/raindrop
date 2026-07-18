@@ -28,18 +28,23 @@ export function useOrganizationActions({
     async <T,>(
       request: (signal: AbortSignal) => Promise<T>,
       success: (value: T) => ReaderAction,
-    ) => {
+    ): Promise<boolean> => {
       const task = session.begin()
-      if (!task) return
+      if (!task) return false
       dispatch({ type: "mutationErrorCleared" })
       try {
         const value = await request(task.controller.signal)
-        if (session.isCurrent(task)) dispatch(success(value))
+        if (!session.isCurrent(task)) return false
+        dispatch(success(value))
+        return true
       } catch (error) {
-        if (isAbortError(error)) return
-        if (!session.isCurrent(task)) return
-        if (isUnauthenticatedError(error)) return session.expire(task)
+        if (isAbortError(error) || !session.isCurrent(task)) return false
+        if (isUnauthenticatedError(error)) {
+          session.expire(task)
+          return false
+        }
         dispatch({ type: "mutationErrorSet", error: readerErrorMessage(error) })
+        return false
       } finally {
         session.finish(task)
       }

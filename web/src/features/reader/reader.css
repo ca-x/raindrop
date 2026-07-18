@@ -26,6 +26,7 @@
 .reader-article-plane [role="toolbar"] :where(button, a),
 .reader-compact-navigation :where(button, a),
 .reader-subscription-dialog :where(button, a),
+.reader-category-dialog :where(button, a, input, [role="combobox"]),
 .reader-mobile-nav :where(button, a, [role="treeitem"]),
 .reader-touch-target {
   min-inline-size: 44px;
@@ -61,6 +62,7 @@
 }
 
 .reader-source-status,
+.reader-category-unread-count,
 .reader-entry-item time {
   color: var(--color-text-secondary);
   font-family: var(--font-family-code);
@@ -245,6 +247,33 @@ html[lang^="zh"] .reader-article-body {
   gap: 8px;
 }
 
+.reader-category-dialog-content {
+  display: grid;
+  gap: 20px;
+  min-inline-size: 0;
+}
+
+.reader-category-dialog-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 20px;
+  align-items: start;
+  min-inline-size: 0;
+}
+
+.reader-category-management-list {
+  max-block-size: 240px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.reader-category-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 @media (hover: hover) and (pointer: fine) {
   .reader-source-tree [role="treeitem"]:hover,
   .reader-entry-item:hover {
@@ -253,6 +282,10 @@ html[lang^="zh"] .reader-article-body {
 }
 
 @media (max-width: 719px) {
+  .reader-category-dialog-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .reader-compact-navigation {
     padding-block-start: env(safe-area-inset-top);
   }

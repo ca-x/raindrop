@@ -215,6 +215,93 @@ describe("Reader workspace", () => {
     await waitFor(() => expect(window.location.pathname).toBe("/reader/unread"))
   })
 
+  it("returns focus to the category trigger after the desktop dialog closes", async () => {
+    activateLocale("en")
+    const user = userEvent.setup()
+    window.history.replaceState(null, "", "/reader/unread")
+    render(
+      <Providers>
+        <ReaderRoutes
+          controller={fakeController()}
+          username="reader"
+          onLogout={vi.fn()}
+          viewportMode="wide"
+        />
+      </Providers>,
+    )
+
+    const trigger = await screen.findByRole("button", { name: "Manage categories" })
+    await user.click(trigger)
+    const dialog = await screen.findByRole("dialog", { name: "Manage categories" })
+    await user.click(within(dialog).getByRole("button", { name: "Close" }))
+    await waitFor(() => expect(trigger).toHaveFocus())
+  })
+
+  it("reopens mobile sources and restores focus after category management", async () => {
+    activateLocale("en")
+    const user = userEvent.setup()
+    window.history.replaceState(null, "", "/reader/unread")
+    render(
+      <Providers>
+        <ReaderRoutes
+          controller={fakeController()}
+          username="reader"
+          onLogout={vi.fn()}
+          viewportMode="compact"
+        />
+      </Providers>,
+    )
+
+    await user.click(await screen.findByRole("button", { name: "Open sources" }))
+    const sources = await screen.findByRole("dialog", { name: "Sources" })
+    await user.click(within(sources).getByRole("button", { name: "Manage categories" }))
+    const categoryDialog = await screen.findByRole("dialog", {
+      name: "Manage categories",
+    })
+    await user.click(within(categoryDialog).getByRole("button", { name: "Close" }))
+
+    const reopenedSources = await screen.findByRole("dialog", { name: "Sources" })
+    const restoredTrigger = within(reopenedSources).getByRole("button", {
+      name: "Manage categories",
+    })
+    await waitFor(() => expect(restoredTrigger).toHaveFocus())
+  })
+
+  it("navigates an actively deleted category back to unread", async () => {
+    activateLocale("en")
+    const user = userEvent.setup()
+    const categoryId = "00000000-0000-4000-8000-000000000501"
+    const controller = fakeController({
+      categoriesById: {
+        [categoryId]: { categoryId, title: "Technology", position: 1024 },
+      },
+      categoryOrder: [categoryId],
+      selectedSource: { kind: "category", categoryId },
+      paneStatus: { ...initialReaderState.paneStatus, queue: "ready" },
+    })
+    window.history.replaceState(null, "", `/reader/category/${categoryId}`)
+    render(
+      <Providers>
+        <ReaderRoutes
+          controller={controller}
+          username="reader"
+          onLogout={vi.fn()}
+          viewportMode="wide"
+        />
+      </Providers>,
+    )
+
+    await user.click(await screen.findByRole("button", { name: "Manage categories" }))
+    await user.click(screen.getByRole("button", { name: "Delete category" }))
+    const alert = await screen.findByRole("alertdialog", {
+      name: "Delete this category?",
+    })
+    await user.click(within(alert).getByRole("button", { name: "Delete category" }))
+
+    await waitFor(() => expect(window.location.pathname).toBe("/reader/unread"))
+    expect(controller.deleteCategory).toHaveBeenCalledWith(categoryId)
+  })
+
   it.each([
     "/reader/feed/%E0%A4%A",
     "/reader/unread/entry/%E0%A4%A",
@@ -242,10 +329,10 @@ function fakeController(state: Partial<ReaderState> = {}): ReaderController {
     addSubscription: vi.fn().mockResolvedValue(undefined),
     deleteSubscription: vi.fn().mockResolvedValue(undefined),
     refreshSubscription: vi.fn().mockResolvedValue(undefined),
-    createCategory: vi.fn().mockResolvedValue(undefined),
-    updateCategory: vi.fn().mockResolvedValue(undefined),
-    deleteCategory: vi.fn().mockResolvedValue(undefined),
-    updateSubscription: vi.fn().mockResolvedValue(undefined),
+    createCategory: vi.fn().mockResolvedValue(true),
+    updateCategory: vi.fn().mockResolvedValue(true),
+    deleteCategory: vi.fn().mockResolvedValue(true),
+    updateSubscription: vi.fn().mockResolvedValue(true),
     recordScrollAnchor: vi.fn(),
     clearMutationError: vi.fn(),
   }

@@ -301,27 +301,27 @@ git push origin feature/foundation-bootstrap
 - Produces `/reader/category/:categoryId` and `/entry/:entryId` parsing/path generation.
 - Produces one category management Dialog and TreeList category branches.
 
-- [ ] **Step 1: Inspect exact ASTRYX APIs**
+- [x] **Step 1: Inspect exact ASTRYX APIs**
 
 Run `node web/node_modules/@astryxdesign/core/docs.mjs` for `Dialog`, `Selector`, `List`, `Item`, and `AlertDialog` before implementation.
 
-- [ ] **Step 2: Write route/grouping/Dialog RED tests**
+- [x] **Step 2: Write route/grouping/Dialog RED tests**
 
 Test encoded IDs, invalid paths, categorized/uncategorized grouping, empty categories, aggregate unread counts, create/rename/delete, assignment/clear, mutation errors, focus return, and deletion of the active category navigating to unread.
 
-- [ ] **Step 3: Implement category routes and grouping**
+- [x] **Step 3: Implement category routes and grouping**
 
 Keep smart/feed/category sources as a discriminated union. TreeList items use category nodes with Feed children and one Uncategorized node; no custom tree DOM.
 
-- [ ] **Step 4: Implement the focused ASTRYX Dialog**
+- [x] **Step 4: Implement the focused ASTRYX Dialog**
 
 Use `Dialog purpose="form"`, `TextInput`, `Selector`, `List/Item`, `Button`, and `AlertDialog`. Do not add drag/drop, nested dialogs, hover scale, or custom animation.
 
-- [ ] **Step 5: Verify frontend behavior**
+- [x] **Step 5: Verify frontend behavior**
 
 Run: `cd web && npm run check:reader-types && npm run typecheck && npm run test:ci && npm run build`
 
-- [ ] **Step 6: Commit and push**
+- [x] **Step 6: Commit and push**
 
 ```bash
 git add web/src/features/reader/categories web/src/features/reader/components/SourceTree.tsx web/src/features/reader/components/ReaderToolbar.tsx web/src/features/reader/routes web/src/features/reader/layout/ReaderShell.tsx web/src/shared/i18n/i18n.ts web/src/features/reader/reader.css

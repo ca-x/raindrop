@@ -3,16 +3,17 @@ import { Banner } from "@astryxdesign/core/Banner"
 import { Layout, LayoutContent, LayoutPanel } from "@astryxdesign/core/Layout"
 import { MobileNav } from "@astryxdesign/core/MobileNav"
 import { ResizeHandle, useResizable } from "@astryxdesign/core/Resizable"
-import { useToast } from "@astryxdesign/core/Toast"
 import { useLingui } from "@lingui/react"
-import { useEffect, useRef, useState } from "react"
+import { useRef, useState } from "react"
 
 import type { ViewportMode } from "../../../shared/responsive/useViewportMode"
 import { ArticleReader } from "../components/ArticleReader"
 import { EntryQueue } from "../components/EntryQueue"
 import { CompactArticleNavigation } from "../components/ReaderToolbar"
+import { MutationFeedback } from "../components/MutationFeedback"
 import { SourceTree } from "../components/SourceTree"
 import { SubscriptionDialog } from "../components/SubscriptionDialog"
+import { ReaderCategoryDialog } from "../categories/ReaderCategoryDialog"
 import { useReaderHotkeys } from "../keyboard/useReaderHotkeys"
 import { sourceKey, type ReaderSource } from "../model/types"
 import type { ReaderController } from "../model/useReaderController"
@@ -39,7 +40,10 @@ export function ReaderShell(props: ReaderShellProps) {
   const { i18n } = useLingui()
   const [isNavOpen, setIsNavOpen] = useState(false)
   const [isAddOpen, setIsAddOpen] = useState(false)
+  const [isCategoryOpen, setIsCategoryOpen] = useState(false)
   const mobileNavRef = useRef<HTMLDialogElement>(null)
+  const categoryButtonRef = useRef<HTMLButtonElement>(null)
+  const reopenSourcesAfterCategory = useRef(false)
   const sources = useResizable({ defaultSize: 240, minSizePx: 200, maxSizePx: 340, autoSaveId: "reader-sources" })
   const queue = useResizable({ defaultSize: 380, minSizePx: 300, maxSizePx: 560, autoSaveId: "reader-queue" })
   const queueEntryIds = props.isSourceReady
@@ -50,7 +54,7 @@ export function ReaderShell(props: ReaderShellProps) {
     queueEntryIds,
     cursorEntryId: props.cursorEntryId,
     openEntryId: props.route.entryId,
-    isDisabled: isNavOpen || isAddOpen || !props.isSourceReady,
+    isDisabled: isNavOpen || isAddOpen || isCategoryOpen || !props.isSourceReady,
     isUnread: (entryId) => {
       const entry = props.controller.state.entriesById[entryId] ?? props.controller.state.detailsById[entryId]
       return entry ? !entry.isRead : false
@@ -68,12 +72,21 @@ export function ReaderShell(props: ReaderShellProps) {
         props.onSelectSource(source)
       }}
       onAdd={() => setIsAddOpen(true)}
+      onManage={() => {
+        reopenSourcesAfterCategory.current = props.viewportMode !== "wide"
+        if (reopenSourcesAfterCategory.current) {
+          mobileNavRef.current?.close()
+          setIsNavOpen(false)
+        }
+        setIsCategoryOpen(true)
+      }}
       onRefresh={props.controller.refreshSubscription}
       onLogout={async () => {
         mobileNavRef.current?.close()
         setIsNavOpen(false)
         await props.onLogout()
       }}
+      manageButtonRef={categoryButtonRef}
     />
   )
   const queuePane = (
@@ -138,9 +151,27 @@ export function ReaderShell(props: ReaderShellProps) {
         onClearError={props.controller.clearMutationError}
         onAdd={props.controller.addSubscription}
       />
+      <ReaderCategoryDialog
+        controller={props.controller}
+        isOpen={isCategoryOpen}
+        onOpenChange={(open) => {
+          setIsCategoryOpen(open)
+          if (open) return
+          if (reopenSourcesAfterCategory.current) {
+            reopenSourcesAfterCategory.current = false
+            setIsNavOpen(true)
+            requestAnimationFrame(() =>
+              requestAnimationFrame(() => categoryButtonRef.current?.focus()),
+            )
+            return
+          }
+          requestAnimationFrame(() => categoryButtonRef.current?.focus())
+        }}
+        onSelectSource={props.onSelectSource}
+      />
       <MutationFeedback
         error={props.controller.state.errors.mutation}
-        isDialogOpen={isAddOpen}
+        isDialogOpen={isAddOpen || isCategoryOpen}
         onClear={props.controller.clearMutationError}
       />
     </AppShell>
@@ -203,28 +234,4 @@ export function ReaderShell(props: ReaderShellProps) {
       />
     )
   }
-}
-
-function MutationFeedback({
-  error,
-  isDialogOpen,
-  onClear,
-}: {
-  error: string | null
-  isDialogOpen: boolean
-  onClear: () => void
-}) {
-  const showToast = useToast()
-  useEffect(() => {
-    if (!error || isDialogOpen) return
-    showToast({
-      body: error,
-      type: "error",
-      isAutoHide: false,
-      uniqueID: "reader-mutation-error",
-      collisionBehavior: "overwrite",
-    })
-    onClear()
-  }, [error, isDialogOpen, onClear, showToast])
-  return null
 }

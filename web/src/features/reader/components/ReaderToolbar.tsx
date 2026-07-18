@@ -6,16 +6,25 @@ import { Text } from "@astryxdesign/core/Text"
 import { ToggleButton } from "@astryxdesign/core/ToggleButton"
 import { Toolbar } from "@astryxdesign/core/Toolbar"
 import { useLingui } from "@lingui/react"
+import type { Ref } from "react"
 
 import { BrandMark } from "../../../shared/brand/BrandMark"
 
 interface SourceToolbarProps {
   onAdd: () => void
+  onManage: () => void
   onLogout: () => Promise<void>
+  manageButtonRef?: Ref<HTMLButtonElement>
   refresh?: { label: string; onRefresh: () => Promise<void> }
 }
 
-export function SourceToolbar({ onAdd, onLogout, refresh }: SourceToolbarProps) {
+export function SourceToolbar({
+  onAdd,
+  onManage,
+  onLogout,
+  manageButtonRef,
+  refresh,
+}: SourceToolbarProps) {
   const { i18n } = useLingui()
   return (
     <Toolbar
@@ -40,6 +49,15 @@ export function SourceToolbar({ onAdd, onLogout, refresh }: SourceToolbarProps) 
               variant="ghost"
             />
           ) : null}
+          <Button
+            ref={manageButtonRef}
+            label={i18n._("reader.manageCategories")}
+            icon={<Icon icon="wrench" />}
+            isIconOnly
+            tooltip={i18n._("reader.manageCategories")}
+            onClick={onManage}
+            variant="ghost"
+          />
           <Button label={i18n._("reader.addSubscription")} onClick={onAdd} variant="ghost" />
           <Button label={i18n._("common.logout")} clickAction={onLogout} variant="ghost" />
         </>

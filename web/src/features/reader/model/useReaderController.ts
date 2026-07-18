@@ -23,13 +23,16 @@ export interface ReaderController {
   addSubscription: (url: string) => Promise<void>
   deleteSubscription: (subscriptionId: string) => Promise<void>
   refreshSubscription: (subscriptionId: string) => Promise<void>
-  createCategory: (title: string) => Promise<void>
-  updateCategory: (categoryId: string, request: UpdateCategoryRequest) => Promise<void>
-  deleteCategory: (categoryId: string) => Promise<void>
+  createCategory: (title: string) => Promise<boolean>
+  updateCategory: (
+    categoryId: string,
+    request: UpdateCategoryRequest,
+  ) => Promise<boolean>
+  deleteCategory: (categoryId: string) => Promise<boolean>
   updateSubscription: (
     subscriptionId: string,
     request: UpdateSubscriptionRequest,
-  ) => Promise<void>
+  ) => Promise<boolean>
   recordScrollAnchor: (route: string, offset: number) => void
   clearMutationError: () => void
 }
