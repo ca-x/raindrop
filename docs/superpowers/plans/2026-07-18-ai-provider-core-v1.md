@@ -235,7 +235,7 @@ cargo clippy --locked --all-targets --all-features -- -D warnings
 git diff --check
 ```
 
-- [ ] Explicitly stage client, module export, and integration test; commit and push `feat: compose ai provider execution`.
+- [x] Explicitly stage client, module export, and integration test; commit and push `feat: compose ai provider execution`.
 
 ### Task 7: Operator documentation, full gates, report, push, and CI
 
@@ -251,10 +251,10 @@ git diff --check
 - Produces exact operator key-generation/rotation rules and endpoint/transport guarantees.
 - Produces delivery evidence and names the next slice as provider administration API/UI plus content jobs/artifacts, without claiming the AI plugin is complete.
 
-- [ ] Document `RAINDROP_PROVIDER_SECRET_KEYS`, TOML equivalent, active-first rotation, retention of previous keys, 32-byte URL-safe no-padding generation examples, backup implications, startup-without-key behavior, and recovery by re-entering credentials. Examples contain generated placeholders only.
-- [ ] Document default endpoints, custom HTTPS path prefixes, private IP/redirect/proxy rejection, DNS pinning, timeouts, response limits, non-streaming status, and the remaining live provider contract probe.
-- [ ] Run a staged secret scan and source-boundary scan. Confirm no literal matching the test keys/credentials appears outside test files and no `encrypted_secret`/`ExposeSecret` use escapes provider config/secret/repository/transport/client boundaries.
-- [ ] Run fresh local gates:
+- [x] Document `RAINDROP_PROVIDER_SECRET_KEYS`, TOML equivalent, active-first rotation, retention of previous keys, 32-byte URL-safe no-padding generation examples, backup implications, startup-without-key behavior, and recovery by re-entering credentials. Examples contain generated placeholders only.
+- [x] Document default endpoints, custom HTTPS path prefixes, private IP/redirect/proxy rejection, DNS pinning, timeouts, response limits, non-streaming status, and the remaining live provider contract probe.
+- [x] Run a staged secret scan and source-boundary scan. Confirm no literal matching the test keys/credentials appears outside test files and no `encrypted_secret`/`ExposeSecret` use escapes provider config/secret/repository/transport/client boundaries.
+- [x] Run fresh local gates:
 
 ```bash
 cargo fmt --check
@@ -267,9 +267,9 @@ cargo test --locked --all-features
 git diff --check
 ```
 
-- [ ] If local PostgreSQL/MySQL URLs are configured, run the two provider storage contracts; otherwise rely on the explicit CI services and state that fact in the report.
-- [ ] Record exact test counts, schema/index/FK facts, key/envelope/redaction evidence, transport abuse coverage, dependency/lockfile delta, commits, explicit remaining work, and existing advisories in `.superpowers/sdd/ai-provider-core-v1-report.md`.
-- [ ] Update `tasks/plan.md` to point to provider administration API/UI plus content jobs/artifacts as the next AI slice. Keep all AI/plugin/MCP todo items unchecked because no user-visible content operation exists.
+- [x] If local PostgreSQL/MySQL URLs are configured, run the two provider storage contracts; otherwise rely on the explicit CI services and state that fact in the report.
+- [x] Record exact test counts, schema/index/FK facts, key/envelope/redaction evidence, transport abuse coverage, dependency/lockfile delta, commits, explicit remaining work, and existing advisories in `.superpowers/sdd/ai-provider-core-v1-report.md`.
+- [x] Update `tasks/plan.md` to point to provider administration API/UI plus content jobs/artifacts as the next AI slice. Keep all AI/plugin/MCP todo items unchecked because no user-visible content operation exists.
 - [ ] Explicitly stage docs/report/task files; commit and push `test: verify ai provider core`.
 - [ ] Monitor the triggered CI only for concrete failures. On success, append run ID and job matrix to the report, mark this checkbox complete, commit `docs: record ai provider core ci [skip ci]`, and push. Do not initiate additional review loops after a green full matrix.
 

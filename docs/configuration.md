@@ -1,6 +1,6 @@
 # Raindrop 配置
 
-本文记录当前已实现的配置合同。未列出的 `RAINDROP_*` 变量不会改变程序行为，OIDC、AI、插件和 MCP 配置尚未实现。
+本文记录当前已实现的配置合同。未列出的 `RAINDROP_*` 变量不会改变程序行为。AI provider 的独立加密 keyring 配置已经实现，但 provider 管理 API/UI、内容 job、插件和 MCP 配置尚未接通；OIDC 也仍未实现。
 
 ## 加载顺序
 
@@ -24,6 +24,7 @@
 | `RAINDROP_DATABASE_URL` | `database_url` | 未设置。支持 `sqlite://`、`postgres://`、`postgresql://`、`mysql://`。存在时连接受管数据库；空库会自动创建管理员或进入仅管理员设置模式。 |
 | `RAINDROP_FEED_ORPHAN_RETENTION_DAYS` | `feed_orphan_retention_days` | `30`。必须是 `0..=3650` 的整数天；`0` 禁用 orphan Feed 的物理清理。 |
 | `RAINDROP_SESSION_SECRET` | `session_secret` | 未设置。设置后至少 32 字节，否则启动失败。当前 foundation 会加载并脱敏该值，但浏览器会话令牌仍由系统随机源独立生成，因此交互式设置不要求提供此变量。 |
+| `RAINDROP_PROVIDER_SECRET_KEYS` | `provider_secret_keys` | 未设置。逗号分隔的 `key-id:base64url` 列表；环境变量替换完整 TOML 列表。第一项用于新 credential 加密，后续项只用于轮换期解密。每份 key 解码后必须为 32 字节，且不得重复 ID 或 key material。详见 [AI Provider Core 运维合同](ai-providers.md)。 |
 | `RAINDROP_BOOTSTRAP_ADMIN_USERNAME` | `bootstrap_admin.username` | 未设置。与管理员密码成组使用；空数据库初始化时不能为空，最终用户名必须为 3 到 64 个非空白、非控制字符。 |
 | `RAINDROP_BOOTSTRAP_ADMIN_PASSWORD` | `bootstrap_admin.password` | 未设置。与管理员用户名成组使用，至少 12 字节。 |
 | `RAINDROP_BOOTSTRAP_ADMIN_EMAIL` | `bootstrap_admin.email` | 未设置。可选；首尾空白会被移除，空值按未提供处理。非空值仅接受 ASCII，转为小写后最多 320 字节、只能有一个 `@`、local/domain 都不能为空且分别最多 64/255 字节，并拒绝空白与控制字符。该保守的未加引号地址子集不覆盖 RFC 的 quoted local-part 或国际化地址。 |
@@ -70,6 +71,7 @@ bind = "127.0.0.1:8080"
 public_url = "https://rss.example.com"
 database_url = "sqlite:///var/lib/raindrop/raindrop.db?mode=rwc"
 session_secret = "REPLACE_WITH_AT_LEAST_32_RANDOM_BYTES"
+provider_secret_keys = ["primary:<BASE64URL_32_BYTES>"]
 feed_orphan_retention_days = 30
 
 [bootstrap_admin]
@@ -78,7 +80,7 @@ password = "REPLACE_WITH_AT_LEAST_12_RANDOM_BYTES"
 email = "admin@example.com"
 ```
 
-不要把示例占位符当作秘密使用。手工创建的文件不会被程序自动修正权限，在 Unix 上应执行：
+不要把示例占位符当作秘密使用。provider keyring 不得复用 session secret；轮换和备份规则见 [AI Provider Core 运维合同](ai-providers.md)。手工创建的文件不会被程序自动修正权限，在 Unix 上应执行：
 
 ```bash
 chmod 600 /var/lib/raindrop/config.toml

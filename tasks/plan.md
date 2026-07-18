@@ -4,7 +4,7 @@
 
 当前详细计划：`docs/superpowers/plans/2026-07-18-ai-provider-core-v1.md`。
 
-当前进展：Refresh Observability v1 已由 CI run `29646491921` 验证。AI Provider Adapters v1 已由 CI run `29648253330` 完整验证，四类非流式 structured-generation 请求/响应已收敛为同一 bounded/redacted canonical contract。当前开始 AI Provider Core v1：三数据库 provider 记录、独立可轮换 secret 加密、不可变 provider kind、canonical capability/quota/cost policy，以及 SSRF-safe HTTPS 执行。在 provider 管理 API/UI、官方 Wasm 插件、job/artifact、MCP 与 Reader sidecar 接通前，AI、插件和 MCP 总任务继续保持未完成。OIDC、OPML、排序/阅读游标和真实 `v*` 发布 smoke 仍保留在后续任务。
+当前进展：Refresh Observability v1 已由 CI run `29646491921` 验证，AI Provider Adapters v1 已由 CI run `29648253330` 验证。AI Provider Core v1 已完成三数据库 provider 记录、独立可轮换 AES-GCM keyring、不可变 provider kind、canonical capability/quota/cost policy、DNS-pinned SSRF-safe HTTPS transport，以及统一 `ProviderClient`；最终交付 CI 正在收尾。下一 AI 切片是 provider 管理 API/UI 与 content jobs/artifacts，再进入官方 Wasm 插件、摘要/翻译和 Reader sidecar。在这些能力以及 MCP 真正接通前，AI、插件和 MCP 总任务继续保持未完成。OIDC、OPML、排序/阅读游标和真实 `v*` 发布 smoke 仍保留在后续任务。
 
 ## 依赖顺序
 
