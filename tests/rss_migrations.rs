@@ -420,6 +420,16 @@ async fn assert_entry_search_reentry(database: &DatabaseConnection) {
         .await
         .expect("stale entry search fixture should update");
 
+    if database.get_database_backend() == DatabaseBackend::MySql {
+        database
+            .execute(Statement::from_string(
+                DatabaseBackend::MySql,
+                "ALTER TABLE entries MODIFY COLUMN search_text TEXT NULL".to_owned(),
+            ))
+            .await
+            .expect("partial MySQL search migration should leave a nullable column");
+    }
+
     delete_migration_marker(database, "entry_search").await;
     migrate(database)
         .await
