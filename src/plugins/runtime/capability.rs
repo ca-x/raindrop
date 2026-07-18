@@ -744,83 +744,6 @@ fn mcp_error(code: host_mcp::CallErrorCode) -> host_mcp::CallError {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use std::sync::Arc;
-
-    use super::*;
-
-    #[test]
-    fn suspended_session_denies_host_capabilities_until_descriptor_is_accepted() {
-        let duration = Duration::from_secs(30);
-        let unix_now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system clock should follow Unix epoch");
-        let deadline_unix_ms =
-            u64::try_from((unix_now + duration).as_millis()).expect("deadline should fit u64");
-        let mut session = CapabilitySession::new(
-            CapabilitySessionConfig {
-                invocation: BrokerInvocationContext {
-                    invocation_id: "invocation-1".to_owned(),
-                    user_subject: "user-1".to_owned(),
-                    call_chain_id: "call-chain-1".to_owned(),
-                    operation: types::Operation::Summarize,
-                    trigger: types::Trigger::ManualApi,
-                    remaining_depth: 2,
-                },
-                provider_binding_id: "provider-1".to_owned(),
-                tool_binding_ids: vec!["tool-1".to_owned()],
-                remaining_provider_requests: 3,
-                remaining_mcp_calls: 1,
-                remaining_input_tokens: 1024,
-                remaining_output_tokens: 1024,
-                remaining_cost_micros: 1,
-                deadline_unix_ms,
-                deadline: Instant::now() + duration,
-            },
-            Arc::new(DenyAiBroker),
-            Arc::new(DenyMcpBroker),
-        )
-        .expect("test session should construct");
-        session.suspend();
-
-        let ai_error = session
-            .validate_ai_request(host_ai::GenerateRequest {
-                provider_binding_id: "provider-1".to_owned(),
-                operation: types::Operation::Summarize,
-                system_instruction: "Summarize.".to_owned(),
-                untrusted_input_json: r#"{"text":"entry"}"#.to_owned(),
-                output_schema_id: "raindrop://schemas/test/v1".to_owned(),
-                output_schema_json: r#"{"type":"object"}"#.to_owned(),
-                provider_request_ordinal: 1,
-                max_input_tokens: 1,
-                max_output_tokens: 1,
-            })
-            .expect_err("AI must be denied while descriptor is unverified");
-        assert_eq!(ai_error.code, host_ai::GenerateErrorCode::CapabilityDenied);
-
-        let mcp_error = session
-            .validate_mcp_request(host_mcp::CallRequest {
-                tool_binding_id: "tool-1".to_owned(),
-                arguments_json: r#"{"query":"entry"}"#.to_owned(),
-                requested_timeout_ms: 1,
-            })
-            .expect_err("MCP must be denied while descriptor is unverified");
-        assert_eq!(mcp_error.code, host_mcp::CallErrorCode::CapabilityDenied);
-
-        session.activate();
-        assert!(
-            session
-                .validate_mcp_request(host_mcp::CallRequest {
-                    tool_binding_id: "tool-1".to_owned(),
-                    arguments_json: r#"{"query":"entry"}"#.to_owned(),
-                    requested_timeout_ms: 1,
-                })
-                .is_ok()
-        );
-    }
-}
-
 fn map_ai_broker_error(
     error: AiBrokerError,
 ) -> Result<Result<host_ai::GenerateResponse, host_ai::GenerateError>, PluginRuntimeError> {
@@ -904,4 +827,81 @@ fn map_mcp_broker_error(
         code,
         retryable: error.retryable,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+
+    #[test]
+    fn suspended_session_denies_host_capabilities_until_descriptor_is_accepted() {
+        let duration = Duration::from_secs(30);
+        let unix_now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should follow Unix epoch");
+        let deadline_unix_ms =
+            u64::try_from((unix_now + duration).as_millis()).expect("deadline should fit u64");
+        let mut session = CapabilitySession::new(
+            CapabilitySessionConfig {
+                invocation: BrokerInvocationContext {
+                    invocation_id: "invocation-1".to_owned(),
+                    user_subject: "user-1".to_owned(),
+                    call_chain_id: "call-chain-1".to_owned(),
+                    operation: types::Operation::Summarize,
+                    trigger: types::Trigger::ManualApi,
+                    remaining_depth: 2,
+                },
+                provider_binding_id: "provider-1".to_owned(),
+                tool_binding_ids: vec!["tool-1".to_owned()],
+                remaining_provider_requests: 3,
+                remaining_mcp_calls: 1,
+                remaining_input_tokens: 1024,
+                remaining_output_tokens: 1024,
+                remaining_cost_micros: 1,
+                deadline_unix_ms,
+                deadline: Instant::now() + duration,
+            },
+            Arc::new(DenyAiBroker),
+            Arc::new(DenyMcpBroker),
+        )
+        .expect("test session should construct");
+        session.suspend();
+
+        let ai_error = session
+            .validate_ai_request(host_ai::GenerateRequest {
+                provider_binding_id: "provider-1".to_owned(),
+                operation: types::Operation::Summarize,
+                system_instruction: "Summarize.".to_owned(),
+                untrusted_input_json: r#"{"text":"entry"}"#.to_owned(),
+                output_schema_id: "raindrop://schemas/test/v1".to_owned(),
+                output_schema_json: r#"{"type":"object"}"#.to_owned(),
+                provider_request_ordinal: 1,
+                max_input_tokens: 1,
+                max_output_tokens: 1,
+            })
+            .expect_err("AI must be denied while descriptor is unverified");
+        assert_eq!(ai_error.code, host_ai::GenerateErrorCode::CapabilityDenied);
+
+        let mcp_error = session
+            .validate_mcp_request(host_mcp::CallRequest {
+                tool_binding_id: "tool-1".to_owned(),
+                arguments_json: r#"{"query":"entry"}"#.to_owned(),
+                requested_timeout_ms: 1,
+            })
+            .expect_err("MCP must be denied while descriptor is unverified");
+        assert_eq!(mcp_error.code, host_mcp::CallErrorCode::CapabilityDenied);
+
+        session.activate();
+        assert!(
+            session
+                .validate_mcp_request(host_mcp::CallRequest {
+                    tool_binding_id: "tool-1".to_owned(),
+                    arguments_json: r#"{"query":"entry"}"#.to_owned(),
+                    requested_timeout_ms: 1,
+                })
+                .is_ok()
+        );
+    }
 }
