@@ -4,6 +4,7 @@ FROM node:26.4.0-bookworm-slim AS web-builder
 
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
+RUN npm install --global npm@12.0.1 --ignore-scripts
 RUN --mount=type=cache,target=/root/.npm,sharing=locked \
     npm ci --ignore-scripts
 COPY web/ ./

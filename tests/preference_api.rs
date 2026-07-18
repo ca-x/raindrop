@@ -39,6 +39,14 @@ enum UserKind {
     B,
 }
 
+#[derive(Clone, Copy, Default)]
+struct RequestOptions<'a> {
+    user: Option<UserKind>,
+    include_csrf: bool,
+    content_type: bool,
+    accept_language: Option<&'a str>,
+}
+
 impl PreferenceFixture {
     async fn new() -> Self {
         let data = tempfile::tempdir().expect("temporary directory should be created");
@@ -87,29 +95,26 @@ impl PreferenceFixture {
         method: Method,
         uri: &str,
         body: Option<&str>,
-        user: Option<UserKind>,
-        include_csrf: bool,
-        content_type: bool,
-        accept_language: Option<&str>,
+        options: RequestOptions<'_>,
     ) -> CapturedResponse {
         let mut request = Request::builder().method(method).uri(uri);
-        if let Some(user) = user {
+        if let Some(user) = options.user {
             let (cookie, csrf) = match user {
                 UserKind::A => (&self.user_a_cookie, &self.user_a_csrf),
                 UserKind::B => (&self.user_b_cookie, &self.user_b_csrf),
             };
             request = request.header(COOKIE, cookie);
-            if include_csrf {
+            if options.include_csrf {
                 request = request
                     .header("x-csrf-token", csrf)
                     .header(ORIGIN, "http://preferences.test")
                     .header(HOST, "preferences.test");
             }
         }
-        if content_type {
+        if options.content_type {
             request = request.header(CONTENT_TYPE, "application/json");
         }
-        if let Some(accept_language) = accept_language {
+        if let Some(accept_language) = options.accept_language {
             request = request.header(ACCEPT_LANGUAGE, accept_language);
         }
         let response = self
@@ -139,10 +144,12 @@ impl PreferenceFixture {
             method,
             uri,
             body.as_deref(),
-            user,
-            include_csrf,
-            body.is_some(),
-            accept_language,
+            RequestOptions {
+                user,
+                include_csrf,
+                content_type: body.is_some(),
+                accept_language,
+            },
         )
         .await
     }
@@ -239,10 +246,10 @@ async fn patch_enforces_authentication_csrf_json_and_strict_validation_in_order(
             Method::PATCH,
             "/api/v1/preferences",
             Some(unknown),
-            None,
-            false,
-            true,
-            None,
+            RequestOptions {
+                content_type: true,
+                ..Default::default()
+            },
         )
         .await;
     assert_error(
@@ -256,10 +263,11 @@ async fn patch_enforces_authentication_csrf_json_and_strict_validation_in_order(
             Method::PATCH,
             "/api/v1/preferences",
             Some(unknown),
-            Some(UserKind::A),
-            false,
-            true,
-            None,
+            RequestOptions {
+                user: Some(UserKind::A),
+                content_type: true,
+                ..Default::default()
+            },
         )
         .await;
     assert_error(&missing_csrf, StatusCode::FORBIDDEN, "FORBIDDEN");
@@ -281,10 +289,12 @@ async fn patch_enforces_authentication_csrf_json_and_strict_validation_in_order(
                 Method::PATCH,
                 "/api/v1/preferences",
                 Some(body),
-                Some(UserKind::A),
-                true,
-                true,
-                None,
+                RequestOptions {
+                    user: Some(UserKind::A),
+                    include_csrf: true,
+                    content_type: true,
+                    ..Default::default()
+                },
             )
             .await;
         assert_error(
@@ -299,10 +309,11 @@ async fn patch_enforces_authentication_csrf_json_and_strict_validation_in_order(
             Method::PATCH,
             "/api/v1/preferences",
             Some(r#"{"themeMode":"DARK"}"#),
-            Some(UserKind::A),
-            true,
-            false,
-            None,
+            RequestOptions {
+                user: Some(UserKind::A),
+                include_csrf: true,
+                ..Default::default()
+            },
         )
         .await;
     assert_error(

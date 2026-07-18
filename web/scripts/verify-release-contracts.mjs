@@ -21,6 +21,12 @@ requireMatch(
   /^FROM debian:bookworm-slim AS runtime$/mu,
   "minimal runtime stage",
 )
+requireCount(
+  dockerfile,
+  /npm install --global npm@12\.0\.1 --ignore-scripts/gu,
+  1,
+  "pinned Docker npm installation",
+)
 requireMatch(dockerfile, /^USER 10001:10001$/mu, "non-root runtime user")
 requireMatch(
   dockerfile,
@@ -63,6 +69,12 @@ requireMatch(binaryWorkflow, /actions\/upload-artifact@ea165f8d65b6e75b540449e92
 requireMatch(binaryWorkflow, /actions\/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093/u, "pinned download-artifact")
 requireMatch(binaryWorkflow, /softprops\/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b/u, "pinned release action")
 requireMatch(binaryWorkflow, /startsWith\(github\.ref, 'refs\/tags\/v'\)/u, "tag-only GitHub release")
+requireCount(
+  binaryWorkflow,
+  /npm install --global npm@12\.0\.1 --ignore-scripts/gu,
+  1,
+  "pinned binary workflow npm installation",
+)
 requirePinnedActions(binaryWorkflow, "release-binaries.yml")
 
 const dockerWorkflow = read(".github/workflows/docker.yml")
@@ -95,6 +107,12 @@ requireMatch(ciWorkflow, /^\s+load: true$/mu, "loaded CI image")
 requireMatch(ciWorkflow, /raindrop:ci/u, "CI image tag")
 requireMatch(ciWorkflow, /\.Config\.User/u, "non-root container assertion")
 requireMatch(ciWorkflow, /\/api\/v1\/health\/live/u, "container liveness smoke")
+requireCount(
+  ciWorkflow,
+  /npm install --global npm@12\.0\.1 --ignore-scripts/gu,
+  3,
+  "pinned CI npm installations",
+)
 requirePinnedActions(ciWorkflow, "ci.yml")
 
 console.log("release delivery contracts are current")
@@ -119,6 +137,11 @@ function requireMatch(source, pattern, message) {
 
 function requireNoMatch(source, pattern, message) {
   if (pattern.test(source)) fail(message)
+}
+
+function requireCount(source, pattern, expected, message) {
+  const actual = [...source.matchAll(pattern)].length
+  if (actual !== expected) fail(`${message}: expected ${expected}, received ${actual}`)
 }
 
 function requirePinnedActions(source, file) {
