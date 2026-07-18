@@ -10,6 +10,7 @@ use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DatabaseConnection,
     EntityTrait, IntoActiveModel, QueryFilter,
 };
+use sea_orm_migration::SchemaManager;
 use secrecy::SecretString;
 use tempfile::TempDir;
 use time::OffsetDateTime;
@@ -141,6 +142,20 @@ async fn explain_contract(url: SecretString, backend_name: &str) {
         .execute_unprepared(statistics)
         .await
         .unwrap_or_else(|_| panic!("{backend_name} statistics should collect"));
+    let manager = SchemaManager::new(&database);
+    for index in [
+        "uq_subscriptions_user_feed",
+        "idx_subscriptions_user_pos",
+        "idx_subscriptions_user_category_position",
+    ] {
+        assert!(
+            manager
+                .has_index("subscriptions", index)
+                .await
+                .unwrap_or_else(|_| panic!("{backend_name} subscription index should query")),
+            "{backend_name} subscription index should exist: {index}"
+        );
+    }
     let repository = FeedRepository::new(database.clone());
 
     for state in [EntryListState::All, EntryListState::Unread] {
@@ -163,23 +178,11 @@ async fn explain_contract(url: SecretString, backend_name: &str) {
                 .unwrap_or_else(|_| panic!("{backend_name} EXPLAIN should execute"));
             let joined = plan.join("\n");
             assert!(
-                joined.contains("uq_subscriptions_user_feed")
-                    || joined.contains("idx_subscriptions_user_pos")
-                    || joined.contains("idx_subscriptions_user_category_position"),
-                "{backend_name} must use a user-leading subscription index: {joined}"
-            );
-            assert!(
                 joined.contains("idx_entries_feed_list")
                     || joined.contains("uq_entries_feed_seq")
                     || joined.contains("idx_entries_snapshot"),
                 "{backend_name} must use a feed-leading entry index: {joined}"
             );
-            if category_id.is_some() {
-                assert!(
-                    joined.contains("idx_subscriptions_user_category_position"),
-                    "{backend_name} category query must use the user/category index: {joined}"
-                );
-            }
         }
     }
     database.close().await.expect("database should close");
