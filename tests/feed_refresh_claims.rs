@@ -199,7 +199,10 @@ async fn sqlite_lock_wait_crossing_the_deadline_cannot_complete() {
         .expect("blocking write transaction should commit");
 
     let result = completion.await.expect("completion task should join");
-    assert!(matches!(result, Err(RefreshRepositoryError::LeaseLost)));
+    assert!(
+        matches!(result, Err(RefreshRepositoryError::LeaseLost)),
+        "completion after the lease deadline should lose ownership: {result:?}"
+    );
 
     database.close().await.expect("database should close");
     blocker.close().await.expect("blocker should close");

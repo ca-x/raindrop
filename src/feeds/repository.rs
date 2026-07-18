@@ -302,8 +302,9 @@ impl FeedRepository {
         let lease_micros = lease_micros(lease_duration)?;
         let backend = self.database.get_database_backend();
         let transaction = self.database.begin().await?;
-        if backend == DatabaseBackend::MySql {
-            let current_token = lock_feed_for_mysql(&transaction, &claim.feed_id).await?;
+        if let Some(current_token) =
+            lock_feed_before_deadline_check(&transaction, backend, &claim.feed_id).await?
+        {
             validate_active_token(current_token)?;
         }
 
@@ -750,8 +751,9 @@ impl FeedRepository {
         );
         let backend = self.database.get_database_backend();
         let transaction = self.database.begin().await?;
-        if backend == DatabaseBackend::MySql {
-            let current_token = lock_feed_for_mysql(&transaction, &claim.feed_id).await?;
+        if let Some(current_token) =
+            lock_feed_before_deadline_check(&transaction, backend, &claim.feed_id).await?
+        {
             validate_active_token(current_token)?;
         }
 
@@ -802,8 +804,9 @@ impl FeedRepository {
         validate_active_token(claim.lease_token)?;
         let backend = self.database.get_database_backend();
         let transaction = self.database.begin().await?;
-        if backend == DatabaseBackend::MySql {
-            let current_token = lock_feed_for_mysql(&transaction, &claim.feed_id).await?;
+        if let Some(current_token) =
+            lock_feed_before_deadline_check(&transaction, backend, &claim.feed_id).await?
+        {
             validate_active_token(current_token)?;
         }
         if let Some(update) = not_modified.as_mut() {
@@ -1554,6 +1557,33 @@ where
         .ok_or(RefreshRepositoryError::CorruptData)?;
     row.try_get("", "lease_token")
         .map_err(|_| RefreshRepositoryError::CorruptData)
+}
+
+async fn lock_feed_before_deadline_check<C>(
+    connection: &C,
+    backend: DbBackend,
+    feed_id: &str,
+) -> Result<Option<i64>, RefreshRepositoryError>
+where
+    C: ConnectionTrait,
+{
+    match backend {
+        DatabaseBackend::Sqlite => Ok(None),
+        DatabaseBackend::Postgres => {
+            let row = connection
+                .query_one(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    "SELECT lease_token FROM feeds WHERE id = $1 FOR UPDATE",
+                    [feed_id.into()],
+                ))
+                .await?
+                .ok_or(RefreshRepositoryError::CorruptData)?;
+            row.try_get("", "lease_token")
+                .map(Some)
+                .map_err(|_| RefreshRepositoryError::CorruptData)
+        }
+        DatabaseBackend::MySql => lock_feed_for_mysql(connection, feed_id).await.map(Some),
+    }
 }
 
 async fn read_run_feed_id<C>(
