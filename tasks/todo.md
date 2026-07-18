@@ -27,7 +27,8 @@
 
 ## 3. Multi-user organization
 
-- [ ] 分类、排序、阅读游标和用户设置。
+- [ ] 分类：schema、CRUD、订阅分组、Reader category filter 与四视口验证。
+- [ ] 排序、阅读游标和用户设置。
 - [ ] 注册策略、管理员用户管理和跨用户隔离测试。
 
 ## 4. OIDC
