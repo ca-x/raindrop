@@ -2,7 +2,7 @@
 
 Date: 2026-07-19
 Branch: `feature/foundation-bootstrap`
-Status: LOCAL VERIFIED; CI PENDING
+Status: VERIFIED
 
 ## Delivered scope
 
@@ -60,6 +60,7 @@ This slice is the durable storage/domain core only. It does not execute provider
 - `15c36c8 feat: enqueue content jobs idempotently`
 - `3f9cafa feat: recover leased content jobs`
 - `5d48bb8 feat: commit immutable content artifacts`
+- `18cad01 docs: record content job core`
 
 ## Final local gates
 
@@ -92,4 +93,14 @@ All future AI/plugin/MCP todo items remain unchecked. No native processor or rou
 
 ## CI evidence
 
-Pending the pushed documentation/workflow commit. Record the run ID, URL, and seven-job result after the single bounded CI watch.
+Run [`29655164960`](https://github.com/ca-x/raindrop/actions/runs/29655164960) passed all seven jobs:
+
+- Rust foundation passed formatting, Clippy, the full Rust suite, and the explicit SQLite/PostgreSQL/MySQL content job/artifact contracts.
+- Rust current-stable compatibility passed.
+- Rust Windows durable replacement compile passed.
+- ASTRYX Web typecheck, Vitest, and production build passed.
+- Supply-chain audit and registry signature verification passed.
+- Release embedding and Playwright E2E passed with frozen lockfiles.
+- Non-root container build and live health passed.
+
+The run emitted the existing GitHub Actions annotation that pinned Docker actions still target deprecated Node.js 20 and are being forced onto Node.js 24. It did not fail the matrix and is unrelated to this content core slice.
