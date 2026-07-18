@@ -1,6 +1,7 @@
 use std::{
     future::pending,
     sync::{Arc, Mutex},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use async_trait::async_trait;
@@ -140,6 +141,7 @@ async fn ai_session_enforces_operation_ordinal_json_token_and_call_budgets() {
 async fn ai_session_bounds_timeout_broker_errors_and_untrusted_outputs() {
     let mut timeout_config = session_config();
     timeout_config.deadline = Instant::now() + Duration::from_millis(10);
+    timeout_config.deadline_unix_ms = deadline_unix_ms_after(Duration::from_millis(10));
     let mut timeout_session = CapabilitySession::new(
         timeout_config,
         Arc::new(PendingAiBroker),
@@ -245,6 +247,25 @@ fn capability_debug_output_redacts_identity_prompts_and_payloads() {
     };
     let rendered = format!("{config:?} {request:?} {response:?} {mcp_request:?} {mcp_response:?}");
     assert!(!rendered.contains("rd-secret"));
+}
+
+#[test]
+fn capability_session_rejects_expired_overlong_and_oversized_contexts() {
+    let mut expired = session_config();
+    expired.deadline_unix_ms = deadline_unix_ms_after(Duration::from_secs(1));
+    expired.deadline = Instant::now() - Duration::from_millis(1);
+    assert_invalid_session(expired);
+
+    let mut overlong_automatic = session_config();
+    overlong_automatic.invocation.trigger = types::Trigger::FeedRefreshPersisted;
+    overlong_automatic.remaining_mcp_calls = 2;
+    overlong_automatic.deadline_unix_ms = deadline_unix_ms_after(Duration::from_secs(121));
+    overlong_automatic.deadline = Instant::now() + Duration::from_secs(121);
+    assert_invalid_session(overlong_automatic);
+
+    let mut too_many_tools = session_config();
+    too_many_tools.tool_binding_ids = (0..17).map(|index| format!("tool-{index}")).collect();
+    assert_invalid_session(too_many_tools);
 }
 
 #[tokio::test]
@@ -498,8 +519,16 @@ fn session_config() -> CapabilitySessionConfig {
         remaining_input_tokens: 8_192,
         remaining_output_tokens: 4_096,
         remaining_cost_micros: 250_000,
-        deadline: Instant::now() + Duration::from_secs(180),
+        deadline_unix_ms: deadline_unix_ms_after(Duration::from_secs(170)),
+        deadline: Instant::now() + Duration::from_secs(170),
     }
+}
+
+fn deadline_unix_ms_after(duration: Duration) -> u64 {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock should follow Unix epoch");
+    u64::try_from((now + duration).as_millis()).expect("deadline should fit u64")
 }
 
 fn session(broker: Arc<dyn AiCapabilityBroker>) -> CapabilitySession {
@@ -535,6 +564,15 @@ fn mcp_session(
 ) -> CapabilitySession {
     CapabilitySession::new(config, Arc::new(DenyAiBroker), broker)
         .expect("valid MCP capability session should construct")
+}
+
+fn assert_invalid_session(config: CapabilitySessionConfig) {
+    let error =
+        match CapabilitySession::new(config, Arc::new(DenyAiBroker), Arc::new(DenyMcpBroker)) {
+            Ok(_) => panic!("invalid capability session must fail closed"),
+            Err(error) => error,
+        };
+    assert_eq!(error.kind(), PluginRuntimeErrorKind::InvalidInvocation);
 }
 
 struct RecordingAiBroker {

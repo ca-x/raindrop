@@ -1,4 +1,9 @@
-use std::{collections::BTreeSet, fmt, sync::Arc, time::Duration};
+use std::{
+    collections::BTreeSet,
+    fmt,
+    sync::Arc,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use async_trait::async_trait;
 use tokio::time::{Instant, timeout};
@@ -27,6 +32,8 @@ const MAX_MCP_ARGUMENT_BYTES: usize = 64 * 1024;
 const MAX_MCP_RESULT_BYTES: usize = 256 * 1024;
 const MAX_MCP_TIMEOUT: Duration = Duration::from_secs(15);
 const MAX_MCP_LABEL_BYTES: usize = 128;
+const MAX_TOOL_BINDINGS: usize = 16;
+const MAX_DEADLINE_SKEW: Duration = Duration::from_secs(2);
 
 #[derive(Clone)]
 pub struct BrokerInvocationContext {
@@ -58,6 +65,7 @@ pub struct CapabilitySessionConfig {
     pub remaining_input_tokens: u32,
     pub remaining_output_tokens: u32,
     pub remaining_cost_micros: u64,
+    pub deadline_unix_ms: u64,
     pub deadline: Instant,
 }
 
@@ -321,7 +329,9 @@ pub struct CapabilitySession {
     remaining_output_tokens: u32,
     remaining_cost_micros: u64,
     next_provider_ordinal: u32,
+    deadline_unix_ms: u64,
     deadline: Instant,
+    enabled: bool,
     ai_broker: Arc<dyn AiCapabilityBroker>,
     mcp_broker: Arc<dyn McpCapabilityBroker>,
 }
@@ -343,7 +353,9 @@ impl CapabilitySession {
             remaining_output_tokens: config.remaining_output_tokens,
             remaining_cost_micros: config.remaining_cost_micros,
             next_provider_ordinal: 1,
+            deadline_unix_ms: config.deadline_unix_ms,
             deadline: config.deadline,
+            enabled: true,
             ai_broker,
             mcp_broker,
         })
@@ -411,7 +423,8 @@ impl CapabilitySession {
         &self,
         request: host_ai::GenerateRequest,
     ) -> Result<AiBrokerRequest, host_ai::GenerateError> {
-        if request.provider_binding_id != self.provider_binding_id
+        if !self.enabled
+            || request.provider_binding_id != self.provider_binding_id
             || request.operation != self.invocation.operation
         {
             return Err(ai_error(host_ai::GenerateErrorCode::CapabilityDenied));
@@ -519,6 +532,9 @@ impl CapabilitySession {
         &self,
         request: host_mcp::CallRequest,
     ) -> Result<McpBrokerRequest, host_mcp::CallError> {
+        if !self.enabled {
+            return Err(mcp_error(host_mcp::CallErrorCode::CapabilityDenied));
+        }
         if !self.tool_binding_ids.contains(&request.tool_binding_id) {
             return Err(mcp_error(host_mcp::CallErrorCode::ToolDenied));
         }
@@ -547,9 +563,95 @@ impl CapabilitySession {
             remaining_depth: self.invocation.remaining_depth - 1,
         })
     }
+
+    pub(crate) fn validate_operation_request(
+        &self,
+        request: &types::OperationRequest,
+    ) -> Result<(), PluginRuntimeError> {
+        let tool_binding_ids = request
+            .tool_bindings
+            .iter()
+            .map(|binding| binding.binding_id.as_str())
+            .collect::<BTreeSet<_>>();
+        let valid = request.invocation_id == self.invocation.invocation_id
+            && request.user_scope.subject == self.invocation.user_subject
+            && request.call_chain_id == self.invocation.call_chain_id
+            && request.operation == self.invocation.operation
+            && request.trigger == self.invocation.trigger
+            && request.provider_binding_id == self.provider_binding_id
+            && tool_binding_ids.len() == request.tool_bindings.len()
+            && tool_binding_ids
+                == self
+                    .tool_binding_ids
+                    .iter()
+                    .map(String::as_str)
+                    .collect::<BTreeSet<_>>()
+            && request
+                .tool_bindings
+                .iter()
+                .all(|binding| valid_public_label(&binding.display_label, MAX_MCP_LABEL_BYTES))
+            && request.budget.remaining_depth == self.invocation.remaining_depth
+            && request.budget.deadline_unix_ms == self.deadline_unix_ms
+            && request.budget.remaining_provider_requests == self.remaining_provider_requests
+            && request.budget.remaining_mcp_calls == self.remaining_mcp_calls
+            && request.budget.remaining_input_tokens == self.remaining_input_tokens
+            && request.budget.remaining_output_tokens == self.remaining_output_tokens
+            && request.budget.remaining_cost_micros == self.remaining_cost_micros;
+        if valid {
+            Ok(())
+        } else {
+            Err(PluginRuntimeError::new(
+                PluginRuntimeErrorKind::InvalidInvocation,
+            ))
+        }
+    }
+
+    pub(crate) fn validate_lifecycle_context(
+        &self,
+        subject: &str,
+    ) -> Result<(), PluginRuntimeError> {
+        if subject == self.invocation.user_subject
+            && self.invocation.trigger == types::Trigger::FeedRefreshPersisted
+        {
+            Ok(())
+        } else {
+            Err(PluginRuntimeError::new(
+                PluginRuntimeErrorKind::InvalidInvocation,
+            ))
+        }
+    }
+
+    pub(crate) fn suspend(&mut self) {
+        self.enabled = false;
+    }
+
+    pub(crate) fn activate(&mut self) {
+        self.enabled = true;
+    }
 }
 
 fn validate_session_config(config: &CapabilitySessionConfig) -> Result<(), PluginRuntimeError> {
+    let monotonic_remaining = config.deadline.saturating_duration_since(Instant::now());
+    let unix_now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .and_then(|duration| u64::try_from(duration.as_millis()).ok());
+    let wall_remaining = unix_now_ms
+        .and_then(|now| config.deadline_unix_ms.checked_sub(now))
+        .map(Duration::from_millis);
+    let maximum_deadline = match config.invocation.trigger {
+        types::Trigger::FeedRefreshPersisted => Duration::from_secs(120),
+        types::Trigger::ManualApi | types::Trigger::ReaderSidecar | types::Trigger::McpServer => {
+            Duration::from_secs(180)
+        }
+    };
+    let deadlines_valid = wall_remaining.is_some_and(|wall_remaining| {
+        !wall_remaining.is_zero()
+            && !monotonic_remaining.is_zero()
+            && wall_remaining <= maximum_deadline
+            && monotonic_remaining <= maximum_deadline
+            && wall_remaining.abs_diff(monotonic_remaining) <= MAX_DEADLINE_SKEW
+    });
     let invalid = validate_visible_ascii(
         &config.invocation.invocation_id,
         MAX_BINDING_ID_BYTES,
@@ -579,7 +681,8 @@ fn validate_session_config(config: &CapabilitySessionConfig) -> Result<(), Plugi
         || config.remaining_mcp_calls > max_mcp_calls(config.invocation.trigger)
         || config.remaining_output_tokens > max_output_tokens(config.invocation.operation)
         || config.remaining_cost_micros > MAX_COST_MICROS
-        || config.deadline <= Instant::now();
+        || config.tool_binding_ids.len() > MAX_TOOL_BINDINGS
+        || !deadlines_valid;
     if invalid {
         return Err(PluginRuntimeError::new(
             PluginRuntimeErrorKind::InvalidInvocation,
@@ -638,6 +741,83 @@ fn mcp_error(code: host_mcp::CallErrorCode) -> host_mcp::CallError {
     host_mcp::CallError {
         code,
         retryable: false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+
+    #[test]
+    fn suspended_session_denies_host_capabilities_until_descriptor_is_accepted() {
+        let duration = Duration::from_secs(30);
+        let unix_now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should follow Unix epoch");
+        let deadline_unix_ms =
+            u64::try_from((unix_now + duration).as_millis()).expect("deadline should fit u64");
+        let mut session = CapabilitySession::new(
+            CapabilitySessionConfig {
+                invocation: BrokerInvocationContext {
+                    invocation_id: "invocation-1".to_owned(),
+                    user_subject: "user-1".to_owned(),
+                    call_chain_id: "call-chain-1".to_owned(),
+                    operation: types::Operation::Summarize,
+                    trigger: types::Trigger::ManualApi,
+                    remaining_depth: 2,
+                },
+                provider_binding_id: "provider-1".to_owned(),
+                tool_binding_ids: vec!["tool-1".to_owned()],
+                remaining_provider_requests: 3,
+                remaining_mcp_calls: 1,
+                remaining_input_tokens: 1024,
+                remaining_output_tokens: 1024,
+                remaining_cost_micros: 1,
+                deadline_unix_ms,
+                deadline: Instant::now() + duration,
+            },
+            Arc::new(DenyAiBroker),
+            Arc::new(DenyMcpBroker),
+        )
+        .expect("test session should construct");
+        session.suspend();
+
+        let ai_error = session
+            .validate_ai_request(host_ai::GenerateRequest {
+                provider_binding_id: "provider-1".to_owned(),
+                operation: types::Operation::Summarize,
+                system_instruction: "Summarize.".to_owned(),
+                untrusted_input_json: r#"{"text":"entry"}"#.to_owned(),
+                output_schema_id: "raindrop://schemas/test/v1".to_owned(),
+                output_schema_json: r#"{"type":"object"}"#.to_owned(),
+                provider_request_ordinal: 1,
+                max_input_tokens: 1,
+                max_output_tokens: 1,
+            })
+            .expect_err("AI must be denied while descriptor is unverified");
+        assert_eq!(ai_error.code, host_ai::GenerateErrorCode::CapabilityDenied);
+
+        let mcp_error = session
+            .validate_mcp_request(host_mcp::CallRequest {
+                tool_binding_id: "tool-1".to_owned(),
+                arguments_json: r#"{"query":"entry"}"#.to_owned(),
+                requested_timeout_ms: 1,
+            })
+            .expect_err("MCP must be denied while descriptor is unverified");
+        assert_eq!(mcp_error.code, host_mcp::CallErrorCode::CapabilityDenied);
+
+        session.activate();
+        assert!(
+            session
+                .validate_mcp_request(host_mcp::CallRequest {
+                    tool_binding_id: "tool-1".to_owned(),
+                    arguments_json: r#"{"query":"entry"}"#.to_owned(),
+                    requested_timeout_ms: 1,
+                })
+                .is_ok()
+        );
     }
 }
 

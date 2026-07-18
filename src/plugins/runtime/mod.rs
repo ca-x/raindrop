@@ -4,6 +4,7 @@ mod capability;
 mod component;
 mod engine;
 mod error;
+mod execute;
 mod host;
 
 pub use capability::{

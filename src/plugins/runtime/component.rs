@@ -66,6 +66,10 @@ impl CompiledPlugin {
     pub fn component_digest(&self) -> &str {
         &self.component_digest
     }
+
+    pub(crate) fn component(&self) -> &Component {
+        &self._component
+    }
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {

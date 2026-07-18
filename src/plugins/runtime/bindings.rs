@@ -7,6 +7,6 @@ mod generated {
     });
 }
 
-pub use generated::ContentPluginV1;
 pub use generated::exports::raindrop::content_plugin::content_plugin;
 pub use generated::raindrop::content_plugin::{host_ai, host_mcp, types};
+pub use generated::{ContentPluginV1, ContentPluginV1Pre};
