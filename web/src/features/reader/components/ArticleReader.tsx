@@ -76,6 +76,7 @@ export function ArticleReader(props: ArticleReaderProps) {
       <article
         ref={articleRef}
         className="reader-article"
+        lang={i18n.locale}
         onScroll={(event) => {
           if (canBindArticle && props.entryRoute) {
             props.onRecordScroll(props.entryRoute, event.currentTarget.scrollTop)

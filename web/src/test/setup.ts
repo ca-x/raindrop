@@ -60,16 +60,32 @@ Object.defineProperty(window, "scrollTo", {
   value: () => undefined,
 })
 
-if (typeof HTMLElement.prototype.showPopover === "undefined") {
-  Object.defineProperty(HTMLElement.prototype, "showPopover", {
-    configurable: true,
-    value: () => undefined,
-  })
-  Object.defineProperty(HTMLElement.prototype, "hidePopover", {
-    configurable: true,
-    value: () => undefined,
-  })
-}
+Object.defineProperty(HTMLElement.prototype, "showPopover", {
+  configurable: true,
+  value(this: HTMLElement) {
+    this.setAttribute("popover-open", "")
+    const event = new Event("toggle")
+    Object.defineProperty(event, "newState", { value: "open" })
+    this.dispatchEvent(event)
+  },
+})
+Object.defineProperty(HTMLElement.prototype, "hidePopover", {
+  configurable: true,
+  value(this: HTMLElement) {
+    this.removeAttribute("popover-open")
+    const event = new Event("toggle")
+    Object.defineProperty(event, "newState", { value: "closed" })
+    this.dispatchEvent(event)
+  },
+})
+const nativeMatches = HTMLElement.prototype.matches
+Object.defineProperty(HTMLElement.prototype, "matches", {
+  configurable: true,
+  value(this: HTMLElement, selector: string) {
+    if (selector === ":popover-open") return this.hasAttribute("popover-open")
+    return nativeMatches.call(this, selector)
+  },
+})
 
 export function setTestViewport(width: number, height = 800) {
   const previousMatches = new Map(

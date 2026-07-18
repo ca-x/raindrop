@@ -1,6 +1,7 @@
 import { Banner } from "@astryxdesign/core/Banner"
 import { EmptyState } from "@astryxdesign/core/EmptyState"
 import { Skeleton } from "@astryxdesign/core/Skeleton"
+import type { TreeListDensity } from "@astryxdesign/core/TreeList"
 import { useLingui } from "@lingui/react"
 import type { Ref } from "react"
 
@@ -13,9 +14,12 @@ interface SourceTreeProps {
   onSelect: (source: ReaderSource) => void
   onAdd: () => void
   onManage: () => void
+  onPreferences: () => void
   onRefresh: (subscriptionId: string) => Promise<void>
   onLogout: () => Promise<void>
   manageButtonRef?: Ref<HTMLButtonElement>
+  preferencesButtonRef?: Ref<HTMLButtonElement>
+  density: TreeListDensity
 }
 
 export function SourceTree({
@@ -23,9 +27,12 @@ export function SourceTree({
   onSelect,
   onAdd,
   onManage,
+  onPreferences,
   onRefresh,
   onLogout,
   manageButtonRef,
+  preferencesButtonRef,
+  density,
 }: SourceTreeProps) {
   const { i18n } = useLingui()
   const selectedFeedId = state.selectedSource.kind === "feed" ? state.selectedSource.feedId : null
@@ -39,14 +46,16 @@ export function SourceTree({
       <SourceToolbar
         onAdd={onAdd}
         onManage={onManage}
+        onPreferences={onPreferences}
         onLogout={onLogout}
         manageButtonRef={manageButtonRef}
+        preferencesButtonRef={preferencesButtonRef}
         refresh={selectedSubscription ? {
           label: i18n._("reader.refreshFeed", { title: selectedSubscription.title }),
           onRefresh: () => onRefresh(selectedSubscription.subscriptionId),
         } : undefined}
       />
-      <CategoryList state={state} onSelect={onSelect} />
+      <CategoryList state={state} onSelect={onSelect} density={density} />
       {state.paneStatus.subscriptions === "error" ? (
         <Banner
           container="section"

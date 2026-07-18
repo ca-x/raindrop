@@ -38,6 +38,7 @@ it("renders empty categories, categorized feeds, and Uncategorized in one TreeLi
           subscriptionOrder: [subscriptionId],
         }}
         onSelect={onSelect}
+        density="balanced"
       />
     </Providers>,
   )
@@ -45,6 +46,10 @@ it("renders empty categories, categorized feeds, and Uncategorized in one TreeLi
   expect(screen.getByText("Empty category")).toBeVisible()
   expect(screen.getByText("Uncategorized")).toBeVisible()
   expect(screen.getByText("Example Feed")).toBeVisible()
+  expect(screen.getByRole("tree").parentElement).toHaveAttribute(
+    "data-density",
+    "balanced",
+  )
 
   await user.click(screen.getByRole("button", { name: "Technology" }))
   expect(onSelect).toHaveBeenCalledWith({ kind: "category", categoryId })

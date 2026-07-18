@@ -288,19 +288,19 @@ git push origin feature/foundation-bootstrap
 - Produces a Settings and Sign out ASTRYX `MoreMenu` in the source toolbar.
 - Applies preference density to source/entry lists and reading scale to article typography.
 
-- [ ] **Step 1: Write controller/Dialog/Reader RED tests**
+- [x] **Step 1: Write controller/Dialog/Reader RED tests**
 
 Cover parallel preference load, non-blocking load failure, successful save, CSRF, save failure rollback, unauthenticated callback, draft preservation, cancel, focus restoration, MoreMenu actions, density mapping, article scale, locale copy, and compact Dialog containment contract.
 
-- [ ] **Step 2: Run and confirm RED**
+- [x] **Step 2: Run and confirm RED**
 
 Run: `cd web && npm run test:ci -- src/features/preferences web/src/features/reader`
 
-- [ ] **Step 3: Implement the preference controller**
+- [x] **Step 3: Implement the preference controller**
 
 Load once when `ReadyPage` mounts. Controller state is always initialized from the runtime hint/defaults so Reader rendering never waits. `save(draft)` computes a field-level patch, returns early when unchanged, calls PATCH once, applies the response, and keeps a stable inline error on failure.
 
-- [ ] **Step 4: Implement the ASTRYX Dialog and MoreMenu**
+- [x] **Step 4: Implement the ASTRYX Dialog and MoreMenu**
 
 Use one `Dialog purpose="form"` with the four controls from the spec and Cancel/Save footer. Replace the direct logout icon with:
 
@@ -318,15 +318,15 @@ Use one `Dialog purpose="form"` with the four controls from the spec and Cancel/
 
 Settings and Sign out remain secondary actions; Manage categories and Add subscription stay directly visible.
 
-- [ ] **Step 5: Apply density and typography without custom controls**
+- [x] **Step 5: Apply density and typography without custom controls**
 
 Map density to existing ASTRYX list props. Set Reader article typography through `--raindrop-reading-scale` and `calc()` while retaining the 72-character measure and CJK line height. Do not change toolbar/control font size or touch target size.
 
-- [ ] **Step 6: Verify frontend behavior**
+- [x] **Step 6: Verify frontend behavior**
 
 Run: `cd web && npm run check:reader-types && npm run typecheck && npm run test:ci && npm run build`
 
-- [ ] **Step 7: Commit and push**
+- [x] **Step 7: Commit and push**
 
 ```bash
 git add web/src/features/preferences web/src/features/reader web/src/shared/i18n/i18n.ts

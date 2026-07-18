@@ -1,4 +1,5 @@
 import type { ThemeMode as AstryxThemeMode } from "@astryxdesign/core/theme"
+import type { ListDensity } from "@astryxdesign/core/List"
 
 import type {
   UserPreferences,
@@ -33,6 +34,10 @@ export function toAstryxThemeMode(mode: PreferenceThemeMode): AstryxThemeMode {
 
 export function toDensityAttribute(density: PreferenceLayoutDensity): string {
   return density.toLowerCase()
+}
+
+export function toAstryxDensity(density: PreferenceLayoutDensity): ListDensity {
+  return toDensityAttribute(density) as ListDensity
 }
 
 export function toReadingScaleCss(scale: number): string {

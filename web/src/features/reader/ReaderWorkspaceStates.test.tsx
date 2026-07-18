@@ -1,11 +1,13 @@
 import { render, screen, within } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
+import type { ComponentProps } from "react"
 
 import { Providers } from "../../app/Providers"
 import { activateLocale } from "../../shared/i18n/i18n"
+import { fakePreferencesController } from "../preferences/model/testFixtures"
 import { initialReaderState } from "./model/reducer"
 import type { ReaderController } from "./model/useReaderController"
-import { ReaderRoutes } from "./routes/ReaderRoutes"
+import { ReaderRoutes as ProductionReaderRoutes } from "./routes/ReaderRoutes"
 
 describe("Reader workspace pane states", () => {
   it("keeps subscription and article failures visible while the queue is busy", () => {
@@ -49,6 +51,17 @@ describe("Reader workspace pane states", () => {
     expect(dismiss.closest('[role="alert"]')).toHaveTextContent("The entry could not be updated.")
   })
 })
+
+function ReaderRoutes(
+  props: Omit<ComponentProps<typeof ProductionReaderRoutes>, "preferencesController">,
+) {
+  return (
+    <ProductionReaderRoutes
+      {...props}
+      preferencesController={fakePreferencesController()}
+    />
+  )
+}
 
 function fakeController(): ReaderController {
   return {

@@ -96,14 +96,14 @@ describe("Local authentication", () => {
     if (mode === "mobile") {
       await user.click(screen.getByRole("button", { name: "Open sources" }))
       const dialog = await screen.findByRole("dialog", { name: "Sources" })
-      const menuLogout = within(dialog).getByRole("button", { name: "Sign out" })
-      await user.click(menuLogout)
+      await user.click(within(dialog).getByRole("button", { name: "Open menu" }))
     } else {
-      const directLogout = screen.getByRole("button", { name: "Sign out" })
-      expect(directLogout).toBeVisible()
       expect(screen.queryByRole("button", { name: "Open sources" })).not.toBeInTheDocument()
-      await user.click(directLogout)
+      await user.click(screen.getByRole("button", { name: "Open menu" }))
     }
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Sign out", hidden: true }),
+    )
 
     expect(await screen.findByRole("heading", { name: "Welcome back" })).toBeVisible()
     const [path, init] = fetchMock.mock.calls.at(-1) ?? []
@@ -139,7 +139,10 @@ describe("Local authentication", () => {
     expect(await screen.findByRole("heading", { name: "No entries here" })).toBeVisible()
     await user.click(screen.getByRole("button", { name: "Open sources" }))
     const dialog = await screen.findByRole("dialog", { name: "Sources" })
-    await user.click(within(dialog).getByRole("button", { name: "Sign out" }))
+    await user.click(within(dialog).getByRole("button", { name: "Open menu" }))
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Sign out", hidden: true }),
+    )
 
     await waitFor(() => {
       expect(screen.queryByRole("dialog", { name: "Sources" })).not.toBeInTheDocument()
@@ -167,6 +170,12 @@ function mockReaderWorkspace() {
     .mockResolvedValueOnce(jsonResponse({ items: [] }))
     .mockResolvedValueOnce(jsonResponse({ items: [], nextCursor: null }))
     .mockResolvedValueOnce(jsonResponse({ items: [], nextCursor: null, snapshotGeneration: 1 }))
+    .mockResolvedValueOnce(jsonResponse({
+      locale: "en",
+      themeMode: "SYSTEM",
+      layoutDensity: "BALANCED",
+      readingFontScale: 100,
+    }))
 }
 
 async function fillLogin(user: ReturnType<typeof userEvent.setup>) {

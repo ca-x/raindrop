@@ -7,6 +7,9 @@ import { useLingui } from "@lingui/react"
 import { useRef, useState } from "react"
 
 import type { ViewportMode } from "../../../shared/responsive/useViewportMode"
+import { PreferencesDialog } from "../../preferences/components/PreferencesDialog"
+import { toAstryxDensity } from "../../preferences/model/preferenceTypes"
+import type { PreferencesController } from "../../preferences/model/usePreferencesController"
 import { ArticleReader } from "../components/ArticleReader"
 import { EntryQueue } from "../components/EntryQueue"
 import { CompactArticleNavigation } from "../components/ReaderToolbar"
@@ -21,6 +24,7 @@ import { pathForEntry, type ReaderRouteMatch } from "../routes/readerRoute"
 
 interface ReaderShellProps {
   controller: ReaderController
+  preferencesController: PreferencesController
   route: ReaderRouteMatch
   isSourceReady: boolean
   username: string
@@ -41,9 +45,12 @@ export function ReaderShell(props: ReaderShellProps) {
   const [isNavOpen, setIsNavOpen] = useState(false)
   const [isAddOpen, setIsAddOpen] = useState(false)
   const [isCategoryOpen, setIsCategoryOpen] = useState(false)
+  const [isPreferencesOpen, setIsPreferencesOpen] = useState(false)
   const mobileNavRef = useRef<HTMLDialogElement>(null)
   const categoryButtonRef = useRef<HTMLButtonElement>(null)
+  const preferencesButtonRef = useRef<HTMLButtonElement>(null)
   const reopenSourcesAfterCategory = useRef(false)
+  const reopenSourcesAfterPreferences = useRef(false)
   const sources = useResizable({ defaultSize: 240, minSizePx: 200, maxSizePx: 340, autoSaveId: "reader-sources" })
   const queue = useResizable({ defaultSize: 380, minSizePx: 300, maxSizePx: 560, autoSaveId: "reader-queue" })
   const queueEntryIds = props.isSourceReady
@@ -54,7 +61,12 @@ export function ReaderShell(props: ReaderShellProps) {
     queueEntryIds,
     cursorEntryId: props.cursorEntryId,
     openEntryId: props.route.entryId,
-    isDisabled: isNavOpen || isAddOpen || isCategoryOpen || !props.isSourceReady,
+    isDisabled:
+      isNavOpen ||
+      isAddOpen ||
+      isCategoryOpen ||
+      isPreferencesOpen ||
+      !props.isSourceReady,
     isUnread: (entryId) => {
       const entry = props.controller.state.entriesById[entryId] ?? props.controller.state.detailsById[entryId]
       return entry ? !entry.isRead : false
@@ -80,6 +92,14 @@ export function ReaderShell(props: ReaderShellProps) {
         }
         setIsCategoryOpen(true)
       }}
+      onPreferences={() => {
+        reopenSourcesAfterPreferences.current = props.viewportMode !== "wide"
+        if (reopenSourcesAfterPreferences.current) {
+          mobileNavRef.current?.close()
+          setIsNavOpen(false)
+        }
+        setIsPreferencesOpen(true)
+      }}
       onRefresh={props.controller.refreshSubscription}
       onLogout={async () => {
         mobileNavRef.current?.close()
@@ -87,6 +107,10 @@ export function ReaderShell(props: ReaderShellProps) {
         await props.onLogout()
       }}
       manageButtonRef={categoryButtonRef}
+      preferencesButtonRef={preferencesButtonRef}
+      density={toAstryxDensity(
+        props.preferencesController.preferences.layoutDensity,
+      )}
     />
   )
   const queuePane = (
@@ -105,6 +129,9 @@ export function ReaderShell(props: ReaderShellProps) {
       onReload={props.controller.reloadEntries}
       onMergePending={props.controller.mergePendingEntries}
       onMergedEntryFocus={props.onCursorChange}
+      density={toAstryxDensity(
+        props.preferencesController.preferences.layoutDensity,
+      )}
     />
   )
   const articlePane = (
@@ -169,9 +196,30 @@ export function ReaderShell(props: ReaderShellProps) {
         }}
         onSelectSource={props.onSelectSource}
       />
+      <PreferencesDialog
+        isOpen={isPreferencesOpen}
+        preferences={props.preferencesController.preferences}
+        isSaving={props.preferencesController.isSaving}
+        error={props.preferencesController.error}
+        onClearError={props.preferencesController.clearError}
+        onSave={props.preferencesController.save}
+        onOpenChange={(open) => {
+          setIsPreferencesOpen(open)
+          if (open) return
+          if (reopenSourcesAfterPreferences.current) {
+            reopenSourcesAfterPreferences.current = false
+            setIsNavOpen(true)
+            requestAnimationFrame(() =>
+              requestAnimationFrame(() => preferencesButtonRef.current?.focus()),
+            )
+            return
+          }
+          requestAnimationFrame(() => preferencesButtonRef.current?.focus())
+        }}
+      />
       <MutationFeedback
         error={props.controller.state.errors.mutation}
-        isDialogOpen={isAddOpen || isCategoryOpen}
+        isDialogOpen={isAddOpen || isCategoryOpen || isPreferencesOpen}
         onClear={props.controller.clearMutationError}
       />
     </AppShell>

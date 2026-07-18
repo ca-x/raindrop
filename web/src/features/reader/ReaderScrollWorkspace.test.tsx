@@ -34,6 +34,7 @@ describe("Reader scroll anchors", () => {
           onReload={vi.fn().mockResolvedValue(undefined)}
           onMergePending={vi.fn()}
           onMergedEntryFocus={vi.fn()}
+          density="balanced"
         />
       </Providers>,
     )

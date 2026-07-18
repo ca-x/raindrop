@@ -2,6 +2,7 @@ import { Navigate, useLocation, useNavigate } from "react-router-dom"
 import { useEffect, useRef, useState } from "react"
 
 import type { ViewportMode } from "../../../shared/responsive/useViewportMode"
+import type { PreferencesController } from "../../preferences/model/usePreferencesController"
 import { sourceKey } from "../model/types"
 import type { ReaderController } from "../model/useReaderController"
 import { ReaderShell } from "../layout/ReaderShell"
@@ -14,6 +15,7 @@ import {
 
 interface ReaderRoutesProps {
   controller: ReaderController
+  preferencesController: PreferencesController
   username: string
   onLogout: () => Promise<void>
   sessionError?: string | null

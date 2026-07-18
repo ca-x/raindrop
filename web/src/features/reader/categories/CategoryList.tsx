@@ -1,5 +1,9 @@
 import { StatusDot, type StatusDotVariant } from "@astryxdesign/core/StatusDot"
-import { TreeList, type TreeListItemData } from "@astryxdesign/core/TreeList"
+import {
+  TreeList,
+  type TreeListDensity,
+  type TreeListItemData,
+} from "@astryxdesign/core/TreeList"
 import { useLingui } from "@lingui/react"
 
 import type { Subscription } from "../api/subscription.generated"
@@ -9,9 +13,10 @@ import { groupSubscriptions, type SubscriptionGroup } from "./groupSubscriptions
 interface CategoryListProps {
   state: ReaderState
   onSelect: (source: ReaderSource) => void
+  density: TreeListDensity
 }
 
-export function CategoryList({ state, onSelect }: CategoryListProps) {
+export function CategoryList({ state, onSelect, density }: CategoryListProps) {
   const { i18n } = useLingui()
   const categories = state.categoryOrder.map((id) => state.categoriesById[id])
   const subscriptions = state.subscriptionOrder.map((id) => state.subscriptionsById[id])
@@ -54,7 +59,7 @@ export function CategoryList({ state, onSelect }: CategoryListProps) {
 
   return (
     <TreeList
-      density="compact"
+      density={density}
       header={<span className="reader-pane-label">{i18n._("reader.sources")}</span>}
       items={[...smartItems, ...categoryItems, uncategorized]}
     />

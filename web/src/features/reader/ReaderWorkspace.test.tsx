@@ -1,15 +1,17 @@
 import { act, render, renderHook, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
+import type { ComponentProps } from "react"
 
 import { Providers } from "../../app/Providers"
 import { activateLocale } from "../../shared/i18n/i18n"
 import { useViewportMode } from "../../shared/responsive/useViewportMode"
 import { setTestViewport } from "../../test/setup"
+import { fakePreferencesController } from "../preferences/model/testFixtures"
 import type { ReaderController } from "./model/useReaderController"
 import { initialReaderState } from "./model/reducer"
 import type { ReaderState } from "./model/types"
-import { ReaderRoutes } from "./routes/ReaderRoutes"
+import { ReaderRoutes as ProductionReaderRoutes } from "./routes/ReaderRoutes"
 import "./reader.css"
 
 describe("Reader workspace", () => {
@@ -237,6 +239,89 @@ describe("Reader workspace", () => {
     await waitFor(() => expect(trigger).toHaveFocus())
   })
 
+  it("opens settings from the ASTRYX MoreMenu and restores trigger focus", async () => {
+    activateLocale("en")
+    const user = userEvent.setup()
+    window.history.replaceState(null, "", "/reader/unread")
+    render(
+      <Providers>
+        <ReaderRoutes
+          controller={fakeController()}
+          username="reader"
+          onLogout={vi.fn()}
+          viewportMode="wide"
+        />
+      </Providers>,
+    )
+
+    const menuTrigger = await screen.findByRole("button", { name: "Open menu" })
+    await user.click(menuTrigger)
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Settings", hidden: true }),
+    )
+    const dialog = await screen.findByRole("dialog", { name: "Settings" })
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }))
+
+    await waitFor(() => expect(menuTrigger).toHaveFocus())
+  })
+
+  it("maps the saved density to ASTRYX source and entry lists", () => {
+    activateLocale("en")
+    window.history.replaceState(null, "", "/reader/unread")
+    const controller = fakeController({
+      entriesById: {
+        entry: {
+          entryId: "entry",
+          feedId: "feed",
+          feedTitle: "Quiet Web",
+          siteUrl: null,
+          title: "A spacious queue",
+          author: null,
+          summary: null,
+          canonicalUrl: null,
+          publishedAtUs: null,
+          sortAtUs: 1_700_000_000_000_000,
+          isRead: false,
+          isStarred: false,
+        },
+      },
+      queueBySourceKey: { "smart:UNREAD": ["entry"] },
+      paneStatus: { ...initialReaderState.paneStatus, queue: "ready" },
+    })
+
+    render(
+      <Providers>
+        <ProductionReaderRoutes
+          controller={controller}
+          preferencesController={fakePreferencesController({
+            preferences: {
+              locale: "en",
+              themeMode: "SYSTEM",
+              layoutDensity: "SPACIOUS",
+              readingFontScale: 100,
+            },
+          })}
+          username="reader"
+          onLogout={vi.fn()}
+          viewportMode="wide"
+        />
+      </Providers>,
+    )
+
+    expect(screen.getByRole("tree").parentElement).toHaveAttribute(
+      "data-density",
+      "spacious",
+    )
+    expect(screen.getByTestId("entry-list")).toHaveAttribute(
+      "data-density",
+      "spacious",
+    )
+    expect(document.querySelector("[data-reader-entry-id='entry']")).toHaveAttribute(
+      "data-density",
+      "spacious",
+    )
+  })
+
   it("reopens mobile sources and restores focus after category management", async () => {
     activateLocale("en")
     const user = userEvent.setup()
@@ -263,6 +348,37 @@ describe("Reader workspace", () => {
     const reopenedSources = await screen.findByRole("dialog", { name: "Sources" })
     const restoredTrigger = within(reopenedSources).getByRole("button", {
       name: "Manage categories",
+    })
+    await waitFor(() => expect(restoredTrigger).toHaveFocus())
+  })
+
+  it("reopens mobile sources and restores MoreMenu focus after settings", async () => {
+    activateLocale("en")
+    const user = userEvent.setup()
+    window.history.replaceState(null, "", "/reader/unread")
+    render(
+      <Providers>
+        <ReaderRoutes
+          controller={fakeController()}
+          username="reader"
+          onLogout={vi.fn()}
+          viewportMode="compact"
+        />
+      </Providers>,
+    )
+
+    await user.click(await screen.findByRole("button", { name: "Open sources" }))
+    const sources = await screen.findByRole("dialog", { name: "Sources" })
+    await user.click(within(sources).getByRole("button", { name: "Open menu" }))
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Settings", hidden: true }),
+    )
+    const preferences = await screen.findByRole("dialog", { name: "Settings" })
+    await user.click(within(preferences).getByRole("button", { name: "Cancel" }))
+
+    const reopenedSources = await screen.findByRole("dialog", { name: "Sources" })
+    const restoredTrigger = within(reopenedSources).getByRole("button", {
+      name: "Open menu",
     })
     await waitFor(() => expect(restoredTrigger).toHaveFocus())
   })
@@ -336,4 +452,15 @@ function fakeController(state: Partial<ReaderState> = {}): ReaderController {
     recordScrollAnchor: vi.fn(),
     clearMutationError: vi.fn(),
   }
+}
+
+function ReaderRoutes(
+  props: Omit<ComponentProps<typeof ProductionReaderRoutes>, "preferencesController">,
+) {
+  return (
+    <ProductionReaderRoutes
+      {...props}
+      preferencesController={fakePreferencesController()}
+    />
+  )
 }

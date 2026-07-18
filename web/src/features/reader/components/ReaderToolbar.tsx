@@ -1,6 +1,7 @@
 import { Button } from "@astryxdesign/core/Button"
 import { Icon } from "@astryxdesign/core/Icon"
 import { Kbd } from "@astryxdesign/core/Kbd"
+import { MoreMenu } from "@astryxdesign/core/MoreMenu"
 import { Stack } from "@astryxdesign/core/Stack"
 import { Text } from "@astryxdesign/core/Text"
 import { ToggleButton } from "@astryxdesign/core/ToggleButton"
@@ -13,16 +14,20 @@ import { BrandMark } from "../../../shared/brand/BrandMark"
 interface SourceToolbarProps {
   onAdd: () => void
   onManage: () => void
+  onPreferences: () => void
   onLogout: () => Promise<void>
   manageButtonRef?: Ref<HTMLButtonElement>
+  preferencesButtonRef?: Ref<HTMLButtonElement>
   refresh?: { label: string; onRefresh: () => Promise<void> }
 }
 
 export function SourceToolbar({
   onAdd,
   onManage,
+  onPreferences,
   onLogout,
   manageButtonRef,
+  preferencesButtonRef,
   refresh,
 }: SourceToolbarProps) {
   const { i18n } = useLingui()
@@ -61,13 +66,15 @@ export function SourceToolbar({
             onClick={onAdd}
             variant="ghost"
           />
-          <Button
-            label={i18n._("common.logout")}
-            icon={<Icon icon="externalLink" />}
-            isIconOnly
-            tooltip={i18n._("common.logout")}
-            clickAction={onLogout}
-            variant="ghost"
+          <MoreMenu
+            ref={preferencesButtonRef}
+            label={i18n._("common.menu")}
+            size="lg"
+            items={[
+              { label: i18n._("preferences.open"), onClick: onPreferences },
+              { type: "divider" },
+              { label: i18n._("common.logout"), onClick: () => void onLogout() },
+            ]}
           />
         </>
       }

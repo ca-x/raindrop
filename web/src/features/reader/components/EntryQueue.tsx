@@ -2,7 +2,7 @@ import { Banner } from "@astryxdesign/core/Banner"
 import { Button } from "@astryxdesign/core/Button"
 import { EmptyState } from "@astryxdesign/core/EmptyState"
 import { Item } from "@astryxdesign/core/Item"
-import { List } from "@astryxdesign/core/List"
+import { List, type ListDensity } from "@astryxdesign/core/List"
 import { Skeleton } from "@astryxdesign/core/Skeleton"
 import { StatusDot } from "@astryxdesign/core/StatusDot"
 import { useLingui } from "@lingui/react"
@@ -27,6 +27,7 @@ interface EntryQueueProps {
   onReload: () => Promise<void>
   onMergePending: () => void
   onMergedEntryFocus: (entryId: string) => void
+  density: ListDensity
 }
 
 export function EntryQueue({
@@ -44,6 +45,7 @@ export function EntryQueue({
   onReload,
   onMergePending,
   onMergedEntryFocus,
+  density,
 }: EntryQueueProps) {
   const { i18n } = useLingui()
   const rootRef = useRef<HTMLDivElement>(null)
@@ -117,7 +119,7 @@ export function EntryQueue({
             if (isRouteReady) onRecordScroll(sourceRoute, event.currentTarget.scrollTop)
           }}
         >
-          <List density="compact" hasDividers data-testid="entry-list">
+          <List density={density} hasDividers data-testid="entry-list">
             {queue.map((entryId) => {
               const entry = state.entriesById[entryId]
               if (!entry) return null
@@ -131,7 +133,7 @@ export function EntryQueue({
                   key={entryId}
                   className="reader-entry-item"
                   data-reader-entry-id={entryId}
-                  density="balanced"
+                  density={density}
                   isDisabled={!isRouteReady}
                   isSelected={cursorEntryId === entryId}
                   onClick={() => {

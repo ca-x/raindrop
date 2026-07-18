@@ -27,6 +27,7 @@
 .reader-compact-navigation :where(button, a),
 .reader-subscription-dialog :where(button, a),
 .reader-category-dialog :where(button, a, input, [role="combobox"]),
+.reader-preferences-dialog :where(button, a, input, [role="radio"]),
 .reader-mobile-nav :where(button, a, [role="treeitem"]),
 .reader-touch-target {
   min-inline-size: 44px;
@@ -99,14 +100,14 @@
 }
 
 .reader-entry-item {
-  min-block-size: 76px;
+  min-block-size: var(--reader-entry-min-block-size, 76px);
   position: relative;
 }
 
 .reader-entry-item > button,
 .reader-entry-item > a {
   inline-size: 100%;
-  min-block-size: 76px;
+  min-block-size: var(--reader-entry-min-block-size, 76px);
 }
 
 .reader-entry-title > span:nth-child(2) {
@@ -153,6 +154,7 @@
 .reader-article {
   inline-size: min(72ch, 100%);
   margin-inline: auto;
+  font-size: var(--raindrop-reading-scale, 100%);
   padding: clamp(28px, 5vw, 64px) max(20px, env(safe-area-inset-right))
     max(48px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
   overflow-wrap: anywhere;
@@ -169,7 +171,7 @@
   margin: 0 0 12px;
   color: var(--color-text-accent);
   font-family: var(--font-family-body);
-  font-size: 0.8rem;
+  font-size: 0.8em;
   font-weight: 650;
 }
 
@@ -177,7 +179,7 @@
   margin: 0 0 24px;
   color: var(--color-text-primary);
   font-family: Charter, "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", Georgia, serif;
-  font-size: clamp(2rem, 4vw, 3.25rem);
+  font-size: clamp(2em, calc(2.4em + 0.8vw), 3.25em);
   font-weight: 650;
   line-height: 1.08;
   letter-spacing: -0.022em;
@@ -192,7 +194,7 @@
 .reader-article-body {
   color: var(--color-text-primary);
   font-family: Charter, "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", Georgia, serif;
-  font-size: clamp(1.05rem, 1.4vw, 1.16rem);
+  font-size: 1.1em;
   line-height: 1.65;
   text-wrap: pretty;
 }
@@ -245,6 +247,39 @@ html[lang^="zh"] .reader-article-body {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.reader-preferences-dialog {
+  overscroll-behavior: contain;
+}
+
+.reader-preference-field {
+  min-inline-size: 0;
+}
+
+.reader-preference-label {
+  color: var(--color-text-primary);
+  font-weight: 650;
+}
+
+.reader-preference-description {
+  margin-block-start: 4px;
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+
+html[data-raindrop-density="compact"] {
+  --reader-entry-min-block-size: 64px;
+}
+
+html[data-raindrop-density="balanced"] {
+  --reader-entry-min-block-size: 76px;
+}
+
+html[data-raindrop-density="spacious"] {
+  --reader-entry-min-block-size: 88px;
 }
 
 .reader-category-dialog-content {
@@ -301,7 +336,7 @@ html[lang^="zh"] .reader-article-body {
   }
 
   .reader-article h1 {
-    font-size: clamp(1.8rem, 9vw, 2.4rem);
+    font-size: clamp(1.8em, calc(1.55em + 2vw), 2.4em);
   }
 }
 

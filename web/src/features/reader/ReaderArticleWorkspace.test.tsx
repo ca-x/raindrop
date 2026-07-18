@@ -1,12 +1,14 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
+import type { ComponentProps } from "react"
 
 import { Providers } from "../../app/Providers"
 import { activateLocale } from "../../shared/i18n/i18n"
+import { fakePreferencesController } from "../preferences/model/testFixtures"
 import { initialReaderState } from "./model/reducer"
 import type { ReaderController } from "./model/useReaderController"
-import { ReaderRoutes } from "./routes/ReaderRoutes"
+import { ReaderRoutes as ProductionReaderRoutes } from "./routes/ReaderRoutes"
 import "./reader.css"
 
 describe("Reader article workspace", () => {
@@ -149,6 +151,17 @@ describe("Reader article workspace", () => {
     await waitFor(() => expect(window.location.pathname).toBe("/reader/all"))
   })
 })
+
+function ReaderRoutes(
+  props: Omit<ComponentProps<typeof ProductionReaderRoutes>, "preferencesController">,
+) {
+  return (
+    <ProductionReaderRoutes
+      {...props}
+      preferencesController={fakePreferencesController()}
+    />
+  )
+}
 
 function readerWorkspace(controller: ReaderController, viewportMode: "compact" | "medium") {
   return (
