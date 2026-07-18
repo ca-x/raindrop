@@ -88,52 +88,57 @@ test("Reader stable snapshot bulk read", async ({ page }, testInfo) => {
 
 test("Reader refresh observability", async ({ page }, testInfo) => {
   testInfo.setTimeout(60_000)
-  const fixture = await installReaderApiFixture(page)
-  switch (testInfo.project.name) {
-    case "reader-900x800":
-      fixture.organization.setRefreshState(readerIds.subscriptionA, "DEGRADED")
-      break
-    case "reader-390x844":
-      fixture.organization.setRefreshState(readerIds.subscriptionA, "BACKING_OFF")
-      break
-    case "reader-360x800":
-      fixture.organization.setRefreshState(readerIds.subscriptionA, "ERROR")
-      break
-  }
-  await completeSetup(page, server, createCredentials())
-  const sources = await selectQuietWebAndShowSources(page)
-  const refreshButton = sources.getByRole("button", { name: "Refresh Quiet Web" })
-  await expectTouchTarget(refreshButton)
+  const refreshServer = await startProductionServer()
+  try {
+    const fixture = await installReaderApiFixture(page)
+    switch (testInfo.project.name) {
+      case "reader-900x800":
+        fixture.organization.setRefreshState(readerIds.subscriptionA, "DEGRADED")
+        break
+      case "reader-390x844":
+        fixture.organization.setRefreshState(readerIds.subscriptionA, "BACKING_OFF")
+        break
+      case "reader-360x800":
+        fixture.organization.setRefreshState(readerIds.subscriptionA, "ERROR")
+        break
+    }
+    await completeSetup(page, refreshServer, createCredentials())
+    const sources = await selectQuietWebAndShowSources(page, refreshServer.baseURL)
+    const refreshButton = sources.getByRole("button", { name: "Refresh Quiet Web" })
+    await expectTouchTarget(refreshButton)
 
-  switch (testInfo.project.name) {
-    case "reader-1280x800":
-      await refreshButton.click()
-      await expect(sources.getByText("Waiting for a refresh worker.")).toBeVisible()
-      await expect(refreshButton).toHaveAttribute("aria-disabled", "true")
-      await expect(sources.getByText("Fetching and processing feed updates.")).toBeVisible({
-        timeout: 3_000,
-      })
-      await expect(sources.getByText(/Last successful refresh:/)).toBeVisible({
-        timeout: 3_000,
-      })
-      break
-    case "reader-900x800":
-      await expect(sources.getByRole("alert")).toContainText(
-        "2 duplicate entries were ignored.",
-      )
-      break
-    case "reader-390x844":
-      await expect(sources.getByRole("alert")).toContainText("Refresh cooling down")
-      await expect(sources.getByRole("alert")).toContainText("Next attempt after")
-      break
-    case "reader-360x800":
-      await expect(sources.getByRole("alert")).toContainText("Refresh failed")
-      await expect(sources.getByRole("alert")).toContainText("Last successful refresh:")
-      break
-    default:
-      throw new Error(`unexpected Reader project ${testInfo.project.name}`)
+    switch (testInfo.project.name) {
+      case "reader-1280x800":
+        await refreshButton.click()
+        await expect(sources.getByText("Waiting for a refresh worker.")).toBeVisible()
+        await expect(refreshButton).toHaveAttribute("aria-disabled", "true")
+        await expect(sources.getByText("Fetching and processing feed updates.")).toBeVisible({
+          timeout: 3_000,
+        })
+        await expect(sources.getByText(/Last successful refresh:/)).toBeVisible({
+          timeout: 3_000,
+        })
+        break
+      case "reader-900x800":
+        await expect(sources.getByRole("alert")).toContainText(
+          "2 duplicate entries were ignored.",
+        )
+        break
+      case "reader-390x844":
+        await expect(sources.getByRole("alert")).toContainText("Refresh cooling down")
+        await expect(sources.getByRole("alert")).toContainText("Next attempt after")
+        break
+      case "reader-360x800":
+        await expect(sources.getByRole("alert")).toContainText("Refresh failed")
+        await expect(sources.getByRole("alert")).toContainText("Last successful refresh:")
+        break
+      default:
+        throw new Error(`unexpected Reader project ${testInfo.project.name}`)
+    }
+    await expectNoHorizontalOverflow(page)
+  } finally {
+    await refreshServer.stop()
   }
-  await expectNoHorizontalOverflow(page)
 })
 
 async function verifyWide(page: Page, fixture: ReaderApiFixture): Promise<void> {
@@ -213,11 +218,11 @@ async function verifyWide(page: Page, fixture: ReaderApiFixture): Promise<void> 
   await expectNoHorizontalOverflow(page)
 }
 
-async function selectQuietWebAndShowSources(page: Page) {
+async function selectQuietWebAndShowSources(page: Page, baseURL: string) {
   const navigation = page.getByRole("navigation", { name: "Sources" })
   if (await navigation.count()) {
     await navigation.getByRole("button", { name: "Quiet Web" }).click()
-    await expect(page).toHaveURL(`${server.baseURL}/reader/feed/${readerIds.feedA}`)
+    await expect(page).toHaveURL(`${baseURL}/reader/feed/${readerIds.feedA}`)
     return navigation
   }
 
@@ -225,7 +230,7 @@ async function selectQuietWebAndShowSources(page: Page) {
   await openSources.click()
   let sources = page.getByRole("dialog", { name: "Sources" })
   await sources.getByRole("button", { name: "Quiet Web" }).click()
-  await expect(page).toHaveURL(`${server.baseURL}/reader/feed/${readerIds.feedA}`)
+  await expect(page).toHaveURL(`${baseURL}/reader/feed/${readerIds.feedA}`)
   await openSources.click()
   sources = page.getByRole("dialog", { name: "Sources" })
   await expect(sources).toBeVisible()

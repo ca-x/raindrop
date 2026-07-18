@@ -169,8 +169,8 @@ git diff --check
 **Interfaces:**
 - Produces final local, real-feed, CI, commit, and push evidence.
 
-- [ ] Run the production application and refresh `https://www.ithome.com/rss/` through local `agent-browser`. Verify fetched entries remain readable, a successful terminal status renders, last success is present, stored reload remains separate, console errors are empty, and mobile overflow is zero.
-- [ ] Run the full fresh gates:
+- [x] Run the production application and refresh `https://www.ithome.com/rss/` through local `agent-browser`. Verify fetched entries remain readable, a successful terminal status renders, last success is present, stored reload remains separate, console errors are empty, and mobile overflow is zero.
+- [x] Run the full fresh gates:
 
 ```bash
 cargo fmt --check
@@ -186,8 +186,8 @@ cd ..
 git diff --check
 ```
 
-- [ ] Update `tasks/todo.md` only for queued/running and entry-level partial feedback. Keep AI, plugin, MCP, OIDC, OPML, sorting/cursor, admin, and release smoke open.
-- [ ] Update `tasks/plan.md` to point at this detailed plan and record exact evidence in the report.
+- [x] Update `tasks/todo.md` only for queued/running and entry-level partial feedback. Keep AI, plugin, MCP, OIDC, OPML, sorting/cursor, admin, and release smoke open.
+- [x] Update `tasks/plan.md` to point at this detailed plan and record exact evidence in the report.
 - [ ] Commit and push: `test: verify refresh observability`.
 - [ ] Monitor the triggered CI only for concrete failures. Apply bounded fixes, then append final run evidence and push a `[skip ci]` report closeout.
 

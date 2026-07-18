@@ -23,7 +23,7 @@
 - [x] CommaFeed 效率首片：All/Unread/Starred、J/K 与 N/P、M/S、路由/焦点/滚动恢复和非打扰式新文章合并。
 - [x] CommaFeed 后续：批量已读快照、下一未读来源和来源内搜索。
 - [x] 列表重载与 Feed 网络抓取分离，pending/ready/delayed/error 状态可见。
-- [ ] 将 queued/running 拆分显示，并补充 partial failure 的条目级反馈。
+- [x] 将 queued/running 拆分显示，并补充 partial duplicate failure 的有界条目级反馈、冷却重试时间和上次成功刷新时间。
 
 ## 3. Multi-user organization
 

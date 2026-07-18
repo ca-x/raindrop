@@ -4,7 +4,7 @@
 
 当前详细计划：`docs/superpowers/plans/2026-07-18-refresh-observability-v1.md`。
 
-当前进展：Feed Retention v1 已完成并由 CI run `29638020707` 验证。Reader Efficiency v2 已完成：稳定快照批量已读、下一/上一未读 Feed、Feed 内标题/作者/摘要/正文搜索，以及对应 ASTRYX、移动端、键盘、四视口 Playwright 和真实 IT之家 RSS 浏览器验证均已落地。下一批 RSS core 工作是拆分 queued/running 展示并补充 partial failure 的条目级反馈；真实 `v*` tag 的 GitHub Release 与 registry 发布 smoke 仍保留在后续任务。
+当前进展：Refresh Observability v1 已完成本地交付门禁。公开 `Refresh.state` 保持兼容，同时新增 queued/running refinement、上次成功时间和有界 duplicate entry issue；ASTRYX Reader 在桌面、抽屉和移动端统一展示 pending、partial、cooldown、error 与 ready 状态，pending 时禁止重复刷新。真实 IT之家 RSS 浏览器验证、四视口专项和完整 Playwright 已通过，远端 CI 证据记录在 `.superpowers/sdd/refresh-observability-v1-report.md`。AI、插件、MCP、OIDC、OPML、排序/阅读游标和真实 `v*` 发布 smoke 仍保留在后续任务。
 
 ## 依赖顺序
 
