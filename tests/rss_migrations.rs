@@ -79,13 +79,13 @@ async fn rss_schema_contract(database_url: SecretString) {
     let database = connect_for_contract(database_url).await;
     rollback(&database)
         .await
-        .unwrap_or_else(|_| panic!("dedicated RSS contract database should reset"));
+        .unwrap_or_else(|error| panic!("dedicated RSS contract database should reset: {error:?}"));
     migrate(&database)
         .await
-        .unwrap_or_else(|_| panic!("RSS migrations should apply"));
+        .unwrap_or_else(|error| panic!("RSS migrations should apply: {error:?}"));
     migrate(&database)
         .await
-        .unwrap_or_else(|_| panic!("RSS migrations should be idempotent"));
+        .unwrap_or_else(|error| panic!("RSS migrations should be idempotent: {error:?}"));
 
     assert_generation(&database, 0).await;
     assert_expected_indexes(&database).await;
