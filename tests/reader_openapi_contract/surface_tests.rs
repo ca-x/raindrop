@@ -31,6 +31,7 @@ fn reader_openapi_declares_exact_operations_and_security() {
     assert_eq!(
         parameter_names(&document, "/api/v1/entries", "get"),
         BTreeSet::from([
+            "categoryId".to_owned(),
             "cursor".to_owned(),
             "feedId".to_owned(),
             "limit".to_owned(),

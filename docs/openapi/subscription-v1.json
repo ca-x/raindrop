@@ -137,6 +137,56 @@
           }
         }
       },
+      "patch": {
+        "tags": [
+          "Subscriptions"
+        ],
+        "operationId": "updateSubscription",
+        "summary": "Update supplied category, title, or ordering fields",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSubscriptionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Subscription"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
       "delete": {
         "tags": [
           "Subscriptions"
@@ -464,6 +514,34 @@
           }
         }
       },
+      "UpdateSubscriptionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "properties": {
+          "categoryId": {
+            "description": "Omit to preserve the current category; null moves the subscription to Uncategorized.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "titleOverride": {
+            "description": "Omit to preserve the override; null or a trim-empty string clears it. Runtime validation also enforces at most 200 UTF-8 bytes and rejects control characters.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          },
+          "position": {
+            "description": "Omit to preserve the current position. Explicit null is invalid.",
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
       "RefreshSubscriptionRequest": {
         "type": "object",
         "additionalProperties": false,
@@ -521,6 +599,9 @@
         "required": [
           "subscriptionId",
           "feedId",
+          "categoryId",
+          "titleOverride",
+          "position",
           "title",
           "siteUrl",
           "unreadCount",
@@ -534,6 +615,24 @@
           "feedId": {
             "type": "string",
             "format": "uuid"
+          },
+          "categoryId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "titleOverride": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          },
+          "position": {
+            "type": "integer",
+            "minimum": 0
           },
           "title": {
             "type": "string"

@@ -202,31 +202,31 @@ git push origin feature/foundation-bootstrap
 - Extends `Subscription` with required nullable `categoryId`, required nullable `titleOverride`, and required `position`.
 - Extends `ListEntriesQuery` with `category_id: Option<String>`.
 
-- [ ] **Step 1: Write subscription/category query RED tests**
+- [x] **Step 1: Write subscription/category query RED tests**
 
 Cover assign, clear, title override, position, empty patch, other-user category 404, other-user subscription 404, delete category set-null projection, category list results, feed/category mutual exclusion, category cursor replay rejection, and cross-user category returning an empty page.
 
-- [ ] **Step 2: Run and confirm RED**
+- [x] **Step 2: Run and confirm RED**
 
 Run: `cargo test --locked --all-features --test subscription_api --test reader_api`
 
-- [ ] **Step 3: Implement patch presence semantics**
+- [x] **Step 3: Implement patch presence semantics**
 
 Use a deserializable `PatchValue<T>` enum so absent and explicit null remain distinct. Scope the subscription update by user ID and validate a non-null category in the same transaction.
 
-- [ ] **Step 4: Extend query SQL and cursor binding**
+- [x] **Step 4: Extend query SQL and cursor binding**
 
 Add category to the filter hash frame and SQL predicate. Reject simultaneous feed/category before any database query.
 
-- [ ] **Step 5: Update both OpenAPI artifacts and frozen manifests**
+- [x] **Step 5: Update both OpenAPI artifacts and frozen manifests**
 
 Add the PATCH operation and additive Subscription fields to `subscription-v1.json`; add `CategoryId` to `reader-v1.json`. Update the real-router drift fixtures, not only static schema assertions.
 
-- [ ] **Step 6: Verify backend contracts**
+- [x] **Step 6: Verify backend contracts**
 
 Run: `cargo test --locked --all-features --test subscription_api --test reader_api --test openapi_contract --test reader_openapi_contract --test feed_query_contracts --test feed_subscription_contracts`
 
-- [ ] **Step 7: Commit and push**
+- [x] **Step 7: Commit and push**
 
 ```bash
 git add src/feeds/dto.rs src/feeds/subscription.rs src/feeds/query.rs src/api/subscriptions.rs src/api/entries.rs docs/openapi/subscription-v1.json docs/openapi/reader-v1.json tests/subscription_api.rs tests/reader_api.rs tests/openapi_contract.rs tests/reader_openapi_contract tests/feed_query_contracts.rs tests/feed_subscription_contracts.rs

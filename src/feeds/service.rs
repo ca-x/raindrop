@@ -10,7 +10,8 @@ use super::{
     FetchOutcome, FetchRequest, FetchedDocument, JitterSource, ListSubscriptionsQuery, PersistFeed,
     QueueSubscriptionRefresh, RefreshClaim, RefreshDto, RefreshFailure, RefreshRepositoryError,
     RefreshResult, RefreshSchedule, RepositoryError, ScheduleError, SubscribeInput,
-    SubscribeOutcome, SubscriptionListItemDto, SubscriptionPage,
+    SubscribeOutcome, SubscriptionListItemDto, SubscriptionPage, SubscriptionPatchError,
+    UpdateSubscription,
 };
 
 #[derive(Clone)]
@@ -67,6 +68,24 @@ impl FeedCommandService {
             .get_subscription_for_user(user_id, subscription_id)
             .await
             .map_err(FeedServiceError::EntryRepository)
+    }
+
+    pub async fn update_subscription(
+        &self,
+        user_id: &str,
+        subscription_id: &str,
+        input: UpdateSubscription,
+    ) -> Result<SubscriptionListItemDto, FeedServiceError> {
+        validate_uuid(user_id).map_err(|()| FeedServiceError::InvalidUserId)?;
+        validate_uuid(subscription_id).map_err(|()| FeedServiceError::InvalidSubscriptionId)?;
+        let input = input
+            .normalize()
+            .map_err(FeedServiceError::SubscriptionPatch)?;
+        self.repository
+            .update_subscription_for_user(user_id, subscription_id, input)
+            .await
+            .map_err(FeedServiceError::RefreshRepository)?
+            .ok_or(FeedServiceError::Unauthorized)
     }
 
     pub async fn queue_subscription_refresh(
@@ -302,6 +321,8 @@ pub enum FeedServiceError {
     InvalidUserId,
     #[error("subscription identifier is invalid")]
     InvalidSubscriptionId,
+    #[error("subscription patch is invalid")]
+    SubscriptionPatch(#[source] SubscriptionPatchError),
     #[error("feed URL is invalid")]
     Url(#[source] FeedUrlError),
     #[error("subscription is not authorized")]
@@ -327,6 +348,7 @@ impl fmt::Debug for FeedServiceError {
         formatter.write_str(match self {
             Self::InvalidUserId => "FeedServiceError::InvalidUserId",
             Self::InvalidSubscriptionId => "FeedServiceError::InvalidSubscriptionId",
+            Self::SubscriptionPatch(_) => "FeedServiceError::SubscriptionPatch([REDACTED])",
             Self::Url(_) => "FeedServiceError::Url([REDACTED])",
             Self::Unauthorized => "FeedServiceError::Unauthorized",
             Self::RunMismatch => "FeedServiceError::RunMismatch",

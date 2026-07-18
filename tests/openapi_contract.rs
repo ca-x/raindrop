@@ -186,6 +186,7 @@ fn subscription_openapi_declares_only_the_real_public_surface() {
         ("GET".to_owned(), "/api/v1/subscriptions".to_owned()),
         ("POST".to_owned(), "/api/v1/subscriptions".to_owned()),
         ("GET".to_owned(), SUBSCRIPTION_PATH.to_owned()),
+        ("PATCH".to_owned(), SUBSCRIPTION_PATH.to_owned()),
         ("DELETE".to_owned(), SUBSCRIPTION_PATH.to_owned()),
         ("POST".to_owned(), REFRESH_PATH.to_owned()),
     ]);
@@ -208,6 +209,12 @@ fn subscription_openapi_declares_only_the_real_public_surface() {
         SUBSCRIPTION_PATH,
         "get",
         &[200, 401, 404, 422, 500],
+    );
+    assert_operation_statuses(
+        &document,
+        SUBSCRIPTION_PATH,
+        "patch",
+        &[200, 401, 403, 404, 422, 429, 500],
     );
     assert_operation_statuses(
         &document,
@@ -252,6 +259,9 @@ fn subscription_openapi_declares_only_the_real_public_surface() {
         &[
             "subscriptionId",
             "feedId",
+            "categoryId",
+            "titleOverride",
+            "position",
             "title",
             "siteUrl",
             "unreadCount",
@@ -259,6 +269,10 @@ fn subscription_openapi_declares_only_the_real_public_surface() {
         ],
     );
     assert_required_fields(&document, "CreateSubscriptionRequest", &["url"]);
+    assert_eq!(
+        document["components"]["schemas"]["UpdateSubscriptionRequest"]["minProperties"],
+        1
+    );
     assert_required_fields(&document, "RefreshSubscriptionRequest", &["requestId"]);
     assert_required_fields(
         &document,
@@ -361,6 +375,31 @@ fn subscription_openapi_schema_manifest_and_local_refs_are_frozen() {
         json!({ "url": overlong_url }),
     ] {
         assert_request_schema_rejects(&document, "/api/v1/subscriptions", "post", &invalid);
+    }
+
+    for valid in [
+        json!({ "categoryId": null }),
+        json!({ "titleOverride": null }),
+        json!({ "position": 0 }),
+        json!({
+            "categoryId": "00000000-0000-4000-8000-000000000501",
+            "titleOverride": "Technology",
+            "position": 1024
+        }),
+    ] {
+        assert_request_schema_accepts(&document, SUBSCRIPTION_PATH, "patch", &valid);
+    }
+    for invalid in [
+        json!({}),
+        json!({ "position": null }),
+        json!({ "position": -1 }),
+        json!({ "position": "0" }),
+        json!({ "categoryId": "not-a-uuid" }),
+        json!({ "titleOverride": 7 }),
+        json!({ "titleOverride": "a".repeat(201) }),
+        json!({ "position": 0, "providerDetails": true }),
+    ] {
+        assert_request_schema_rejects(&document, SUBSCRIPTION_PATH, "patch", &invalid);
     }
 
     assert_request_schema_accepts(
@@ -495,6 +534,31 @@ async fn subscription_openapi_matches_real_router_responses() {
         "detail_success",
         detail.status,
     );
+
+    let patched = fixture
+        .request(
+            Method::PATCH,
+            &detail_uri,
+            Some(json!({
+                "titleOverride": "OpenAPI title",
+                "position": 512
+            })),
+            true,
+            true,
+        )
+        .await;
+    assert_and_record(
+        &document,
+        &mut covered_statuses,
+        SUBSCRIPTION_PATH,
+        "patch",
+        &detail_uri,
+        "patch_success",
+        StatusCode::OK,
+        &patched,
+    );
+    assert_eq!(patched.json()["titleOverride"], "OpenAPI title");
+    assert_eq!(patched.json()["position"], 512);
 
     mark_run_terminal(&fixture.database, &subscribe_operation_id).await;
     let refresh_uri = format!("/api/v1/subscriptions/{subscription_id}/refresh");
@@ -1002,6 +1066,109 @@ async fn subscription_openapi_matches_real_router_responses() {
         &detail_invalid,
     );
 
+    let patch_path = "/api/v1/subscriptions/00000000-0000-4000-8000-000000000299";
+    let patch_body = json!({ "position": 1024 });
+    let patch_unauthorized = fixture
+        .request(
+            Method::PATCH,
+            patch_path,
+            Some(patch_body.clone()),
+            false,
+            false,
+        )
+        .await;
+    assert_and_record(
+        &document,
+        &mut covered_statuses,
+        SUBSCRIPTION_PATH,
+        "patch",
+        patch_path,
+        "patch_unauthenticated",
+        StatusCode::UNAUTHORIZED,
+        &patch_unauthorized,
+    );
+    let patch_forbidden = fixture
+        .request(
+            Method::PATCH,
+            patch_path,
+            Some(patch_body.clone()),
+            true,
+            false,
+        )
+        .await;
+    assert_and_record(
+        &document,
+        &mut covered_statuses,
+        SUBSCRIPTION_PATH,
+        "patch",
+        patch_path,
+        "patch_forbidden",
+        StatusCode::FORBIDDEN,
+        &patch_forbidden,
+    );
+    let patch_missing = fixture
+        .request(
+            Method::PATCH,
+            patch_path,
+            Some(patch_body.clone()),
+            true,
+            true,
+        )
+        .await;
+    assert_and_record(
+        &document,
+        &mut covered_statuses,
+        SUBSCRIPTION_PATH,
+        "patch",
+        patch_path,
+        "patch_missing",
+        StatusCode::NOT_FOUND,
+        &patch_missing,
+    );
+    let invalid_patch_body = json!({});
+    assert_request_schema_rejects(&document, SUBSCRIPTION_PATH, "patch", &invalid_patch_body);
+    let patch_invalid = fixture
+        .request(
+            Method::PATCH,
+            patch_path,
+            Some(invalid_patch_body),
+            true,
+            true,
+        )
+        .await;
+    assert_and_record(
+        &document,
+        &mut covered_statuses,
+        SUBSCRIPTION_PATH,
+        "patch",
+        patch_path,
+        "patch_empty_body",
+        StatusCode::UNPROCESSABLE_ENTITY,
+        &patch_invalid,
+    );
+
+    let patch_internal_fixture = ContractFixture::new().await;
+    drop_table(&patch_internal_fixture.database, "subscriptions").await;
+    let patch_internal = patch_internal_fixture
+        .request(
+            Method::PATCH,
+            patch_path,
+            Some(patch_body.clone()),
+            true,
+            true,
+        )
+        .await;
+    assert_and_record(
+        &document,
+        &mut covered_statuses,
+        SUBSCRIPTION_PATH,
+        "patch",
+        patch_path,
+        "patch_internal_error",
+        StatusCode::INTERNAL_SERVER_ERROR,
+        &patch_internal,
+    );
+
     let delete_unauthorized = fixture
         .request(
             Method::DELETE,
@@ -1086,6 +1253,27 @@ async fn subscription_openapi_matches_real_router_responses() {
         &delete_limited,
     );
     assert_rate_limited_with_retry(&delete_limited, None);
+
+    let patch_limited = delete_limiter_fixture
+        .request(
+            Method::PATCH,
+            "/api/v1/subscriptions/00000000-0000-4000-8000-000000000299",
+            Some(json!({ "position": 1024 })),
+            true,
+            true,
+        )
+        .await;
+    assert_and_record(
+        &document,
+        &mut covered_statuses,
+        SUBSCRIPTION_PATH,
+        "patch",
+        "/api/v1/subscriptions/00000000-0000-4000-8000-000000000299",
+        "patch_memory_limiter",
+        StatusCode::TOO_MANY_REQUESTS,
+        &patch_limited,
+    );
+    assert_rate_limited_with_retry(&patch_limited, None);
 
     let delete_internal_fixture = ContractFixture::new().await;
     drop_table(&delete_internal_fixture.database, "subscriptions").await;
@@ -1281,6 +1469,7 @@ async fn subscription_openapi_matches_real_router_responses() {
             "active_refresh_limit".to_owned(),
             "delete_memory_limiter".to_owned(),
             "memory_limiter".to_owned(),
+            "patch_memory_limiter".to_owned(),
             "repository_cooldown".to_owned(),
             "subscription_limit".to_owned(),
         ])
@@ -1299,7 +1488,7 @@ async fn subscription_openapi_matches_real_router_responses() {
             StatusCode::NOT_FOUND,
         ),
         (
-            Method::PATCH,
+            Method::PUT,
             "/api/v1/subscriptions/00000000-0000-4000-8000-000000000299",
             StatusCode::METHOD_NOT_ALLOWED,
         ),
@@ -1340,6 +1529,25 @@ fn frozen_schema_manifest() -> Value {
                 }
             }
         },
+        "UpdateSubscriptionRequest": {
+            "type": "object",
+            "additionalProperties": false,
+            "minProperties": 1,
+            "properties": {
+                "categoryId": {
+                    "type": ["string", "null"],
+                    "format": "uuid"
+                },
+                "titleOverride": {
+                    "type": ["string", "null"],
+                    "maxLength": 200
+                },
+                "position": {
+                    "type": "integer",
+                    "minimum": 0
+                }
+            }
+        },
         "RefreshSubscriptionRequest": {
             "type": "object",
             "additionalProperties": false,
@@ -1375,6 +1583,9 @@ fn frozen_schema_manifest() -> Value {
             "required": [
                 "subscriptionId",
                 "feedId",
+                "categoryId",
+                "titleOverride",
+                "position",
                 "title",
                 "siteUrl",
                 "unreadCount",
@@ -1383,6 +1594,9 @@ fn frozen_schema_manifest() -> Value {
             "properties": {
                 "subscriptionId": { "type": "string", "format": "uuid" },
                 "feedId": { "type": "string", "format": "uuid" },
+                "categoryId": { "type": ["string", "null"], "format": "uuid" },
+                "titleOverride": { "type": ["string", "null"], "maxLength": 200 },
+                "position": { "type": "integer", "minimum": 0 },
                 "title": { "type": "string" },
                 "siteUrl": { "type": ["string", "null"], "format": "uri" },
                 "unreadCount": { "type": "integer", "minimum": 0 },
@@ -1522,6 +1736,22 @@ fn frozen_operation_contracts() -> Value {
                 "401": "#/components/responses/Error",
                 "404": "#/components/responses/Error",
                 "422": "#/components/responses/Error",
+                "500": "#/components/responses/Error"
+            }
+        },
+        "patch /api/v1/subscriptions/{subscriptionId}": {
+            "parameters": [
+                "#/components/parameters/SubscriptionId",
+                "#/components/parameters/CsrfToken"
+            ],
+            "requestSchema": "#/components/schemas/UpdateSubscriptionRequest",
+            "responses": {
+                "200": "#/components/responses/Subscription",
+                "401": "#/components/responses/Error",
+                "403": "#/components/responses/Error",
+                "404": "#/components/responses/Error",
+                "422": "#/components/responses/Error",
+                "429": "#/components/responses/RateLimited",
                 "500": "#/components/responses/Error"
             }
         },
@@ -1817,6 +2047,7 @@ fn project_schema_shape(schema: &Value) -> Value {
         "pattern",
         "minimum",
         "maximum",
+        "minProperties",
         "maxLength",
         "default",
     ] {
@@ -2286,6 +2517,14 @@ fn validate_schema(
     match actual_type {
         "object" => {
             let object = value.as_object().expect("object type was checked");
+            if let Some(min_properties) = schema.get("minProperties").and_then(Value::as_u64)
+                && object.len() < min_properties as usize
+            {
+                return Err(format!(
+                    "{path} has {} properties, below minProperties {min_properties}",
+                    object.len()
+                ));
+            }
             let properties = schema
                 .get("properties")
                 .and_then(Value::as_object)

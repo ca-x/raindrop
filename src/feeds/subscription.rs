@@ -2,7 +2,8 @@ use std::fmt;
 
 use base64::Engine;
 use sea_orm::{
-    ConnectionTrait, DatabaseBackend, DbBackend, DbErr, QueryResult, Statement, TransactionTrait,
+    ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DatabaseBackend, DbBackend,
+    DbErr, EntityTrait, IntoActiveModel, QueryFilter, QueryResult, Statement, TransactionTrait,
     Value,
 };
 use serde::{Deserialize, Serialize};
@@ -16,10 +17,11 @@ use super::repository::{
     queue_run_statement,
 };
 use super::{
-    FeedRepository, ListSubscriptionsQuery, NormalizedFeedUrl, QueueRefreshRequest,
+    FeedRepository, ListSubscriptionsQuery, NormalizedFeedUrl, PatchValue, QueueRefreshRequest,
     QueueSubscriptionRefresh, RefreshClaim, RefreshDto, RefreshRepositoryError, RefreshTrigger,
-    SubscribeOutcome, SubscriptionListItemDto, SubscriptionPage,
+    SubscribeOutcome, SubscriptionListItemDto, SubscriptionPage, UpdateSubscription,
 };
+use crate::db::entities::{category, subscription};
 
 const SUBSCRIPTION_CURSOR_VERSION: u8 = 1;
 const SUBSCRIPTION_CURSOR_ORDER: &str = "CREATED_DESC_ID_DESC";
@@ -461,6 +463,70 @@ impl FeedRepository {
         subscription_for_user_from(self.connection(), backend, user_id, subscription_id).await
     }
 
+    pub async fn update_subscription_for_user(
+        &self,
+        user_id: &str,
+        subscription_id: &str,
+        input: UpdateSubscription,
+    ) -> Result<Option<SubscriptionListItemDto>, RefreshRepositoryError> {
+        let backend = self.connection().get_database_backend();
+        let transaction = self.connection().begin().await?;
+        let result = async {
+            lock_active_user(&transaction, backend, user_id).await?;
+            let stored = subscription::Entity::find_by_id(subscription_id)
+                .filter(subscription::Column::UserId.eq(user_id))
+                .one(&transaction)
+                .await?;
+            let Some(stored) = stored else {
+                return Ok(None);
+            };
+            if let PatchValue::Value(category_id) = &input.category_id
+                && category::Entity::find_by_id(category_id)
+                    .filter(category::Column::UserId.eq(user_id))
+                    .one(&transaction)
+                    .await?
+                    .is_none()
+            {
+                return Ok(None);
+            }
+            let mut active = stored.into_active_model();
+            match input.category_id {
+                PatchValue::Missing => {}
+                PatchValue::Null => active.category_id = Set(None),
+                PatchValue::Value(category_id) => active.category_id = Set(Some(category_id)),
+            }
+            match input.title_override {
+                PatchValue::Missing => {}
+                PatchValue::Null => active.title_override = Set(None),
+                PatchValue::Value(title_override) => {
+                    active.title_override = Set(Some(title_override));
+                }
+            }
+            if let Some(position) = input.position {
+                active.position = Set(position);
+            }
+            active.updated_at = Set(database_now_in(&transaction, backend).await?);
+            active.update(&transaction).await?;
+            let projection =
+                subscription_for_user_from(&transaction, backend, user_id, subscription_id)
+                    .await
+                    .map_err(map_projection_command_error)?
+                    .ok_or(RefreshRepositoryError::CorruptData)?;
+            Ok(Some(projection))
+        }
+        .await;
+        match result {
+            Ok(projection) => {
+                transaction.commit().await?;
+                Ok(projection)
+            }
+            Err(error) => {
+                transaction.rollback().await?;
+                Err(error)
+            }
+        }
+    }
+
     #[doc(hidden)]
     pub async fn explain_list_subscriptions_for_user(
         &self,
@@ -641,8 +707,8 @@ fn subscription_list_statement(
     let mut sql = SubscriptionSql::new(backend);
     let user = sql.bind(user_id);
     let mut selected = format!(
-        "SELECT s.id, s.user_id, s.feed_id, s.title_override, s.start_sequence,
-                s.read_through_sequence, s.created_at
+        "SELECT s.id, s.user_id, s.feed_id, s.category_id, s.title_override, s.position,
+                s.start_sequence, s.read_through_sequence, s.created_at
          FROM subscriptions s
          WHERE s.user_id = {user}"
     );
@@ -679,8 +745,8 @@ fn subscription_detail_statement(
     let user = sql.bind(user_id);
     let subscription = sql.bind(subscription_id);
     let selected = format!(
-        "SELECT s.id, s.user_id, s.feed_id, s.title_override, s.start_sequence,
-                s.read_through_sequence, s.created_at
+        "SELECT s.id, s.user_id, s.feed_id, s.category_id, s.title_override, s.position,
+                s.start_sequence, s.read_through_sequence, s.created_at
          FROM subscriptions s
          WHERE s.user_id = {user} AND s.id = {subscription}
          LIMIT 1"
@@ -728,7 +794,8 @@ fn subscription_projection_sql(selected_subscriptions: &str) -> String {
             JOIN user_feeds uf ON uf.feed_id = r.feed_id
          )
          SELECT s.id AS subscription_id, s.feed_id AS feed_id, s.created_at AS created_at,
-                s.title_override AS title_override, f.title AS feed_title,
+                s.category_id AS category_id, s.title_override AS title_override,
+                s.position AS position, f.title AS feed_title,
                 f.site_url AS site_url, f.normalized_url AS normalized_url,
                 (SELECT COUNT(*)
                  FROM entries e
@@ -757,11 +824,23 @@ fn decode_subscription_projection(
     row: QueryResult,
 ) -> Result<SubscriptionProjection, RepositoryError> {
     let normalized_url: String = projection_required(&row, "normalized_url")?;
+    let title_override = projection_optional(&row, "title_override")?;
     let title = effective_subscription_title(
-        projection_optional(&row, "title_override")?,
+        title_override.clone(),
         projection_optional(&row, "feed_title")?,
         &normalized_url,
     )?;
+    let category_id = projection_optional::<String>(&row, "category_id")?;
+    if category_id
+        .as_deref()
+        .is_some_and(|id| validate_uuid(id).is_err())
+    {
+        return Err(RepositoryError::CorruptData);
+    }
+    let position: i64 = projection_required(&row, "position")?;
+    if position < 0 {
+        return Err(RepositoryError::CorruptData);
+    }
     let unread_count: i64 = projection_required(&row, "unread_count")?;
     if unread_count < 0 {
         return Err(RepositoryError::CorruptData);
@@ -773,6 +852,9 @@ fn decode_subscription_projection(
         item: SubscriptionListItemDto {
             subscription_id: projection_required(&row, "subscription_id")?,
             feed_id: projection_required(&row, "feed_id")?,
+            category_id,
+            title_override,
+            position,
             title,
             site_url: projection_optional(&row, "site_url")?,
             unread_count,

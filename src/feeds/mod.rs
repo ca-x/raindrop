@@ -28,8 +28,9 @@ pub use address_policy::AddressPolicy;
 pub use content_storage::{EncodedEntryContent, EntryContentDetail, EntryContentError};
 pub use dto::{
     EnclosureDto, EntryDetailDto, EntryListItemDto, EntryPage, EntryStateDto, InertImageDto,
-    ListSubscriptionsQuery, QueueSubscriptionRefresh, RefreshDto, SubscribeInput, SubscribeOutcome,
-    SubscriptionListItemDto, SubscriptionPage, UpdateEntryState,
+    ListSubscriptionsQuery, PatchValue, QueueSubscriptionRefresh, RefreshDto, SubscribeInput,
+    SubscribeOutcome, SubscriptionListItemDto, SubscriptionPage, SubscriptionPatchError,
+    UpdateEntryState, UpdateSubscription,
 };
 pub use error::{
     AddressPolicyError, FeedUrlError, IdentityError, RetryAfterError, ScheduleError, ValidatorError,

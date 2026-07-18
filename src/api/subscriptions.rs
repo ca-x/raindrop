@@ -14,8 +14,9 @@ use crate::{
     auth::{CsrfGuard, CurrentUser},
     feeds::{
         FeedCommandService, FeedRepository, FeedServiceError, FeedUrlPolicy,
-        ListSubscriptionsQuery, QueueSubscriptionRefresh, RefreshDto, RefreshRepositoryError,
-        RefreshStatus, RepositoryError, SubscribeInput, SubscriptionListItemDto, SubscriptionPage,
+        ListSubscriptionsQuery, PatchValue, QueueSubscriptionRefresh, RefreshDto,
+        RefreshRepositoryError, RefreshStatus, RepositoryError, SubscribeInput,
+        SubscriptionListItemDto, SubscriptionPage, SubscriptionPatchError, UpdateSubscription,
     },
 };
 use uuid::Uuid;
@@ -30,7 +31,9 @@ pub(super) fn router() -> Router<AppState> {
         .route("/", get(list_subscriptions).post(create_subscription))
         .route(
             "/{subscription_id}",
-            get(get_subscription).delete(delete_subscription),
+            get(get_subscription)
+                .patch(update_subscription)
+                .delete(delete_subscription),
         )
         .route(
             "/{subscription_id}/refresh",
@@ -118,6 +121,25 @@ struct RefreshSubscriptionRequest {
     request_id: String,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct UpdateSubscriptionRequest {
+    #[serde(default)]
+    category_id: PatchValue<String>,
+    #[serde(default)]
+    title_override: PatchValue<String>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    position: Option<i64>,
+}
+
+fn deserialize_present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(deserializer).map(Some)
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SubscriptionPageResponse {
@@ -152,6 +174,9 @@ struct CreateSubscriptionResponse {
 struct SubscriptionResponse {
     subscription_id: String,
     feed_id: String,
+    category_id: Option<String>,
+    title_override: Option<String>,
+    position: i64,
     title: String,
     site_url: Option<String>,
     unread_count: i64,
@@ -165,6 +190,9 @@ impl TryFrom<SubscriptionListItemDto> for SubscriptionResponse {
         Ok(Self {
             subscription_id: item.subscription_id,
             feed_id: item.feed_id,
+            category_id: item.category_id,
+            title_override: item.title_override,
+            position: item.position,
             title: item.title,
             site_url: item.site_url,
             unread_count: item.unread_count,
@@ -309,6 +337,33 @@ async fn get_subscription(
     Ok(Json(subscription.try_into()?))
 }
 
+async fn update_subscription(
+    State(state): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    _csrf: CsrfGuard,
+    ApiPath(subscription_id): ApiPath<String>,
+    ApiJson(request): ApiJson<UpdateSubscriptionRequest>,
+) -> Result<Json<SubscriptionResponse>, ApiError> {
+    validate_canonical_uuid(&subscription_id, "subscriptionId")?;
+    state
+        .subscription_mutation_limiter
+        .check(&user.id)
+        .map_err(map_limiter_rejection)?;
+    let subscription = command_service(&state)?
+        .update_subscription(
+            &user.id,
+            &subscription_id,
+            UpdateSubscription {
+                category_id: request.category_id,
+                title_override: request.title_override,
+                position: request.position,
+            },
+        )
+        .await
+        .map_err(map_feed_service_error)?;
+    Ok(Json(subscription.try_into()?))
+}
+
 async fn refresh_subscription(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
@@ -379,6 +434,7 @@ fn map_feed_service_error(error: FeedServiceError) -> ApiError {
         FeedServiceError::InvalidSubscriptionId | FeedServiceError::Url(_) => {
             ApiError::validation()
         }
+        FeedServiceError::SubscriptionPatch(error) => map_subscription_patch_error(error),
         FeedServiceError::Unauthorized => ApiError::not_found(),
         FeedServiceError::RefreshRepository(error) => map_refresh_repository_error(error),
         FeedServiceError::EntryRepository(error) => map_repository_error(error),
@@ -387,6 +443,21 @@ fn map_feed_service_error(error: FeedServiceError) -> ApiError {
         | FeedServiceError::RuntimeSupervision
         | FeedServiceError::ExecutorInitialization(_)
         | FeedServiceError::Schedule(_) => ApiError::internal(),
+    }
+}
+
+fn map_subscription_patch_error(error: SubscriptionPatchError) -> ApiError {
+    match error {
+        SubscriptionPatchError::Empty => ApiError::validation(),
+        SubscriptionPatchError::InvalidCategoryId => {
+            ApiError::validation().with_field("categoryId", "Identifier is invalid")
+        }
+        SubscriptionPatchError::InvalidTitleOverride => {
+            ApiError::validation().with_field("titleOverride", "Title override is invalid")
+        }
+        SubscriptionPatchError::InvalidPosition => {
+            ApiError::validation().with_field("position", "Position must be non-negative")
+        }
     }
 }
 
@@ -400,6 +471,8 @@ fn map_repository_error(error: RepositoryError) -> ApiError {
         }
         RepositoryError::InvalidUserId
         | RepositoryError::InvalidFeedId
+        | RepositoryError::InvalidCategoryId
+        | RepositoryError::InvalidSourceFilter
         | RepositoryError::InvalidEntryId
         | RepositoryError::InvalidStatePatch
         | RepositoryError::Database(_)

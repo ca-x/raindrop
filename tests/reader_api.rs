@@ -15,7 +15,7 @@ use raindrop::{
     auth::build_session_cookie,
     db::{
         DatabaseConfig, connect,
-        entities::{entry, entry_state, feed, rss_counter, session, user},
+        entities::{category, entry, entry_state, feed, rss_counter, session, user},
         migrate,
     },
     setup::SetupService,
@@ -38,6 +38,9 @@ use support::database::{
 const CROSS_TENANT_FEED_ID: &str = "00000000-0000-4000-8000-000000000102";
 const CROSS_TENANT_SUBSCRIPTION_ID: &str = "00000000-0000-4000-8000-000000000203";
 const CROSS_TENANT_ENTRY_ID: &str = "00000000-0000-4000-8000-000000000303";
+const CATEGORY_A_ID: &str = "00000000-0000-4000-8000-000000000501";
+const CATEGORY_A_OTHER_ID: &str = "00000000-0000-4000-8000-000000000502";
+const CATEGORY_B_ID: &str = "00000000-0000-4000-8000-000000000503";
 
 struct ReaderFixture {
     _data: TempDir,
@@ -74,13 +77,34 @@ impl ReaderFixture {
         insert_user(&database, USER_B_ID, "reader-b").await;
         insert_feed(&database, now).await;
 
+        for (id, user_id, title, position) in [
+            (CATEGORY_A_ID, USER_A_ID, "Technology", 1024),
+            (CATEGORY_A_OTHER_ID, USER_A_ID, "Science", 2048),
+            (CATEGORY_B_ID, USER_B_ID, "Private", 1024),
+        ] {
+            category::ActiveModel {
+                id: Set(id.to_owned()),
+                user_id: Set(user_id.to_owned()),
+                title: Set(title.to_owned()),
+                normalized_title: Set(title.to_lowercase()),
+                position: Set(position),
+                created_at: Set(now),
+                updated_at: Set(now),
+            }
+            .insert(&database)
+            .await
+            .expect("reader category should insert");
+        }
+
         let mut subscription_a = subscription_model(SUBSCRIPTION_A_ID, USER_A_ID, now);
+        subscription_a.category_id = Set(Some(CATEGORY_A_ID.to_owned()));
         subscription_a.start_sequence = Set(0);
         subscription_a
             .insert(&database)
             .await
             .expect("user A subscription should insert");
         let mut subscription_b = subscription_model(SUBSCRIPTION_B_ID, USER_B_ID, now);
+        subscription_b.category_id = Set(Some(CATEGORY_B_ID.to_owned()));
         subscription_b.start_sequence = Set(1);
         subscription_b
             .insert(&database)
@@ -739,6 +763,57 @@ async fn reader_list_defaults_to_unread_and_returns_a_user_bound_cursor() {
 }
 
 #[tokio::test]
+async fn reader_category_filter_is_user_scoped_and_cursor_bound() {
+    let fixture = ReaderFixture::new().await;
+    let response = fixture
+        .request(
+            Method::GET,
+            &format!("/api/v1/entries?state=ALL&limit=1&categoryId={CATEGORY_A_ID}"),
+            None,
+            UserKind::A,
+        )
+        .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    assert_eq!(body["items"].as_array().unwrap().len(), 1);
+    assert!(body["nextCursor"].is_string());
+    let cursor = body["nextCursor"].as_str().unwrap();
+
+    let replay = fixture
+        .request(
+            Method::GET,
+            &format!(
+                "/api/v1/entries?state=ALL&limit=1&categoryId={CATEGORY_A_OTHER_ID}&cursor={cursor}"
+            ),
+            None,
+            UserKind::A,
+        )
+        .await;
+    assert_eq!(replay.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+    let cross_user = fixture
+        .request(
+            Method::GET,
+            &format!("/api/v1/entries?state=ALL&categoryId={CATEGORY_B_ID}"),
+            None,
+            UserKind::A,
+        )
+        .await;
+    assert_eq!(cross_user.status(), StatusCode::OK);
+    assert_eq!(response_json(cross_user).await["items"], json!([]));
+
+    let ambiguous = fixture
+        .request(
+            Method::GET,
+            &format!("/api/v1/entries?state=ALL&feedId={FEED_ID}&categoryId={CATEGORY_A_ID}"),
+            None,
+            UserKind::A,
+        )
+        .await;
+    assert_eq!(ambiguous.status(), StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
 async fn reader_detail_returns_only_sanitized_visible_content() {
     let fixture = ReaderFixture::new().await;
     let response = fixture
@@ -793,7 +868,7 @@ async fn reader_list_rejects_invalid_query_contract() {
         "/api/v1/entries?state=ALL&state=UNREAD",
         "/api/v1/entries?feedId=00000000-0000-4000-8000-000000000101&feedId=00000000-0000-4000-8000-000000000102",
         "/api/v1/entries?cursor=first&cursor=second",
-        "/api/v1/entries?categoryId=00000000-0000-4000-8000-000000000501",
+        "/api/v1/entries?categoryId=not-a-uuid",
     ] {
         let response = fixture.request(Method::GET, uri, None, UserKind::A).await;
         assert_eq!(

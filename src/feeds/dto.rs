@@ -1,12 +1,147 @@
 use std::fmt;
+use std::marker::PhantomData;
 
+use serde::{Deserialize, Deserializer, de::Visitor};
 use time::OffsetDateTime;
+use uuid::Uuid;
 
 use super::RefreshStatus;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SubscribeInput {
     pub url: String,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub enum PatchValue<T> {
+    #[default]
+    Missing,
+    Null,
+    Value(T),
+}
+
+impl<T> PatchValue<T> {
+    #[must_use]
+    pub const fn is_missing(&self) -> bool {
+        matches!(self, Self::Missing)
+    }
+}
+
+impl<'de, T> Deserialize<'de> for PatchValue<T>
+where
+    T: Deserialize<'de>,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_option(PatchValueVisitor(PhantomData))
+    }
+}
+
+struct PatchValueVisitor<T>(PhantomData<T>);
+
+impl<'de, T> Visitor<'de> for PatchValueVisitor<T>
+where
+    T: Deserialize<'de>,
+{
+    type Value = PatchValue<T>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("a value or null")
+    }
+
+    fn visit_none<E>(self) -> Result<Self::Value, E> {
+        Ok(PatchValue::Null)
+    }
+
+    fn visit_unit<E>(self) -> Result<Self::Value, E> {
+        Ok(PatchValue::Null)
+    }
+
+    fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        T::deserialize(deserializer).map(PatchValue::Value)
+    }
+}
+
+#[derive(Clone, Eq, PartialEq)]
+pub struct UpdateSubscription {
+    pub category_id: PatchValue<String>,
+    pub title_override: PatchValue<String>,
+    pub position: Option<i64>,
+}
+
+impl UpdateSubscription {
+    pub(crate) fn normalize(mut self) -> Result<Self, SubscriptionPatchError> {
+        if self.category_id.is_missing()
+            && self.title_override.is_missing()
+            && self.position.is_none()
+        {
+            return Err(SubscriptionPatchError::Empty);
+        }
+        if let PatchValue::Value(category_id) = &self.category_id {
+            let parsed = Uuid::parse_str(category_id)
+                .map_err(|_| SubscriptionPatchError::InvalidCategoryId)?;
+            if parsed.to_string() != *category_id {
+                return Err(SubscriptionPatchError::InvalidCategoryId);
+            }
+        }
+        self.title_override = match std::mem::take(&mut self.title_override) {
+            PatchValue::Value(title) => {
+                if title.chars().any(is_disallowed_control) || title.len() > 200 {
+                    return Err(SubscriptionPatchError::InvalidTitleOverride);
+                }
+                let trimmed = title.trim();
+                if trimmed.is_empty() {
+                    PatchValue::Null
+                } else {
+                    PatchValue::Value(trimmed.to_owned())
+                }
+            }
+            other => other,
+        };
+        if self.position.is_some_and(|position| position < 0) {
+            return Err(SubscriptionPatchError::InvalidPosition);
+        }
+        Ok(self)
+    }
+}
+
+impl fmt::Debug for UpdateSubscription {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("UpdateSubscription")
+            .field("category_id", &self.category_id)
+            .field(
+                "title_override",
+                &match &self.title_override {
+                    PatchValue::Missing => "Missing",
+                    PatchValue::Null => "Null",
+                    PatchValue::Value(_) => "Value([REDACTED])",
+                },
+            )
+            .field("position", &self.position)
+            .finish()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum SubscriptionPatchError {
+    #[error("subscription patch is empty")]
+    Empty,
+    #[error("subscription category identifier is invalid")]
+    InvalidCategoryId,
+    #[error("subscription title override is invalid")]
+    InvalidTitleOverride,
+    #[error("subscription position is invalid")]
+    InvalidPosition,
+}
+
+fn is_disallowed_control(character: char) -> bool {
+    matches!(u32::from(character), 0..=31 | 127..=159)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -28,6 +163,9 @@ impl Default for ListSubscriptionsQuery {
 pub struct SubscriptionListItemDto {
     pub subscription_id: String,
     pub feed_id: String,
+    pub category_id: Option<String>,
+    pub title_override: Option<String>,
+    pub position: i64,
     pub title: String,
     pub site_url: Option<String>,
     pub unread_count: i64,
@@ -40,6 +178,12 @@ impl fmt::Debug for SubscriptionListItemDto {
             .debug_struct("SubscriptionListItemDto")
             .field("subscription_id", &self.subscription_id)
             .field("feed_id", &self.feed_id)
+            .field("category_id", &self.category_id)
+            .field(
+                "title_override",
+                &self.title_override.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("position", &self.position)
             .field("title", &"[REDACTED]")
             .field("site_url", &self.site_url.as_ref().map(|_| "[REDACTED]"))
             .field("unread_count", &self.unread_count)

@@ -7,6 +7,7 @@ fn reader_schema_validator_enforces_declared_formats() {
     let document = load_openapi();
     let uuid_schema =
         &document["components"]["schemas"]["EntryStateResponse"]["properties"]["entryId"];
+    let category_uuid_schema = &document["components"]["parameters"]["CategoryId"]["schema"];
     let uri_schema =
         &document["components"]["schemas"]["InertImageResponse"]["properties"]["sourceUrl"];
 
@@ -20,6 +21,24 @@ fn reader_schema_validator_enforces_declared_formats() {
         .is_ok()
     );
     assert!(validate_schema(&document, uuid_schema, &json!("not-a-uuid"), "$uuid").is_err());
+    assert!(
+        validate_schema(
+            &document,
+            category_uuid_schema,
+            &json!("00000000-0000-4000-8000-000000000501"),
+            "$categoryUuid"
+        )
+        .is_ok()
+    );
+    assert!(
+        validate_schema(
+            &document,
+            category_uuid_schema,
+            &json!("not-a-uuid"),
+            "$categoryUuid"
+        )
+        .is_err()
+    );
     assert!(
         validate_schema(
             &document,

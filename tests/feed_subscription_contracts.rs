@@ -7,9 +7,10 @@ use raindrop::db::{
     migrate, rollback,
 };
 use raindrop::feeds::{
-    FeedRepository, FeedUrlPolicy, ListSubscriptionsQuery, QueueSubscriptionRefresh,
-    RefreshRepositoryError, RepositoryError,
+    FeedRepository, FeedUrlPolicy, ListSubscriptionsQuery, PatchValue, QueueSubscriptionRefresh,
+    RefreshRepositoryError, RepositoryError, UpdateSubscription,
 };
+use raindrop::organization::{CategoryRepository, CreateCategory};
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DatabaseConnection,
     DbBackend, EntityTrait, PaginatorTrait, QueryFilter, Statement,
@@ -1218,6 +1219,112 @@ async fn sqlite_subscription_detail_hides_missing_and_cross_tenant() {
             .expect("missing lookup should remain typed")
             .is_none()
     );
+}
+
+#[tokio::test]
+async fn sqlite_subscription_patch_assigns_clears_and_hides_category_ownership() {
+    let fixture = SubscriptionFixture::new().await;
+    let categories = CategoryRepository::new(fixture.database.clone());
+    let owned_category = categories
+        .create(
+            USER_A_ID,
+            CreateCategory {
+                title: "Technology".to_owned(),
+            },
+        )
+        .await
+        .expect("owned category should create");
+    let foreign_category = categories
+        .create(
+            USER_B_ID,
+            CreateCategory {
+                title: "Private".to_owned(),
+            },
+        )
+        .await
+        .expect("foreign category should create");
+
+    let assigned = fixture
+        .repository
+        .update_subscription_for_user(
+            USER_A_ID,
+            SUBSCRIPTION_A_ID,
+            UpdateSubscription {
+                category_id: PatchValue::Value(owned_category.category_id.clone()),
+                title_override: PatchValue::Value("Focused title".to_owned()),
+                position: Some(512),
+            },
+        )
+        .await
+        .expect("owned subscription patch should execute")
+        .expect("owned subscription should update");
+    assert_eq!(
+        assigned.category_id,
+        Some(owned_category.category_id.clone())
+    );
+    assert_eq!(assigned.title_override.as_deref(), Some("Focused title"));
+    assert_eq!(assigned.title, "Focused title");
+    assert_eq!(assigned.position, 512);
+
+    let foreign_assignment = fixture
+        .repository
+        .update_subscription_for_user(
+            USER_A_ID,
+            SUBSCRIPTION_A_ID,
+            UpdateSubscription {
+                category_id: PatchValue::Value(foreign_category.category_id),
+                title_override: PatchValue::Missing,
+                position: None,
+            },
+        )
+        .await
+        .expect("foreign category lookup should remain typed");
+    assert!(foreign_assignment.is_none());
+    let unchanged = fixture
+        .repository
+        .get_subscription_for_user(USER_A_ID, SUBSCRIPTION_A_ID)
+        .await
+        .expect("unchanged subscription should query")
+        .expect("unchanged subscription should remain visible");
+    assert_eq!(unchanged.category_id, Some(owned_category.category_id));
+    assert_eq!(unchanged.title_override.as_deref(), Some("Focused title"));
+    assert_eq!(unchanged.position, 512);
+
+    assert!(
+        fixture
+            .repository
+            .update_subscription_for_user(
+                USER_A_ID,
+                SUBSCRIPTION_B_ID,
+                UpdateSubscription {
+                    category_id: PatchValue::Null,
+                    title_override: PatchValue::Null,
+                    position: Some(1024),
+                },
+            )
+            .await
+            .expect("foreign subscription lookup should remain typed")
+            .is_none()
+    );
+
+    let cleared = fixture
+        .repository
+        .update_subscription_for_user(
+            USER_A_ID,
+            SUBSCRIPTION_A_ID,
+            UpdateSubscription {
+                category_id: PatchValue::Null,
+                title_override: PatchValue::Null,
+                position: None,
+            },
+        )
+        .await
+        .expect("clear patch should execute")
+        .expect("owned subscription should clear");
+    assert!(cleared.category_id.is_none());
+    assert!(cleared.title_override.is_none());
+    assert_eq!(cleared.title, "Shared feed");
+    assert_eq!(cleared.position, 512);
 }
 
 #[tokio::test]

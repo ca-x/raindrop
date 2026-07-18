@@ -62,6 +62,7 @@ struct ListEntriesParams {
     cursor: Option<String>,
     limit: Option<u16>,
     feed_id: Option<String>,
+    category_id: Option<String>,
     state: Option<EntryStateParam>,
 }
 
@@ -71,6 +72,7 @@ impl ListEntriesParams {
         ListEntriesQuery {
             state: self.state.map_or(defaults.state, EntryListState::from),
             feed_id: self.feed_id,
+            category_id: self.category_id,
             limit: self.limit.unwrap_or(defaults.limit),
             cursor: self.cursor,
         }
@@ -338,6 +340,12 @@ fn map_repository_error(error: RepositoryError) -> ApiError {
         RepositoryError::InvalidFeedId => {
             ApiError::validation().with_field("feedId", "Feed identifier is invalid")
         }
+        RepositoryError::InvalidCategoryId => {
+            ApiError::validation().with_field("categoryId", "Category identifier is invalid")
+        }
+        RepositoryError::InvalidSourceFilter => ApiError::validation()
+            .with_field("feedId", "Feed and category filters cannot be combined")
+            .with_field("categoryId", "Feed and category filters cannot be combined"),
         RepositoryError::InvalidEntryId => {
             ApiError::validation().with_field("entryId", "Entry identifier is invalid")
         }

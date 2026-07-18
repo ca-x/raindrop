@@ -39,6 +39,9 @@
             "$ref": "#/components/parameters/FeedId"
           },
           {
+            "$ref": "#/components/parameters/CategoryId"
+          },
+          {
             "$ref": "#/components/parameters/EntryListState"
           }
         ],
@@ -181,6 +184,16 @@
         "name": "feedId",
         "in": "query",
         "required": false,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "CategoryId": {
+        "name": "categoryId",
+        "in": "query",
+        "required": false,
+        "description": "Filter entries to subscriptions assigned to this current-user category. Cannot be combined with feedId.",
         "schema": {
           "type": "string",
           "format": "uuid"

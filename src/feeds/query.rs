@@ -36,6 +36,7 @@ impl EntryListState {
 pub struct ListEntriesQuery {
     pub state: EntryListState,
     pub feed_id: Option<String>,
+    pub category_id: Option<String>,
     pub limit: u16,
     pub cursor: Option<String>,
 }
@@ -45,6 +46,7 @@ impl Default for ListEntriesQuery {
         Self {
             state: EntryListState::Unread,
             feed_id: None,
+            category_id: None,
             limit: 50,
             cursor: None,
         }
@@ -59,6 +61,10 @@ pub enum RepositoryError {
     InvalidUserId,
     #[error("feed identifier is invalid")]
     InvalidFeedId,
+    #[error("category identifier is invalid")]
+    InvalidCategoryId,
+    #[error("entry source filters cannot be combined")]
+    InvalidSourceFilter,
     #[error("entry identifier is invalid")]
     InvalidEntryId,
     #[error("entry list limit is invalid")]
@@ -79,6 +85,8 @@ impl fmt::Debug for RepositoryError {
             Self::Database(_) => "RepositoryError::Database([REDACTED])",
             Self::InvalidUserId => "RepositoryError::InvalidUserId",
             Self::InvalidFeedId => "RepositoryError::InvalidFeedId",
+            Self::InvalidCategoryId => "RepositoryError::InvalidCategoryId",
+            Self::InvalidSourceFilter => "RepositoryError::InvalidSourceFilter",
             Self::InvalidEntryId => "RepositoryError::InvalidEntryId",
             Self::InvalidLimit => "RepositoryError::InvalidLimit",
             Self::InvalidCursor => "RepositoryError::InvalidCursor",
@@ -120,7 +128,12 @@ impl FeedRepository {
     ) -> Result<EntryPage, RepositoryError> {
         validate_uuid(user_id).map_err(|()| RepositoryError::InvalidUserId)?;
         validate_query(&query)?;
-        let filter_hash = filter_hash(user_id, query.state, query.feed_id.as_deref());
+        let filter_hash = filter_hash(
+            user_id,
+            query.state,
+            query.feed_id.as_deref(),
+            query.category_id.as_deref(),
+        );
         let cursor = query.cursor.as_deref().map(decode_cursor).transpose()?;
         if cursor
             .as_ref()
@@ -213,6 +226,12 @@ fn validate_query(query: &ListEntriesQuery) -> Result<(), RepositoryError> {
     if let Some(feed_id) = query.feed_id.as_deref() {
         validate_uuid(feed_id).map_err(|()| RepositoryError::InvalidFeedId)?;
     }
+    if let Some(category_id) = query.category_id.as_deref() {
+        validate_uuid(category_id).map_err(|()| RepositoryError::InvalidCategoryId)?;
+    }
+    if query.feed_id.is_some() && query.category_id.is_some() {
+        return Err(RepositoryError::InvalidSourceFilter);
+    }
     Ok(())
 }
 
@@ -288,6 +307,10 @@ fn list_statement(
     if let Some(feed_id) = query.feed_id.as_deref() {
         let feed = sql.bind(feed_id);
         text.push_str(&format!(" AND s.feed_id = {feed}"));
+    }
+    if let Some(category_id) = query.category_id.as_deref() {
+        let category = sql.bind(category_id);
+        text.push_str(&format!(" AND s.category_id = {category}"));
     }
     match query.state {
         EntryListState::All => {}
@@ -415,12 +438,18 @@ fn effective_feed_title(title: Option<String>, feed_url: &str) -> Result<String,
         .ok_or(RepositoryError::CorruptData)
 }
 
-fn filter_hash(user_id: &str, state: EntryListState, feed_id: Option<&str>) -> String {
+fn filter_hash(
+    user_id: &str,
+    state: EntryListState,
+    feed_id: Option<&str>,
+    category_id: Option<&str>,
+) -> String {
     let mut hasher = blake3::Hasher::new();
     hasher.update(b"raindrop-entry-filter\0v1");
     hash_frame(&mut hasher, user_id.as_bytes());
     hash_frame(&mut hasher, state.as_str().as_bytes());
     hash_frame(&mut hasher, feed_id.unwrap_or("").as_bytes());
+    hash_frame(&mut hasher, category_id.unwrap_or("").as_bytes());
     hash_frame(
         &mut hasher,
         b"order=sort_at_us-desc,entry_id-desc;snapshot=ingest_generation",

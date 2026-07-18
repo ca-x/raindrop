@@ -27,6 +27,7 @@ use raindrop::{
         FeedExecutor, FeedFetchError, FeedRepository, FeedRuntime, FeedTransport, FeedUrlPolicy,
         FetchOutcome, FetchRequest,
     },
+    organization::{CategoryRepository, CreateCategory},
     setup::SetupService,
 };
 use sea_orm::{
@@ -443,8 +444,163 @@ async fn subscription_create_returns_before_blocked_transport_and_sets_location(
     assert!(response.headers().contains_key(LOCATION));
     let body = response_json(response).await;
     assert_eq!(body["created"], true);
+    assert!(
+        body["subscription"]
+            .as_object()
+            .unwrap()
+            .contains_key("categoryId")
+    );
+    assert!(
+        body["subscription"]
+            .as_object()
+            .unwrap()
+            .contains_key("titleOverride")
+    );
+    assert_eq!(body["subscription"]["position"], 0);
     assert_eq!(body["subscription"]["refresh"]["state"], "PENDING");
     assert_eq!(fixture.transport_calls(), 0);
+}
+
+#[tokio::test]
+async fn subscription_patch_assigns_clears_and_hides_category_ownership() {
+    let fixture = SubscriptionApiFixture::new().await;
+    let created = fixture
+        .post_with_csrf(
+            "/api/v1/subscriptions",
+            json!({ "url": "https://organized.example/rss.xml" }),
+            UserKind::A,
+        )
+        .await;
+    let created_body = response_json(created).await;
+    let subscription_id = created_body["subscription"]["subscriptionId"]
+        .as_str()
+        .expect("created subscription ID should be a string")
+        .to_owned();
+    let categories = CategoryRepository::new(fixture.database.clone());
+    let user_a_category = categories
+        .create(
+            USER_A_ID,
+            CreateCategory {
+                title: "Technology".to_owned(),
+            },
+        )
+        .await
+        .expect("user A category should create");
+    let user_b_category = categories
+        .create(
+            USER_B_ID,
+            CreateCategory {
+                title: "Private".to_owned(),
+            },
+        )
+        .await
+        .expect("user B category should create");
+
+    let (_, user_a_csrf) = fixture.credentials(UserKind::A);
+    let assigned_body = json!({
+        "categoryId": user_a_category.category_id,
+        "titleOverride": "  Custom title  ",
+        "position": 512
+    })
+    .to_string();
+    let assigned = fixture
+        .request_mutation(
+            Method::PATCH,
+            &format!("/api/v1/subscriptions/{subscription_id}"),
+            Some(&assigned_body),
+            UserKind::A,
+            &[user_a_csrf],
+            &["http://subscriptions.test"],
+            Some("subscriptions.test"),
+        )
+        .await;
+    assert_eq!(assigned.status(), StatusCode::OK);
+    assert_sensitive_cache_headers(&assigned);
+    let assigned = response_json(assigned).await;
+    assert_eq!(assigned["categoryId"], user_a_category.category_id);
+    assert_eq!(assigned["titleOverride"], "Custom title");
+    assert_eq!(assigned["title"], "Custom title");
+    assert_eq!(assigned["position"], 512);
+
+    let detail = fixture
+        .get(
+            &format!("/api/v1/subscriptions/{subscription_id}"),
+            UserKind::A,
+        )
+        .await;
+    let detail = response_json(detail).await;
+    assert_eq!(detail["categoryId"], user_a_category.category_id);
+    assert_eq!(detail["titleOverride"], "Custom title");
+
+    let cleared = fixture
+        .request_mutation(
+            Method::PATCH,
+            &format!("/api/v1/subscriptions/{subscription_id}"),
+            Some(r#"{"categoryId":null,"titleOverride":null}"#),
+            UserKind::A,
+            &[user_a_csrf],
+            &["http://subscriptions.test"],
+            Some("subscriptions.test"),
+        )
+        .await;
+    assert_eq!(cleared.status(), StatusCode::OK);
+    let cleared = response_json(cleared).await;
+    assert_eq!(cleared["categoryId"], Value::Null);
+    assert_eq!(cleared["titleOverride"], Value::Null);
+    assert_eq!(cleared["position"], 512);
+
+    let cross_category_body = json!({ "categoryId": user_b_category.category_id }).to_string();
+    let cross_category = fixture
+        .request_mutation(
+            Method::PATCH,
+            &format!("/api/v1/subscriptions/{subscription_id}"),
+            Some(&cross_category_body),
+            UserKind::A,
+            &[user_a_csrf],
+            &["http://subscriptions.test"],
+            Some("subscriptions.test"),
+        )
+        .await;
+    assert_eq!(cross_category.status(), StatusCode::NOT_FOUND);
+
+    let (_, user_b_csrf) = fixture.credentials(UserKind::B);
+    let cross_subscription = fixture
+        .request_mutation(
+            Method::PATCH,
+            &format!("/api/v1/subscriptions/{subscription_id}"),
+            Some(r#"{"position":1024}"#),
+            UserKind::B,
+            &[user_b_csrf],
+            &["http://subscriptions.test"],
+            Some("subscriptions.test"),
+        )
+        .await;
+    assert_eq!(cross_subscription.status(), StatusCode::NOT_FOUND);
+
+    let reassigned_body = json!({ "categoryId": user_a_category.category_id }).to_string();
+    let reassigned = fixture
+        .request_mutation(
+            Method::PATCH,
+            &format!("/api/v1/subscriptions/{subscription_id}"),
+            Some(&reassigned_body),
+            UserKind::A,
+            &[user_a_csrf],
+            &["http://subscriptions.test"],
+            Some("subscriptions.test"),
+        )
+        .await;
+    assert_eq!(reassigned.status(), StatusCode::OK);
+    categories
+        .delete(USER_A_ID, &user_a_category.category_id)
+        .await
+        .expect("assigned category should delete");
+    let after_delete = fixture
+        .get(
+            &format!("/api/v1/subscriptions/{subscription_id}"),
+            UserKind::A,
+        )
+        .await;
+    assert_eq!(response_json(after_delete).await["categoryId"], Value::Null);
 }
 
 #[tokio::test]
@@ -466,6 +622,11 @@ async fn subscription_routes_require_active_session() {
             Method::POST,
             "/api/v1/subscriptions/00000000-0000-4000-8000-000000000299/refresh",
             Some(json!({ "requestId": "00000000-0000-4000-8000-000000000701" })),
+        ),
+        (
+            Method::PATCH,
+            "/api/v1/subscriptions/00000000-0000-4000-8000-000000000299",
+            Some(json!({ "position": 0 })),
         ),
         (
             Method::DELETE,
@@ -497,6 +658,11 @@ async fn subscription_mutations_require_valid_csrf() {
             Method::POST,
             "/api/v1/subscriptions/not-a-uuid/refresh",
             Some(r#"{"requestId":"not-a-uuid"}"#),
+        ),
+        (
+            Method::PATCH,
+            "/api/v1/subscriptions/not-a-uuid",
+            Some(r#"{"position":0}"#),
         ),
         (Method::DELETE, "/api/v1/subscriptions/not-a-uuid", None),
     ] {
@@ -536,28 +702,41 @@ async fn subscription_mutations_require_valid_csrf() {
 async fn subscription_mutations_enforce_same_origin() {
     let fixture = SubscriptionApiFixture::new().await;
     let (_, csrf) = fixture.credentials(UserKind::A);
-    for (origins, host) in [
-        (vec!["https://evil.example"], Some("subscriptions.test")),
-        (vec!["http://subscriptions.test"], None),
+    for (method, uri, body) in [
         (
-            vec!["http://subscriptions.test", "http://subscriptions.test"],
-            Some("subscriptions.test"),
+            Method::POST,
+            "/api/v1/subscriptions",
+            r#"{"url":"not-a-url"}"#,
+        ),
+        (
+            Method::PATCH,
+            "/api/v1/subscriptions/not-a-uuid",
+            r#"{"position":0}"#,
         ),
     ] {
-        let response = fixture
-            .request_mutation(
-                Method::POST,
-                "/api/v1/subscriptions",
-                Some(r#"{"url":"not-a-url"}"#),
-                UserKind::A,
-                &[csrf],
-                &origins,
-                host,
-            )
-            .await;
-        assert_eq!(response.status(), StatusCode::FORBIDDEN);
-        assert_sensitive_cache_headers(&response);
-        assert_eq!(response_json(response).await["error"]["code"], "FORBIDDEN");
+        for (origins, host) in [
+            (vec!["https://evil.example"], Some("subscriptions.test")),
+            (vec!["http://subscriptions.test"], None),
+            (
+                vec!["http://subscriptions.test", "http://subscriptions.test"],
+                Some("subscriptions.test"),
+            ),
+        ] {
+            let response = fixture
+                .request_mutation(
+                    method.clone(),
+                    uri,
+                    Some(body),
+                    UserKind::A,
+                    &[csrf],
+                    &origins,
+                    host,
+                )
+                .await;
+            assert_eq!(response.status(), StatusCode::FORBIDDEN);
+            assert_sensitive_cache_headers(&response);
+            assert_eq!(response_json(response).await["error"]["code"], "FORBIDDEN");
+        }
     }
 
     let response = fixture
@@ -677,6 +856,58 @@ async fn subscription_requests_reject_invalid_query_path_body_and_url() {
         );
     }
 
+    let overlong_title = "a".repeat(201);
+    let overlong_multibyte_title = "界".repeat(67);
+    let invalid_patch_bodies = [
+        "{}".to_owned(),
+        r#"{"position":null}"#.to_owned(),
+        r#"{"position":-1}"#.to_owned(),
+        r#"{"position":"0"}"#.to_owned(),
+        r#"{"categoryId":"not-a-uuid"}"#.to_owned(),
+        r#"{"categoryId":"AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA"}"#.to_owned(),
+        r#"{"categoryId":"00000000-0000-4000-8000-000000000299","extra":true}"#.to_owned(),
+        r#"{"titleOverride":7}"#.to_owned(),
+        r#"{"titleOverride":"bad\u0001title"}"#.to_owned(),
+        json!({ "titleOverride": overlong_title }).to_string(),
+        json!({ "titleOverride": overlong_multibyte_title }).to_string(),
+    ];
+    for body in &invalid_patch_bodies {
+        let response = fixture
+            .request_mutation(
+                Method::PATCH,
+                "/api/v1/subscriptions/00000000-0000-4000-8000-000000000299",
+                Some(body),
+                UserKind::A,
+                &[csrf],
+                &["http://subscriptions.test"],
+                Some("subscriptions.test"),
+            )
+            .await;
+        assert_eq!(
+            response.status(),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{body}"
+        );
+        assert_sensitive_cache_headers(&response);
+        assert_eq!(
+            response_json(response).await["error"]["code"],
+            "VALIDATION_ERROR"
+        );
+    }
+
+    let invalid_patch_path = fixture
+        .request_mutation(
+            Method::PATCH,
+            "/api/v1/subscriptions/not-a-uuid",
+            Some(r#"{"position":0}"#),
+            UserKind::A,
+            &[csrf],
+            &["http://subscriptions.test"],
+            Some("subscriptions.test"),
+        )
+        .await;
+    assert_validation_json_response(invalid_patch_path).await;
+
     let response = fixture
         .request_mutation(
             Method::DELETE,
@@ -726,6 +957,19 @@ async fn subscription_invalid_utf8_paths_use_validation_json_after_security_extr
     assert_validation_json_response(refresh).await;
 
     let (_, csrf) = fixture.credentials(UserKind::A);
+    let patch = fixture
+        .request_mutation(
+            Method::PATCH,
+            "/api/v1/subscriptions/%FF",
+            Some(r#"{"position":0}"#),
+            UserKind::A,
+            &[csrf],
+            &["http://subscriptions.test"],
+            Some("subscriptions.test"),
+        )
+        .await;
+    assert_validation_json_response(patch).await;
+
     let delete = fixture
         .request_mutation(
             Method::DELETE,
@@ -803,14 +1047,20 @@ async fn subscription_detail_hides_missing_and_cross_tenant() {
             .map(String::as_str)
             .collect::<std::collections::BTreeSet<_>>(),
         std::collections::BTreeSet::from([
+            "categoryId",
             "feedId",
+            "position",
             "refresh",
             "siteUrl",
             "subscriptionId",
             "title",
+            "titleOverride",
             "unreadCount",
         ])
     );
+    assert_eq!(body["categoryId"], Value::Null);
+    assert_eq!(body["titleOverride"], Value::Null);
+    assert_eq!(body["position"], 0);
     assert_eq!(
         body["refresh"]
             .as_object()
