@@ -167,17 +167,17 @@ git push origin feature/foundation-bootstrap
 - Produces `GET/PATCH /api/v1/preferences`.
 - Produces the committed OpenAPI artifact consumed by Task 4.
 
-- [ ] **Step 1: Write router RED tests**
+- [x] **Step 1: Write router RED tests**
 
 Test authentication, CSRF precedence, `Accept-Language` defaults, complete GET shape, every valid patch field, empty and unknown objects, invalid enum/scale, per-user persistence, no-store headers, exact method fallback, trailing/unknown JSON fallback, and a separate per-user mutation budget.
 
-- [ ] **Step 2: Run and confirm RED**
+- [x] **Step 2: Run and confirm RED**
 
 Run: `cargo test --locked --all-features --test preference_api`
 
 Expected: preference paths return SPA/404 because no router exists.
 
-- [ ] **Step 3: Implement the focused router**
+- [x] **Step 3: Implement the focused router**
 
 Use strict request enums and map them to domain enums. Parse only the leading `Accept-Language` language range: strings starting with `zh` produce `Locale::ZhCn`; all other or malformed headers produce `Locale::En`. The PATCH handler extracts `CurrentUser`, then `CsrfGuard`, then `ApiJson`, checks `preferences_mutation_limiter`, and returns the full response.
 
@@ -192,15 +192,15 @@ struct PatchPreferencesRequest {
 }
 ```
 
-- [ ] **Step 4: Add OpenAPI and real-router drift tests**
+- [x] **Step 4: Add OpenAPI and real-router drift tests**
 
 The artifact contains exactly GET and PATCH operations, session/CSRF security, strict camelCase schemas, scale bounds, the shared stable error envelope, and no `userId`, timestamps, or storage strings beyond public enum values.
 
-- [ ] **Step 5: Verify API contracts**
+- [x] **Step 5: Verify API contracts**
 
 Run: `cargo test --locked --all-features --test preference_api --test preference_openapi_contract --test session_security`
 
-- [ ] **Step 6: Commit and push**
+- [x] **Step 6: Commit and push**
 
 ```bash
 git add src/api/preferences.rs src/api/mod.rs src/api/routes.rs src/app.rs docs/openapi/preferences-v1.json tests/preference_api.rs tests/preference_openapi_contract.rs

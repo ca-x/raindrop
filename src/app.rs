@@ -21,6 +21,7 @@ pub struct AppState {
     pub(crate) setup_limiter: RateLimiter,
     pub feed_runtime: FeedRuntimeHandle,
     pub organization_mutation_limiter: UserMutationLimiter,
+    pub preferences_mutation_limiter: UserMutationLimiter,
     pub subscription_mutation_limiter: UserMutationLimiter,
 }
 
@@ -49,6 +50,7 @@ impl AppState {
             setup_limiter: RateLimiter::new(30, std::time::Duration::from_secs(15 * 60)),
             feed_runtime,
             organization_mutation_limiter: UserMutationLimiter::new(),
+            preferences_mutation_limiter: UserMutationLimiter::new(),
             subscription_mutation_limiter: UserMutationLimiter::new(),
         }
     }
@@ -131,9 +133,14 @@ mod tests {
                 .organization_mutation_limiter
                 .check("user")
                 .expect("the exact organization mutation budget should be admitted");
+            state
+                .preferences_mutation_limiter
+                .check("user")
+                .expect("the exact preference mutation budget should be admitted");
         }
         assert!(state.subscription_mutation_limiter.check("user").is_err());
         assert!(state.organization_mutation_limiter.check("user").is_err());
+        assert!(state.preferences_mutation_limiter.check("user").is_err());
     }
 
     #[tokio::test]

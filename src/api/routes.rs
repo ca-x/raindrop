@@ -48,6 +48,7 @@ pub fn router() -> Router<AppState> {
         .nest("/api/v1/auth", auth)
         .merge(super::categories::router())
         .merge(super::entries::router())
+        .merge(super::preferences::router())
         .merge(super::subscriptions::router())
         .layer(DefaultBodyLimit::max(64 * 1024))
 }

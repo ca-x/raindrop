@@ -2,6 +2,7 @@ mod categories;
 mod entries;
 mod error;
 mod json;
+mod preferences;
 mod rate_limit;
 mod routes;
 mod subscriptions;
