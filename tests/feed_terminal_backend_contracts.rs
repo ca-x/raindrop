@@ -13,8 +13,8 @@ use raindrop::feeds::{
     RefreshResult, RefreshSchedule, RefreshStatus, RefreshTrigger,
 };
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ConnectionTrait, EntityTrait, PaginatorTrait, Statement,
-    TransactionTrait,
+    ActiveModelTrait, ActiveValue::Set, ConnectionTrait, EntityTrait, IntoActiveModel,
+    PaginatorTrait, Statement, TransactionTrait,
 };
 use secrecy::SecretString;
 
@@ -53,6 +53,15 @@ async fn terminal_contract(url: SecretString, backend_name: &str) {
     let repository = FeedRepository::new(database.clone());
 
     let older = queue(&repository, "older").await;
+    let mut older_fixture = feed_refresh_run::Entity::find_by_id(&older.id)
+        .one(&database)
+        .await
+        .unwrap()
+        .unwrap()
+        .into_active_model();
+    older_fixture.status = Set("SUCCESS".to_owned());
+    older_fixture.completed_at = Set(Some(time::OffsetDateTime::now_utc()));
+    older_fixture.update(&database).await.unwrap();
     let target = queue(&repository, "target").await;
     let claim = claimed(
         repository
@@ -68,7 +77,7 @@ async fn terminal_contract(url: SecretString, backend_name: &str) {
             .unwrap()
             .unwrap()
             .status,
-        "QUEUED"
+        "SUCCESS"
     );
 
     let parsed = FeedParser::new()
