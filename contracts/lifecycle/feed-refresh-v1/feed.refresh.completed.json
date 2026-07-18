@@ -8,7 +8,7 @@
   "idempotencyKey": "refresh:00000000-0000-4000-8000-000000020001:completed:v1",
   "context": {
     "feedId": "00000000-0000-4000-8000-000000030001",
-    "status": "SUCCEEDED",
+    "status": "SUCCESS",
     "newCount": 1,
     "updatedCount": 0,
     "droppedCount": 0,
