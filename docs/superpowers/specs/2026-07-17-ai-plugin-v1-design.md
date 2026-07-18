@@ -383,6 +383,8 @@ AI plugin 不实现 MCP transport，始终调用 `src/mcp` 的 client domain ser
 
 ### 11.2 Job、execution 与 artifact
 
+本节保留插件总体设计的逻辑字段。已经实施的物理 schema、`content_job_results` 复用关联、idempotency/artifact canonical hash、User-first 锁顺序、lease/fencing、不可续期 attempt deadline、retry/unknown outcome 和原子终态事务以 `docs/superpowers/specs/2026-07-19-content-jobs-artifacts-core-v1-design.md` 为绑定合同；后续 Wasm/provider/MCP worker 必须调用该 core，不得另建私有 job 表或直连模型。
+
 - `content_jobs(id, user_id, entry_id, operation, target_locale, trigger, plugin_key, plugin_version, component_digest, provider_binding_id, input_hash, config_hash, idempotency_key, call_chain_id, remaining_depth, status, attempts, next_attempt_at, created_at, completed_at)`；唯一 `(user_id, idempotency_key)`。
 - `content_job_attempts(id, job_id, attempt, started_at, completed_at, status, error_code, retryable, provider_request_count, mcp_call_count, input_tokens, output_tokens, estimated_cost_micros, execution_metadata_json)`；唯一 `(job_id, attempt)`。
 - `content_artifacts(id, user_id, entry_id, job_id, kind, locale, schema_id, input_hash, config_hash, processor_key, processor_version, provider_label, payload_json, provenance_json, created_at)`；唯一键覆盖完整 artifact identity。
