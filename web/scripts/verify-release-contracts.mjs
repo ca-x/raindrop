@@ -65,6 +65,38 @@ requireMatch(binaryWorkflow, /softprops\/action-gh-release@a06a81a03ee405af7f204
 requireMatch(binaryWorkflow, /startsWith\(github\.ref, 'refs\/tags\/v'\)/u, "tag-only GitHub release")
 requirePinnedActions(binaryWorkflow, "release-binaries.yml")
 
+const dockerWorkflow = read(".github/workflows/docker.yml")
+requireMatch(dockerWorkflow, /^\s+packages: write$/mu, "Docker package permission")
+requireMatch(dockerWorkflow, /docker\/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130/u, "pinned QEMU action")
+requireMatch(dockerWorkflow, /docker\/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435/u, "pinned Buildx action")
+requireMatch(dockerWorkflow, /docker\/login-action@5e57cd118135c172c3672efd75eb46360885c0ef/u, "pinned Docker login action")
+requireMatch(dockerWorkflow, /docker\/metadata-action@c1e51972afc2121e065aed6d45c65596fe445f3f/u, "pinned Docker metadata action")
+requireMatch(dockerWorkflow, /docker\/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83/u, "pinned Docker build action")
+requireMatch(dockerWorkflow, /ghcr\.io\/%s/u, "GHCR image selection")
+requireMatch(dockerWorkflow, /czyt\/raindrop/u, "optional Docker Hub image")
+requireMatch(dockerWorkflow, /DOCKERHUB_USERNAME/u, "Docker Hub username secret")
+requireMatch(dockerWorkflow, /DOCKERHUB_TOKEN/u, "Docker Hub token secret")
+requireMatch(dockerWorkflow, /linux\/amd64,linux\/arm64/u, "multi-architecture image platforms")
+for (const tagRule of ["type=ref,event=tag", "type=semver,pattern={{version}}", "type=semver,pattern={{major}}.{{minor}}", "type=sha,prefix=sha-"]) {
+  requireMatch(dockerWorkflow, new RegExp(escapeRegExp(tagRule), "u"), `Docker metadata rule ${tagRule}`)
+}
+requireMatch(dockerWorkflow, /type=raw,value=latest/u, "latest Docker metadata rule")
+requireMatch(dockerWorkflow, /cache-from: type=gha/u, "Docker GHA cache restore")
+requireMatch(dockerWorkflow, /cache-to: type=gha,mode=max/u, "Docker GHA cache save")
+requireMatch(dockerWorkflow, /^\s+provenance: true$/mu, "Docker provenance")
+requireMatch(dockerWorkflow, /^\s+sbom: true$/mu, "Docker SBOM")
+requirePinnedActions(dockerWorkflow, "docker.yml")
+
+const ciWorkflow = read(".github/workflows/ci.yml")
+requireMatch(ciWorkflow, /npm --prefix web run check:release-contracts/u, "release contract CI gate")
+requireMatch(ciWorkflow, /^\s+container-smoke:\s*$/mu, "container smoke job")
+requireMatch(ciWorkflow, /docker\/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83/u, "pinned CI Docker build action")
+requireMatch(ciWorkflow, /^\s+load: true$/mu, "loaded CI image")
+requireMatch(ciWorkflow, /raindrop:ci/u, "CI image tag")
+requireMatch(ciWorkflow, /\.Config\.User/u, "non-root container assertion")
+requireMatch(ciWorkflow, /\/api\/v1\/health\/live/u, "container liveness smoke")
+requirePinnedActions(ciWorkflow, "ci.yml")
+
 console.log("release delivery contracts are current")
 
 function read(relativePath) {

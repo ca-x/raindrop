@@ -193,17 +193,17 @@ git push origin feature/foundation-bootstrap
 - Produces `ghcr.io/czyt/raindrop` and optional `czyt/raindrop` tags for linux/amd64 and linux/arm64.
 - Produces a blocking PR/push container build-and-health smoke in `ci.yml`.
 
-- [ ] **Step 1: Extend the verifier RED contract**
+- [x] **Step 1: Extend the verifier RED contract**
 
 Require Docker publish triggers, `packages: write`, QEMU, Buildx, unconditional GHCR login, conditional Docker Hub login, dynamic public image list, semver/tag/latest/sha metadata, `linux/amd64,linux/arm64`, GHA cache, provenance/SBOM, and immutable SHAs. Require `ci.yml` to run the release verifier and define `container-smoke` with a single-platform Buildx load, non-root inspection, live health polling, and cleanup trap.
 
-- [ ] **Step 2: Run and confirm RED**
+- [x] **Step 2: Run and confirm RED**
 
 Run: `npm --prefix web run check:release-contracts`
 
 Expected: non-zero with `required file is missing: .github/workflows/docker.yml`.
 
-- [ ] **Step 3: Implement Docker publishing**
+- [x] **Step 3: Implement Docker publishing**
 
 The workflow uses the reviewed action pins and computes the image list without exposing secrets:
 
@@ -224,7 +224,7 @@ The workflow uses the reviewed action pins and computes the image list without e
 
 Metadata includes tag ref, semver version, major.minor, tag-only `latest`, and `sha-<short>`. Build args are `VERSION`, UTC `BUILD_TIME`, and `GIT_COMMIT`; Buildx pushes both platforms with `cache-from/cache-to type=gha`, provenance, and SBOM.
 
-- [ ] **Step 4: Add the blocking CI container smoke**
+- [x] **Step 4: Add the blocking CI container smoke**
 
 After Web/Rust jobs, Buildx loads `linux/amd64` as `raindrop:ci`, then the smoke step:
 
@@ -243,11 +243,11 @@ done
 test "$(docker inspect --format '{{.State.Health.Status}}' "$container")" = "healthy"
 ```
 
-- [ ] **Step 5: Verify and observe remote CI**
+- [x] **Step 5: Verify and observe remote CI**
 
 Run local contracts and syntax parsing, commit/push, then use `gh run list`/`gh run watch` to require the branch CI `container-smoke` job to pass. Do not dispatch the publishing workflow or create registry packages from a feature branch.
 
-- [ ] **Step 6: Commit and push**
+- [x] **Step 6: Commit and push**
 
 ```bash
 git add .github/workflows/docker.yml .github/workflows/ci.yml web/scripts/verify-release-contracts.mjs docs/superpowers/plans/2026-07-18-release-delivery-v1.md

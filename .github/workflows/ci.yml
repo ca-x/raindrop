@@ -37,6 +37,9 @@ jobs:
       - name: Verify npm version
         run: test "$(npm --version)" = "12.0.1"
 
+      - name: Verify release delivery contracts
+        run: npm --prefix web run check:release-contracts
+
       - name: Install locked web dependencies without scripts
         run: npm --prefix web ci --ignore-scripts
 
@@ -137,8 +140,8 @@ jobs:
 
       - name: Configure masked RSS test database URLs
         env:
-          POSTGRES_TEST_PORT: ${{ job.services.postgres.ports[5432] }}
-          MYSQL_TEST_PORT: ${{ job.services.mysql.ports[3306] }}
+          POSTGRES_TEST_PORT: ${{ job.services.postgres.ports['5432'] }}
+          MYSQL_TEST_PORT: ${{ job.services.mysql.ports['3306'] }}
         run: |
           postgres_url="postgres://raindrop@127.0.0.1:"
           postgres_url+="${POSTGRES_TEST_PORT}/raindrop_test"
@@ -314,3 +317,57 @@ jobs:
 
       - name: Verify release version
         run: ./target/release/raindrop --version
+
+  container-smoke:
+    name: Non-root container build and health
+    needs: [supply-chain, web, rust]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+
+      - name: Build local smoke image
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: raindrop:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Verify non-root startup and live health
+        run: |
+          set -euo pipefail
+          container=raindrop-ci-smoke
+          trap 'docker rm --force --volumes "$container" >/dev/null 2>&1 || true' EXIT
+          docker run --detach --name "$container" \
+            --publish 127.0.0.1::8080 \
+            --tmpfs /tmp:rw,noexec,nosuid,size=16m \
+            raindrop:ci >/dev/null
+
+          test "$(docker inspect --format '{{.Config.User}}' "$container")" = "10001:10001"
+          docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$container" \
+            | grep -Fx 'RAINDROP_DATA_DIR=/data'
+          docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$container" \
+            | grep -Fx 'RAINDROP_BIND=0.0.0.0:8080'
+
+          port="$(docker port "$container" 8080/tcp | sed -n 's/.*://p')"
+          test -n "$port"
+          for attempt in {1..60}; do
+            health="$(docker inspect --format '{{.State.Health.Status}}' "$container")"
+            if curl --fail --silent "http://127.0.0.1:${port}/api/v1/health/live" >/dev/null \
+              && [[ "$health" == "healthy" ]]; then
+              break
+            fi
+            test "$attempt" -lt 60
+            sleep 1
+          done
+          test "$(docker inspect --format '{{.State.Health.Status}}' "$container")" = "healthy"
