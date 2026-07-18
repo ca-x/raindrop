@@ -9,6 +9,7 @@
     "build": "vite build",
     "generate:reader-types": "node scripts/generate-reader-types.mjs",
     "check:reader-types": "node scripts/generate-reader-types.mjs --check",
+    "check:release-contracts": "node scripts/verify-release-contracts.mjs",
     "typecheck": "tsc -b --pretty false",
     "test:ci": "vitest run",
     "test:embedded": "npm run build && npm run test:embedded:rust",
