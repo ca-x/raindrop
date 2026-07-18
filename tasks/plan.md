@@ -2,9 +2,9 @@
 
 权威设计规格：`docs/superpowers/specs/2026-07-16-raindrop-design.md`。
 
-当前详细计划：`docs/superpowers/plans/2026-07-18-ai-provider-core-v1.md`。
+当前详细计划：`docs/superpowers/plans/2026-07-19-official-ai-plugin-contract-registry-core-v1.md`。
 
-当前进展：Refresh Observability v1 已由 CI run `29646491921` 验证，AI Provider Adapters v1 已由 CI run `29648253330` 验证。AI Provider Core v1 已由 CI run `29652502840` 完整验证：三数据库 provider 记录、独立可轮换 AES-GCM keyring、不可变 provider kind、canonical capability/quota/cost policy、DNS-pinned SSRF-safe HTTPS transport，以及统一 `ProviderClient` 均已落地。下一 AI 切片是 provider 管理 API/UI 与 content jobs/artifacts，再进入官方 Wasm 插件、摘要/翻译和 Reader sidecar。在这些能力以及 MCP 真正接通前，AI、插件和 MCP 总任务继续保持未完成。OIDC、OPML、排序/阅读游标和真实 `v*` 发布 smoke 仍保留在后续任务。
+当前进展：Refresh Observability v1 已由 CI run `29646491921` 验证，AI Provider Adapters v1 已由 CI run `29648253330` 验证，AI Provider Core v1 已由 CI run `29652502840` 验证，Content Jobs / Artifacts Core v1 已由 CI run `29655164960` 验证。Official AI Plugin Contract / Registry Core v1 现已落地：可解析的版本化 WIT、官方 manifest/config/artifact/lifecycle 合同、组件 SHA-256 + Ed25519 验证、四张三数据库插件注册表以及 tenant-safe config/grant/KV 仓储均已完成。下一真实依赖是 Wasmtime Component Host / Broker Composition v1，再实现官方 `raindrop.ai-content` 组件、摘要/翻译 worker、lifecycle dispatcher、MCP 和 Reader sidecar。在这些能力真正接通前，AI、插件和 MCP 总任务继续保持未完成。OIDC、OPML、排序/阅读游标和真实 `v*` 发布 smoke 仍保留在后续任务。
 
 ## 依赖顺序
 

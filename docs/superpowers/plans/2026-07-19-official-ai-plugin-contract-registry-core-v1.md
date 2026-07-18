@@ -1,6 +1,6 @@
 # Official AI Plugin Contract / Registry Core v1 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: use `executing-plans` to implement this plan task-by-task. This plan intentionally forbids sub-agent execution per user instruction. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: use `executing-plans` to implement this plan task-by-task. This plan intentionally forbids sub-agent execution per user instruction. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Create a cryptographically verified, versioned plugin contract and tenant-safe durable registry that future Wasmtime/AI/MCP slices must use.
 
@@ -29,11 +29,11 @@
 - Consumes: parent plugin design and completed provider/content-job contracts.
 - Produces: exact scope, schemas, public seams, security frame, persistence semantics, and verification gates for all later tasks.
 
-- [ ] Verify the documents contain no unresolved placeholder with:
+- [x] Verify the documents contain no unresolved placeholder with:
   `rg -n 'T[B]D|T[O]DO|implement lat[e]r|fill in det[a]ils|Similar to T[a]sk' docs/superpowers/specs/2026-07-19-official-ai-plugin-contract-registry-core-v1-design.md docs/superpowers/plans/2026-07-19-official-ai-plugin-contract-registry-core-v1.md`
-- [ ] Review the parent specification headings 6-12 and confirm every in-scope contract maps to Tasks 2-5.
-- [ ] Commit only the two documents with `git add <two exact paths> && git commit -m "docs: design official plugin registry core"`.
-- [ ] Push `feature/foundation-bootstrap` immediately.
+- [x] Review the parent specification headings 6-12 and confirm every in-scope contract maps to Tasks 2-5.
+- [x] Commit only the two documents with `git add <two exact paths> && git commit -m "docs: design official plugin registry core"`.
+- [x] Push `feature/foundation-bootstrap` immediately.
 
 ### Task 2: Add parseable WIT and canonical JSON contract assets
 
@@ -56,11 +56,11 @@
 - Consumes: package/world/function/schema/event names from the binding specification.
 - Produces: files consumed by `src/plugins/contracts.rs` and future Wasmtime component bindings.
 
-- [ ] Write `tests/plugin_contract_assets.rs` to call `wit_parser::Resolve::push_dir`, select `content-plugin-v1`, parse every JSON asset, assert exact schema IDs, and assert the manifest template still uses `valueSource` rather than a fake production value.
-- [ ] Run `cargo test --test plugin_contract_assets`; expected red result is the missing assets/dev dependency.
-- [ ] Run `cargo add wit-parser@0.253.0 --dev --no-default-features --features std` and add the exact WIT/JSON files.
-- [ ] Run `cargo test --test plugin_contract_assets`; expected result is all asset contract tests passing.
-- [ ] Commit the exact asset/test/dependency paths with message `feat: define content plugin contract assets` and push.
+- [x] Write `tests/plugin_contract_assets.rs` to call `wit_parser::Resolve::push_dir`, select `content-plugin-v1`, parse every JSON asset, assert exact schema IDs, and assert the manifest template still uses `valueSource` rather than a fake production value.
+- [x] Run `cargo test --test plugin_contract_assets`; expected red result is the missing assets/dev dependency.
+- [x] Run `cargo add wit-parser@0.253.0 --dev --no-default-features --features std` and add the exact WIT/JSON files.
+- [x] Run `cargo test --test plugin_contract_assets`; expected result is all asset contract tests passing.
+- [x] Commit the exact asset/test/dependency paths with message `feat: define content plugin contract assets` and push.
 
 ### Task 3: Add fail-closed contract validators and bundle verification
 
@@ -79,14 +79,14 @@
 - Consumes: committed contract assets and injected `OfficialSigningKey` values.
 - Produces: `BundledOfficialPlugin::verify`, `AiContentConfig::parse`, `SummaryArtifact::parse`, `TranslationArtifact::parse`, `LifecycleEvent::parse`, stable getters, canonical JSON/hash values, and redacted `PluginRegistryErrorKind`.
 
-- [ ] Write one manifest red test covering valid deterministic Ed25519 verification plus duplicate keys, placeholder fields, wrong digest, unknown key, bad signature, invalid identity, and error redaction.
-- [ ] Implement unique-key bounded JSON parsing, recursive canonicalization, SHA-256 digest comparison, exact signature framing, key lookup, and Ed25519 verification until the manifest test is green.
-- [ ] Write config red tests for exact valid config, unknown fields, invalid UUID/locale/MCP cross-field rules, duplicate tool bindings, automatic-scope rules, secret-like unsupported fields, and size limits.
-- [ ] Implement strict Serde DTOs plus semantic validation and BLAKE3 config hashing until config tests are green.
-- [ ] Write artifact/lifecycle red tests for exact fixtures, unknown fields, raw HTML/script protocols, wrong sequences/types, oversized values, and redacted errors.
-- [ ] Implement artifact/lifecycle parsers and stable getters until all tests pass.
-- [ ] Run `cargo test --test plugin_contract_validation --test plugin_contract_assets`.
-- [ ] Commit exact validator/module/test paths with message `feat: verify official plugin contracts` and push.
+- [x] Write one manifest red test covering valid deterministic Ed25519 verification plus duplicate keys, placeholder fields, wrong digest, unknown key, bad signature, invalid identity, and error redaction.
+- [x] Implement unique-key bounded JSON parsing, recursive canonicalization, SHA-256 digest comparison, exact signature framing, key lookup, and Ed25519 verification until the manifest test is green.
+- [x] Write config red tests for exact valid config, unknown fields, invalid UUID/locale/MCP cross-field rules, duplicate tool bindings, automatic-scope rules, secret-like unsupported fields, and size limits.
+- [x] Implement strict Serde DTOs plus semantic validation and BLAKE3 config hashing until config tests are green.
+- [x] Write artifact/lifecycle red tests for exact fixtures, unknown fields, raw HTML/script protocols, wrong sequences/types, oversized values, and redacted errors.
+- [x] Implement artifact/lifecycle parsers and stable getters until all tests pass.
+- [x] Run `cargo test --test plugin_contract_validation --test plugin_contract_assets`.
+- [x] Commit exact validator/module/test paths with message `feat: verify official plugin contracts` and push.
 
 ### Task 4: Add the portable plugin registry schema and entities
 
@@ -104,12 +104,12 @@
 - Consumes: validated storage field bounds from Task 3.
 - Produces: four tables/entities and named portable indexes for Task 5.
 
-- [ ] Write the SQLite migration red test to inspect every table/column/index, round-trip representative records, verify unique/cascade/restrict behavior, roll back all four tables, and reapply migrations.
-- [ ] Implement `CreatePluginRegistry` after `CreateContentJobs`, creating installation -> config/grant/KV tables in dependency order and dropping them in reverse order.
-- [ ] Use named unique/index contracts for plugin key, config owner, grant key hash, active grant lookup, and KV owner scope; use operational microsecond timestamps on all three backends.
-- [ ] Add focused SeaORM entities and module exports.
-- [ ] Run `cargo test --test plugin_registry_migration --test database_migrations`.
-- [ ] Commit exact migration/entity/test paths with message `feat: persist plugin registry records` and push.
+- [x] Write the SQLite migration red test to inspect every table/column/index, round-trip representative records, verify unique/cascade/restrict behavior, roll back all four tables, and reapply migrations.
+- [x] Implement `CreatePluginRegistry` after `CreateContentJobs`, creating installation -> config/grant/KV tables in dependency order and dropping them in reverse order.
+- [x] Use named unique/index contracts for plugin key, config owner, grant key hash, active grant lookup, and KV owner scope; use operational microsecond timestamps on all three backends.
+- [x] Add focused SeaORM entities and module exports.
+- [x] Run `cargo test --test plugin_registry_migration --test database_migrations`.
+- [x] Commit exact migration/entity/test paths with message `feat: persist plugin registry records` and push.
 
 ### Task 5: Implement tenant-safe registry repository contracts
 
@@ -124,17 +124,17 @@
 - Consumes: `BundledOfficialPlugin`, config/grant/KV validators, four SeaORM entities.
 - Produces: `PluginRegistryRepository::{sync_bundled,get_installation,replace_ai_config,get_ai_config,grant_capability,revoke_capability,list_active_grants,get_kv,put_kv,delete_kv}` and stable domain models.
 
-- [ ] Write the SQLite tracer test for signed bundle sync, exact replay, version/digest update revision, template rejection before storage, and corrupt-row fail-closed behavior.
-- [ ] Implement installation synchronization with a transaction and unique constraint arbitration.
-- [ ] Write config tests for create/read/update, stale revision conflict, disabled/missing user, cross-user isolation, and stored JSON corruption.
-- [ ] Implement canonical config persistence and owner-bound reads with optimistic revision.
-- [ ] Write grant tests for deterministic key identity, exact active list, regrant/revoke revisions, stale conflicts, no secret echo, and tenant isolation.
-- [ ] Implement grant hash/upsert/revoke/list behavior.
-- [ ] Write KV tests for get/put/delete, 64 KiB value, 128-key limit, 1 MiB total limit, replacement accounting, stale owner/plugin rejection, concurrent quota convergence, and tenant isolation.
-- [ ] Implement short owner-first KV transactions and quota checks.
-- [ ] Run SQLite tests, then expose the same repository contract through `tests/plugin_registry_backend_contracts.rs` for SQLite/PostgreSQL/MySQL.
-- [ ] Run `cargo test --test plugin_registry_repository --test plugin_registry_backend_contracts`.
-- [ ] Commit exact repository/model/test paths with message `feat: manage plugin registry state` and push.
+- [x] Write the SQLite tracer test for signed bundle sync, exact replay, version/digest update revision, template rejection before storage, and corrupt-row fail-closed behavior.
+- [x] Implement installation synchronization with a transaction and unique constraint arbitration.
+- [x] Write config tests for create/read/update, stale revision conflict, disabled/missing user, cross-user isolation, and stored JSON corruption.
+- [x] Implement canonical config persistence and owner-bound reads with optimistic revision.
+- [x] Write grant tests for deterministic key identity, exact active list, regrant/revoke revisions, stale conflicts, no secret echo, and tenant isolation.
+- [x] Implement grant hash/upsert/revoke/list behavior.
+- [x] Write KV tests for get/put/delete, 64 KiB value, 128-key limit, 1 MiB total limit, replacement accounting, stale owner/plugin rejection, concurrent quota convergence, and tenant isolation.
+- [x] Implement short owner-first KV transactions and quota checks.
+- [x] Run SQLite tests, then expose the same repository contract through `tests/plugin_registry_backend_contracts.rs` for SQLite/PostgreSQL/MySQL.
+- [x] Run `cargo test --test plugin_registry_repository --test plugin_registry_backend_contracts`.
+- [x] Commit exact repository/model/test paths with message `feat: manage plugin registry state` and push.
 
 ### Task 6: Record completion boundaries and run final gates
 
@@ -148,11 +148,11 @@
 - Consumes: verified Tasks 2-5.
 - Produces: accurate project status that marks only contract/registry core complete and leaves runtime/component/AI/MCP/UI work pending.
 
-- [ ] Update the global plan pointer and split AI/plugin checklist items into Provider Core, Content Job Core, Contract/Registry Core, Wasmtime/component, lifecycle, MCP, and UI sub-items.
-- [ ] Write the SDD report with exact commits, files, limits, test counts, exclusions, and next dependency: Wasmtime Component Host / Broker Composition v1.
-- [ ] Run `cargo fmt --all -- --check`.
-- [ ] Run `cargo clippy --all-targets --all-features -- -D warnings`.
-- [ ] Run the targeted plugin test set.
-- [ ] Run `cargo test --all-targets`; the IT之家 live smoke may remain the single documented opt-in ignored test.
-- [ ] Inspect `git status --short`, `git diff --check`, and the staged secret scan before committing.
-- [ ] Commit exact docs/task/report paths with message `docs: record plugin registry core` and push.
+- [x] Update the global plan pointer and split AI/plugin checklist items into Provider Core, Content Job Core, Contract/Registry Core, Wasmtime/component, lifecycle, MCP, and UI sub-items.
+- [x] Write the SDD report with exact commits, files, limits, test counts, exclusions, and next dependency: Wasmtime Component Host / Broker Composition v1.
+- [x] Run `cargo fmt --all -- --check`.
+- [x] Run `cargo clippy --all-targets --all-features -- -D warnings`.
+- [x] Run the targeted plugin test set.
+- [x] Run `cargo test --all-targets`; the IT之家 live smoke may remain the single documented opt-in ignored test.
+- [x] Inspect `git status --short`, `git diff --check`, and the staged secret scan before committing.
+- [x] Commit exact docs/task/report paths with message `docs: record plugin registry core` and push.

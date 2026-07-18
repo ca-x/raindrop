@@ -40,15 +40,19 @@
 
 ## 5. AI content
 
-- [ ] provider/processor 统一接口，以及 Anthropic Messages-compatible、OpenAI Responses、OpenAI Chat Completions-compatible、Google Gemini 四类 adapter。
-- [ ] content jobs/artifacts、摘要、翻译、缓存、版本和额度。
+- [x] Provider Core：Anthropic Messages-compatible、OpenAI Responses、OpenAI Chat Completions-compatible、Google Gemini 四类 adapter，独立加密 keyring、SSRF-safe transport 和统一 `ProviderClient`。
+- [x] Content Jobs / Artifacts Core：幂等入队、租约/fencing、崩溃恢复、有界 retry、immutable artifact identity 和三数据库原子终态。
+- [ ] 官方 `raindrop.ai-content` Wasm 组件、ProviderClient broker composition、摘要/翻译 prompt/schema 执行、额度预留与 artifact 生成。
+- [ ] provider 管理 API/UI、content execution API 和重试入口。
 - [ ] AI artifact UI 与 prompt injection 安全测试。
 
 ## 6. Plugin ecosystem
 
-- [ ] WIT ABI、SDK、manifest/capability 和 Wasmtime sandbox。
-- [ ] `before/fetched/entry.process/persisted/completed` 生命周期。
-- [ ] outbox、幂等重试、熔断、管理 UI 和示例插件。
+- [x] Contract Core：`raindrop:content-plugin@1.0.0` WIT、官方 manifest/config/artifact schema、五类 lifecycle fixture 和 CI parser gate。
+- [x] Registry Core：官方 bundle SHA-256/Ed25519 验证、installation/config/capability grant/KV 三数据库记录、CAS 和配额合同。
+- [ ] Wasmtime Component Host：无 ambient WASI、fuel/memory/epoch/output 限制、guest bindings 和 host capability broker。
+- [ ] `before/fetched/entry.process/persisted/completed` runtime dispatcher、delivery、outbox 重投与熔断。
+- [ ] 插件管理 API/UI、官方组件打包发现、后续 SDK 和第三方 additive 扩展文档。
 
 ## 7. MCP
 
