@@ -1,0 +1,821 @@
+use sea_orm_migration::prelude::*;
+
+use super::operational_timestamp;
+
+#[derive(DeriveMigrationName)]
+pub struct CreateContentJobs;
+
+#[async_trait::async_trait]
+impl MigrationTrait for CreateContentJobs {
+    async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        create_jobs(manager).await?;
+        create_attempts(manager).await?;
+        create_artifacts(manager).await?;
+        create_results(manager).await?;
+        Ok(())
+    }
+
+    async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .drop_table(
+                Table::drop()
+                    .table(ContentJobResults::Table)
+                    .if_exists()
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .drop_table(
+                Table::drop()
+                    .table(ContentArtifacts::Table)
+                    .if_exists()
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .drop_table(
+                Table::drop()
+                    .table(ContentJobAttempts::Table)
+                    .if_exists()
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .drop_table(
+                Table::drop()
+                    .table(ContentJobs::Table)
+                    .if_exists()
+                    .to_owned(),
+            )
+            .await?;
+        Ok(())
+    }
+}
+
+async fn create_jobs(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    manager
+        .create_table(
+            Table::create()
+                .table(ContentJobs::Table)
+                .if_not_exists()
+                .col(ColumnDef::new(ContentJobs::Id).string_len(36).primary_key())
+                .col(
+                    ColumnDef::new(ContentJobs::UserId)
+                        .string_len(36)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentJobs::EntryId)
+                        .string_len(36)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentJobs::Operation)
+                        .string_len(32)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentJobs::ArtifactKind)
+                        .string_len(32)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentJobs::TargetLocale)
+                        .string_len(35)
+                        .null(),
+                )
+                .col(
+                    ColumnDef::new(ContentJobs::TriggerKind)
+                        .string_len(32)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentJobs::PluginKey)
+                        .string_len(128)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentJobs::PluginVersion)
+                        .string_len(64)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentJobs::ComponentDigest)
+                        .string_len(64)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentJobs::ProviderBindingId)
+                        .string_len(36)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentJobs::ProviderKind)
+                        .string_len(40)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentJobs::ProviderModel)
+                        .string_len(200)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentJobs::ProviderRevision)
+                        .big_integer()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentJobs::PromptVersion)
+                        .string_len(64)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentJobs::SchemaId)
+                        .string_len(255)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentJobs::EntryContentHash)
+                        .string_len(64)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentJobs::InputHash)
+                        .string_len(64)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentJobs::ConfigHash)
+                        .string_len(64)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentJobs::McpProvenanceHash)
+                        .string_len(64)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentJobs::ArtifactIdentityHash)
+                        .string_len(64)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentJobs::IdempotencyKey)
+                        .string_len(255)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentJobs::IdempotencyKeyHash)
+                        .string_len(64)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentJobs::RequestHash)
+                        .string_len(64)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentJobs::CallChainId)
+                        .string_len(64)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentJobs::RemainingDepth)
+                        .integer()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentJobs::Status)
+                        .string_len(16)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentJobs::Attempts)
+                        .integer()
+                        .not_null()
+                        .default(0),
+                )
+                .col(
+                    ColumnDef::new(ContentJobs::MaxAttempts)
+                        .integer()
+                        .not_null()
+                        .default(3),
+                )
+                .col(
+                    ColumnDef::new(ContentJobs::TimeoutSeconds)
+                        .integer()
+                        .not_null(),
+                )
+                .col(operational_timestamp(manager, ContentJobs::NextAttemptAt).not_null())
+                .col(
+                    ColumnDef::new(ContentJobs::LeaseOwner)
+                        .string_len(64)
+                        .null(),
+                )
+                .col(
+                    ColumnDef::new(ContentJobs::LeaseToken)
+                        .big_integer()
+                        .not_null()
+                        .default(0),
+                )
+                .col(operational_timestamp(manager, ContentJobs::LeaseUntil).null())
+                .col(operational_timestamp(manager, ContentJobs::AttemptDeadlineAt).null())
+                .col(
+                    ColumnDef::new(ContentJobs::LastErrorCode)
+                        .string_len(64)
+                        .null(),
+                )
+                .col(operational_timestamp(manager, ContentJobs::CreatedAt).not_null())
+                .col(operational_timestamp(manager, ContentJobs::StartedAt).null())
+                .col(operational_timestamp(manager, ContentJobs::CompletedAt).null())
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_content_jobs_user")
+                        .from(ContentJobs::Table, ContentJobs::UserId)
+                        .to(Users::Table, Users::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_content_jobs_entry")
+                        .from(ContentJobs::Table, ContentJobs::EntryId)
+                        .to(Entries::Table, Entries::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .to_owned(),
+        )
+        .await?;
+
+    create_index(
+        manager,
+        "content_jobs",
+        "uq_content_jobs_idempotency",
+        Index::create()
+            .name("uq_content_jobs_idempotency")
+            .table(ContentJobs::Table)
+            .col(ContentJobs::UserId)
+            .col(ContentJobs::IdempotencyKeyHash)
+            .unique()
+            .to_owned(),
+    )
+    .await?;
+    create_index(
+        manager,
+        "content_jobs",
+        "idx_content_jobs_due",
+        Index::create()
+            .name("idx_content_jobs_due")
+            .table(ContentJobs::Table)
+            .col(ContentJobs::Status)
+            .col(ContentJobs::NextAttemptAt)
+            .col(ContentJobs::LeaseUntil)
+            .col(ContentJobs::CreatedAt)
+            .col(ContentJobs::Id)
+            .to_owned(),
+    )
+    .await?;
+    create_index(
+        manager,
+        "content_jobs",
+        "idx_content_jobs_user_status",
+        Index::create()
+            .name("idx_content_jobs_user_status")
+            .table(ContentJobs::Table)
+            .col(ContentJobs::UserId)
+            .col(ContentJobs::Status)
+            .col(ContentJobs::CreatedAt)
+            .col(ContentJobs::Id)
+            .to_owned(),
+    )
+    .await?;
+    create_index(
+        manager,
+        "content_jobs",
+        "idx_content_jobs_entry",
+        Index::create()
+            .name("idx_content_jobs_entry")
+            .table(ContentJobs::Table)
+            .col(ContentJobs::UserId)
+            .col(ContentJobs::EntryId)
+            .col(ContentJobs::ArtifactKind)
+            .col(ContentJobs::TargetLocale)
+            .col(ContentJobs::CreatedAt)
+            .col(ContentJobs::Id)
+            .to_owned(),
+    )
+    .await?;
+    create_index(
+        manager,
+        "content_jobs",
+        "idx_content_jobs_identity",
+        Index::create()
+            .name("idx_content_jobs_identity")
+            .table(ContentJobs::Table)
+            .col(ContentJobs::UserId)
+            .col(ContentJobs::ArtifactIdentityHash)
+            .col(ContentJobs::Status)
+            .to_owned(),
+    )
+    .await
+}
+
+async fn create_attempts(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    manager
+        .create_table(
+            Table::create()
+                .table(ContentJobAttempts::Table)
+                .if_not_exists()
+                .col(
+                    ColumnDef::new(ContentJobAttempts::Id)
+                        .string_len(36)
+                        .primary_key(),
+                )
+                .col(
+                    ColumnDef::new(ContentJobAttempts::JobId)
+                        .string_len(36)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentJobAttempts::Attempt)
+                        .integer()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentJobAttempts::LeaseToken)
+                        .big_integer()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentJobAttempts::Status)
+                        .string_len(16)
+                        .not_null(),
+                )
+                .col(operational_timestamp(manager, ContentJobAttempts::StartedAt).not_null())
+                .col(operational_timestamp(manager, ContentJobAttempts::DeadlineAt).not_null())
+                .col(operational_timestamp(manager, ContentJobAttempts::CompletedAt).null())
+                .col(
+                    ColumnDef::new(ContentJobAttempts::ErrorCode)
+                        .string_len(64)
+                        .null(),
+                )
+                .col(
+                    ColumnDef::new(ContentJobAttempts::Retryable)
+                        .boolean()
+                        .null(),
+                )
+                .col(
+                    ColumnDef::new(ContentJobAttempts::OutcomeUnknown)
+                        .boolean()
+                        .not_null()
+                        .default(false),
+                )
+                .col(
+                    ColumnDef::new(ContentJobAttempts::ProviderRequestCount)
+                        .integer()
+                        .not_null()
+                        .default(0),
+                )
+                .col(
+                    ColumnDef::new(ContentJobAttempts::McpCallCount)
+                        .integer()
+                        .not_null()
+                        .default(0),
+                )
+                .col(
+                    ColumnDef::new(ContentJobAttempts::InputTokens)
+                        .big_integer()
+                        .not_null()
+                        .default(0),
+                )
+                .col(
+                    ColumnDef::new(ContentJobAttempts::OutputTokens)
+                        .big_integer()
+                        .not_null()
+                        .default(0),
+                )
+                .col(
+                    ColumnDef::new(ContentJobAttempts::EstimatedCostMicros)
+                        .big_integer()
+                        .not_null()
+                        .default(0),
+                )
+                .col(
+                    ColumnDef::new(ContentJobAttempts::ExecutionMetadataJson)
+                        .text()
+                        .not_null(),
+                )
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_content_job_attempts_job")
+                        .from(ContentJobAttempts::Table, ContentJobAttempts::JobId)
+                        .to(ContentJobs::Table, ContentJobs::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .to_owned(),
+        )
+        .await?;
+
+    create_index(
+        manager,
+        "content_job_attempts",
+        "uq_content_job_attempt_number",
+        Index::create()
+            .name("uq_content_job_attempt_number")
+            .table(ContentJobAttempts::Table)
+            .col(ContentJobAttempts::JobId)
+            .col(ContentJobAttempts::Attempt)
+            .unique()
+            .to_owned(),
+    )
+    .await?;
+    create_index(
+        manager,
+        "content_job_attempts",
+        "idx_content_attempts_job",
+        Index::create()
+            .name("idx_content_attempts_job")
+            .table(ContentJobAttempts::Table)
+            .col(ContentJobAttempts::JobId)
+            .col(ContentJobAttempts::StartedAt)
+            .col(ContentJobAttempts::Id)
+            .to_owned(),
+    )
+    .await
+}
+
+async fn create_artifacts(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    manager
+        .create_table(
+            Table::create()
+                .table(ContentArtifacts::Table)
+                .if_not_exists()
+                .col(
+                    ColumnDef::new(ContentArtifacts::Id)
+                        .string_len(36)
+                        .primary_key(),
+                )
+                .col(
+                    ColumnDef::new(ContentArtifacts::UserId)
+                        .string_len(36)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentArtifacts::EntryId)
+                        .string_len(36)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentArtifacts::ProducerJobId)
+                        .string_len(36)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentArtifacts::Kind)
+                        .string_len(32)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentArtifacts::Locale)
+                        .string_len(35)
+                        .null(),
+                )
+                .col(
+                    ColumnDef::new(ContentArtifacts::SchemaId)
+                        .string_len(255)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentArtifacts::EntryContentHash)
+                        .string_len(64)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentArtifacts::InputHash)
+                        .string_len(64)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentArtifacts::ConfigHash)
+                        .string_len(64)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentArtifacts::ProcessorKey)
+                        .string_len(128)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentArtifacts::ProcessorVersion)
+                        .string_len(64)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentArtifacts::ComponentDigest)
+                        .string_len(64)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentArtifacts::ProviderBindingId)
+                        .string_len(36)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentArtifacts::ProviderKind)
+                        .string_len(40)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentArtifacts::ProviderModel)
+                        .string_len(200)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentArtifacts::ProviderRevision)
+                        .big_integer()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentArtifacts::ProviderLabel)
+                        .string_len(200)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentArtifacts::PromptVersion)
+                        .string_len(64)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentArtifacts::McpProvenanceHash)
+                        .string_len(64)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentArtifacts::IdentityHash)
+                        .string_len(64)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentArtifacts::PayloadJson)
+                        .text()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentArtifacts::ProvenanceJson)
+                        .text()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentArtifacts::PayloadSizeBytes)
+                        .integer()
+                        .not_null(),
+                )
+                .col(operational_timestamp(manager, ContentArtifacts::CreatedAt).not_null())
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_content_artifacts_user")
+                        .from(ContentArtifacts::Table, ContentArtifacts::UserId)
+                        .to(Users::Table, Users::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_content_artifacts_entry")
+                        .from(ContentArtifacts::Table, ContentArtifacts::EntryId)
+                        .to(Entries::Table, Entries::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_content_artifacts_producer_job")
+                        .from(ContentArtifacts::Table, ContentArtifacts::ProducerJobId)
+                        .to(ContentJobs::Table, ContentJobs::Id)
+                        .on_delete(ForeignKeyAction::Restrict),
+                )
+                .to_owned(),
+        )
+        .await?;
+
+    create_index(
+        manager,
+        "content_artifacts",
+        "uq_content_artifact_identity",
+        Index::create()
+            .name("uq_content_artifact_identity")
+            .table(ContentArtifacts::Table)
+            .col(ContentArtifacts::UserId)
+            .col(ContentArtifacts::IdentityHash)
+            .unique()
+            .to_owned(),
+    )
+    .await?;
+    create_index(
+        manager,
+        "content_artifacts",
+        "idx_content_artifacts_entry",
+        Index::create()
+            .name("idx_content_artifacts_entry")
+            .table(ContentArtifacts::Table)
+            .col(ContentArtifacts::UserId)
+            .col(ContentArtifacts::EntryId)
+            .col(ContentArtifacts::Kind)
+            .col(ContentArtifacts::Locale)
+            .col(ContentArtifacts::CreatedAt)
+            .col(ContentArtifacts::Id)
+            .to_owned(),
+    )
+    .await?;
+    create_index(
+        manager,
+        "content_artifacts",
+        "idx_content_artifacts_producer",
+        Index::create()
+            .name("idx_content_artifacts_producer")
+            .table(ContentArtifacts::Table)
+            .col(ContentArtifacts::ProducerJobId)
+            .to_owned(),
+    )
+    .await
+}
+
+async fn create_results(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    manager
+        .create_table(
+            Table::create()
+                .table(ContentJobResults::Table)
+                .if_not_exists()
+                .col(
+                    ColumnDef::new(ContentJobResults::JobId)
+                        .string_len(36)
+                        .primary_key(),
+                )
+                .col(
+                    ColumnDef::new(ContentJobResults::ArtifactId)
+                        .string_len(36)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ContentJobResults::WasReused)
+                        .boolean()
+                        .not_null(),
+                )
+                .col(operational_timestamp(manager, ContentJobResults::LinkedAt).not_null())
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_content_job_results_job")
+                        .from(ContentJobResults::Table, ContentJobResults::JobId)
+                        .to(ContentJobs::Table, ContentJobs::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_content_job_results_artifact")
+                        .from(ContentJobResults::Table, ContentJobResults::ArtifactId)
+                        .to(ContentArtifacts::Table, ContentArtifacts::Id)
+                        .on_delete(ForeignKeyAction::Restrict),
+                )
+                .to_owned(),
+        )
+        .await?;
+
+    create_index(
+        manager,
+        "content_job_results",
+        "idx_content_job_results_artifact",
+        Index::create()
+            .name("idx_content_job_results_artifact")
+            .table(ContentJobResults::Table)
+            .col(ContentJobResults::ArtifactId)
+            .col(ContentJobResults::JobId)
+            .to_owned(),
+    )
+    .await
+}
+
+async fn create_index(
+    manager: &SchemaManager<'_>,
+    table: &str,
+    name: &str,
+    statement: IndexCreateStatement,
+) -> Result<(), DbErr> {
+    if !manager.has_index(table, name).await? {
+        manager.create_index(statement).await?;
+    }
+    Ok(())
+}
+
+#[derive(DeriveIden, Clone, Copy)]
+enum ContentJobs {
+    Table,
+    Id,
+    UserId,
+    EntryId,
+    Operation,
+    ArtifactKind,
+    TargetLocale,
+    TriggerKind,
+    PluginKey,
+    PluginVersion,
+    ComponentDigest,
+    ProviderBindingId,
+    ProviderKind,
+    ProviderModel,
+    ProviderRevision,
+    PromptVersion,
+    SchemaId,
+    EntryContentHash,
+    InputHash,
+    ConfigHash,
+    McpProvenanceHash,
+    ArtifactIdentityHash,
+    IdempotencyKey,
+    IdempotencyKeyHash,
+    RequestHash,
+    CallChainId,
+    RemainingDepth,
+    Status,
+    Attempts,
+    MaxAttempts,
+    TimeoutSeconds,
+    NextAttemptAt,
+    LeaseOwner,
+    LeaseToken,
+    LeaseUntil,
+    AttemptDeadlineAt,
+    LastErrorCode,
+    CreatedAt,
+    StartedAt,
+    CompletedAt,
+}
+
+#[derive(DeriveIden, Clone, Copy)]
+enum ContentJobAttempts {
+    Table,
+    Id,
+    JobId,
+    Attempt,
+    LeaseToken,
+    Status,
+    StartedAt,
+    DeadlineAt,
+    CompletedAt,
+    ErrorCode,
+    Retryable,
+    OutcomeUnknown,
+    ProviderRequestCount,
+    McpCallCount,
+    InputTokens,
+    OutputTokens,
+    EstimatedCostMicros,
+    ExecutionMetadataJson,
+}
+
+#[derive(DeriveIden, Clone, Copy)]
+enum ContentArtifacts {
+    Table,
+    Id,
+    UserId,
+    EntryId,
+    ProducerJobId,
+    Kind,
+    Locale,
+    SchemaId,
+    EntryContentHash,
+    InputHash,
+    ConfigHash,
+    ProcessorKey,
+    ProcessorVersion,
+    ComponentDigest,
+    ProviderBindingId,
+    ProviderKind,
+    ProviderModel,
+    ProviderRevision,
+    ProviderLabel,
+    PromptVersion,
+    McpProvenanceHash,
+    IdentityHash,
+    PayloadJson,
+    ProvenanceJson,
+    PayloadSizeBytes,
+    CreatedAt,
+}
+
+#[derive(DeriveIden, Clone, Copy)]
+enum ContentJobResults {
+    Table,
+    JobId,
+    ArtifactId,
+    WasReused,
+    LinkedAt,
+}
+
+#[derive(DeriveIden)]
+enum Users {
+    Table,
+    Id,
+}
+
+#[derive(DeriveIden)]
+enum Entries {
+    Table,
+    Id,
+}

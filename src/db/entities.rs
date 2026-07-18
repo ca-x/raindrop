@@ -1,5 +1,9 @@
 pub mod ai_provider;
 pub mod category;
+pub mod content_artifact;
+pub mod content_job;
+pub mod content_job_attempt;
+pub mod content_job_result;
 pub mod entry;
 pub mod entry_state;
 pub mod feed;

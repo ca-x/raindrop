@@ -5,6 +5,7 @@ use super::DbError;
 
 mod ai_providers;
 mod bootstrap_state;
+mod content_jobs;
 mod organization;
 mod preferences;
 mod rss;
@@ -52,6 +53,7 @@ impl MigratorTrait for Migrator {
             Box::new(organization::CreateOrganizationTables),
             Box::new(preferences::CreateUserPreferences),
             Box::new(ai_providers::CreateAiProviders),
+            Box::new(content_jobs::CreateContentJobs),
         ]
     }
 }
