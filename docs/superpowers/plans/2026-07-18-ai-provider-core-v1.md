@@ -41,14 +41,14 @@
 - Produces optional `RuntimeConfig::provider_secret_keys() -> &[SecretString]` containing validated `key-id:base64url` entries in active-first order.
 - Freezes the four existing provider kinds to their final uppercase storage values before the first ciphertext fixture is written.
 
-- [ ] Add `ring = "=0.17.14"` as a direct dependency and refresh only the root lockfile dependency list.
-- [ ] Write failing config tests named `provider_secret_key_environment_replaces_toml`, `provider_secret_key_entries_are_validated_without_echo`, and `provider_secret_key_configuration_is_optional`. Use deterministic 32-byte URL-safe base64 test keys and assert malformed sentinel values never appear in the full error chain.
-- [ ] Write failing secret tests covering exact envelope prefix, nonce length, non-deterministic ciphertext, active/previous key rotation, wrong provider ID, wrong kind, unknown key ID, tampering, empty/8,193-byte plaintext, malformed base64, duplicate key IDs/material, and redacted formatting.
-- [ ] Implement config grammar `RAINDROP_PROVIDER_SECRET_KEYS=id:key,id:key` and TOML `provider_secret_keys = ["id:key"]`; environment replaces the complete file list. Keep each raw entry in `SecretString` and validate ID/base64/32-byte length without preserving decoded bytes.
-- [ ] Add `ProviderKind::as_storage` with exact values `ANTHROPIC_MESSAGES`, `OPENAI_RESPONSES`, `OPENAI_CHAT_COMPLETIONS`, and `GOOGLE_GEMINI`; use it in every AAD byte sequence.
-- [ ] Implement `ProviderSecretKeyring` with ring `AES_256_GCM`, `SystemRandom`, 12-byte nonce, envelope `rdsec1.<id>.<nonce>.<ciphertext+tag>`, and AAD `raindrop.ai-provider-secret.v1\0<id>\0<kind>`. Keyring `Debug` prints only active ID and key count.
-- [ ] Use `base64::engine::general_purpose::URL_SAFE_NO_PAD`; reject padded encodings and non-canonical re-encoding. Zeroize decoded key buffers and temporary plaintext buffers after constructing `SecretString`.
-- [ ] Verify:
+- [x] Add `ring = "=0.17.14"` as a direct dependency and refresh only the root lockfile dependency list.
+- [x] Write failing config tests named `provider_secret_key_environment_replaces_toml`, `provider_secret_key_entries_are_validated_without_echo`, and `provider_secret_key_configuration_is_optional`. Use deterministic 32-byte URL-safe base64 test keys and assert malformed sentinel values never appear in the full error chain.
+- [x] Write failing secret tests covering exact envelope prefix, nonce length, non-deterministic ciphertext, active/previous key rotation, wrong provider ID, wrong kind, unknown key ID, tampering, empty/8,193-byte plaintext, malformed base64, duplicate key IDs/material, and redacted formatting.
+- [x] Implement config grammar `RAINDROP_PROVIDER_SECRET_KEYS=id:key,id:key` and TOML `provider_secret_keys = ["id:key"]`; environment replaces the complete file list. Keep each raw entry in `SecretString` and validate ID/base64/32-byte length without preserving decoded bytes.
+- [x] Add `ProviderKind::as_storage` with exact values `ANTHROPIC_MESSAGES`, `OPENAI_RESPONSES`, `OPENAI_CHAT_COMPLETIONS`, and `GOOGLE_GEMINI`; use it in every AAD byte sequence.
+- [x] Implement `ProviderSecretKeyring` with ring `AES_256_GCM`, `SystemRandom`, 12-byte nonce, envelope `rdsec1.<id>.<nonce>.<ciphertext+tag>`, and AAD `raindrop.ai-provider-secret.v1\0<id>\0<kind>`. Keyring `Debug` prints only active ID and key count.
+- [x] Use `base64::engine::general_purpose::URL_SAFE_NO_PAD`; reject padded encodings and non-canonical re-encoding. Zeroize decoded key buffers and temporary plaintext buffers after constructing `SecretString`.
+- [x] Verify:
 
 ```bash
 cargo fmt --check
@@ -58,7 +58,7 @@ cargo clippy --locked --all-targets --all-features -- -D warnings
 git diff --check
 ```
 
-- [ ] Explicitly stage the dependency, config, secret module, and two tests; scan the staged diff for test-only placeholders versus real secrets; commit and push `feat: encrypt ai provider credentials`.
+- [x] Explicitly stage the dependency, config, secret module, and two tests; scan the staged diff for test-only placeholders versus real secrets; commit and push `feat: encrypt ai provider credentials`.
 
 ### Task 2: Portable authoritative provider schema
 

@@ -1,6 +1,6 @@
-use std::{net::SocketAddr, path::PathBuf, time::Duration};
+use std::{fmt, net::SocketAddr, path::PathBuf, time::Duration};
 
-use secrecy::SecretString;
+use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 use url::Url;
 
@@ -27,13 +27,13 @@ pub struct LoadedConfig {
     pub sources: ConfigSources,
 }
 
-#[derive(Debug)]
 pub struct RuntimeConfig {
     pub bind: SocketAddr,
     pub public_url: Option<Url>,
     pub data_dir: PathBuf,
     pub database_url: Option<SecretString>,
     pub session_secret: Option<SecretString>,
+    provider_secret_keys: Vec<SecretString>,
     pub bootstrap_admin: Option<BootstrapAdmin>,
     feed_retention: FeedRetentionConfig,
     database_kind: Option<DatabaseKind>,
@@ -48,6 +48,11 @@ impl RuntimeConfig {
     #[must_use]
     pub const fn feed_retention(&self) -> FeedRetentionConfig {
         self.feed_retention
+    }
+
+    #[must_use]
+    pub fn provider_secret_keys(&self) -> &[SecretString] {
+        &self.provider_secret_keys
     }
 
     pub(crate) const fn new(
@@ -65,6 +70,7 @@ impl RuntimeConfig {
             data_dir,
             database_url,
             session_secret,
+            provider_secret_keys: Vec::new(),
             bootstrap_admin,
             feed_retention: FeedRetentionConfig::DEFAULT,
             database_kind,
@@ -74,6 +80,40 @@ impl RuntimeConfig {
     pub(crate) const fn with_feed_retention(mut self, feed_retention: FeedRetentionConfig) -> Self {
         self.feed_retention = feed_retention;
         self
+    }
+
+    pub(crate) fn with_provider_secret_keys(
+        mut self,
+        provider_secret_keys: Vec<SecretString>,
+    ) -> Self {
+        self.provider_secret_keys = provider_secret_keys;
+        self
+    }
+}
+
+impl fmt::Debug for RuntimeConfig {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let provider_secret_key_ids = self
+            .provider_secret_keys
+            .iter()
+            .filter_map(|entry| entry.expose_secret().split_once(':').map(|(id, _)| id))
+            .collect::<Vec<_>>();
+        formatter
+            .debug_struct("RuntimeConfig")
+            .field("bind", &self.bind)
+            .field("public_url", &self.public_url)
+            .field("data_dir", &self.data_dir)
+            .field("database_url", &self.database_url)
+            .field("session_secret", &self.session_secret)
+            .field("provider_secret_key_ids", &provider_secret_key_ids)
+            .field(
+                "provider_secret_key_count",
+                &self.provider_secret_keys.len(),
+            )
+            .field("bootstrap_admin", &self.bootstrap_admin)
+            .field("feed_retention", &self.feed_retention)
+            .field("database_kind", &self.database_kind)
+            .finish()
     }
 }
 
@@ -148,6 +188,7 @@ pub(crate) struct FileConfig {
     pub public_url: Option<String>,
     pub database_url: Option<String>,
     pub session_secret: Option<String>,
+    pub provider_secret_keys: Option<Vec<String>>,
     pub feed_orphan_retention_days: Option<u32>,
     pub bootstrap_admin: Option<FileBootstrapAdmin>,
 }

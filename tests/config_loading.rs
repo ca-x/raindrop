@@ -1,5 +1,6 @@
 use std::{collections::HashMap, fs, time::Duration};
 
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use raindrop::config::{BootstrapMode, ConfigArgs, DatabaseKind, EnvSource, load};
 use secrecy::ExposeSecret;
 use tempfile::tempdir;
@@ -198,6 +199,73 @@ fn malformed_toml_discards_secret_source_input_from_the_error_chain() {
     for sentinel in sentinels {
         assert!(!chain.contains(sentinel), "error disclosed {sentinel}");
     }
+}
+
+#[test]
+fn provider_secret_key_environment_replaces_toml() {
+    let data = tempdir().expect("temporary directory should be created");
+    let file_entry = provider_key_entry("file", 1);
+    fs::write(
+        data.path().join("config.toml"),
+        format!("provider_secret_keys = ['{file_entry}']\n"),
+    )
+    .expect("configuration file should be written");
+    let env_entry = provider_key_entry("environment", 2);
+    let env = MapEnv::from([("RAINDROP_PROVIDER_SECRET_KEYS", env_entry.as_str())]);
+
+    let loaded = load(&ConfigArgs::for_test(data.path()), &env)
+        .expect("environment provider key should replace the file list");
+    let entries = loaded.runtime.provider_secret_keys();
+
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].expose_secret(), env_entry);
+    assert!(!format!("{loaded:?}").contains(entries[0].expose_secret()));
+}
+
+#[test]
+fn provider_secret_key_entries_are_validated_without_echo() {
+    let duplicate_id = format!(
+        "primary:{},primary:{}",
+        URL_SAFE_NO_PAD.encode([1_u8; 32]),
+        URL_SAFE_NO_PAD.encode([2_u8; 32])
+    );
+    let duplicate_key = format!(
+        "primary:{0},previous:{0}",
+        URL_SAFE_NO_PAD.encode([3_u8; 32])
+    );
+    for invalid in [
+        "secret-sentinel-invalid-entry".to_owned(),
+        "-invalid:secret-sentinel-invalid-id".to_owned(),
+        "primary:secret-sentinel-invalid-base64".to_owned(),
+        format!("primary:{}", URL_SAFE_NO_PAD.encode([4_u8; 31])),
+        format!("primary:{}=", URL_SAFE_NO_PAD.encode([5_u8; 32])),
+        duplicate_id,
+        duplicate_key,
+    ] {
+        let data = tempdir().expect("temporary directory should be created");
+        let env = MapEnv::from([("RAINDROP_PROVIDER_SECRET_KEYS", invalid.as_str())]);
+
+        let error = load(&ConfigArgs::for_test(data.path()), &env)
+            .expect_err("invalid provider key configuration should fail");
+        let chain = error_chain(&error);
+
+        assert!(chain.contains("RAINDROP_PROVIDER_SECRET_KEYS"));
+        assert!(!chain.contains(&invalid));
+        assert!(!chain.contains("secret-sentinel"));
+    }
+}
+
+#[test]
+fn provider_secret_key_configuration_is_optional() {
+    let data = tempdir().expect("temporary directory should be created");
+    let loaded = load(&ConfigArgs::for_test(data.path()), &MapEnv::default())
+        .expect("configuration without provider keys should load");
+
+    assert!(loaded.runtime.provider_secret_keys().is_empty());
+}
+
+fn provider_key_entry(id: &str, byte: u8) -> String {
+    format!("{id}:{}", URL_SAFE_NO_PAD.encode([byte; 32]))
 }
 
 fn error_chain(error: &dyn std::error::Error) -> String {

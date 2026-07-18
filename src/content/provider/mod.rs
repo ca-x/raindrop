@@ -2,9 +2,11 @@ mod anthropic;
 mod gemini;
 mod openai_chat;
 mod openai_responses;
+mod secret;
 mod types;
 mod validation;
 
+pub use secret::{ProviderSecretError, ProviderSecretErrorKind, ProviderSecretKeyring};
 pub use types::{
     EncodedProviderRequest, FinishReason, OutputSchema, ProviderAdapterError,
     ProviderAdapterErrorKind, ProviderHeader, ProviderKind, StructuredGenerationRequest,

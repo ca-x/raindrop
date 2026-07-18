@@ -3,6 +3,8 @@ use std::{env, fs, net::SocketAddr, path::Path, time::Duration};
 use url::Url;
 use uuid::Uuid;
 
+use crate::content::provider::ProviderSecretKeyring;
+
 use super::{
     model::{
         BootstrapAdmin, BootstrapMode, ConfigArgs, ConfigError, ConfigSources, DatabaseKind,
@@ -68,6 +70,7 @@ pub fn load(args: &ConfigArgs, env: &impl EnvSource) -> Result<LoadedConfig, Con
         .or(file.session_secret)
         .map(validate_session_secret)
         .transpose()?;
+    let provider_secret_keys = load_provider_secret_keys(env, file.provider_secret_keys)?;
     let feed_retention = load_feed_retention(env, file.feed_orphan_retention_days)?;
     let bootstrap_admin = load_bootstrap_admin(env, file.bootstrap_admin)?;
 
@@ -89,6 +92,7 @@ pub fn load(args: &ConfigArgs, env: &impl EnvSource) -> Result<LoadedConfig, Con
             bootstrap_admin,
             database_kind,
         )
+        .with_provider_secret_keys(provider_secret_keys)
         .with_feed_retention(feed_retention),
         mode,
         sources: ConfigSources {
@@ -96,6 +100,36 @@ pub fn load(args: &ConfigArgs, env: &impl EnvSource) -> Result<LoadedConfig, Con
             database_from_env,
         },
     })
+}
+
+fn load_provider_secret_keys(
+    env: &impl EnvSource,
+    file_entries: Option<Vec<String>>,
+) -> Result<Vec<secrecy::SecretString>, ConfigError> {
+    let (entries, source_name, configured) = match env.get("RAINDROP_PROVIDER_SECRET_KEYS") {
+        Some(value) => (
+            value.split(',').map(str::to_owned).collect::<Vec<_>>(),
+            "RAINDROP_PROVIDER_SECRET_KEYS",
+            true,
+        ),
+        None => {
+            let configured = file_entries.is_some();
+            (
+                file_entries.unwrap_or_default(),
+                "provider_secret_keys",
+                configured,
+            )
+        }
+    };
+    if !configured {
+        return Ok(Vec::new());
+    }
+    let entries = entries.into_iter().map(secret).collect::<Vec<_>>();
+    ProviderSecretKeyring::validate_entries(&entries).map_err(|_| ConfigError::InvalidValue {
+        name: source_name,
+        reason: "expected active-first key-id:base64url entries with unique 32-byte keys",
+    })?;
+    Ok(entries)
 }
 
 fn load_feed_retention(

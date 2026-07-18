@@ -14,6 +14,18 @@ pub enum ProviderKind {
     GoogleGemini,
 }
 
+impl ProviderKind {
+    #[must_use]
+    pub const fn as_storage(self) -> &'static str {
+        match self {
+            Self::AnthropicMessages => "ANTHROPIC_MESSAGES",
+            Self::OpenAiResponses => "OPENAI_RESPONSES",
+            Self::OpenAiChatCompletions => "OPENAI_CHAT_COMPLETIONS",
+            Self::GoogleGemini => "GOOGLE_GEMINI",
+        }
+    }
+}
+
 pub struct OutputSchema {
     pub name: String,
     pub schema: Value,
