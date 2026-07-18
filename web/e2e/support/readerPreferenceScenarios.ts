@@ -83,8 +83,10 @@ export async function verifyCompactPreferences(
   await choosePreferences(dialog, desired)
 
   if (failBeforeSuccess) {
+    const failedPatchCount = fixture.preferences.patches.length + 1
     fixture.preferences.failNextPatch()
     await dialog.getByRole("button", { name: "Save changes" }).click()
+    await expect.poll(() => fixture.preferences.patches.length).toBe(failedPatchCount)
     await expect(dialog.getByText("Preferences could not be saved")).toBeVisible()
     await expect(dialog.getByRole("radio", { name: "Dark" })).toBeChecked()
     await expect(dialog.getByRole("radio", { name: "中文" })).toBeChecked()

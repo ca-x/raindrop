@@ -68,6 +68,19 @@ it("preserves the draft and inline error when saving fails", async () => {
   )
 })
 
+it("keeps a save error while the draft is edited for a retry", async () => {
+  activateLocale("en")
+  const user = userEvent.setup()
+  const onClearError = vi.fn()
+  renderDialog({ error: "SAVE", onClearError })
+  const dialog = screen.getByRole("dialog", { name: "Settings" })
+
+  await user.click(within(dialog).getByRole("radio", { name: "Dark" }))
+
+  expect(within(dialog).getByText("Preferences could not be saved")).toBeVisible()
+  expect(onClearError).not.toHaveBeenCalled()
+})
+
 it("cancels without saving and uses a viewport-bounded form dialog", async () => {
   activateLocale("en")
   const user = userEvent.setup()

@@ -48,7 +48,9 @@ export async function verifyMediumFeedSearchAndMenu(
   await expect(page.getByRole("menuitem", {
     name: "Mark all is unavailable in this view",
   })).toHaveAttribute("aria-disabled", "true")
-  await page.keyboard.press("Escape")
+  const nextUnreadItem = page.getByRole("menuitem", { name: "Next unread source" })
+  await nextUnreadItem.press("Escape")
+  await expect(nextUnreadItem).not.toBeVisible()
 
   await page.getByRole("button", { name: "Clear Search this feed" }).click()
   await expect.poll(() => fixture.entryLists.at(-1)?.search).toBeNull()
