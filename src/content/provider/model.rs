@@ -529,6 +529,10 @@ impl fmt::Display for ProviderCoreError {
 
 impl std::error::Error for ProviderCoreError {}
 
+pub(super) fn validate_provider_id(value: &str) -> Result<(), ProviderCoreError> {
+    validate_uuid(value, ProviderCoreErrorKind::InvalidProviderId)
+}
+
 pub(super) fn normalize_display_name(value: &str) -> Result<String, ProviderCoreError> {
     let value = value.trim();
     if !(1..=MAX_DISPLAY_NAME_BYTES).contains(&value.len())

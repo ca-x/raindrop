@@ -1,10 +1,12 @@
 #[allow(dead_code)]
 mod support;
 
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use raindrop::{
     content::provider::{
         CreateProvider, ProviderCapabilities, ProviderCoreErrorKind, ProviderEndpoint,
-        ProviderKind, ProviderPolicy, ProviderScope, UpdateProvider,
+        ProviderKind, ProviderPolicy, ProviderRepository, ProviderScope, ProviderSecretKeyring,
+        UpdateProvider,
     },
     db::{
         entities::{ai_provider, user},
@@ -12,7 +14,8 @@ use raindrop::{
     },
 };
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, DatabaseConnection, EntityTrait, PaginatorTrait,
+    ActiveModelTrait, ActiveValue::Set, ColumnTrait, DatabaseConnection, EntityTrait,
+    IntoActiveModel, PaginatorTrait, QueryFilter,
 };
 use sea_orm_migration::SchemaManager;
 use secrecy::SecretString;
@@ -458,6 +461,325 @@ async fn ai_provider_storage_contract(database_url: SecretString) {
         .await
         .expect("provider migrations should recreate after rollback");
     assert_schema(&database).await;
+    assert_repository_contract(&database).await;
+}
+
+async fn assert_repository_contract(database: &DatabaseConnection) {
+    insert_user(database, USER_A_ID, "provider-user-a").await;
+    insert_user(
+        database,
+        "00000000-0000-4000-8000-000000000002",
+        "provider-user-b",
+    )
+    .await;
+    insert_user(
+        database,
+        "00000000-0000-4000-8000-000000000003",
+        "provider-user-disabled",
+    )
+    .await;
+    let disabled = user::Entity::find_by_id("00000000-0000-4000-8000-000000000003")
+        .one(database)
+        .await
+        .unwrap()
+        .unwrap();
+    let mut disabled = disabled.into_active_model();
+    disabled.is_disabled = Set(true);
+    disabled.update(database).await.unwrap();
+
+    let repository = ProviderRepository::new(database.clone(), provider_keyring("primary", 31));
+    let instance = repository
+        .create(CreateProvider {
+            display_name: "Zulu instance".to_owned(),
+            ..valid_create()
+        })
+        .await
+        .expect("instance provider should create");
+    let user_provider = repository
+        .create(CreateProvider {
+            scope: ProviderScope::user(USER_A_ID).unwrap(),
+            display_name: "alpha user".to_owned(),
+            endpoint: Some("https://gateway.example/api/tenant-sentinel/".to_owned()),
+            credential: SecretString::from("repository-credential-sentinel"),
+            ..valid_create()
+        })
+        .await
+        .expect("user provider should create");
+    let other_user_provider = repository
+        .create(CreateProvider {
+            scope: ProviderScope::user("00000000-0000-4000-8000-000000000002").unwrap(),
+            display_name: "Other user".to_owned(),
+            ..valid_create()
+        })
+        .await
+        .expect("other user provider should create");
+    let disabled_provider = repository
+        .create(CreateProvider {
+            display_name: "Disabled".to_owned(),
+            is_enabled: false,
+            ..valid_create()
+        })
+        .await
+        .expect("disabled provider should create");
+
+    assert_eq!(
+        repository
+            .create(CreateProvider {
+                scope: ProviderScope::user("00000000-0000-4000-8000-000000000003").unwrap(),
+                ..valid_create()
+            })
+            .await
+            .expect_err("disabled owner should not receive a provider")
+            .kind(),
+        ProviderCoreErrorKind::NotFound
+    );
+
+    let stored = ai_provider::Entity::find_by_id(user_provider.id())
+        .one(database)
+        .await
+        .expect("ciphertext row should query")
+        .expect("ciphertext row should exist");
+    assert!(stored.encrypted_secret.starts_with("rdsec1.primary."));
+    assert!(
+        !stored
+            .encrypted_secret
+            .contains("repository-credential-sentinel")
+    );
+    let original_ciphertext = stored.encrypted_secret.clone();
+
+    assert_eq!(
+        repository
+            .get(user_provider.id(), &ProviderScope::Instance)
+            .await
+            .expect_err("wrong scope should be invisible")
+            .kind(),
+        ProviderCoreErrorKind::NotFound
+    );
+    assert_eq!(
+        repository
+            .get(
+                instance.id(),
+                &ProviderScope::user(USER_A_ID).expect("user scope should construct"),
+            )
+            .await
+            .expect_err("instance provider should require instance scope for mutation")
+            .kind(),
+        ProviderCoreErrorKind::NotFound
+    );
+    let listed = repository
+        .list_for_user(USER_A_ID)
+        .await
+        .expect("user-visible providers should list");
+    assert_eq!(
+        listed
+            .iter()
+            .map(|provider| provider.id())
+            .collect::<Vec<_>>(),
+        vec![user_provider.id(), disabled_provider.id(), instance.id(),]
+    );
+    assert!(
+        !listed
+            .iter()
+            .any(|provider| provider.id() == other_user_provider.id())
+    );
+
+    let binding = repository
+        .load_enabled_binding(user_provider.id(), USER_A_ID)
+        .await
+        .expect("owned provider binding should load and decrypt");
+    let formatted = format!("{user_provider:?} {binding:?}");
+    for sentinel in [
+        "tenant-sentinel",
+        "gpt-test-model",
+        "repository-credential-sentinel",
+        original_ciphertext.as_str(),
+    ] {
+        assert!(!formatted.contains(sentinel));
+    }
+    repository
+        .load_enabled_binding(instance.id(), USER_A_ID)
+        .await
+        .expect("instance provider binding should be visible");
+    assert_eq!(
+        repository
+            .load_enabled_binding(user_provider.id(), "00000000-0000-4000-8000-000000000002")
+            .await
+            .expect_err("another user should not load the binding")
+            .kind(),
+        ProviderCoreErrorKind::NotFound
+    );
+    assert_eq!(
+        repository
+            .load_enabled_binding(disabled_provider.id(), USER_A_ID)
+            .await
+            .expect_err("disabled provider should not bind")
+            .kind(),
+        ProviderCoreErrorKind::ProviderDisabled
+    );
+    assert_eq!(
+        repository
+            .load_enabled_binding(instance.id(), "00000000-0000-4000-8000-000000000003",)
+            .await
+            .expect_err("disabled user should not load an instance binding")
+            .kind(),
+        ProviderCoreErrorKind::NotFound
+    );
+
+    let renamed = repository
+        .update(
+            user_provider.id(),
+            user_provider.scope(),
+            UpdateProvider {
+                expected_revision: user_provider.revision(),
+                display_name: Some("  Renamed user  ".to_owned()),
+                ..UpdateProvider::default()
+            },
+        )
+        .await
+        .expect("metadata update should succeed");
+    assert_eq!(renamed.display_name(), "Renamed user");
+    assert_eq!(renamed.kind(), ProviderKind::OpenAiResponses);
+    assert_eq!(renamed.revision(), 1);
+    let unchanged_ciphertext = ai_provider::Entity::find_by_id(user_provider.id())
+        .one(database)
+        .await
+        .unwrap()
+        .unwrap()
+        .encrypted_secret;
+    assert_eq!(unchanged_ciphertext, original_ciphertext);
+
+    let rotated = repository
+        .update(
+            user_provider.id(),
+            user_provider.scope(),
+            UpdateProvider {
+                expected_revision: renamed.revision(),
+                credential: Some(SecretString::from("replacement-credential-sentinel")),
+                ..UpdateProvider::default()
+            },
+        )
+        .await
+        .expect("credential replacement should succeed");
+    assert_eq!(rotated.revision(), 2);
+    let replacement_ciphertext = ai_provider::Entity::find_by_id(user_provider.id())
+        .one(database)
+        .await
+        .unwrap()
+        .unwrap()
+        .encrypted_secret;
+    assert_ne!(replacement_ciphertext, original_ciphertext);
+    assert!(!replacement_ciphertext.contains("replacement-credential-sentinel"));
+    repository
+        .load_enabled_binding(user_provider.id(), USER_A_ID)
+        .await
+        .expect("replacement credential should decrypt");
+
+    assert_eq!(
+        repository
+            .update(
+                user_provider.id(),
+                user_provider.scope(),
+                UpdateProvider {
+                    expected_revision: renamed.revision(),
+                    is_enabled: Some(false),
+                    ..UpdateProvider::default()
+                },
+            )
+            .await
+            .expect_err("stale revision should conflict")
+            .kind(),
+        ProviderCoreErrorKind::RevisionConflict
+    );
+
+    let unknown_key_repository =
+        ProviderRepository::new(database.clone(), provider_keyring("replacement", 32));
+    assert_eq!(
+        unknown_key_repository
+            .load_enabled_binding(user_provider.id(), USER_A_ID)
+            .await
+            .expect_err("missing decryption key should fail closed")
+            .kind(),
+        ProviderCoreErrorKind::SecretUnavailable
+    );
+
+    corrupt_column(
+        database,
+        instance.id(),
+        ai_provider::Column::Kind,
+        "UNKNOWN",
+    )
+    .await;
+    assert_eq!(
+        repository
+            .get(instance.id(), &ProviderScope::Instance)
+            .await
+            .expect_err("unknown kind should be corrupt")
+            .kind(),
+        ProviderCoreErrorKind::CorruptData
+    );
+    corrupt_integer_column(
+        database,
+        disabled_provider.id(),
+        ai_provider::Column::MaxConcurrency,
+        0,
+    )
+    .await;
+    assert_eq!(
+        repository
+            .get(disabled_provider.id(), &ProviderScope::Instance)
+            .await
+            .expect_err("invalid policy should be corrupt")
+            .kind(),
+        ProviderCoreErrorKind::CorruptData
+    );
+    corrupt_column(
+        database,
+        user_provider.id(),
+        ai_provider::Column::EncryptedSecret,
+        "rdsec1.primary.invalid.invalid",
+    )
+    .await;
+    assert_eq!(
+        repository
+            .load_enabled_binding(user_provider.id(), USER_A_ID)
+            .await
+            .expect_err("tampered ciphertext should fail closed")
+            .kind(),
+        ProviderCoreErrorKind::SecretUnavailable
+    );
+}
+
+async fn corrupt_column(
+    database: &DatabaseConnection,
+    provider_id: &str,
+    column: ai_provider::Column,
+    value: &str,
+) {
+    ai_provider::Entity::update_many()
+        .col_expr(column, sea_orm::sea_query::Expr::value(value.to_owned()))
+        .filter(ai_provider::Column::Id.eq(provider_id))
+        .exec(database)
+        .await
+        .expect("test corruption should update one row");
+}
+
+async fn corrupt_integer_column(
+    database: &DatabaseConnection,
+    provider_id: &str,
+    column: ai_provider::Column,
+    value: i32,
+) {
+    ai_provider::Entity::update_many()
+        .col_expr(column, sea_orm::sea_query::Expr::value(value))
+        .filter(ai_provider::Column::Id.eq(provider_id))
+        .exec(database)
+        .await
+        .expect("test corruption should update one row");
+}
+
+fn provider_keyring(id: &str, byte: u8) -> ProviderSecretKeyring {
+    let entry = SecretString::from(format!("{id}:{}", URL_SAFE_NO_PAD.encode([byte; 32])));
+    ProviderSecretKeyring::from_entries(&[entry]).expect("test keyring should construct")
 }
 
 async fn assert_schema(database: &DatabaseConnection) {

@@ -143,12 +143,12 @@ git diff --check
 - Produces `create`, `get`, `list_for_user`, `update`, and `load_enabled_binding` with the exact signatures in the specification.
 - Consumes Task 2 entity and Task 3 validated types; no HTTP/auth layer or generic ORM model escapes.
 
-- [ ] Write the full shared repository contract and run it first on SQLite. Cover instance/user creation, ciphertext-at-rest assertion through a direct test query, exact-scope visibility, Rust-sorted user listing independent of database collation, disabled binding, user-disabled create, cascade delete, immutable kind, unchanged ciphertext without credential patch, changed ciphertext with credential patch, revision conflict, unknown/corrupt kind, invalid policy, and tampered/unknown-key ciphertext.
-- [ ] Implement conversion from entity to metadata that validates every persisted field. Any invalid database fact returns `CorruptData` without formatting the entity.
-- [ ] Implement create as one short transaction: validate input, ensure active user for user scope, generate UUID, encrypt with ID/kind AAD, insert, and return metadata.
-- [ ] Implement exact scope predicates. Instance uses `owner_user_id IS NULL`; user uses exact UUID. Cross-scope ID and missing ID both return `NotFound`.
-- [ ] Implement update by loading the exact row, constructing and validating the complete prospective state, optionally encrypting a new credential, and issuing a revision-predicated `update_many`. Increment revision with checked arithmetic; zero rows returns `RevisionConflict`.
-- [ ] Implement binding load for `(instance OR requesting user) AND enabled`; decrypt only after the row passes scope, kind, endpoint, model, capability, policy, and enabled validation.
+- [x] Write the full shared repository contract and run it first on SQLite. Cover instance/user creation, ciphertext-at-rest assertion through a direct test query, exact-scope visibility, Rust-sorted user listing independent of database collation, disabled binding, user-disabled create, cascade delete, immutable kind, unchanged ciphertext without credential patch, changed ciphertext with credential patch, revision conflict, unknown/corrupt kind, invalid policy, and tampered/unknown-key ciphertext.
+- [x] Implement conversion from entity to metadata that validates every persisted field. Any invalid database fact returns `CorruptData` without formatting the entity.
+- [x] Implement create as one short transaction: validate input, ensure active user for user scope, generate UUID, encrypt with ID/kind AAD, insert, and return metadata.
+- [x] Implement exact scope predicates. Instance uses `owner_user_id IS NULL`; user uses exact UUID. Cross-scope ID and missing ID both return `NotFound`.
+- [x] Implement update by loading the exact row, constructing and validating the complete prospective state, optionally encrypting a new credential, and issuing a revision-predicated `update_many`. Increment revision with checked arithmetic; zero rows returns `RevisionConflict`.
+- [x] Implement binding load for `(instance OR requesting user) AND enabled`; decrypt only after the row passes scope, kind, endpoint, model, capability, policy, and enabled validation.
 - [ ] Run the same repository contract on PostgreSQL/MySQL. Add three explicit CI steps immediately after RSS schema verification:
 
 ```yaml
@@ -160,7 +160,7 @@ git diff --check
   run: cargo test --locked --test ai_provider_storage mysql -- --nocapture --test-threads=1
 ```
 
-- [ ] Verify:
+- [x] Verify:
 
 ```bash
 cargo fmt --check
@@ -169,7 +169,7 @@ cargo clippy --locked --all-targets --all-features -- -D warnings
 git diff --check
 ```
 
-- [ ] Explicitly stage repository, storage test, module export, and CI workflow; commit and push `feat: load scoped ai provider bindings`.
+- [x] Explicitly stage repository, storage test, module export, and CI workflow; commit and push `feat: load scoped ai provider bindings`.
 
 ### Task 5: DNS-pinned HTTPS transport
 
