@@ -204,6 +204,7 @@ async fn terminal_contract(url: SecretString, backend_name: &str) {
         .exec(&database)
         .await
         .unwrap();
+    close_fixture_run(&database, &disabled.id).await;
 
     let rollback = queue(&repository, "rollback").await;
     let rollback_claim = claimed(
@@ -252,7 +253,7 @@ async fn terminal_contract(url: SecretString, backend_name: &str) {
         before_feed
     );
     assert_eq!(
-        feed_refresh_run::Entity::find_by_id(rollback.id)
+        feed_refresh_run::Entity::find_by_id(&rollback.id)
             .one(&database)
             .await
             .unwrap()
@@ -270,6 +271,7 @@ async fn terminal_contract(url: SecretString, backend_name: &str) {
             .unwrap(),
         before_outbox
     );
+    close_fixture_run(&database, &rollback.id).await;
 
     let stale = queue(&repository, "stale").await;
     let stale_claim = claimed(
@@ -420,6 +422,30 @@ async fn queue(repository: &FeedRepository, key: &str) -> raindrop::feeds::Refre
         })
         .await
         .unwrap()
+}
+
+async fn close_fixture_run(database: &sea_orm::DatabaseConnection, run_id: &str) {
+    let now = time::OffsetDateTime::now_utc();
+    let mut run = feed_refresh_run::Entity::find_by_id(run_id)
+        .one(database)
+        .await
+        .unwrap()
+        .unwrap()
+        .into_active_model();
+    run.status = Set("CANCELLED".to_owned());
+    run.lease_token = Set(None);
+    run.completed_at = Set(Some(now));
+    run.update(database).await.unwrap();
+
+    let mut feed = feed::Entity::find_by_id(FEED_ID)
+        .one(database)
+        .await
+        .unwrap()
+        .unwrap()
+        .into_active_model();
+    feed.lease_owner = Set(None);
+    feed.lease_until = Set(None);
+    feed.update(database).await.unwrap();
 }
 
 fn claim_request(owner: &str) -> ClaimRequest {
