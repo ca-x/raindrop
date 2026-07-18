@@ -2,7 +2,7 @@
 
 权威设计规格：`docs/superpowers/specs/2026-07-16-raindrop-design.md`。
 
-当前详细计划：`docs/superpowers/plans/2026-07-18-category-organization-v1.md`。
+当前详细计划：`docs/superpowers/plans/2026-07-18-user-preferences-v1.md`。
 
 ## 依赖顺序
 
