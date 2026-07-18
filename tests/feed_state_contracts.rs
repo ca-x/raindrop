@@ -795,32 +795,20 @@ async fn backend_reports_lock_wait(
             .try_get::<bool>("", "waiting")
             .expect("PostgreSQL lock wait should decode"),
         DatabaseBackend::MySql => observer
-            .query_all(Statement::from_string(
+            .query_one(Statement::from_sql_and_values(
                 backend,
-                "SHOW PROCESSLIST".to_owned(),
+                "SELECT CAST(ID AS SIGNED) AS connection_id,
+                        COMMAND AS command, STATE AS state
+                 FROM information_schema.PROCESSLIST
+                 WHERE ID = ?",
+                [connection_id.into()],
             ))
             .await
             .expect("MySQL process list should query without PROCESS privilege")
-            .iter()
-            .find(|row| mysql_processlist_id(row) == connection_id)
+            .as_ref()
             .is_some_and(mysql_processlist_row_is_lock_wait),
         DatabaseBackend::Sqlite => unreachable!("backend contract is server-only"),
     }
-}
-
-fn mysql_processlist_id(row: &QueryResult) -> i64 {
-    for column in ["Id", "ID", "id"] {
-        if let Ok(value) = row.try_get::<i64>("", column) {
-            return value;
-        }
-        if let Ok(value) = row.try_get::<u64>("", column) {
-            return i64::try_from(value).expect("MySQL process ID should fit signed 64-bit");
-        }
-        if let Ok(value) = row.try_get::<u32>("", column) {
-            return i64::from(value);
-        }
-    }
-    panic!("MySQL SHOW PROCESSLIST ID column should decode");
 }
 
 fn mysql_processlist_row_is_lock_wait(row: &QueryResult) -> bool {
