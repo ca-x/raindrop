@@ -103,6 +103,8 @@ for (const screenshot of [
 requireMatch(binaryWorkflow, /^\s+tags:\s*\n\s+- ["']v\*["']$/mu, "v* binary tag trigger")
 requireMatch(binaryWorkflow, /^\s+workflow_dispatch:\s*$/mu, "manual binary trigger")
 requireMatch(binaryWorkflow, /^permissions:\s*\n\s+contents: read$/mu, "read-only binary permissions")
+requireCount(binaryWorkflow, /^\s+name: web-dist$/gmu, 2, "isolated embedded Web artifact name")
+requireNoMatch(binaryWorkflow, /^\s+name: raindrop-web-dist$/mu, "Web artifact overlaps release archive pattern")
 requireMatch(binaryWorkflow, /actions\/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02/u, "pinned upload-artifact")
 requireMatch(binaryWorkflow, /actions\/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093/u, "pinned download-artifact")
 requireMatch(binaryWorkflow, /softprops\/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b/u, "pinned release action")
