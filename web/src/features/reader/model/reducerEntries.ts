@@ -10,6 +10,7 @@ interface SourceReceipt {
   source: ReaderSource
   generation: number
   entries: EntryListItemResponse[]
+  snapshotGeneration: number
   mode: "replace" | "discover"
 }
 
@@ -32,6 +33,18 @@ export function receiveSource(state: ReaderState, receipt: SourceReceipt): Reade
   const discoveredIds = receivedIds.filter(
     (entryId) => !currentQueue.includes(entryId) && !pendingIds.includes(entryId),
   )
+  const hasPending = receipt.mode === "discover" && (pendingIds.length > 0 || discoveredIds.length > 0)
+  const pendingSnapshotGenerationBySource = {
+    ...state.pendingSnapshotGenerationBySource,
+  }
+  if (receipt.mode === "replace") {
+    delete pendingSnapshotGenerationBySource[key]
+  } else if (hasPending) {
+    pendingSnapshotGenerationBySource[key] = Math.max(
+      state.pendingSnapshotGenerationBySource[key] ?? 0,
+      receipt.snapshotGeneration,
+    )
+  }
   return {
     ...state,
     entriesById,
@@ -48,6 +61,14 @@ export function receiveSource(state: ReaderState, receipt: SourceReceipt): Reade
       ...state.pendingNewEntryCountBySource,
       [key]: receipt.mode === "replace" ? 0 : pendingIds.length + discoveredIds.length,
     },
+    snapshotGenerationBySource: {
+      ...state.snapshotGenerationBySource,
+      [key]:
+        receipt.mode === "replace"
+          ? receipt.snapshotGeneration
+          : state.snapshotGenerationBySource[key] ?? receipt.snapshotGeneration,
+    },
+    pendingSnapshotGenerationBySource,
     paneStatus: { ...state.paneStatus, queue: "ready" },
   }
 }

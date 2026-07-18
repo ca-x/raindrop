@@ -46,6 +46,9 @@ export interface ReaderState {
   }
   pendingNewEntriesBySource: Partial<Record<SourceKey, string[]>>
   pendingNewEntryCountBySource: Partial<Record<SourceKey, number>>
+  snapshotGenerationBySource: Partial<Record<SourceKey, number>>
+  pendingSnapshotGenerationBySource: Partial<Record<SourceKey, number>>
+  feedSearchQuery: string
   scrollAnchorByRoute: Record<string, number>
   paneStatus: {
     subscriptions: PaneStatus

@@ -82,17 +82,24 @@ describe("useReaderHotkeys", () => {
     expect(last.onOpenEntry).not.toHaveBeenCalled()
   })
 
-  it("allows repeated traversal and gives Shift the same letter meaning", () => {
+  it("allows repeated entry traversal and reserves Shift+J/K for unread sources", () => {
     const options = hotkeyOptions({ cursorEntryId: "first" })
     renderHook(() => useReaderHotkeys(options))
     const repeated = keyEvent("j", { repeat: true })
     window.dispatchEvent(repeated)
-    const shifted = keyEvent("J", { shiftKey: true })
-    window.dispatchEvent(shifted)
-    expect(options.onCursorChange).toHaveBeenCalledTimes(2)
+    const shiftedNext = keyEvent("J", { shiftKey: true })
+    const shiftedPrevious = keyEvent("K", { shiftKey: true })
+    const shiftedRepeat = keyEvent("J", { shiftKey: true, repeat: true })
+    window.dispatchEvent(shiftedNext)
+    window.dispatchEvent(shiftedPrevious)
+    window.dispatchEvent(shiftedRepeat)
+    expect(options.onCursorChange).toHaveBeenCalledOnce()
     expect(options.onCursorChange).toHaveBeenCalledWith("second")
+    expect(options.onNextUnreadSource).toHaveBeenCalledOnce()
+    expect(options.onPreviousUnreadSource).toHaveBeenCalledOnce()
     expect(repeated.defaultPrevented).toBe(true)
-    expect(shifted.defaultPrevented).toBe(true)
+    expect(shiftedNext.defaultPrevented).toBe(true)
+    expect(shiftedPrevious.defaultPrevented).toBe(true)
   })
 
   it("leaves editable targets and modified shortcuts native", () => {
@@ -185,6 +192,8 @@ function hotkeyOptions(overrides: Partial<UseReaderHotkeysOptions> & { unread?: 
     onOpenEntry: vi.fn(),
     onToggleRead: vi.fn(),
     onToggleStar: vi.fn(),
+    onNextUnreadSource: vi.fn(),
+    onPreviousUnreadSource: vi.fn(),
     ...overrides,
   }
 }

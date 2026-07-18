@@ -90,9 +90,15 @@ export function deleteSubscriptionState(
   const queueBySourceKey = { ...state.queueBySourceKey }
   const pendingNewEntriesBySource = { ...state.pendingNewEntriesBySource }
   const pendingNewEntryCountBySource = { ...state.pendingNewEntryCountBySource }
+  const snapshotGenerationBySource = { ...state.snapshotGenerationBySource }
+  const pendingSnapshotGenerationBySource = {
+    ...state.pendingSnapshotGenerationBySource,
+  }
   delete queueBySourceKey[feedKey]
   delete pendingNewEntriesBySource[feedKey]
   delete pendingNewEntryCountBySource[feedKey]
+  delete snapshotGenerationBySource[feedKey]
+  delete pendingSnapshotGenerationBySource[feedKey]
   const selectedDeletedFeed =
     state.selectedSource.kind === "feed" &&
     state.selectedSource.feedId === subscription.feedId
@@ -103,10 +109,13 @@ export function deleteSubscriptionState(
     queueBySourceKey,
     pendingNewEntriesBySource,
     pendingNewEntryCountBySource,
+    snapshotGenerationBySource,
+    pendingSnapshotGenerationBySource,
     selectedSource: selectedDeletedFeed
       ? { kind: "smart", state: "UNREAD" }
       : state.selectedSource,
     selectedEntryId: selectedDeletedFeed ? null : state.selectedEntryId,
+    feedSearchQuery: selectedDeletedFeed ? "" : state.feedSearchQuery,
     errors: { ...state.errors, mutation: null },
   }
 }

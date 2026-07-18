@@ -75,6 +75,8 @@ export function ReaderShell(props: ReaderShellProps) {
     onOpenEntry: props.onOpenEntryFromHotkey,
     onToggleRead: props.controller.toggleRead,
     onToggleStar: props.controller.toggleStar,
+    onNextUnreadSource: props.controller.nextUnreadSource,
+    onPreviousUnreadSource: props.controller.previousUnreadSource,
   })
   const sourceTree = (
     <SourceTree

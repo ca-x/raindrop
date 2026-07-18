@@ -72,6 +72,7 @@ function makeApi(overrides: Partial<ReaderApi> = {}): ReaderApi {
     })),
     getEntry: vi.fn(async () => makeDetail()),
     patchEntryState: vi.fn(),
+    markEntriesRead: vi.fn(),
     ...overrides,
   }
 }

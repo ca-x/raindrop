@@ -144,6 +144,7 @@ it("keeps pending read and star state across stale source detail and subscriptio
     type: "sourceReceived",
     source,
     generation: 1,
+    snapshotGeneration: 1,
     entries: [makeEntry({ title: "Reloaded", isRead: false, isStarred: false })],
     mode: "replace",
   })
@@ -210,6 +211,7 @@ it("rolls back one unread delta after a stale reload during a pending mutation",
     type: "sourceReceived",
     source,
     generation: 1,
+    snapshotGeneration: 1,
     entries: [makeEntry({ isRead: false })],
     mode: "replace",
   })

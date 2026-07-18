@@ -7,6 +7,7 @@ import {
   type EntryListState,
   type EntryPageResponse,
   type EntryStateResponse,
+  type MarkEntriesReadRequest,
   type PatchEntryStateRequest,
 } from "./reader.generated"
 
@@ -19,8 +20,9 @@ interface ListEntriesBaseOptions {
 
 export type ListEntriesOptions = ListEntriesBaseOptions &
   (
-    | { feedId?: string; categoryId?: never }
-    | { categoryId?: string; feedId?: never }
+    | { feedId: string; categoryId?: never; search?: string }
+    | { categoryId: string; feedId?: never; search?: never }
+    | { feedId?: undefined; categoryId?: undefined; search?: never }
   )
 
 export async function listEntries(
@@ -31,12 +33,27 @@ export async function listEntries(
   if (options.limit !== undefined) query.set("limit", String(options.limit))
   if (options.feedId !== undefined) query.set("feedId", options.feedId)
   if (options.categoryId !== undefined) query.set("categoryId", options.categoryId)
+  if (options.search !== undefined) query.set("search", options.search)
   if (options.state !== undefined) query.set("state", options.state)
   const response = await apiRequest(withQuery("/api/v1/entries", query), {
     signal: options.signal,
   })
   if (!isEntryPageResponse(response)) throw invalidResponseError()
   return response
+}
+
+export async function markEntriesRead(
+  request: MarkEntriesReadRequest,
+  csrfToken: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await apiRequest("/api/v1/entries/mark-read", {
+    method: "POST",
+    headers: { "x-csrf-token": csrfToken },
+    body: JSON.stringify(request),
+    signal,
+  })
+  if (response !== undefined) throw invalidResponseError()
 }
 
 export async function getEntry(

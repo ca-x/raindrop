@@ -4,6 +4,8 @@ import { defaultReaderApi, type ReaderApi } from "./controllerApi"
 import { initialReaderState, readerReducer, type ReaderAction } from "./reducer"
 import { useReaderSession } from "./controllerSession"
 import type { ReaderSource, ReaderState } from "./types"
+import { adjacentUnreadSource, type UnreadSourceDirection } from "./unreadSourceNavigation"
+import { useBulkReadActions } from "./useBulkReadActions"
 import { useEntryMutations } from "./useEntryMutations"
 import { useOrganizationActions } from "./useOrganizationActions"
 import { useReaderRequests } from "./useReaderRequests"
@@ -17,7 +19,12 @@ export interface ReaderController {
   selectSource: (source: ReaderSource) => Promise<void>
   selectEntry: (entryId: string | null) => Promise<void>
   reloadEntries: () => Promise<void>
+  searchFeed: (query: string) => Promise<void>
   mergePendingEntries: () => void
+  isMarkingRead: boolean
+  markCurrentSourceRead: () => Promise<boolean>
+  nextUnreadSource: () => Promise<void>
+  previousUnreadSource: () => Promise<void>
   toggleRead: (entryId: string) => Promise<void>
   toggleStar: (entryId: string) => Promise<void>
   addSubscription: (url: string) => Promise<void>
@@ -62,6 +69,7 @@ export function useReaderController({
   const session = useReaderSession(dispatch, onUnauthenticated)
 
   const requests = useReaderRequests({ api, dispatch, stateRef, session })
+  const { selectSource } = requests
   const entryMutations = useEntryMutations({
     api,
     csrfToken,
@@ -82,6 +90,24 @@ export function useReaderController({
     dispatch,
     session,
   })
+  const bulkRead = useBulkReadActions({
+    api,
+    csrfToken,
+    dispatch,
+    stateRef,
+    session,
+    reloadSubscriptions: requests.reloadSubscriptions,
+    replaceEntries: requests.replaceEntries,
+  })
+
+  const selectUnreadSource = useCallback(
+    async (direction: UnreadSourceDirection) => {
+      if (!session.active()) return
+      const source = adjacentUnreadSource(stateRef.current, direction)
+      if (source) await selectSource(source)
+    },
+    [selectSource, session, stateRef],
+  )
 
   const recordScrollAnchor = useCallback(
     (route: string, offset: number) => {
@@ -99,8 +125,11 @@ export function useReaderController({
     state,
     ...requests,
     ...entryMutations,
+    ...bulkRead,
     ...subscriptionActions,
     ...organizationActions,
+    nextUnreadSource: () => selectUnreadSource(1),
+    previousUnreadSource: () => selectUnreadSource(-1),
     recordScrollAnchor,
     clearMutationError,
   }

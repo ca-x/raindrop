@@ -3,6 +3,7 @@ import { afterEach, expect, it, vi } from "vitest"
 import {
   getEntry,
   listEntries,
+  markEntriesRead,
   patchEntryState,
   type ListEntriesOptions,
 } from "./entries"
@@ -58,9 +59,24 @@ it("serializes category filters without a feed filter", async () => {
   )
 })
 
+it("serializes Feed-local search without wildcard rewriting", async () => {
+  const fetchMock = vi.fn().mockResolvedValue(jsonResponse(entryPage))
+  vi.stubGlobal("fetch", fetchMock)
+
+  await listEntries({ feedId, state: "ALL", search: "100% _ literal" })
+
+  expect(fetchMock.mock.calls[0]?.[0]).toBe(
+    `/api/v1/entries?feedId=${feedId}&search=100%25+_+literal&state=ALL`,
+  )
+})
+
 // @ts-expect-error Feed and category filters are mutually exclusive in the Reader contract.
 const invalidSourceFilters: ListEntriesOptions = { feedId, categoryId }
 void invalidSourceFilters
+
+// @ts-expect-error Search is valid only for one Feed source.
+const invalidGlobalSearch: ListEntriesOptions = { search: "rss" }
+void invalidGlobalSearch
 
 it.each([
   ["non-array page", () => listEntries(), { ...entryPage, items: {} }],
@@ -95,6 +111,27 @@ it("uses in-memory CSRF and AbortSignal for entry state PATCH", async () => {
   expect(init?.signal).toBe(signal)
   expect(new Headers(init?.headers).get("x-csrf-token")).toBe("csrf-memory")
   expect(JSON.parse(String(init?.body))).toEqual({ isRead: true })
+})
+
+it("posts mark-read snapshots and requires an empty 204 response", async () => {
+  const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }))
+  vi.stubGlobal("fetch", fetchMock)
+  const signal = new AbortController().signal
+
+  await expect(
+    markEntriesRead({ snapshotGeneration: 7, feedId }, "csrf-memory", signal),
+  ).resolves.toBeUndefined()
+
+  const [path, init] = fetchMock.mock.calls[0]!
+  expect(path).toBe("/api/v1/entries/mark-read")
+  expect(init?.method).toBe("POST")
+  expect(init?.signal).toBe(signal)
+  expect(new Headers(init?.headers).get("x-csrf-token")).toBe("csrf-memory")
+  expect(JSON.parse(String(init?.body))).toEqual({ snapshotGeneration: 7, feedId })
+
+  fetchMock.mockResolvedValueOnce(jsonResponse({ ok: true }))
+  await expect(markEntriesRead({ snapshotGeneration: 7 }, "csrf-memory")).rejects
+    .toMatchObject({ payload: { code: "INVALID_RESPONSE" } })
 })
 
 it("passes AbortSignal through entry list and detail requests", async () => {

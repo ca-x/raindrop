@@ -34,9 +34,15 @@ export function deleteCategoryState(
   const queueBySourceKey = { ...state.queueBySourceKey }
   const pendingNewEntriesBySource = { ...state.pendingNewEntriesBySource }
   const pendingNewEntryCountBySource = { ...state.pendingNewEntryCountBySource }
+  const snapshotGenerationBySource = { ...state.snapshotGenerationBySource }
+  const pendingSnapshotGenerationBySource = {
+    ...state.pendingSnapshotGenerationBySource,
+  }
   delete queueBySourceKey[key]
   delete pendingNewEntriesBySource[key]
   delete pendingNewEntryCountBySource[key]
+  delete snapshotGenerationBySource[key]
+  delete pendingSnapshotGenerationBySource[key]
 
   const selectedDeletedCategory =
     state.selectedSource.kind === "category" &&
@@ -49,10 +55,13 @@ export function deleteCategoryState(
     queueBySourceKey,
     pendingNewEntriesBySource,
     pendingNewEntryCountBySource,
+    snapshotGenerationBySource,
+    pendingSnapshotGenerationBySource,
     selectedSource: selectedDeletedCategory
       ? { kind: "smart", state: "UNREAD" }
       : state.selectedSource,
     selectedEntryId: selectedDeletedCategory ? null : state.selectedEntryId,
+    feedSearchQuery: selectedDeletedCategory ? "" : state.feedSearchQuery,
     errors: { ...state.errors, mutation: null },
   }
 }

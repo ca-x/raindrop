@@ -29,6 +29,7 @@ it("shares one normalized entry entity across source queues", () => {
     type: "sourceReceived",
     source: allSource,
     generation: 1,
+    snapshotGeneration: 1,
     entries: [original],
     mode: "replace",
   })
@@ -42,6 +43,7 @@ it("shares one normalized entry entity across source queues", () => {
     type: "sourceReceived",
     source: feedSource,
     generation: 2,
+    snapshotGeneration: 2,
     entries: [updated],
     mode: "replace",
   })
@@ -65,6 +67,7 @@ it("keeps the queue stable until pending new entries are explicitly merged", () 
     type: "sourceReceived",
     source,
     generation: 1,
+    snapshotGeneration: 1,
     entries: [entry()],
     mode: "replace",
   })
@@ -77,6 +80,7 @@ it("keeps the queue stable until pending new entries are explicitly merged", () 
     type: "sourceReceived",
     source,
     generation: 2,
+    snapshotGeneration: 2,
     entries: [
       entry({ entryId: newEntryId, title: "New entry", sortAtUs: 2 }),
       entry({ title: "Updated in place" }),
@@ -87,12 +91,28 @@ it("keeps the queue stable until pending new entries are explicitly merged", () 
   expect(state.queueBySourceKey[sourceKey(source)]).toEqual([entryId])
   expect(state.pendingNewEntriesBySource[sourceKey(source)]).toEqual([newEntryId])
   expect(state.pendingNewEntryCountBySource[sourceKey(source)]).toBe(1)
+  expect(state.snapshotGenerationBySource[sourceKey(source)]).toBe(1)
+  expect(state.pendingSnapshotGenerationBySource[sourceKey(source)]).toBe(2)
   expect(state.entriesById[entryId]?.title).toBe("Updated in place")
 
   state = readerReducer(state, { type: "pendingEntriesMerged", source })
   expect(state.queueBySourceKey[sourceKey(source)]).toEqual([newEntryId, entryId])
   expect(state.pendingNewEntriesBySource[sourceKey(source)]).toEqual([])
   expect(state.pendingNewEntryCountBySource[sourceKey(source)]).toBe(0)
+  expect(state.snapshotGenerationBySource[sourceKey(source)]).toBe(2)
+  expect(state.pendingSnapshotGenerationBySource[sourceKey(source)]).toBeUndefined()
+})
+
+it("clears Feed search when selecting another source", () => {
+  let state = readerReducer(initialReaderState, {
+    type: "feedSearchChanged",
+    query: "rust",
+  })
+  state = readerReducer(state, {
+    type: "sourceSelected",
+    source: { kind: "smart", state: "ALL" },
+  })
+  expect(state.feedSearchQuery).toBe("")
 })
 
 it("records route scroll anchors with the workspace state", () => {
@@ -119,6 +139,7 @@ it("updates loaded detail metadata when a stored entity changes", () => {
     type: "sourceReceived",
     source,
     generation: 1,
+    snapshotGeneration: 2,
     entries: [entry({ title: "Server title", isRead: true })],
     mode: "discover",
   })

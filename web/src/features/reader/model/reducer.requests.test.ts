@@ -70,6 +70,7 @@ it("rejects late source responses and errors after a newer generation starts", (
     type: "sourceReceived",
     source,
     generation: 1,
+    snapshotGeneration: 1,
     entries: [makeEntry({ title: "Late entry" })],
     mode: "replace",
   })
@@ -87,6 +88,7 @@ it("rejects late source responses and errors after a newer generation starts", (
     type: "sourceReceived",
     source,
     generation: 2,
+    snapshotGeneration: 2,
     entries: [makeEntry({ title: "Winning entry" })],
     mode: "replace",
   })
@@ -170,6 +172,7 @@ it("keeps request generations monotonic across session expiry", () => {
     type: "sourceReceived",
     source,
     generation: 7,
+    snapshotGeneration: 7,
     entries: [makeEntry({ title: "Pre-expiry response" })],
     mode: "replace",
   })
@@ -179,6 +182,7 @@ it("keeps request generations monotonic across session expiry", () => {
     type: "sourceReceived",
     source,
     generation: 8,
+    snapshotGeneration: 8,
     entries: [makeEntry({ title: "Post-expiry response" })],
     mode: "replace",
   })

@@ -124,6 +124,7 @@ function makeApi(overrides: Partial<ReaderApi> = {}): ReaderApi {
     listEntries: vi.fn(async () => page(makeEntry())),
     getEntry: vi.fn(async () => makeDetail()),
     patchEntryState: vi.fn(),
+    markEntriesRead: vi.fn(),
     ...overrides,
   }
 }

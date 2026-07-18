@@ -91,6 +91,27 @@ it("rejects a malformed state response through the Task 1 PATCH validator", asyn
   expect(result.current.state.errors.mutation).toBe(GENERIC_READER_ERROR)
 })
 
+it("keeps the visible queue and surfaces a safe bulk-read error", async () => {
+  const markEntriesRead = vi.fn(async () => {
+    throw new Error("database sentinel")
+  })
+  const { result } = renderHook(() =>
+    useReaderController({
+      csrfToken: "csrf-memory",
+      onUnauthenticated: vi.fn(),
+      api: makeApi({ markEntriesRead }),
+    }),
+  )
+  await act(async () => result.current.load())
+
+  await act(async () => {
+    await expect(result.current.markCurrentSourceRead()).resolves.toBe(false)
+  })
+
+  expect(result.current.state.entriesById[entryId]).toBeDefined()
+  expect(result.current.state.errors.mutation).toBe(GENERIC_READER_ERROR)
+})
+
 function makeApi(overrides: Partial<ReaderApi> = {}): ReaderApi {
   return {
     listCategories: vi.fn(async () => ({ items: [] })),
@@ -110,6 +131,7 @@ function makeApi(overrides: Partial<ReaderApi> = {}): ReaderApi {
     })),
     getEntry: vi.fn(),
     patchEntryState: vi.fn(),
+    markEntriesRead: vi.fn(),
     ...overrides,
   }
 }

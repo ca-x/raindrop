@@ -1,8 +1,5 @@
 import { useCallback, useEffect, useRef } from "react"
 
-import type { ListEntriesOptions } from "../api/entries"
-import type { Category } from "../api/organization.generated"
-import type { Subscription } from "../api/subscription.generated"
 import type { ReaderApi } from "./controllerApi"
 import type { ReaderSession } from "./controllerSession"
 import {
@@ -11,7 +8,13 @@ import {
   readerErrorMessage,
 } from "./controllerErrors"
 import type { ReaderAction } from "./reducer"
-import { sourceKey, type ReaderSource, type ReaderState } from "./types"
+import {
+  entryListOptions,
+  loadAllSubscriptions,
+  loadCategories,
+  sameSource,
+} from "./readerRequestData"
+import type { ReaderSource, ReaderState } from "./types"
 
 interface ReaderRequestOptions {
   api: ReaderApi
@@ -73,7 +76,11 @@ export function useReaderRequests({
   }, [api, beginRequest, dispatch, session, stateRef])
 
   const loadSource = useCallback(
-    async (source: ReaderSource, mode: "replace" | "discover") => {
+    async (
+      source: ReaderSource,
+      mode: "replace" | "discover",
+      searchQuery = stateRef.current.feedSearchQuery,
+    ) => {
       const request = beginRequest("queue")
       if (!request) return
       const { controller, generation } = request
@@ -84,7 +91,7 @@ export function useReaderRequests({
       dispatch({ type: "sourceRequested", source, generation })
       try {
         const page = await api.listEntries({
-          ...entryListOptions(source),
+          ...entryListOptions(source, searchQuery),
           signal: controller.signal,
         })
         if (!current()) return
@@ -93,6 +100,7 @@ export function useReaderRequests({
           source,
           generation,
           entries: page.items,
+          snapshotGeneration: page.snapshotGeneration,
           mode,
         })
       } catch (error) {
@@ -127,7 +135,7 @@ export function useReaderRequests({
       if (!session.active()) return
       controllers.current.detail?.abort()
       dispatch({ type: "sourceSelected", source })
-      await loadSource(source, "replace")
+      await loadSource(source, "replace", "")
     },
     [dispatch, loadSource, session],
   )
@@ -173,6 +181,22 @@ export function useReaderRequests({
     [loadSource, stateRef],
   )
 
+  const replaceEntries = useCallback(
+    () => loadSource(stateRef.current.selectedSource, "replace"),
+    [loadSource, stateRef],
+  )
+
+  const searchFeed = useCallback(
+    async (query: string) => {
+      const source = stateRef.current.selectedSource
+      if (!session.active() || source.kind !== "feed") return
+      const normalized = query.trim()
+      dispatch({ type: "feedSearchChanged", query: normalized })
+      await loadSource(source, "replace", normalized)
+    },
+    [dispatch, loadSource, session, stateRef],
+  )
+
   const mergePendingEntries = useCallback(() => {
     if (!session.active()) return
     dispatch({ type: "pendingEntriesMerged", source: stateRef.current.selectedSource })
@@ -185,40 +209,14 @@ export function useReaderRequests({
     [],
   )
 
-  return { load, selectSource, selectEntry, reloadEntries, mergePendingEntries }
-}
-
-function entryListOptions(source: ReaderSource): ListEntriesOptions {
-  switch (source.kind) {
-    case "smart":
-      return { state: source.state }
-    case "feed":
-      return { feedId: source.feedId, state: "ALL" }
-    case "category":
-      return { categoryId: source.categoryId, state: "ALL" }
+  return {
+    load,
+    selectSource,
+    selectEntry,
+    reloadEntries,
+    replaceEntries,
+    reloadSubscriptions: loadSubscriptions,
+    searchFeed,
+    mergePendingEntries,
   }
-}
-
-function sameSource(left: ReaderSource, right: ReaderSource): boolean {
-  return sourceKey(left) === sourceKey(right)
-}
-
-async function loadCategories(api: ReaderApi, signal: AbortSignal): Promise<Category[]> {
-  return (await api.listCategories(signal)).items
-}
-
-async function loadAllSubscriptions(
-  api: ReaderApi,
-  signal: AbortSignal,
-  current: () => boolean,
-): Promise<Subscription[]> {
-  const subscriptions: Subscription[] = []
-  let cursor: string | undefined
-  do {
-    const page = await api.listSubscriptions({ cursor, signal })
-    if (!current()) return subscriptions
-    subscriptions.push(...page.items)
-    cursor = page.nextCursor ?? undefined
-  } while (cursor !== undefined)
-  return subscriptions
 }

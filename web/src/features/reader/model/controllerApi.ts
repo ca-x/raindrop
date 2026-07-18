@@ -1,6 +1,7 @@
 import {
   getEntry,
   listEntries,
+  markEntriesRead,
   patchEntryState,
 } from "../api/entries"
 import {
@@ -32,6 +33,7 @@ export interface ReaderApi {
   listEntries: typeof listEntries
   getEntry: typeof getEntry
   patchEntryState: typeof patchEntryState
+  markEntriesRead: typeof markEntriesRead
 }
 
 export const defaultReaderApi: ReaderApi = {
@@ -48,4 +50,5 @@ export const defaultReaderApi: ReaderApi = {
   listEntries,
   getEntry,
   patchEntryState,
+  markEntriesRead,
 }

@@ -11,6 +11,8 @@ export interface UseReaderHotkeysOptions {
   onOpenEntry: (entryId: string) => void
   onToggleRead: (entryId: string) => void | Promise<void>
   onToggleStar: (entryId: string) => void | Promise<void>
+  onNextUnreadSource: () => void | Promise<void>
+  onPreviousUnreadSource: () => void | Promise<void>
 }
 
 const editableSelector = [
@@ -44,6 +46,20 @@ export function useReaderHotkeys(options: UseReaderHotkeysOptions): void {
   }
 
   useHotkeys([
+    {
+      keys: "shift+j",
+      onPress: (event) => {
+        if (!event.repeat) void options.onNextUnreadSource()
+      },
+      isDisabled,
+    },
+    {
+      keys: "shift+k",
+      onPress: (event) => {
+        if (!event.repeat) void options.onPreviousUnreadSource()
+      },
+      isDisabled,
+    },
     { keys: "j", onPress: () => move(1, true), isDisabled },
     { keys: "k", onPress: () => move(-1, true), isDisabled },
     { keys: "n", onPress: () => move(1, false), isDisabled },

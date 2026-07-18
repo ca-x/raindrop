@@ -23,7 +23,7 @@ import {
   updateSubscriptionRefresh,
   upsertSubscription,
 } from "./reducerSubscriptions"
-import { sourceKey, type ReaderSource, type ReaderState } from "./types"
+import { sourceKey, type ReaderSource, type ReaderState, type SourceKey } from "./types"
 import type { EntryMutationField } from "./types"
 
 export type ReaderAction =
@@ -41,6 +41,7 @@ export type ReaderAction =
   | { type: "categoryUpserted"; category: Category }
   | { type: "categoryDeleted"; categoryId: string }
   | { type: "sourceSelected"; source: ReaderSource }
+  | { type: "feedSearchChanged"; query: string }
   | { type: "entrySelected"; entryId: string | null }
   | { type: "scrollAnchorRecorded"; route: string; offset: number }
   | { type: "sourceRequested"; source: ReaderSource; generation: number }
@@ -49,6 +50,7 @@ export type ReaderAction =
       source: ReaderSource
       generation: number
       entries: EntryListItemResponse[]
+      snapshotGeneration: number
       mode: "replace" | "discover"
     }
   | { type: "sourceFailed"; source: ReaderSource; generation: number; error: string }
@@ -87,6 +89,9 @@ export const initialReaderState: ReaderState = {
   requestGenerationByPane: { subscriptions: 0, queue: 0, detail: 0 },
   pendingNewEntriesBySource: {},
   pendingNewEntryCountBySource: {},
+  snapshotGenerationBySource: {},
+  pendingSnapshotGenerationBySource: {},
+  feedSearchQuery: "",
   scrollAnchorByRoute: {},
   paneStatus: { subscriptions: "idle", queue: "idle", detail: "idle" },
   errors: { subscriptions: null, queue: null, detail: null, mutation: null },
@@ -118,7 +123,14 @@ export function readerReducer(state: ReaderState, action: ReaderAction): ReaderS
     case "categoryDeleted":
       return deleteCategoryState(state, action.categoryId)
     case "sourceSelected":
-      return { ...state, selectedSource: action.source, selectedEntryId: null }
+      return {
+        ...state,
+        selectedSource: action.source,
+        selectedEntryId: null,
+        feedSearchQuery: "",
+      }
+    case "feedSearchChanged":
+      return { ...state, feedSearchQuery: action.query, selectedEntryId: null }
     case "entrySelected":
       return { ...state, selectedEntryId: action.entryId }
     case "scrollAnchorRecorded":
@@ -172,6 +184,17 @@ export function readerReducer(state: ReaderState, action: ReaderAction): ReaderS
           ...state.pendingNewEntryCountBySource,
           [key]: 0,
         },
+        snapshotGenerationBySource: {
+          ...state.snapshotGenerationBySource,
+          [key]:
+            state.pendingSnapshotGenerationBySource[key] ??
+            state.snapshotGenerationBySource[key] ??
+            0,
+        },
+        pendingSnapshotGenerationBySource: withoutKey(
+          state.pendingSnapshotGenerationBySource,
+          key,
+        ),
       }
     }
     case "detailRequested":
@@ -216,4 +239,10 @@ export function readerReducer(state: ReaderState, action: ReaderAction): ReaderS
         errors: { subscriptions: null, queue: null, detail: null, mutation: null },
       }
   }
+}
+
+function withoutKey<T>(record: Partial<Record<SourceKey, T>>, key: SourceKey) {
+  const next = { ...record }
+  delete next[key]
+  return next
 }

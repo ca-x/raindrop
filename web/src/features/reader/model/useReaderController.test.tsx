@@ -140,12 +140,15 @@ it("discovers stored entries without reordering until merge and selects feed sou
   expect(result.current.state.pendingNewEntriesBySource[sourceKey(unread)]).toEqual([
     newEntryId,
   ])
+  expect(result.current.state.snapshotGenerationBySource[sourceKey(unread)]).toBe(1)
+  expect(result.current.state.pendingSnapshotGenerationBySource[sourceKey(unread)]).toBe(2)
 
   act(() => result.current.mergePendingEntries())
   expect(result.current.state.queueBySourceKey[sourceKey(unread)]).toEqual([
     newEntryId,
     entryId,
   ])
+  expect(result.current.state.snapshotGenerationBySource[sourceKey(unread)]).toBe(2)
 
   const feed = { kind: "feed", feedId: makeEntry().feedId } as const
   await act(async () => result.current.selectSource(feed))
@@ -160,6 +163,92 @@ it("discovers stored entries without reordering until merge and selects feed sou
     expect.objectContaining({ categoryId, state: "ALL" }),
   )
   expect(result.current.state.selectedSource).toEqual(category)
+})
+
+it("searches only the selected Feed and clears search on source change", async () => {
+  const listEntries = vi.fn(async () => ({
+    items: [makeEntry()],
+    nextCursor: null,
+    snapshotGeneration: 5,
+  }))
+  const { result } = renderHook(() =>
+    useReaderController({
+      csrfToken: "csrf-memory",
+      onUnauthenticated: vi.fn(),
+      api: makeApi({ listEntries }),
+    }),
+  )
+  const feed = { kind: "feed", feedId: makeEntry().feedId } as const
+  await act(async () => result.current.selectSource(feed))
+  await act(async () => result.current.searchFeed("  Rust storage  "))
+  expect(result.current.state.feedSearchQuery).toBe("Rust storage")
+  expect(listEntries).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      feedId: feed.feedId,
+      search: "Rust storage",
+      signal: expect.any(AbortSignal),
+    }),
+  )
+
+  await act(async () =>
+    result.current.selectSource({ kind: "smart", state: "UNREAD" }),
+  )
+  expect(result.current.state.feedSearchQuery).toBe("")
+  expect(listEntries).toHaveBeenLastCalledWith(
+    expect.not.objectContaining({ search: expect.anything() }),
+  )
+})
+
+it("marks the visible snapshot read then reloads subscriptions and entries", async () => {
+  const subscription = makeSubscription({ unreadCount: 3 })
+  const listSubscriptions = vi
+    .fn()
+    .mockResolvedValueOnce({ items: [subscription], nextCursor: null })
+    .mockResolvedValueOnce({
+      items: [{ ...subscription, unreadCount: 0 }],
+      nextCursor: null,
+    })
+  const listEntries = vi
+    .fn()
+    .mockResolvedValueOnce({
+      items: [makeEntry()],
+      nextCursor: null,
+      snapshotGeneration: 7,
+    })
+    .mockResolvedValueOnce({
+      items: [],
+      nextCursor: null,
+      snapshotGeneration: 7,
+    })
+  const markEntriesRead = vi.fn(async () => undefined)
+  const { result } = renderHook(() =>
+    useReaderController({
+      csrfToken: "csrf-memory",
+      onUnauthenticated: vi.fn(),
+      api: makeApi({ listSubscriptions, listEntries, markEntriesRead }),
+    }),
+  )
+
+  await act(async () => result.current.load())
+  await act(async () => {
+    await expect(result.current.markCurrentSourceRead()).resolves.toBe(true)
+  })
+
+  expect(markEntriesRead).toHaveBeenCalledWith(
+    { snapshotGeneration: 7 },
+    "csrf-memory",
+    expect.any(AbortSignal),
+  )
+  expect(listSubscriptions).toHaveBeenCalledTimes(2)
+  expect(listEntries).toHaveBeenCalledTimes(2)
+  expect(
+    result.current.state.queueBySourceKey[
+      sourceKey({ kind: "smart", state: "UNREAD" })
+    ],
+  ).toEqual([])
+  expect(
+    result.current.state.subscriptionsById[subscription.subscriptionId]?.unreadCount,
+  ).toBe(0)
 })
 
 function makeApi(overrides: Partial<ReaderApi> = {}): ReaderApi {
@@ -181,6 +270,7 @@ function makeApi(overrides: Partial<ReaderApi> = {}): ReaderApi {
     })),
     getEntry: vi.fn(),
     patchEntryState: vi.fn(),
+    markEntriesRead: vi.fn(),
     ...overrides,
   }
 }

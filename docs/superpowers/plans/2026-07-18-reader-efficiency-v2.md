@@ -165,13 +165,13 @@ git diff --check
 - Adds `searchFeed`, `markCurrentSourceRead`, `nextUnreadSource`, and `previousUnreadSource` controller actions.
 - Adds Shift+J/K with existing modal/editable guards.
 
-- [ ] Write reducer RED tests proving replace stores a snapshot, discover parks a newer snapshot, merge promotes it, and source/search changes reject late pages.
-- [ ] Write controller/API RED tests for Feed search submit/clear, search clearing on source change, 204 mark-read, post-mutation subscription/source reload, and failure rollback/error feedback.
-- [ ] Write navigation RED tests for rendered category/uncategorized order, Feed/Category/smart starting points, zero counts, forward/backward boundaries, and UNREAD fallback.
-- [ ] Extend API/controller/reducer in focused modules, keeping generated DTOs authoritative.
-- [ ] Add Shift+J/K and update the immediate modal key guard.
-- [ ] Verify focused Vitest, typecheck, and generated-contract checks.
-- [ ] Commit and push: `feat: navigate and filter reader sources`.
+- [x] Write reducer RED tests proving replace stores a snapshot, discover parks a newer snapshot, merge promotes it, and source/search changes reject late pages.
+- [x] Write controller/API RED tests for Feed search submit/clear, search clearing on source change, 204 mark-read, post-mutation subscription/source reload, and failure rollback/error feedback.
+- [x] Write navigation RED tests for rendered category/uncategorized order, Feed/Category/smart starting points, zero counts, forward/backward boundaries, and UNREAD fallback.
+- [x] Extend API/controller/reducer in focused modules, keeping generated DTOs authoritative.
+- [x] Add Shift+J/K and update the immediate modal key guard.
+- [x] Verify focused Vitest, typecheck, and generated-contract checks.
+- [x] Commit and push: `feat: navigate and filter reader sources`.
 
 ### Task 5: ASTRYX UI, i18n, mobile, and final verification
 
