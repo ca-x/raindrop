@@ -21,8 +21,7 @@ This is a real protocol layer, not a provider-name registry or empty trait. It d
 - `811e90b feat: define ai provider protocol`
 - `191897e feat: encode ai provider requests`
 - `02a689e feat: decode ai provider responses`
-
-The verification commit and remote CI run are appended after push.
+- `0416a5d test: verify ai provider adapters`
 
 ## Protocol contracts
 
@@ -67,6 +66,17 @@ The fixtures cover exact request shapes, unknown additive fields, model labels, 
 - Source-boundary scan: provider wire keys and credential header names appear only in `src/content/provider`, the focused integration test, and its fixtures. Test credential/prompt markers do not appear in production provider source.
 
 No Cargo dependency or lockfile changed. No database, HTTP route, frontend, setup, auth, Feed transaction, lifecycle dispatcher, MCP transport, or plugin runtime code changed.
+
+## Remote CI evidence
+
+- CI run [`29648253330`](https://github.com/ca-x/raindrop/actions/runs/29648253330): passed.
+- `ASTRYX web`: passed.
+- `Rust foundation`: passed, including SQLite/PostgreSQL/MySQL contract lanes and the complete Rust suite.
+- `Rust current-stable compatibility`: passed.
+- `Rust Windows durable replace`: passed.
+- `Supply-chain audit`: passed.
+- `Non-root container build and health`: passed.
+- `Release embedding and E2E`: passed.
 
 ## Existing advisories
 

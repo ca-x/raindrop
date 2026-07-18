@@ -139,7 +139,7 @@ git diff --check
 - [x] Record exact test counts, redaction evidence, fixture inventory, commits, explicit remaining work, and existing advisories in `.superpowers/sdd/ai-provider-adapters-v1-report.md`.
 - [x] Update `tasks/plan.md` to name provider storage and SSRF-safe execution as the next AI slice. Keep the AI/plugin/MCP todo items unchecked because no user-visible plugin operation exists yet.
 - [x] Commit and push: `test: verify ai provider adapters`.
-- [ ] Monitor the triggered CI only for concrete failures; append the successful run to the report and push a `[skip ci]` closeout.
+- [x] Monitor the triggered CI only for concrete failures; append the successful run to the report and push a `[skip ci]` closeout.
 
 ## Plan self-review
 
