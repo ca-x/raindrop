@@ -270,8 +270,8 @@ git diff --check
 - [x] If local PostgreSQL/MySQL URLs are configured, run the two provider storage contracts; otherwise rely on the explicit CI services and state that fact in the report.
 - [x] Record exact test counts, schema/index/FK facts, key/envelope/redaction evidence, transport abuse coverage, dependency/lockfile delta, commits, explicit remaining work, and existing advisories in `.superpowers/sdd/ai-provider-core-v1-report.md`.
 - [x] Update `tasks/plan.md` to point to provider administration API/UI plus content jobs/artifacts as the next AI slice. Keep all AI/plugin/MCP todo items unchecked because no user-visible content operation exists.
-- [ ] Explicitly stage docs/report/task files; commit and push `test: verify ai provider core`.
-- [ ] Monitor the triggered CI only for concrete failures. On success, append run ID and job matrix to the report, mark this checkbox complete, commit `docs: record ai provider core ci [skip ci]`, and push. Do not initiate additional review loops after a green full matrix.
+- [x] Explicitly stage docs/report/task files; commit and push `test: verify ai provider core`.
+- [x] Monitor the triggered CI only for concrete failures. On success, append run ID and job matrix to the report, mark this checkbox complete, commit `docs: record ai provider core ci [skip ci]`, and push. Do not initiate additional review loops after a green full matrix.
 
 ## Plan self-review
 

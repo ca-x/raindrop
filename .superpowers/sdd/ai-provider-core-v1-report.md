@@ -2,7 +2,7 @@
 
 Date: 2026-07-18
 Branch: `feature/foundation-bootstrap`
-Status: LOCAL VERIFIED — final CI record pending
+Status: VERIFIED
 
 ## Delivered scope
 
@@ -57,12 +57,22 @@ This slice is internal core only. It does not expose provider administration HTT
 - The root `Cargo.lock` package dependency list gained only the direct `ring` edge; no second ring version was introduced.
 - Transport reuses already committed `reqwest`, `rustls`, `hickory-resolver`, `async-compression`, `http`, `httpdate`, `url`, `secrecy`, `zeroize`, `base64` and `blake3` dependencies.
 
-## CI evidence before final report commit
+## CI evidence
 
 - `29649500765`: keyring/config commit matrix passed.
 - `29650568581`: provider model/repository matrix passed, including SQLite, PostgreSQL and MySQL provider storage contracts.
 - `29651448590`: HTTPS transport matrix passed, including Rust, current stable, Windows compile, Web, supply-chain, release E2E and non-root container jobs.
-- `29652073241`: ProviderClient commit is running at report creation time.
+- `29652073241`: ProviderClient composition commit passed the complete matrix.
+- `29652502840`: final verification commit passed all seven jobs:
+  - Rust foundation, including formatting, Clippy, SQLite/PostgreSQL/MySQL provider storage and the full Rust suite;
+  - Rust current-stable compatibility;
+  - Rust Windows durable replacement compile;
+  - ASTRYX Web typecheck, Vitest and production build;
+  - supply-chain audit and registry signature verification;
+  - release embedding and E2E;
+  - non-root container build and live health.
+
+The final run emitted the existing GitHub Actions annotation that pinned Docker actions still target the deprecated Node.js 20 runtime and are being forced onto Node.js 24. It did not fail the matrix and is separate follow-up work.
 
 ## Existing advisories
 
