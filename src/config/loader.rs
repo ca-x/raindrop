@@ -1,4 +1,4 @@
-use std::{env, fs, net::SocketAddr, path::Path};
+use std::{env, fs, net::SocketAddr, path::Path, time::Duration};
 
 use url::Url;
 use uuid::Uuid;
@@ -6,12 +6,15 @@ use uuid::Uuid;
 use super::{
     model::{
         BootstrapAdmin, BootstrapMode, ConfigArgs, ConfigError, ConfigSources, DatabaseKind,
-        FileBootstrapAdmin, FileConfig, LoadedConfig, RuntimeConfig,
+        FeedRetentionConfig, FileBootstrapAdmin, FileConfig, LoadedConfig, RuntimeConfig,
     },
     redact::secret,
 };
 
 const DEFAULT_BIND: &str = "0.0.0.0:8080";
+const DEFAULT_FEED_ORPHAN_RETENTION_DAYS: u32 = 30;
+const MAX_FEED_ORPHAN_RETENTION_DAYS: u32 = 3_650;
+const SECONDS_PER_DAY: u64 = 86_400;
 
 pub trait EnvSource {
     fn get(&self, key: &str) -> Option<String>;
@@ -65,6 +68,7 @@ pub fn load(args: &ConfigArgs, env: &impl EnvSource) -> Result<LoadedConfig, Con
         .or(file.session_secret)
         .map(validate_session_secret)
         .transpose()?;
+    let feed_retention = load_feed_retention(env, file.feed_orphan_retention_days)?;
     let bootstrap_admin = load_bootstrap_admin(env, file.bootstrap_admin)?;
 
     let mode = if database_url.is_some() {
@@ -83,6 +87,7 @@ pub fn load(args: &ConfigArgs, env: &impl EnvSource) -> Result<LoadedConfig, Con
             database_url,
             session_secret,
             bootstrap_admin,
+            feed_retention,
             database_kind,
         ),
         mode,
@@ -90,6 +95,36 @@ pub fn load(args: &ConfigArgs, env: &impl EnvSource) -> Result<LoadedConfig, Con
             config_path: loaded_config_path,
             database_from_env,
         },
+    })
+}
+
+fn load_feed_retention(
+    env: &impl EnvSource,
+    file_days: Option<u32>,
+) -> Result<FeedRetentionConfig, ConfigError> {
+    let (days, name) = match env.get("RAINDROP_FEED_ORPHAN_RETENTION_DAYS") {
+        Some(value) => (
+            value
+                .parse::<u32>()
+                .map_err(|_| ConfigError::InvalidValue {
+                    name: "RAINDROP_FEED_ORPHAN_RETENTION_DAYS",
+                    reason: "expected integer days from 0 to 3650",
+                })?,
+            "RAINDROP_FEED_ORPHAN_RETENTION_DAYS",
+        ),
+        None => (
+            file_days.unwrap_or(DEFAULT_FEED_ORPHAN_RETENTION_DAYS),
+            "feed_orphan_retention_days",
+        ),
+    };
+    if days > MAX_FEED_ORPHAN_RETENTION_DAYS {
+        return Err(ConfigError::InvalidValue {
+            name,
+            reason: "expected integer days from 0 to 3650",
+        });
+    }
+    Ok(FeedRetentionConfig {
+        orphan_grace: (days > 0).then(|| Duration::from_secs(u64::from(days) * SECONDS_PER_DAY)),
     })
 }
 

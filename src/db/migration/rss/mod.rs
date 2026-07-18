@@ -6,4 +6,5 @@ pub mod feed_metadata;
 pub mod feeds;
 pub mod outbox;
 pub mod refresh_runs;
+pub mod retention;
 pub mod subscriptions;

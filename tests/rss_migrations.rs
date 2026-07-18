@@ -99,6 +99,7 @@ async fn rss_schema_contract(database_url: SecretString) {
     insert_user(&database, USER_B_ID, "reader-b").await;
     insert_feed(&database, ROUNDTRIP_AT).await;
     assert_feed_metadata_upgrade_reentry(&database).await;
+    assert_feed_retention_upgrade_reentry(&database).await;
     assert_lifecycle_outbox_upgrade_reentry(&database).await;
     insert_subscription(&database, SUBSCRIPTION_A_ID, USER_A_ID, ROUNDTRIP_AT).await;
     refresh_run_model(
@@ -929,6 +930,31 @@ async fn assert_lifecycle_outbox_upgrade_reentry(database: &DatabaseConnection) 
     );
 }
 
+async fn assert_feed_retention_upgrade_reentry(database: &DatabaseConnection) {
+    delete_migration_marker(database, "retention").await;
+    let backend = database.get_database_backend();
+    let drop_index = match backend {
+        DatabaseBackend::Sqlite | DatabaseBackend::Postgres => {
+            "DROP INDEX idx_feeds_orphan_retention"
+        }
+        DatabaseBackend::MySql => "ALTER TABLE feeds DROP INDEX idx_feeds_orphan_retention",
+    };
+    database
+        .execute(Statement::from_string(backend, drop_index.to_owned()))
+        .await
+        .expect("partial feed retention fixture should drop orphan index");
+
+    migrate(database)
+        .await
+        .expect("existing feeds should recover the retention index");
+    assert!(
+        SchemaManager::new(database)
+            .has_index("feeds", "idx_feeds_orphan_retention")
+            .await
+            .expect("feed retention index should query")
+    );
+}
+
 async fn assert_operational_timestamp_roundtrip(database: &DatabaseConnection) {
     let feed = feed::Entity::find_by_id(FEED_ID)
         .one(database)
@@ -1224,6 +1250,7 @@ async fn assert_expected_indexes(database: &DatabaseConnection) {
     for (table, index) in [
         ("feeds", "uq_feeds_url_hash"),
         ("feeds", "idx_feeds_due"),
+        ("feeds", "idx_feeds_orphan_retention"),
         ("subscriptions", "uq_subscriptions_user_feed"),
         ("subscriptions", "idx_subscriptions_user_pos"),
         ("subscriptions", "idx_subscriptions_feed"),

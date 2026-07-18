@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, path::PathBuf};
+use std::{net::SocketAddr, path::PathBuf, time::Duration};
 
 use secrecy::SecretString;
 use serde::Deserialize;
@@ -35,6 +35,7 @@ pub struct RuntimeConfig {
     pub database_url: Option<SecretString>,
     pub session_secret: Option<SecretString>,
     pub bootstrap_admin: Option<BootstrapAdmin>,
+    feed_retention: FeedRetentionConfig,
     database_kind: Option<DatabaseKind>,
 }
 
@@ -44,6 +45,11 @@ impl RuntimeConfig {
         self.database_kind
     }
 
+    #[must_use]
+    pub const fn feed_retention(&self) -> FeedRetentionConfig {
+        self.feed_retention
+    }
+
     pub(crate) const fn new(
         bind: SocketAddr,
         public_url: Option<Url>,
@@ -51,6 +57,7 @@ impl RuntimeConfig {
         database_url: Option<SecretString>,
         session_secret: Option<SecretString>,
         bootstrap_admin: Option<BootstrapAdmin>,
+        feed_retention: FeedRetentionConfig,
         database_kind: Option<DatabaseKind>,
     ) -> Self {
         Self {
@@ -60,9 +67,15 @@ impl RuntimeConfig {
             database_url,
             session_secret,
             bootstrap_admin,
+            feed_retention,
             database_kind,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FeedRetentionConfig {
+    pub orphan_grace: Option<Duration>,
 }
 
 #[derive(Debug)]
@@ -119,6 +132,7 @@ pub(crate) struct FileConfig {
     pub public_url: Option<String>,
     pub database_url: Option<String>,
     pub session_secret: Option<String>,
+    pub feed_orphan_retention_days: Option<u32>,
     pub bootstrap_admin: Option<FileBootstrapAdmin>,
 }
 

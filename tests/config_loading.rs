@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs};
+use std::{collections::HashMap, fs, time::Duration};
 
 use raindrop::config::{BootstrapMode, ConfigArgs, DatabaseKind, EnvSource, load};
 use secrecy::ExposeSecret;
@@ -32,6 +32,65 @@ fn no_database_source_enters_setup_mode() {
 
     assert!(matches!(loaded.mode, BootstrapMode::SetupRequired { .. }));
     assert_eq!(loaded.runtime.bind.to_string(), "0.0.0.0:8080");
+}
+
+#[test]
+fn feed_orphan_retention_defaults_to_thirty_days() {
+    let data = tempdir().expect("temporary directory should be created");
+    let loaded = load(&ConfigArgs::for_test(data.path()), &MapEnv::default())
+        .expect("default configuration should load");
+
+    assert_eq!(
+        loaded.runtime.feed_retention().orphan_grace,
+        Some(Duration::from_secs(30 * 86_400))
+    );
+}
+
+#[test]
+fn feed_orphan_retention_environment_overrides_toml_and_zero_disables() {
+    let data = tempdir().expect("temporary directory should be created");
+    fs::write(
+        data.path().join("config.toml"),
+        "feed_orphan_retention_days = 90\n",
+    )
+    .expect("configuration file should be written");
+    let env = MapEnv::from([("RAINDROP_FEED_ORPHAN_RETENTION_DAYS", "0")]);
+
+    let loaded = load(&ConfigArgs::for_test(data.path()), &env)
+        .expect("environment retention override should load");
+
+    assert_eq!(loaded.runtime.feed_retention().orphan_grace, None);
+}
+
+#[test]
+fn feed_orphan_retention_accepts_the_maximum() {
+    let data = tempdir().expect("temporary directory should be created");
+    let env = MapEnv::from([("RAINDROP_FEED_ORPHAN_RETENTION_DAYS", "3650")]);
+
+    let loaded =
+        load(&ConfigArgs::for_test(data.path()), &env).expect("maximum retention should load");
+
+    assert_eq!(
+        loaded.runtime.feed_retention().orphan_grace,
+        Some(Duration::from_secs(3650 * 86_400))
+    );
+}
+
+#[test]
+fn feed_orphan_retention_rejects_invalid_environment_values() {
+    for value in ["3651", "not-a-number"] {
+        let data = tempdir().expect("temporary directory should be created");
+        let env = MapEnv::from([("RAINDROP_FEED_ORPHAN_RETENTION_DAYS", value)]);
+
+        let error = load(&ConfigArgs::for_test(data.path()), &env)
+            .expect_err("invalid retention should fail");
+
+        assert!(
+            error
+                .to_string()
+                .contains("RAINDROP_FEED_ORPHAN_RETENTION_DAYS")
+        );
+    }
 }
 
 #[test]
