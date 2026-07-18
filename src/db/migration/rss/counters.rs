@@ -21,16 +21,7 @@ impl MigrationTrait for CreateRssCounters {
             )
             .await?;
 
-        manager
-            .exec_stmt(
-                Query::insert()
-                    .into_table(RssCounters::Table)
-                    .columns([RssCounters::Key, RssCounters::Value])
-                    .values_panic(["INGEST_GENERATION".into(), 0_i64.into()])
-                    .on_conflict(OnConflict::column(RssCounters::Key).do_nothing().to_owned())
-                    .to_owned(),
-            )
-            .await?;
+        manager.exec_stmt(counter_seed_statement()).await?;
 
         let backend = manager.get_database_backend();
         let generation_query = Query::select()
@@ -65,9 +56,43 @@ impl MigrationTrait for CreateRssCounters {
     }
 }
 
+fn counter_seed_statement() -> InsertStatement {
+    Query::insert()
+        .into_table(RssCounters::Table)
+        .columns([RssCounters::Key, RssCounters::Value])
+        .values_panic(["INGEST_GENERATION".into(), 0_i64.into()])
+        .on_conflict(
+            OnConflict::column(RssCounters::Key)
+                .do_nothing_on([RssCounters::Key])
+                .to_owned(),
+        )
+        .to_owned()
+}
+
 #[derive(DeriveIden)]
 enum RssCounters {
     Table,
     Key,
     Value,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn counter_seed_statement_is_portable() {
+        assert_eq!(
+            counter_seed_statement().to_string(MysqlQueryBuilder),
+            "INSERT INTO `rss_counters` (`key`, `value`) VALUES ('INGEST_GENERATION', 0) ON DUPLICATE KEY UPDATE `key` = `key`"
+        );
+        assert_eq!(
+            counter_seed_statement().to_string(PostgresQueryBuilder),
+            "INSERT INTO \"rss_counters\" (\"key\", \"value\") VALUES ('INGEST_GENERATION', 0) ON CONFLICT (\"key\") DO NOTHING"
+        );
+        assert_eq!(
+            counter_seed_statement().to_string(SqliteQueryBuilder),
+            "INSERT INTO \"rss_counters\" (\"key\", \"value\") VALUES ('INGEST_GENERATION', 0) ON CONFLICT (\"key\") DO NOTHING"
+        );
+    }
 }
