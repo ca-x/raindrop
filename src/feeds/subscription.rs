@@ -14,7 +14,7 @@ use super::lifecycle::is_unique_violation;
 use super::query::{RepositoryError, validate_uuid};
 use super::repository::{
     find_active_run, find_run_by_idempotency, idempotent_result, lock_feed_for_queue,
-    queue_run_statement,
+    queue_run_statement, try_lock_feed_for_queue,
 };
 use super::{
     FeedRepository, ListSubscriptionsQuery, NormalizedFeedUrl, PatchValue, QueueRefreshRequest,
@@ -86,7 +86,25 @@ impl FeedRepository {
         if source_url.is_empty() || source_url.len() > 4_096 {
             return Err(RefreshRepositoryError::InvalidRequest);
         }
-        self.subscribe_command(user_id, source_url, normalized)
+        self.subscribe_command(user_id, source_url, normalized, None)
+            .await
+    }
+
+    #[cfg(debug_assertions)]
+    #[doc(hidden)]
+    pub async fn subscribe_after_feed_scan(
+        &self,
+        user_id: &str,
+        source_url: &str,
+        normalized: &NormalizedFeedUrl,
+        scanned: std::sync::Arc<tokio::sync::Notify>,
+        release: std::sync::Arc<tokio::sync::Notify>,
+    ) -> Result<SubscribeOutcome, RefreshRepositoryError> {
+        validate_uuid(user_id).map_err(|()| RefreshRepositoryError::InvalidRequest)?;
+        if source_url.is_empty() || source_url.len() > 4_096 {
+            return Err(RefreshRepositoryError::InvalidRequest);
+        }
+        self.subscribe_command(user_id, source_url, normalized, Some((scanned, release)))
             .await
     }
 
@@ -95,6 +113,10 @@ impl FeedRepository {
         user_id: &str,
         source_url: &str,
         normalized: &NormalizedFeedUrl,
+        mut scan_hook: Option<(
+            std::sync::Arc<tokio::sync::Notify>,
+            std::sync::Arc<tokio::sync::Notify>,
+        )>,
     ) -> Result<SubscribeOutcome, RefreshRepositoryError> {
         for attempt in 0..3 {
             let candidate = find_feed_by_hash(
@@ -104,13 +126,19 @@ impl FeedRepository {
             )
             .await
             .map_err(map_subscription_command_error)?;
+            if let Some((scanned, release)) = scan_hook.take() {
+                scanned.notify_one();
+                release.notified().await;
+            }
             match self
                 .subscribe_command_once(user_id, source_url, normalized, candidate)
                 .await
             {
+                Ok(Some(outcome)) => return Ok(outcome),
+                Ok(None) => {}
                 Err(RefreshRepositoryError::Database(error))
                     if attempt < 2 && is_unique_violation(&error) => {}
-                result => return result,
+                Err(error) => return Err(error),
             }
         }
         Err(RefreshRepositoryError::CorruptData)
@@ -122,7 +150,7 @@ impl FeedRepository {
         source_url: &str,
         normalized: &NormalizedFeedUrl,
         candidate: Option<(String, String)>,
-    ) -> Result<SubscribeOutcome, RefreshRepositoryError> {
+    ) -> Result<Option<SubscribeOutcome>, RefreshRepositoryError> {
         let backend = self.connection().get_database_backend();
         let transaction = self.connection().begin().await?;
         let result = async {
@@ -144,7 +172,12 @@ impl FeedRepository {
                     (feed_id, true)
                 }
             };
-            let feed = lock_feed_for_queue(&transaction, backend, &feed_id).await?;
+            let Some(feed) = try_lock_feed_for_queue(&transaction, backend, &feed_id).await? else {
+                if feed_is_new {
+                    return Err(RefreshRepositoryError::CorruptData);
+                }
+                return Ok(None);
+            };
             if feed.normalized_url != normalized.complete() {
                 return Err(RefreshRepositoryError::CorruptData);
             }
@@ -158,10 +191,10 @@ impl FeedRepository {
                         .await
                         .map_err(map_projection_command_error)?
                         .ok_or(RefreshRepositoryError::CorruptData)?;
-                return Ok(SubscribeOutcome {
+                return Ok(Some(SubscribeOutcome {
                     created: false,
                     subscription,
-                });
+                }));
             }
             if feed.is_disabled {
                 return Err(RefreshRepositoryError::FeedDisabled);
@@ -232,16 +265,20 @@ impl FeedRepository {
                     .await
                     .map_err(map_projection_command_error)?
                     .ok_or(RefreshRepositoryError::CorruptData)?;
-            Ok(SubscribeOutcome {
+            Ok(Some(SubscribeOutcome {
                 created: true,
                 subscription,
-            })
+            }))
         }
         .await;
         match result {
-            Ok(record) => {
+            Ok(Some(record)) => {
                 transaction.commit().await?;
-                Ok(record)
+                Ok(Some(record))
+            }
+            Ok(None) => {
+                transaction.rollback().await?;
+                Ok(None)
             }
             Err(error) => {
                 transaction.rollback().await?;

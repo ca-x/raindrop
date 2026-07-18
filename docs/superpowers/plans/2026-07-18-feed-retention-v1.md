@@ -139,7 +139,7 @@ git push origin feature/foundation-bootstrap
 - Produces `FeedRepository::purge_orphaned_feeds(grace: Duration, limit: u16) -> Result<usize, FeedRetentionError>`.
 - Produces internal `try_lock_feed_for_queue(...) -> Result<Option<LockedFeed>, RefreshRepositoryError>` used by retention-safe subscription retry.
 
-- [ ] **Step 1: Write failing portable retention contracts**
+- [x] **Step 1: Write failing portable retention contracts**
 
 Create SQLite-always and environment-gated PostgreSQL/MySQL contracts that seed:
 
@@ -151,11 +151,11 @@ Create SQLite-always and environment-gated PostgreSQL/MySQL contracts that seed:
 
 Assert eligible Feed-owned rows cascade, outbox survives, protected rows remain, a second pass returns zero, and the return count never exceeds `limit`.
 
-- [ ] **Step 2: Add multi-instance and resubscribe race RED tests**
+- [x] **Step 2: Add multi-instance and resubscribe race RED tests**
 
 Run two repositories against the same database with `tokio::join!` and assert the summed deletion count equals the number of eligible Feeds. Add a debug-only subscription hook that pauses after URL-hash discovery; delete the discovered orphan; release subscription creation; assert it retries to one Feed and one Subscription without exposing an error.
 
-- [ ] **Step 3: Run the repository RED gate**
+- [x] **Step 3: Run the repository RED gate**
 
 Run:
 
@@ -165,7 +165,7 @@ cargo test --locked --test feed_retention_contracts -- --nocapture --test-thread
 
 Expected: compilation fails because the retention repository API is missing.
 
-- [ ] **Step 4: Implement optional Feed locking**
+- [x] **Step 4: Implement optional Feed locking**
 
 Refactor the existing lock into:
 
@@ -181,20 +181,17 @@ where
 
 Keep `lock_feed_for_queue` as a wrapper that maps `None` to `CorruptData` for existing callers.
 
-- [ ] **Step 5: Implement retryable subscription discovery**
+- [x] **Step 5: Implement retryable subscription discovery**
 
-Use a private attempt error:
+Use an internal retry sentinel without expanding the public error enum:
 
 ```rust
-enum SubscribeAttemptError {
-    RetryDiscovery,
-    Repository(RefreshRepositoryError),
-}
+async fn subscribe_command_once(...) -> Result<Option<SubscribeOutcome>, RefreshRepositoryError>;
 ```
 
-When an existing candidate disappears before its Feed lock, roll back and restart the three-attempt discovery loop. Preserve existing unique-violation retries and public error mapping.
+`Ok(None)` means an existing candidate disappeared before its Feed lock; roll back and restart the three-attempt discovery loop. `Ok(Some(outcome))` commits. Preserve existing unique-violation retries and public error mapping.
 
-- [ ] **Step 6: Implement bounded retention**
+- [x] **Step 6: Implement bounded retention**
 
 In `src/feeds/retention.rs`:
 
@@ -207,7 +204,7 @@ In `src/feeds/retention.rs`:
 7. delete exactly the locked Feed row and commit;
 8. count only successful deletions.
 
-- [ ] **Step 7: Verify Task 2**
+- [x] **Step 7: Verify Task 2**
 
 Run:
 
@@ -220,7 +217,7 @@ git diff --check
 
 Expected: all pass.
 
-- [ ] **Step 8: Commit and push**
+- [x] **Step 8: Commit and push**
 
 ```bash
 git add src/feeds/retention.rs src/feeds/mod.rs src/feeds/repository.rs \

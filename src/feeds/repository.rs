@@ -861,6 +861,19 @@ pub(super) async fn lock_feed_for_queue<C>(
 where
     C: ConnectionTrait,
 {
+    try_lock_feed_for_queue(connection, backend, feed_id)
+        .await?
+        .ok_or(RefreshRepositoryError::CorruptData)
+}
+
+pub(super) async fn try_lock_feed_for_queue<C>(
+    connection: &C,
+    backend: DbBackend,
+    feed_id: &str,
+) -> Result<Option<LockedFeed>, RefreshRepositoryError>
+where
+    C: ConnectionTrait,
+{
     if backend == DatabaseBackend::Sqlite {
         let locked = connection
             .execute(Statement::from_sql_and_values(
@@ -869,8 +882,8 @@ where
                 [feed_id.into()],
             ))
             .await?;
-        if locked.rows_affected() != 1 {
-            return Err(RefreshRepositoryError::CorruptData);
+        if locked.rows_affected() == 0 {
+            return Ok(None);
         }
     }
     let sql = match backend {
@@ -893,14 +906,18 @@ where
              FROM feeds WHERE id = ? FOR UPDATE"
         }
     };
-    let row = connection
+    connection
         .query_one(Statement::from_sql_and_values(
             backend,
             sql,
             [feed_id.into()],
         ))
         .await?
-        .ok_or(RefreshRepositoryError::CorruptData)?;
+        .map(decode_locked_feed)
+        .transpose()
+}
+
+fn decode_locked_feed(row: QueryResult) -> Result<LockedFeed, RefreshRepositoryError> {
     let entry_sequence_head = row
         .try_get("", "entry_sequence_head")
         .map_err(|_| RefreshRepositoryError::CorruptData)?;
