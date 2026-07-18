@@ -6,6 +6,7 @@ pub mod feed_refresh_run;
 pub mod lifecycle_outbox;
 pub mod rss_counter;
 pub mod subscription;
+pub mod user_preference;
 
 pub mod bootstrap_state {
     use sea_orm::entity::prelude::*;

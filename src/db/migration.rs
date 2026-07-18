@@ -5,6 +5,7 @@ use super::DbError;
 
 mod bootstrap_state;
 mod organization;
+mod preferences;
 mod rss;
 
 pub async fn migrate(database: &DatabaseConnection) -> Result<(), DbError> {
@@ -46,6 +47,7 @@ impl MigratorTrait for Migrator {
             Box::new(rss::feed_metadata::FeedMetadata),
             Box::new(rss::outbox::CreateLifecycleOutbox),
             Box::new(organization::CreateOrganizationTables),
+            Box::new(preferences::CreateUserPreferences),
         ]
     }
 }

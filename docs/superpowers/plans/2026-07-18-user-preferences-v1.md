@@ -36,7 +36,7 @@
 - Produces `user_preferences(user_id, locale, theme_mode, layout_density, reading_font_scale, created_at, updated_at)`.
 - Produces `user_preference::Model` consumed by Task 2.
 
-- [ ] **Step 1: Write the migration RED contract**
+- [x] **Step 1: Write the migration RED contract**
 
 Create one shared contract with mandatory SQLite and opt-in PostgreSQL/MySQL entry points. The contract migrates twice, inserts a user and a valid preference row, rejects every invalid enum and scales `84`/`131`, rejects a second row for the same user, deletes the user, and proves cascade removal.
 
@@ -48,13 +48,13 @@ async fn sqlite_preference_schema_contract() {
 }
 ```
 
-- [ ] **Step 2: Run and confirm RED**
+- [x] **Step 2: Run and confirm RED**
 
 Run: `cargo test --locked --all-features --test preference_migrations`
 
 Expected: compile failure because `entities::user_preference` and `CreateUserPreferences` do not exist.
 
-- [ ] **Step 3: Implement the migration and entity**
+- [x] **Step 3: Implement the migration and entity**
 
 Append `CreateUserPreferences` after `CreateOrganizationTables`. Use the user ID as the table primary key and foreign key with `ON DELETE CASCADE`. Add column checks with SeaQuery expressions:
 
@@ -81,13 +81,13 @@ pub struct Model {
 }
 ```
 
-- [ ] **Step 4: Verify schema contracts**
+- [x] **Step 4: Verify schema contracts**
 
 Run: `cargo test --locked --all-features --test preference_migrations --test organization_migrations --test database_migrations`
 
 Expected: SQLite passes; PostgreSQL/MySQL skip only when their existing test URLs are absent.
 
-- [ ] **Step 5: Commit and push**
+- [x] **Step 5: Commit and push**
 
 ```bash
 git add src/db/migration.rs src/db/migration/preferences.rs src/db/entities.rs src/db/entities/user_preference.rs tests/preference_migrations.rs
