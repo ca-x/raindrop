@@ -124,3 +124,27 @@ Every project asserts document/body horizontal containment. The hostile detail i
 - No runtime dependency, backend migration, test-only production route, second Reader controller/store, or public-network dependency was added to deterministic Playwright.
 - The 506.45 kB main chunk advisory remains a Minor follow-up. The threshold was not raised.
 - Task 4B does not claim categories, search, bulk mark-read, next-unread-source, AI, plugins, MCP, OPML, OIDC, theme completion, motion polish, or release completion.
+
+## Task 4C — restrained motion and de-slop pass
+
+### Motion decisions
+
+- Added a small shared `MountTransition` wrapper backed by ASTRYX `useEntryAnimation`; no custom animation system or runtime dependency was introduced.
+- The first-run database/admin step change uses the ASTRYX `fadeIn` preset.
+- The pending-new-entries Banner uses the ASTRYX `slideDown` preset so an asynchronous queue update is noticeable without moving the active article or cursor.
+- Reader J/K/N/P/M/S actions, queue cursor changes, article navigation, compact routing, and routine list updates remain immediate. Dialog, MobileNav, and Toast keep their ASTRYX-provided motion instead of receiving duplicate effects.
+- ASTRYX handles reduced-motion behavior for both added transitions.
+
+### AI-slop audit
+
+- The `kill-ai-slop` scanner covered 80 frontend source files and returned 9 heuristic hits across 2 groups, with 0 confirmed issues.
+- Setup/login eyebrow copy was retained because it communicates real lifecycle context; article kickers remain Feed source metadata; emoji matches exist only in password-validation test data.
+- No decorative gradient, floating card treatment, hover scaling, generic marketing copy, or invented status prose was added.
+
+### Verification
+
+- `npm run typecheck`: passed.
+- `npm run test:ci`: 28 files, 134 tests passed.
+- `npm run build`: passed; main JS is 506.61 kB (158.23 kB gzip), and the existing chunk-size advisory remains visible.
+- `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium npm run test:e2e`: release lib 102/102, embedded web 9/9, Playwright 14/14.
+- The final `kill-ai-slop` scan introduced no new heuristic hits.

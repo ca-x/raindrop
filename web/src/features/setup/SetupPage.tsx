@@ -13,6 +13,7 @@ import { useState } from "react"
 import { ApiClientError } from "../../shared/api/client"
 import { BrandMark } from "../../shared/brand/BrandMark"
 import { LocaleSwitch } from "../../shared/i18n/LocaleSwitch"
+import { MountTransition } from "../../shared/motion/MountTransition"
 import type { SessionResponse } from "../auth/session"
 import { AdminStep } from "./AdminStep"
 import type { SetupMode } from "../../app/bootstrap"
@@ -137,34 +138,36 @@ export function SetupPage({ mode, onAuthenticated, onLoginRequired }: SetupPageP
                     }
                   />
                 ) : null}
-                {step === "database" ? (
-                  <DatabaseStep
-                    values={values}
-                    fields={fields}
-                    isLoading={isLoading}
-                    onChange={setValues}
-                    onSubmit={submitDatabase}
-                  />
-                ) : (
-                  <AdminStep
-                    values={values}
-                    fields={fields}
-                    isLoading={isLoading}
-                    onChange={setValues}
-                    showToken={mode === "ADMIN_ONLY"}
-                    onBack={
-                      mode === "FULL"
-                        ? () => {
-                            if (isLoading) return
-                            setFields({})
-                            setError(null)
-                            setStep("database")
-                          }
-                        : undefined
-                    }
-                    onSubmit={submitAdmin}
-                  />
-                )}
+                <MountTransition key={step} preset="fadeIn">
+                  {step === "database" ? (
+                    <DatabaseStep
+                      values={values}
+                      fields={fields}
+                      isLoading={isLoading}
+                      onChange={setValues}
+                      onSubmit={submitDatabase}
+                    />
+                  ) : (
+                    <AdminStep
+                      values={values}
+                      fields={fields}
+                      isLoading={isLoading}
+                      onChange={setValues}
+                      showToken={mode === "ADMIN_ONLY"}
+                      onBack={
+                        mode === "FULL"
+                          ? () => {
+                              if (isLoading) return
+                              setFields({})
+                              setError(null)
+                              setStep("database")
+                            }
+                          : undefined
+                      }
+                      onSubmit={submitAdmin}
+                    />
+                  )}
+                </MountTransition>
               </Stack>
             </Section>
           </Card>

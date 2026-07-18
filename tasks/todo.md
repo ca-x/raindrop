@@ -68,7 +68,7 @@
 - [ ] 摘要/翻译/plugin artifact 作为非阻塞 sidecar，原文默认且始终可读。
 - [ ] light/dark/system、Kami 排版、中文/英文完整覆盖。
 - [x] 键盘、screen-reader 语义、reduced-motion 和 390×844/360×800 移动端验证。
-- [ ] 前端完成后执行 Emil motion 机会审计并只加入克制的高价值动效。
+- [x] Reader 前端完成后执行 motion 机会审计，并只加入 setup 步骤切换与 pending 新文章提示两处克制动效；`kill-ai-slop` 复扫无确认问题。
 
 ## 10. Release
 

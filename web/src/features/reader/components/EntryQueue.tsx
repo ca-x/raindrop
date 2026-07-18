@@ -8,6 +8,7 @@ import { StatusDot } from "@astryxdesign/core/StatusDot"
 import { useLingui } from "@lingui/react"
 import { useEffect, useLayoutEffect, useRef } from "react"
 
+import { MountTransition } from "../../../shared/motion/MountTransition"
 import { sourceKey, type ReaderState } from "../model/types"
 import { QueueToolbar } from "./ReaderToolbar"
 
@@ -68,25 +69,27 @@ export function EntryQueue({
     <div ref={rootRef} className="reader-queue" aria-busy={state.paneStatus.queue === "loading"}>
       <QueueToolbar showMenu={showMenu} isCompact={isCompact} onOpenSources={onOpenSources} onReload={onReload} />
       {pendingCount > 0 ? (
-        <Banner
-          container="section"
-          status="info"
-          title={i18n._("reader.newEntriesAvailable", { count: pendingCount })}
-          endContent={
-            <Button
-              label={i18n._("reader.showNewEntries", { count: pendingCount })}
-              isDisabled={!isRouteReady}
-              onClick={() => {
-                const firstPending = state.pendingNewEntriesBySource[key]?.[0]
-                onMergePending()
-                if (scrollRef.current) scrollRef.current.scrollTop = 0
-                onRecordScroll(sourceRoute, 0)
-                if (firstPending) onMergedEntryFocus(firstPending)
-              }}
-              variant="ghost"
-            />
-          }
-        />
+        <MountTransition preset="slideDown">
+          <Banner
+            container="section"
+            status="info"
+            title={i18n._("reader.newEntriesAvailable", { count: pendingCount })}
+            endContent={
+              <Button
+                label={i18n._("reader.showNewEntries", { count: pendingCount })}
+                isDisabled={!isRouteReady}
+                onClick={() => {
+                  const firstPending = state.pendingNewEntriesBySource[key]?.[0]
+                  onMergePending()
+                  if (scrollRef.current) scrollRef.current.scrollTop = 0
+                  onRecordScroll(sourceRoute, 0)
+                  if (firstPending) onMergedEntryFocus(firstPending)
+                }}
+                variant="ghost"
+              />
+            }
+          />
+        </MountTransition>
       ) : null}
       {state.paneStatus.queue === "error" ? (
         <Banner
