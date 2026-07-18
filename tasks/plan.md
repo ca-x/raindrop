@@ -2,9 +2,9 @@
 
 权威设计规格：`docs/superpowers/specs/2026-07-16-raindrop-design.md`。
 
-当前详细计划：`docs/superpowers/plans/2026-07-18-feed-retention-v1.md`。
+当前详细计划：`docs/superpowers/plans/2026-07-18-reader-efficiency-v2.md`。
 
-当前进展：Feed Retention v1 已由主 Agent 完成配置、三数据库索引、数据库时钟 cutoff、有界逐 Feed 锁定清理、双实例收敛、重订阅竞态恢复、runtime 维护和运维文档，并由 CI run `29638020707` 验证 Rust、Web、发布版 E2E 与非 root 容器门禁。真实 `v*` tag 的 GitHub Release 与 registry 发布 smoke 仍保留在后续任务。
+当前进展：Feed Retention v1 已完成并由 CI run `29638020707` 验证。主 Agent 正在执行 Reader Efficiency v2：稳定快照批量已读、下一/上一未读 Feed、Feed 内标题/作者/摘要/正文搜索，以及对应 ASTRYX/移动端/键盘/浏览器验证。真实 `v*` tag 的 GitHub Release 与 registry 发布 smoke 仍保留在后续任务。
 
 ## 依赖顺序
 
