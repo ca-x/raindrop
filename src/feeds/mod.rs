@@ -1,4 +1,5 @@
 mod address_policy;
+mod bulk_read;
 mod content_storage;
 mod deadline;
 mod decode;
@@ -26,6 +27,7 @@ mod url_policy;
 mod test_support;
 
 pub use address_policy::AddressPolicy;
+pub use bulk_read::{MarkReadResult, MarkReadScope};
 pub use content_storage::{EncodedEntryContent, EntryContentDetail, EntryContentError};
 pub use dto::{
     EnclosureDto, EntryDetailDto, EntryListItemDto, EntryPage, EntryStateDto, InertImageDto,

@@ -31,6 +31,37 @@ fn reader_openapi_patch_request_is_strict() {
 }
 
 #[test]
+fn reader_openapi_mark_read_request_is_strict() {
+    let document = load_openapi();
+    let request = &document["components"]["schemas"]["MarkEntriesReadRequest"];
+    for valid in [
+        json!({ "snapshotGeneration": 0 }),
+        json!({
+            "snapshotGeneration": 42,
+            "feedId": "00000000-0000-4000-8000-000000000101"
+        }),
+        json!({
+            "snapshotGeneration": 42,
+            "categoryId": "00000000-0000-4000-8000-000000000501"
+        }),
+    ] {
+        assert!(validate_schema(&document, request, &valid, "$markRead").is_ok());
+    }
+    for invalid in [
+        json!({}),
+        json!({ "snapshotGeneration": -1 }),
+        json!({ "snapshotGeneration": null }),
+        json!({ "snapshotGeneration": 1, "feedId": "not-a-uuid" }),
+        json!({ "snapshotGeneration": 1, "revision": 7 }),
+    ] {
+        assert!(
+            validate_schema(&document, request, &invalid, "$markRead").is_err(),
+            "strict mark-read schema accepted {invalid}"
+        );
+    }
+}
+
+#[test]
 fn reader_openapi_does_not_leak_internal_fields() {
     let document = load_openapi();
     let serialized = serde_json::to_string(&document)

@@ -4,7 +4,7 @@ use serde_json::json;
 use crate::support::database::ENTRY_A_ID;
 
 use super::{
-    document::{ENTRY_PATH, ENTRY_STATE_PATH, load_openapi},
+    document::{ENTRY_PATH, ENTRY_STATE_PATH, MARK_READ_PATH, load_openapi},
     fixture::ContractFixture,
     response::assert_operation_response,
 };
@@ -24,6 +24,21 @@ async fn reader_openapi_matches_real_router_success_and_error_responses() {
             .request(Method::GET, "/api/v1/entries", None, true, true)
             .await,
         StatusCode::OK,
+    );
+    assert_operation_response(
+        &document,
+        MARK_READ_PATH,
+        "post",
+        fixture
+            .request(
+                Method::POST,
+                MARK_READ_PATH,
+                Some(json!({ "snapshotGeneration": 1 })),
+                true,
+                true,
+            )
+            .await,
+        StatusCode::NO_CONTENT,
     );
     assert_operation_response(
         &document,
@@ -202,6 +217,48 @@ async fn reader_openapi_matches_real_router_success_and_error_responses() {
                 .request(Method::PATCH, &state_uri, Some(json!({})), true, true)
                 .await,
             StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (
+            MARK_READ_PATH,
+            "post",
+            fixture
+                .request(
+                    Method::POST,
+                    MARK_READ_PATH,
+                    Some(json!({ "snapshotGeneration": -1 })),
+                    true,
+                    true,
+                )
+                .await,
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (
+            MARK_READ_PATH,
+            "post",
+            fixture
+                .request(
+                    Method::POST,
+                    MARK_READ_PATH,
+                    Some(json!({ "snapshotGeneration": 1 })),
+                    false,
+                    false,
+                )
+                .await,
+            StatusCode::UNAUTHORIZED,
+        ),
+        (
+            MARK_READ_PATH,
+            "post",
+            fixture
+                .request(
+                    Method::POST,
+                    MARK_READ_PATH,
+                    Some(json!({ "snapshotGeneration": 1 })),
+                    true,
+                    false,
+                )
+                .await,
+            StatusCode::FORBIDDEN,
         ),
         (
             ENTRY_STATE_PATH,

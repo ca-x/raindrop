@@ -72,6 +72,12 @@ fn reader_openapi_freezes_request_and_error_shapes() {
         "PatchEntryStateRequest",
         &["isRead", "isStarred"],
     );
+    assert_required_fields(&document, "MarkEntriesReadRequest", &["snapshotGeneration"]);
+    assert_schema_properties(
+        &document,
+        "MarkEntriesReadRequest",
+        &["categoryId", "feedId", "snapshotGeneration"],
+    );
     assert_shape(&document, "ErrorEnvelope", &["error"]);
     assert_required_fields(&document, "ApiError", &["code", "message", "requestId"]);
     assert_schema_properties(

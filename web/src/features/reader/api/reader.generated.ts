@@ -12,6 +12,12 @@ export type PatchEntryStateRequest = {
   | { isStarred: boolean }
 )
 
+export interface MarkEntriesReadRequest {
+  snapshotGeneration: number
+  feedId?: string
+  categoryId?: string
+}
+
 export interface EntryPageResponse {
   items: EntryListItemResponse[]
   nextCursor: string | null
@@ -118,6 +124,10 @@ export function isEntryListState(value: unknown): value is EntryListState {
 
 export function isPatchEntryStateRequest(value: unknown): value is PatchEntryStateRequest {
   return ((isRecord(value) && hasOnlyKeys(value, ["isRead","isStarred"]) && (!hasOwn(value, "isRead") || (typeof value["isRead"] === "boolean")) && (!hasOwn(value, "isStarred") || (typeof value["isStarred"] === "boolean")))) && ((isRecord(value) && hasOwn(value, "isRead")) || (isRecord(value) && hasOwn(value, "isStarred")))
+}
+
+export function isMarkEntriesReadRequest(value: unknown): value is MarkEntriesReadRequest {
+  return ((isRecord(value) && hasOnlyKeys(value, ["snapshotGeneration","feedId","categoryId"]) && hasOwn(value, "snapshotGeneration") && ((typeof value["snapshotGeneration"] === "number" && Number.isFinite(value["snapshotGeneration"]) && Number.isInteger(value["snapshotGeneration"]) && value["snapshotGeneration"] >= 0)) && (!hasOwn(value, "feedId") || ((typeof value["feedId"] === "string" && isUuid(value["feedId"])))) && (!hasOwn(value, "categoryId") || ((typeof value["categoryId"] === "string" && isUuid(value["categoryId"]))))))
 }
 
 export function isEntryPageResponse(value: unknown): value is EntryPageResponse {

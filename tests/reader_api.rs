@@ -15,7 +15,7 @@ use raindrop::{
     auth::build_session_cookie,
     db::{
         DatabaseConfig, connect,
-        entities::{category, entry, entry_state, feed, rss_counter, session, user},
+        entities::{category, entry, entry_state, feed, rss_counter, session, subscription, user},
         migrate,
     },
     setup::SetupService,
@@ -246,6 +246,34 @@ impl ReaderFixture {
             .oneshot(request)
             .await
             .expect("reader state body request should complete")
+    }
+
+    async fn request_mark_read_body(
+        &self,
+        body: &str,
+        content_type: Option<&str>,
+        include_csrf: bool,
+    ) -> axum::response::Response {
+        let mut request = Request::builder()
+            .method(Method::POST)
+            .uri("/api/v1/entries/mark-read")
+            .header(COOKIE, &self.user_a_cookie)
+            .header(ORIGIN, "http://reader.test")
+            .header(HOST, "reader.test");
+        if include_csrf {
+            request = request.header("x-csrf-token", &self.user_a_csrf);
+        }
+        if let Some(content_type) = content_type {
+            request = request.header(CONTENT_TYPE, content_type);
+        }
+        let request = request
+            .body(Body::from(body.to_owned()))
+            .expect("bulk read body request should build");
+        self.app
+            .clone()
+            .oneshot(request)
+            .await
+            .expect("bulk read body request should complete")
     }
 
     async fn insert_cross_tenant_entry(&self) {
@@ -936,6 +964,100 @@ async fn reader_feed_search_rejects_unbounded_or_non_feed_queries() {
 }
 
 #[tokio::test]
+async fn reader_bulk_mark_read_advances_the_confirmed_snapshot() {
+    let fixture = ReaderFixture::new().await;
+    let response = fixture
+        .request_with_csrf(
+            Method::POST,
+            "/api/v1/entries/mark-read",
+            json!({ "snapshotGeneration": 1, "categoryId": CATEGORY_A_ID }),
+            UserKind::A,
+            Some("http://reader.test"),
+            Some("reader.test"),
+        )
+        .await;
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    assert_sensitive_cache_headers(&response);
+    let bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("bulk read response should collect")
+        .to_bytes();
+    assert!(bytes.is_empty());
+
+    let subscription = subscription::Entity::find_by_id(SUBSCRIPTION_A_ID)
+        .one(&fixture.database)
+        .await
+        .expect("Subscription should query")
+        .expect("Subscription should exist");
+    assert_eq!(subscription.read_through_sequence, 2);
+    assert_eq!(subscription.state_revision, 1);
+
+    let unread = fixture
+        .request(Method::GET, "/api/v1/entries", None, UserKind::A)
+        .await;
+    assert_eq!(unread.status(), StatusCode::OK);
+    assert_eq!(response_json(unread).await["items"], json!([]));
+}
+
+#[tokio::test]
+async fn reader_bulk_mark_read_rejects_invalid_or_untrusted_requests() {
+    let fixture = ReaderFixture::new().await;
+    for (body, content_type) in [
+        ("{}", Some("application/json")),
+        (r#"{"snapshotGeneration":null}"#, Some("application/json")),
+        (r#"{"snapshotGeneration":-1}"#, Some("application/json")),
+        (r#"{"snapshotGeneration":2}"#, Some("application/json")),
+        (
+            r#"{"snapshotGeneration":1,"feedId":"not-a-uuid"}"#,
+            Some("application/json"),
+        ),
+        (
+            r#"{"snapshotGeneration":1,"categoryId":"not-a-uuid"}"#,
+            Some("application/json"),
+        ),
+        (
+            r#"{"snapshotGeneration":1,"feedId":"00000000-0000-4000-8000-000000000101","categoryId":"00000000-0000-4000-8000-000000000501"}"#,
+            Some("application/json"),
+        ),
+        (
+            r#"{"snapshotGeneration":1,"unexpected":true}"#,
+            Some("application/json"),
+        ),
+        (r#"{"snapshotGeneration":1}"#, Some("text/plain")),
+    ] {
+        let response = fixture
+            .request_mark_read_body(body, content_type, true)
+            .await;
+        assert_eq!(
+            response.status(),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "unexpected status for {body:?}"
+        );
+        assert_sensitive_cache_headers(&response);
+        assert_eq!(
+            response_json(response).await["error"]["code"],
+            "VALIDATION_ERROR"
+        );
+    }
+
+    let forbidden = fixture
+        .request_mark_read_body(
+            r#"{"snapshotGeneration":1}"#,
+            Some("application/json"),
+            false,
+        )
+        .await;
+    assert_eq!(forbidden.status(), StatusCode::FORBIDDEN);
+
+    let unauthenticated = fixture
+        .request_unauthenticated(Method::POST, "/api/v1/entries/mark-read")
+        .await;
+    assert_eq!(unauthenticated.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
 async fn reader_detail_returns_only_sanitized_visible_content() {
     let fixture = ReaderFixture::new().await;
     let response = fixture
@@ -1081,6 +1203,7 @@ async fn reader_known_paths_reject_wrong_methods() {
     let fixture = ReaderFixture::new().await;
     for (method, uri) in [
         (Method::POST, "/api/v1/entries"),
+        (Method::GET, "/api/v1/entries/mark-read"),
         (
             Method::PUT,
             "/api/v1/entries/00000000-0000-4000-8000-000000000301",

@@ -19,18 +19,23 @@ pub(crate) fn assert_operation_response(
     );
     assert_eq!(response.headers.get(CACHE_CONTROL).unwrap(), "no-store");
     assert_eq!(response.headers.get(PRAGMA).unwrap(), "no-cache");
-    assert_eq!(
-        response.headers.get(CONTENT_TYPE).unwrap(),
-        "application/json",
-        "reader responses must use JSON content type"
-    );
-
     let response_contract = resolve_ref(
         document,
         &document["paths"][path][method]["responses"][expected_status.as_u16().to_string()],
     );
     assert!(response_contract["headers"]["Cache-Control"].is_object());
     assert!(response_contract["headers"]["Pragma"].is_object());
+    if expected_status == StatusCode::NO_CONTENT {
+        assert!(response.headers.get(CONTENT_TYPE).is_none());
+        assert!(response_contract.get("content").is_none());
+        assert!(response.body_is_empty());
+        return;
+    }
+    assert_eq!(
+        response.headers.get(CONTENT_TYPE).unwrap(),
+        "application/json",
+        "reader responses must use JSON content type"
+    );
     let schema = &response_contract["content"]["application/json"]["schema"];
     let body = response.json();
     validate_schema(document, schema, &body, "$response")

@@ -1,9 +1,9 @@
 use axum::{
     Json, Router,
     extract::{FromRequestParts, Path, State},
-    http::request::Parts,
+    http::{StatusCode, request::Parts},
     middleware,
-    routing::{get, patch},
+    routing::{get, patch, post},
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
@@ -12,7 +12,8 @@ use crate::{
     auth::{CsrfGuard, CurrentUser},
     feeds::{
         EnclosureDto, EntryDetailDto, EntryListItemDto, EntryListState, EntryStateDto,
-        FeedRepository, InertImageDto, ListEntriesQuery, RepositoryError, UpdateEntryState,
+        FeedRepository, InertImageDto, ListEntriesQuery, MarkReadScope, RepositoryError,
+        UpdateEntryState,
     },
 };
 
@@ -21,6 +22,7 @@ use super::{ApiError, ApiJson, routes::sensitive_cache_headers};
 pub(super) fn router() -> Router<AppState> {
     let reader = Router::new()
         .route("/", get(list_entries))
+        .route("/mark-read", post(mark_entries_read))
         .route("/{entry_id}", get(get_entry))
         .route("/{entry_id}/state", patch(patch_entry_state))
         .fallback(reader_not_found)
@@ -209,6 +211,30 @@ struct PatchEntryStateRequest {
     is_starred: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct MarkEntriesReadRequest {
+    snapshot_generation: i64,
+    feed_id: Option<String>,
+    category_id: Option<String>,
+}
+
+impl MarkEntriesReadRequest {
+    fn into_scope(self) -> Result<(MarkReadScope, i64), ApiError> {
+        let scope = match (self.feed_id, self.category_id) {
+            (None, None) => MarkReadScope::All,
+            (Some(feed_id), None) => MarkReadScope::Feed(feed_id),
+            (None, Some(category_id)) => MarkReadScope::Category(category_id),
+            (Some(_), Some(_)) => {
+                return Err(ApiError::validation()
+                    .with_field("feedId", "Feed and category scopes cannot be combined")
+                    .with_field("categoryId", "Feed and category scopes cannot be combined"));
+            }
+        };
+        Ok((scope, self.snapshot_generation))
+    }
+}
+
 fn deserialize_present_bool<'de, D>(deserializer: D) -> Result<Option<bool>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -336,6 +362,20 @@ async fn patch_entry_state(
     Ok(Json(state.into()))
 }
 
+async fn mark_entries_read(
+    State(state): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    _csrf: CsrfGuard,
+    ApiJson(request): ApiJson<MarkEntriesReadRequest>,
+) -> Result<StatusCode, ApiError> {
+    let (scope, snapshot_generation) = request.into_scope()?;
+    repository(&state)?
+        .mark_read_for_user(&user.id, scope, snapshot_generation)
+        .await
+        .map_err(map_repository_error)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 fn map_repository_error(error: RepositoryError) -> ApiError {
     match error {
         RepositoryError::InvalidUserId => ApiError::validation(),
@@ -351,6 +391,10 @@ fn map_repository_error(error: RepositoryError) -> ApiError {
         RepositoryError::InvalidSearch => ApiError::validation().with_field(
             "search",
             "Search requires one Feed and must contain 1 to 8 terms within 128 bytes",
+        ),
+        RepositoryError::InvalidSnapshotGeneration => ApiError::validation().with_field(
+            "snapshotGeneration",
+            "Snapshot generation must be committed and non-negative",
         ),
         RepositoryError::InvalidEntryId => {
             ApiError::validation().with_field("entryId", "Entry identifier is invalid")

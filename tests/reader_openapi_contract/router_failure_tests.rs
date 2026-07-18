@@ -4,7 +4,7 @@ use serde_json::json;
 use crate::support::database::ENTRY_A_ID;
 
 use super::{
-    document::{ENTRY_PATH, ENTRY_STATE_PATH, load_openapi},
+    document::{ENTRY_PATH, ENTRY_STATE_PATH, MARK_READ_PATH, load_openapi},
     fixture::ContractFixture,
     response::assert_operation_response,
 };
@@ -29,6 +29,13 @@ async fn reader_openapi_matches_real_router_internal_errors() {
             Method::PATCH,
             state_uri.as_str(),
             Some(json!({ "isRead": true })),
+        ),
+        (
+            MARK_READ_PATH,
+            "post",
+            Method::POST,
+            MARK_READ_PATH,
+            Some(json!({ "snapshotGeneration": 1 })),
         ),
     ] {
         let fixture = ContractFixture::new().await;

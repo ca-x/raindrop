@@ -120,11 +120,11 @@ git diff --check
 - Produces `MarkReadScope`, `MarkReadResult`, and `FeedRepository::mark_read_for_user`.
 - Produces strict `POST /api/v1/entries/mark-read -> 204`.
 
-- [ ] Write SQLite-always and environment-gated PostgreSQL/MySQL RED contracts for All/Feed/Category scopes, later generation preservation, frontier advancement, override deletion/clearing, star preservation, empty/no-owned scopes, idempotency, and individual-state concurrency.
-- [ ] Write endpoint RED tests for strict body/content type, UUIDs, mutual exclusion, future snapshot, authentication, CSRF, duplicate headers, cache headers, route/method fallbacks, and database failure mapping.
-- [ ] Implement User lock, deterministic Subscription locks, per-Subscription snapshot frontier calculation, sparse normalization, conditional revision update, and atomic commit.
-- [ ] Add Axum route/request mapping and OpenAPI 204/error contract.
-- [ ] Regenerate Reader types and verify no internal frontier/revision fields appear.
+- [x] Write SQLite-always and environment-gated PostgreSQL/MySQL RED contracts for All/Feed/Category scopes, later generation preservation, frontier advancement, override deletion/clearing, star preservation, empty/no-owned scopes, idempotency, and individual-state concurrency.
+- [x] Write endpoint RED tests for strict body/content type, UUIDs, mutual exclusion, future snapshot, authentication, CSRF, duplicate headers, cache headers, route/method fallbacks, and database failure mapping.
+- [x] Implement User lock, deterministic Subscription locks, per-Subscription snapshot frontier calculation, sparse normalization, conditional revision update, and atomic commit.
+- [x] Add Axum route/request mapping and OpenAPI 204/error contract.
+- [x] Regenerate Reader types and verify no internal frontier/revision fields appear.
 - [ ] Verify:
 
 ```bash
@@ -139,7 +139,7 @@ cd ..
 git diff --check
 ```
 
-- [ ] Commit and push: `feat: mark reader snapshots read`.
+- [x] Commit and push: `feat: mark reader snapshots read`.
 
 ### Task 4: Reader snapshots, search, bulk action, and unread navigation
 

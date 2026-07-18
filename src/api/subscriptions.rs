@@ -474,6 +474,7 @@ fn map_repository_error(error: RepositoryError) -> ApiError {
         | RepositoryError::InvalidCategoryId
         | RepositoryError::InvalidSourceFilter
         | RepositoryError::InvalidSearch
+        | RepositoryError::InvalidSnapshotGeneration
         | RepositoryError::InvalidEntryId
         | RepositoryError::InvalidStatePatch
         | RepositoryError::Database(_)

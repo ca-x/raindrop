@@ -25,6 +25,8 @@ use crate::support::database::{
     subscription_model,
 };
 
+use super::document::MARK_READ_PATH;
+
 pub(crate) struct ContractFixture {
     _data: TempDir,
     app: Router,
@@ -111,7 +113,7 @@ impl ContractFixture {
         if authenticated {
             request = request.header(COOKIE, &self.cookie);
         }
-        if method == Method::PATCH {
+        if method == Method::PATCH || (method == Method::POST && uri == MARK_READ_PATH) {
             request = request
                 .header(
                     "x-csrf-token",
@@ -172,5 +174,9 @@ impl CapturedResponse {
 
     pub(crate) fn json(&self) -> Value {
         serde_json::from_slice(&self.body).expect("reader response should contain JSON")
+    }
+
+    pub(crate) fn body_is_empty(&self) -> bool {
+        self.body.is_empty()
     }
 }

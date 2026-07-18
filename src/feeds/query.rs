@@ -71,6 +71,8 @@ pub enum RepositoryError {
     InvalidSourceFilter,
     #[error("entry search query is invalid")]
     InvalidSearch,
+    #[error("entry snapshot generation is invalid")]
+    InvalidSnapshotGeneration,
     #[error("entry identifier is invalid")]
     InvalidEntryId,
     #[error("entry list limit is invalid")]
@@ -94,6 +96,7 @@ impl fmt::Debug for RepositoryError {
             Self::InvalidCategoryId => "RepositoryError::InvalidCategoryId",
             Self::InvalidSourceFilter => "RepositoryError::InvalidSourceFilter",
             Self::InvalidSearch => "RepositoryError::InvalidSearch",
+            Self::InvalidSnapshotGeneration => "RepositoryError::InvalidSnapshotGeneration",
             Self::InvalidEntryId => "RepositoryError::InvalidEntryId",
             Self::InvalidLimit => "RepositoryError::InvalidLimit",
             Self::InvalidCursor => "RepositoryError::InvalidCursor",

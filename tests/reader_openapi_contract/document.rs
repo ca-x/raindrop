@@ -4,6 +4,7 @@ use serde_json::Value;
 
 pub(crate) const ENTRY_PATH: &str = "/api/v1/entries/{entryId}";
 pub(crate) const ENTRY_STATE_PATH: &str = "/api/v1/entries/{entryId}/state";
+pub(crate) const MARK_READ_PATH: &str = "/api/v1/entries/mark-read";
 const OPENAPI_PATH: &str = "docs/openapi/reader-v1.json";
 
 pub(crate) fn load_openapi() -> Value {

@@ -64,6 +64,53 @@
         }
       }
     },
+    "/api/v1/entries/mark-read": {
+      "post": {
+        "tags": [
+          "Reader"
+        ],
+        "operationId": "markEntriesRead",
+        "summary": "Mark a current-user source read through a committed ingestion snapshot",
+        "description": "feedId and categoryId are mutually exclusive. Omitting both targets all current-user subscriptions.",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarkEntriesReadRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "$ref": "#/components/responses/NoContent"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/api/v1/entries/{entryId}": {
       "parameters": [
         {
@@ -316,6 +363,17 @@
           }
         }
       },
+      "NoContent": {
+        "description": "The confirmed source snapshot is marked read.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/CacheControl"
+          },
+          "Pragma": {
+            "$ref": "#/components/headers/Pragma"
+          }
+        }
+      },
       "Error": {
         "description": "Stable public error envelope.",
         "headers": {
@@ -367,6 +425,27 @@
             ]
           }
         ]
+      },
+      "MarkEntriesReadRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "snapshotGeneration"
+        ],
+        "properties": {
+          "snapshotGeneration": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "feedId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "categoryId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
       },
       "EntryPageResponse": {
         "type": "object",
