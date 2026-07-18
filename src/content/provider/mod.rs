@@ -1,3 +1,7 @@
+mod anthropic;
+mod gemini;
+mod openai_chat;
+mod openai_responses;
 mod types;
 mod validation;
 
@@ -14,13 +18,15 @@ impl ProviderKind {
     pub fn encode_request(
         self,
         request: &StructuredGenerationRequest,
-        _credential: SecretString,
+        credential: SecretString,
     ) -> Result<EncodedProviderRequest, ProviderAdapterError> {
         request.validate()?;
-        Err(ProviderAdapterError::for_provider(
-            self,
-            ProviderAdapterErrorKind::MalformedResponse,
-        ))
+        match self {
+            Self::AnthropicMessages => anthropic::encode(request, credential),
+            Self::OpenAiResponses => openai_responses::encode(request, credential),
+            Self::OpenAiChatCompletions => openai_chat::encode(request, credential),
+            Self::GoogleGemini => gemini::encode(request, credential),
+        }
     }
 
     pub fn decode_response(

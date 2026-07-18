@@ -1,7 +1,9 @@
+use http::{HeaderName, HeaderValue};
 use serde_json::Value;
 
 use super::{
-    ProviderAdapterError, ProviderAdapterErrorKind, ProviderKind, StructuredGenerationRequest,
+    EncodedProviderRequest, ProviderAdapterError, ProviderAdapterErrorKind, ProviderHeader,
+    ProviderKind, StructuredGenerationRequest,
 };
 
 const MAX_MODEL_BYTES: usize = 200;
@@ -60,6 +62,39 @@ pub(super) fn validate_response_body(
         ));
     }
     Ok(())
+}
+
+pub(super) fn canonical_json(
+    provider: ProviderKind,
+    value: &Value,
+) -> Result<String, ProviderAdapterError> {
+    serde_json::to_string(value).map_err(|_| {
+        ProviderAdapterError::for_provider(provider, ProviderAdapterErrorKind::InvalidRequest)
+    })
+}
+
+pub(super) fn encode_request_body(
+    provider: ProviderKind,
+    path: String,
+    headers: Vec<ProviderHeader>,
+    body: &Value,
+) -> Result<EncodedProviderRequest, ProviderAdapterError> {
+    let body = serde_json::to_vec(body).map_err(|_| {
+        ProviderAdapterError::for_provider(provider, ProviderAdapterErrorKind::InvalidRequest)
+    })?;
+    EncodedProviderRequest::new(path, headers, body)
+        .map_err(|error| ProviderAdapterError::for_provider(provider, error.kind()))
+}
+
+pub(super) fn public_header(
+    provider: ProviderKind,
+    name: HeaderName,
+    value: &str,
+) -> Result<ProviderHeader, ProviderAdapterError> {
+    let value = HeaderValue::from_str(value).map_err(|_| {
+        ProviderAdapterError::for_provider(provider, ProviderAdapterErrorKind::InvalidRequest)
+    })?;
+    Ok(ProviderHeader::public(name, value))
 }
 
 fn validate_bounded_text(

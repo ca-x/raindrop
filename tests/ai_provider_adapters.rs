@@ -3,7 +3,7 @@ use raindrop::content::provider::{
     EncodedProviderRequest, FinishReason, OutputSchema, ProviderAdapterErrorKind, ProviderHeader,
     ProviderKind, StructuredGenerationRequest, StructuredGenerationResponse, TokenUsage,
 };
-use secrecy::SecretString;
+use secrecy::{ExposeSecret, SecretString};
 use serde_json::{Value, json};
 
 const KIB: usize = 1024;
@@ -222,4 +222,109 @@ fn canonical_response_limit_precedes_provider_decoding() {
         .expect_err("oversized body should fail before provider decoding");
 
     assert_eq!(error.kind(), ProviderAdapterErrorKind::ResponseTooLarge);
+}
+
+#[test]
+fn request_encoders_match_v1_fixtures_and_keep_credentials_out_of_bodies() {
+    let cases = [
+        (
+            ProviderKind::AnthropicMessages,
+            "/v1/messages",
+            include_str!("fixtures/ai-provider/v1/anthropic-request.json"),
+            "x-api-key",
+            "provider-key",
+            "idempotency-key",
+        ),
+        (
+            ProviderKind::OpenAiResponses,
+            "/v1/responses",
+            include_str!("fixtures/ai-provider/v1/openai-responses-request.json"),
+            "authorization",
+            "Bearer provider-key",
+            "idempotency-key",
+        ),
+        (
+            ProviderKind::OpenAiChatCompletions,
+            "/v1/chat/completions",
+            include_str!("fixtures/ai-provider/v1/openai-chat-request.json"),
+            "authorization",
+            "Bearer provider-key",
+            "idempotency-key",
+        ),
+        (
+            ProviderKind::GoogleGemini,
+            "/v1beta/models/model-v1:generateContent",
+            include_str!("fixtures/ai-provider/v1/gemini-request.json"),
+            "x-goog-api-key",
+            "provider-key",
+            "x-goog-request-id",
+        ),
+    ];
+
+    for (kind, path, fixture, secret_name, expected_secret, request_id_header) in cases {
+        let encoded = kind
+            .encode_request(&valid_request(), SecretString::from("provider-key"))
+            .expect("provider request should encode");
+        assert_eq!(encoded.path(), path, "{kind:?}");
+        assert_eq!(
+            serde_json::from_slice::<Value>(encoded.body()).expect("encoded body should be JSON"),
+            serde_json::from_str::<Value>(fixture).expect("fixture should be JSON"),
+            "{kind:?}"
+        );
+        assert_eq!(public_header(&encoded, "content-type"), "application/json");
+        assert_eq!(public_header(&encoded, "accept"), "application/json");
+        assert_eq!(public_header(&encoded, request_id_header), "job-request-1");
+        assert_eq!(secret_header(&encoded, secret_name), expected_secret);
+        if kind == ProviderKind::AnthropicMessages {
+            assert_eq!(public_header(&encoded, "anthropic-version"), "2023-06-01");
+        }
+        let body = String::from_utf8_lossy(encoded.body());
+        let rendered = format!("{encoded:?}");
+        assert!(
+            !body.contains("provider-key"),
+            "{kind:?} body leaked credential"
+        );
+        assert!(
+            !rendered.contains("provider-key"),
+            "{kind:?} Debug leaked credential"
+        );
+        assert!(rendered.contains("[REDACTED]"), "{kind:?}");
+    }
+}
+
+#[test]
+fn request_gemini_model_is_encoded_as_one_path_segment() {
+    let mut request = valid_request();
+    request.model = "publishers/google/models/gemini?preview#1".to_owned();
+
+    let encoded = ProviderKind::GoogleGemini
+        .encode_request(&request, SecretString::from("provider-key"))
+        .expect("Gemini request should encode");
+
+    assert_eq!(
+        encoded.path(),
+        "/v1beta/models/publishers%2Fgoogle%2Fmodels%2Fgemini%3Fpreview%231:generateContent"
+    );
+    assert!(!encoded.path().contains('?'));
+    assert!(!encoded.path().contains('#'));
+}
+
+fn public_header<'a>(request: &'a EncodedProviderRequest, name: &str) -> &'a str {
+    request
+        .headers()
+        .iter()
+        .find(|header| header.name().as_str() == name)
+        .and_then(ProviderHeader::public_value)
+        .and_then(|value| value.to_str().ok())
+        .expect("public header should exist")
+}
+
+fn secret_header<'a>(request: &'a EncodedProviderRequest, name: &str) -> &'a str {
+    request
+        .headers()
+        .iter()
+        .find(|header| header.name().as_str() == name)
+        .and_then(ProviderHeader::secret_value)
+        .map(ExposeSecret::expose_secret)
+        .expect("secret header should exist")
 }

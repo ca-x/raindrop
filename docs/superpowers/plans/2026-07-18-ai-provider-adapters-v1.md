@@ -66,12 +66,12 @@ git diff --check
 - Consumes the validated canonical request and `SecretString` credential.
 - Produces provider paths, secret/public headers, and a JSON body capped at 1 MiB.
 
-- [ ] Add RED fixture assertions for all four exact JSON shapes, header names/sensitivity, public idempotency headers, Gemini model path encoding, and credential absence from path/body/debug.
-- [ ] Implement Anthropic Messages mapping to `/v1/messages`, `output_config.format`, and fixed `anthropic-version`.
-- [ ] Implement OpenAI Responses mapping to `/v1/responses`, `instructions`, user input text, `max_output_tokens`, and strict `text.format` JSON schema.
-- [ ] Implement OpenAI Chat Completions mapping to `/v1/chat/completions`, system/user messages, `max_completion_tokens`, and strict `response_format.json_schema`.
-- [ ] Implement Gemini mapping to one encoded model path segment, `systemInstruction`, `contents`, and JSON `generationConfig` using secret `x-goog-api-key` rather than a query key.
-- [ ] Verify:
+- [x] Add RED fixture assertions for all four exact JSON shapes, header names/sensitivity, public idempotency headers, Gemini model path encoding, and credential absence from path/body/debug.
+- [x] Implement Anthropic Messages mapping to `/v1/messages`, `output_config.format`, and fixed `anthropic-version`.
+- [x] Implement OpenAI Responses mapping to `/v1/responses`, `instructions`, user input text, `max_output_tokens`, and strict `text.format` JSON schema.
+- [x] Implement OpenAI Chat Completions mapping to `/v1/chat/completions`, system/user messages, `max_completion_tokens`, and strict `response_format.json_schema`.
+- [x] Implement Gemini mapping to one encoded model path segment, `systemInstruction`, `contents`, and JSON `generationConfig` using secret `x-goog-api-key` rather than a query key.
+- [x] Verify:
 
 ```bash
 cargo fmt --check
@@ -80,7 +80,7 @@ cargo clippy --locked --all-targets --all-features -- -D warnings
 git diff --check
 ```
 
-- [ ] Commit and push: `feat: encode ai provider requests`.
+- [x] Commit and push: `feat: encode ai provider requests`.
 
 ### Task 3: Hostile response decoders and normalization
 
