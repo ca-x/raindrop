@@ -21,7 +21,7 @@
 - [x] Reader API client 从 committed OpenAPI 生成 TypeScript Subscription/Reader DTO，并由 drift gate 阻止手写第二份 wire contract。
 - [x] 订阅树、文章列表、阅读器、已读/未读/收藏与刷新终态同步。
 - [x] CommaFeed 效率首片：All/Unread/Starred、J/K 与 N/P、M/S、路由/焦点/滚动恢复和非打扰式新文章合并。
-- [ ] CommaFeed 后续：批量已读快照、下一未读来源和来源内搜索。
+- [x] CommaFeed 后续：批量已读快照、下一未读来源和来源内搜索。
 - [x] 列表重载与 Feed 网络抓取分离，pending/ready/delayed/error 状态可见。
 - [ ] 将 queued/running 拆分显示，并补充 partial failure 的条目级反馈。
 

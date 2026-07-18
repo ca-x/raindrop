@@ -49,7 +49,7 @@
 - [x] Add the schema migration, register it after existing Entry storage migrations, and add the entity field.
 - [x] Populate `search_text` for new Entries and every metadata/envelope/hash update path. Include it in existing-entry load comparisons so projection repair is deterministic.
 - [x] Update shared test ActiveModels and persistence assertions.
-- [ ] Verify:
+- [x] Verify:
 
 ```bash
 cargo fmt --check
@@ -85,7 +85,7 @@ git diff --check
 - [x] Extend `ListEntriesParams`, repository validation, filter hash, and backend statement generation using `instr`/`position`/`locate`.
 - [x] Update OpenAPI parameters and strict router/DTO/schema contracts without exposing `search_text`.
 - [x] Regenerate committed Reader TypeScript DTOs and require drift checks to pass.
-- [ ] Verify:
+- [x] Verify:
 
 ```bash
 cargo fmt --check
@@ -125,7 +125,7 @@ git diff --check
 - [x] Implement User lock, deterministic Subscription locks, per-Subscription snapshot frontier calculation, sparse normalization, conditional revision update, and atomic commit.
 - [x] Add Axum route/request mapping and OpenAPI 204/error contract.
 - [x] Regenerate Reader types and verify no internal frontier/revision fields appear.
-- [ ] Verify:
+- [x] Verify:
 
 ```bash
 cargo fmt --check
@@ -197,13 +197,13 @@ git diff --check
 - Uses ASTRYX `TextInput`, `AlertDialog`, `Toolbar`, `Button`, `MoreMenu`, `Kbd`, and existing responsive shell components.
 - Produces responsive search/mark/navigation controls and browser evidence.
 
-- [ ] Write UI RED tests for Feed-only search visibility, Enter/clear behavior, 128-byte error, Starred/search mark-read boundary, snapshot confirmation copy, loading/focus behavior, and compact action access.
-- [ ] Implement focused search and confirmation components; split toolbar actions rather than growing one large TSX file.
-- [ ] Add complete English/Chinese copy and preserve screen-reader labels/keyboard hints.
-- [ ] Add Playwright scenarios at 1280x800, 900x800, 390x844, and 360x800 for search, mark-read pending-snapshot protection, Shift+J/K, modal focus, and horizontal overflow.
-- [ ] Run local production build with the real `https://www.ithome.com/rss/` subscription and verify the flow through local `agent-browser`.
-- [ ] Apply `$find-animation-opportunities` read-only audit after the feature is complete, implement only justified motion if any, then apply `$kill-ai-slop` cleanup and rerun browser checks.
-- [ ] Run full gates:
+- [x] Write UI RED tests for Feed-only search visibility, Enter/clear behavior, 128-byte error, Starred/search mark-read boundary, snapshot confirmation copy, loading/focus behavior, and compact action access.
+- [x] Implement focused search and confirmation components; split toolbar actions rather than growing one large TSX file.
+- [x] Add complete English/Chinese copy and preserve screen-reader labels/keyboard hints.
+- [x] Add Playwright scenarios at 1280x800, 900x800, 390x844, and 360x800 for search, mark-read pending-snapshot protection, Shift+J/K, modal focus, and horizontal overflow.
+- [x] Run local production build with the real `https://www.ithome.com/rss/` subscription and verify the flow through local `agent-browser`.
+- [x] Apply `$find-animation-opportunities` read-only audit after the feature is complete, implement only justified motion if any, then apply `$kill-ai-slop` cleanup and rerun browser checks.
+- [x] Run full gates:
 
 ```bash
 cargo fmt --check
@@ -218,8 +218,8 @@ cd ..
 git diff --check
 ```
 
-- [ ] Mark `CommaFeed 后续：批量已读快照、下一未读来源和来源内搜索` complete and record exact verification/CI evidence in the report.
-- [ ] Commit and push: `test: verify reader efficiency workflows`.
+- [x] Mark `CommaFeed 后续：批量已读快照、下一未读来源和来源内搜索` complete and record exact verification/CI evidence in the report.
+- [x] Commit and push: `test: verify reader efficiency workflows`.
 
 ## Plan self-review
 

@@ -4,7 +4,7 @@
 
 当前详细计划：`docs/superpowers/plans/2026-07-18-reader-efficiency-v2.md`。
 
-当前进展：Feed Retention v1 已完成并由 CI run `29638020707` 验证。主 Agent 正在执行 Reader Efficiency v2：稳定快照批量已读、下一/上一未读 Feed、Feed 内标题/作者/摘要/正文搜索，以及对应 ASTRYX/移动端/键盘/浏览器验证。真实 `v*` tag 的 GitHub Release 与 registry 发布 smoke 仍保留在后续任务。
+当前进展：Feed Retention v1 已完成并由 CI run `29638020707` 验证。Reader Efficiency v2 已完成：稳定快照批量已读、下一/上一未读 Feed、Feed 内标题/作者/摘要/正文搜索，以及对应 ASTRYX、移动端、键盘、四视口 Playwright 和真实 IT之家 RSS 浏览器验证均已落地。下一批 RSS core 工作是拆分 queued/running 展示并补充 partial failure 的条目级反馈；真实 `v*` tag 的 GitHub Release 与 registry 发布 smoke 仍保留在后续任务。
 
 ## 依赖顺序
 
