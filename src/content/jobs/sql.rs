@@ -17,6 +17,18 @@ pub(super) struct HeartbeatWrite<'a> {
     pub(super) lease_until: OffsetDateTime,
 }
 
+pub(super) struct JobFinishWrite<'a> {
+    pub(super) status: &'a str,
+    pub(super) next_attempt_at: OffsetDateTime,
+    pub(super) completed_at: Option<OffsetDateTime>,
+    pub(super) error_code: Option<&'a str>,
+    pub(super) job_id: &'a str,
+    pub(super) user_id: &'a str,
+    pub(super) attempt: i32,
+    pub(super) owner: &'a str,
+    pub(super) lease_token: i64,
+}
+
 pub(super) async fn database_now<C>(
     connection: &C,
     backend: DatabaseBackend,
@@ -354,6 +366,65 @@ where
             sql,
             [
                 write.lease_until.into(),
+                write.job_id.into(),
+                write.user_id.into(),
+                write.attempt.into(),
+                write.owner.into(),
+                write.lease_token.into(),
+            ],
+        ))
+        .await
+        .map(|result| result.rows_affected() == 1)
+        .map_err(database_error)
+}
+
+pub(super) async fn finish_job<C>(
+    connection: &C,
+    backend: DatabaseBackend,
+    write: &JobFinishWrite<'_>,
+) -> Result<bool, ContentRepositoryError>
+where
+    C: ConnectionTrait,
+{
+    let sql = match backend {
+        DatabaseBackend::Sqlite => {
+            "UPDATE content_jobs
+             SET status = ?, next_attempt_at = ?, completed_at = ?, last_error_code = ?,
+                 lease_owner = NULL, lease_until = NULL, attempt_deadline_at = NULL
+             WHERE id = ? AND user_id = ? AND status = 'RUNNING'
+               AND attempts = ? AND lease_owner = ? AND lease_token = ?
+               AND lease_until IS NOT NULL AND attempt_deadline_at IS NOT NULL
+               AND julianday(lease_until) > julianday('now')
+               AND julianday(attempt_deadline_at) > julianday('now')"
+        }
+        DatabaseBackend::Postgres => {
+            "UPDATE content_jobs
+             SET status = $1, next_attempt_at = $2, completed_at = $3, last_error_code = $4,
+                 lease_owner = NULL, lease_until = NULL, attempt_deadline_at = NULL
+             WHERE id = $5 AND user_id = $6 AND status = 'RUNNING'
+               AND attempts = $7 AND lease_owner = $8 AND lease_token = $9
+               AND lease_until > clock_timestamp()
+               AND attempt_deadline_at > clock_timestamp()"
+        }
+        DatabaseBackend::MySql => {
+            "UPDATE content_jobs
+             SET status = ?, next_attempt_at = ?, completed_at = ?, last_error_code = ?,
+                 lease_owner = NULL, lease_until = NULL, attempt_deadline_at = NULL
+             WHERE id = ? AND user_id = ? AND status = 'RUNNING'
+               AND attempts = ? AND lease_owner = ? AND lease_token = ?
+               AND lease_until > UTC_TIMESTAMP(6)
+               AND attempt_deadline_at > UTC_TIMESTAMP(6)"
+        }
+    };
+    connection
+        .execute(Statement::from_sql_and_values(
+            backend,
+            sql,
+            [
+                write.status.into(),
+                write.next_attempt_at.into(),
+                write.completed_at.into(),
+                write.error_code.into(),
                 write.job_id.into(),
                 write.user_id.into(),
                 write.attempt.into(),

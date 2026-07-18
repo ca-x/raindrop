@@ -19,8 +19,8 @@ const MAX_ERROR_CODE_BYTES: usize = 64;
 const MAX_REMAINING_DEPTH: u8 = 4;
 const MAX_PROVIDER_REQUESTS: u8 = 3;
 const MAX_MCP_CALLS: u8 = 4;
-const MAX_ARTIFACT_BYTES: usize = 512 * 1024;
-const MAX_METADATA_BYTES: usize = 32 * 1024;
+pub(super) const MAX_ARTIFACT_BYTES: usize = 512 * 1024;
+pub(super) const MAX_METADATA_BYTES: usize = 32 * 1024;
 const MAX_ATTEMPTS: u8 = 3;
 const MANUAL_TIMEOUT_SECONDS: u16 = 180;
 const AUTOMATIC_TIMEOUT_SECONDS: u16 = 120;
@@ -886,6 +886,21 @@ impl AttemptSnapshot {
     #[must_use]
     pub const fn lease_token(&self) -> i64 {
         self.lease_token
+    }
+
+    #[must_use]
+    pub const fn started_at(&self) -> OffsetDateTime {
+        self.started_at
+    }
+
+    #[must_use]
+    pub const fn deadline_at(&self) -> OffsetDateTime {
+        self.deadline_at
+    }
+
+    #[must_use]
+    pub const fn completed_at(&self) -> Option<OffsetDateTime> {
+        self.completed_at
     }
 
     #[must_use]

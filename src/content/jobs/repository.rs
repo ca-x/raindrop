@@ -1,8 +1,9 @@
 use constant_time_eq::constant_time_eq;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DatabaseConnection,
-    EntityTrait, QueryFilter, TransactionTrait, sea_query::Expr,
+    EntityTrait, QueryFilter, QueryOrder, TransactionTrait, sea_query::Expr,
 };
+use serde_json::Value;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -13,9 +14,10 @@ use crate::{
 
 use super::{
     model::{
-        ArtifactIdentity, ArtifactIdentityInput, ArtifactSnapshot, ContentJobClaim,
+        ArtifactCandidate, ArtifactIdentity, ArtifactIdentityInput, ArtifactSnapshot,
+        AttemptFailure, AttemptSnapshot, AttemptStatus, AttemptUsage, ContentJobClaim,
         ContentRepositoryError, ContentRepositoryErrorKind, EnqueueContentJob, EnqueueResult,
-        JobSnapshot, JobStatus, LeaseDeadline,
+        JobSnapshot, JobStatus, LeaseDeadline, StoredArtifactResult,
     },
     sql,
 };
@@ -213,6 +215,205 @@ impl ContentRepository {
         finish_transaction(transaction, result).await
     }
 
+    pub async fn complete_failure(
+        &self,
+        claim: &ContentJobClaim,
+        failure: AttemptFailure,
+    ) -> Result<JobSnapshot, ContentRepositoryError> {
+        let backend = self.database.get_database_backend();
+        let transaction = self.database.begin().await.map_err(sql::database_error)?;
+        let result = async {
+            let stored = lock_claim_job(&transaction, backend, claim).await?;
+            let now = sql::database_now(&transaction, backend).await?;
+            validate_claim(&stored, claim, now)?;
+            validate_claim_identity(&stored, claim)?;
+            finish_attempt(
+                &transaction,
+                claim,
+                &AttemptFinish {
+                    status: AttemptStatus::Failed,
+                    error_code: Some(failure.error_code()),
+                    retryable: Some(failure.retryable()),
+                    outcome_unknown: failure.outcome_unknown(),
+                    usage: failure.usage(),
+                    completed_at: now,
+                },
+            )
+            .await?;
+
+            let max_attempts =
+                u8::try_from(stored.max_attempts).map_err(|_| sql::corrupt_data())?;
+            if max_attempts != 3 || claim.attempt() > max_attempts {
+                return Err(sql::corrupt_data());
+            }
+            let retrying = failure.retryable() && claim.attempt() < max_attempts;
+            let next_attempt_at = if retrying {
+                now + retry_delay(claim.attempt(), failure.retry_after())
+            } else {
+                now
+            };
+            let status = if retrying {
+                JobStatus::RetryWait
+            } else {
+                JobStatus::Failed
+            };
+            if !sql::finish_job(
+                &transaction,
+                backend,
+                &sql::JobFinishWrite {
+                    status: status.as_storage(),
+                    next_attempt_at,
+                    completed_at: (!retrying).then_some(now),
+                    error_code: Some(failure.error_code()),
+                    job_id: claim.job_id(),
+                    user_id: claim.user_id(),
+                    attempt: i32::from(claim.attempt()),
+                    owner: claim.lease_owner(),
+                    lease_token: claim.lease_token(),
+                },
+            )
+            .await?
+            {
+                return Err(lease_lost());
+            }
+            let updated = content_job::Entity::find_by_id(claim.job_id())
+                .one(&transaction)
+                .await
+                .map_err(sql::database_error)?
+                .ok_or_else(sql::corrupt_data)?;
+            job_snapshot(updated)
+        }
+        .await;
+        finish_transaction(transaction, result).await
+    }
+
+    pub async fn complete_success(
+        &self,
+        claim: &ContentJobClaim,
+        candidate: ArtifactCandidate,
+        usage: AttemptUsage,
+    ) -> Result<StoredArtifactResult, ContentRepositoryError> {
+        if candidate.identity() != claim.identity() {
+            return Err(invalid());
+        }
+        let backend = self.database.get_database_backend();
+        let transaction = self.database.begin().await.map_err(sql::database_error)?;
+        let result = async {
+            let stored = lock_claim_job(&transaction, backend, claim).await?;
+            let now = sql::database_now(&transaction, backend).await?;
+            validate_claim(&stored, claim, now)?;
+            validate_claim_identity(&stored, claim)?;
+
+            let existing = content_artifact::Entity::find()
+                .filter(content_artifact::Column::UserId.eq(claim.user_id()))
+                .filter(content_artifact::Column::IdentityHash.eq(claim.identity().hash()))
+                .one(&transaction)
+                .await
+                .map_err(sql::database_error)?
+                .map(|artifact| artifact_matching(artifact, claim.identity()))
+                .transpose()?;
+            let (artifact, was_reused) = if let Some(artifact) = existing {
+                (artifact, true)
+            } else {
+                (
+                    insert_artifact(&transaction, claim, &candidate, now).await?,
+                    false,
+                )
+            };
+
+            content_job_result::ActiveModel {
+                job_id: Set(claim.job_id().to_owned()),
+                artifact_id: Set(artifact.id().to_owned()),
+                was_reused: Set(was_reused),
+                linked_at: Set(now),
+            }
+            .insert(&transaction)
+            .await
+            .map_err(sql::database_error)?;
+            finish_attempt(
+                &transaction,
+                claim,
+                &AttemptFinish {
+                    status: AttemptStatus::Succeeded,
+                    error_code: None,
+                    retryable: Some(false),
+                    outcome_unknown: false,
+                    usage: &usage,
+                    completed_at: now,
+                },
+            )
+            .await?;
+            if !sql::finish_job(
+                &transaction,
+                backend,
+                &sql::JobFinishWrite {
+                    status: JobStatus::Succeeded.as_storage(),
+                    next_attempt_at: now,
+                    completed_at: Some(now),
+                    error_code: None,
+                    job_id: claim.job_id(),
+                    user_id: claim.user_id(),
+                    attempt: i32::from(claim.attempt()),
+                    owner: claim.lease_owner(),
+                    lease_token: claim.lease_token(),
+                },
+            )
+            .await?
+            {
+                return Err(lease_lost());
+            }
+            Ok(StoredArtifactResult {
+                artifact,
+                was_reused,
+            })
+        }
+        .await;
+        finish_transaction(transaction, result).await
+    }
+
+    pub async fn list_attempts(
+        &self,
+        user_id: &str,
+        job_id: &str,
+    ) -> Result<Vec<AttemptSnapshot>, ContentRepositoryError> {
+        self.get_job(user_id, job_id).await?;
+        content_job_attempt::Entity::find()
+            .filter(content_job_attempt::Column::JobId.eq(job_id))
+            .order_by_asc(content_job_attempt::Column::Attempt)
+            .all(&self.database)
+            .await
+            .map_err(sql::database_error)?
+            .into_iter()
+            .map(attempt_snapshot)
+            .collect()
+    }
+
+    pub async fn get_result(
+        &self,
+        user_id: &str,
+        job_id: &str,
+    ) -> Result<StoredArtifactResult, ContentRepositoryError> {
+        let job = self.get_job(user_id, job_id).await?;
+        let result = content_job_result::Entity::find_by_id(job_id)
+            .one(&self.database)
+            .await
+            .map_err(sql::database_error)?
+            .ok_or_else(not_found)?;
+        let stored = content_artifact::Entity::find_by_id(&result.artifact_id)
+            .one(&self.database)
+            .await
+            .map_err(sql::database_error)?
+            .ok_or_else(sql::corrupt_data)?;
+        let artifact = artifact_matching(stored, job.identity())?;
+        if artifact.id() != result.artifact_id {
+            return Err(sql::corrupt_data());
+        }
+        Ok(StoredArtifactResult {
+            artifact,
+            was_reused: result.was_reused,
+        })
+    }
+
     pub async fn find_artifact_by_identity(
         &self,
         user_id: &str,
@@ -356,6 +557,222 @@ impl ContentRepository {
             identity: snapshot.identity().clone(),
         })))
     }
+}
+
+async fn lock_claim_job(
+    transaction: &sea_orm::DatabaseTransaction,
+    backend: sea_orm::DatabaseBackend,
+    claim: &ContentJobClaim,
+) -> Result<content_job::Model, ContentRepositoryError> {
+    if !sql::lock_active_user(transaction, backend, claim.user_id()).await? {
+        return Err(lease_lost());
+    }
+    if !sql::lock_job(transaction, backend, claim.job_id()).await? {
+        return Err(lease_lost());
+    }
+    let stored = content_job::Entity::find_by_id(claim.job_id())
+        .one(transaction)
+        .await
+        .map_err(sql::database_error)?
+        .ok_or_else(lease_lost)?;
+    if matches!(
+        JobStatus::from_storage(&stored.status).map_err(|_| sql::corrupt_data())?,
+        JobStatus::Succeeded | JobStatus::Failed
+    ) {
+        Err(ContentRepositoryError::new(
+            ContentRepositoryErrorKind::AlreadyCompleted,
+        ))
+    } else {
+        Ok(stored)
+    }
+}
+
+fn validate_claim_identity(
+    stored: &content_job::Model,
+    claim: &ContentJobClaim,
+) -> Result<(), ContentRepositoryError> {
+    let snapshot = job_snapshot(stored.clone())?;
+    if snapshot.identity() == claim.identity() {
+        Ok(())
+    } else {
+        Err(sql::corrupt_data())
+    }
+}
+
+struct AttemptFinish<'a> {
+    status: AttemptStatus,
+    error_code: Option<&'a str>,
+    retryable: Option<bool>,
+    outcome_unknown: bool,
+    usage: &'a AttemptUsage,
+    completed_at: OffsetDateTime,
+}
+
+async fn finish_attempt(
+    transaction: &sea_orm::DatabaseTransaction,
+    claim: &ContentJobClaim,
+    finish: &AttemptFinish<'_>,
+) -> Result<(), ContentRepositoryError> {
+    let result = content_job_attempt::Entity::update_many()
+        .col_expr(
+            content_job_attempt::Column::Status,
+            Expr::value(finish.status.as_storage()),
+        )
+        .col_expr(
+            content_job_attempt::Column::CompletedAt,
+            Expr::value(finish.completed_at),
+        )
+        .col_expr(
+            content_job_attempt::Column::ErrorCode,
+            Expr::value(finish.error_code),
+        )
+        .col_expr(
+            content_job_attempt::Column::Retryable,
+            Expr::value(finish.retryable),
+        )
+        .col_expr(
+            content_job_attempt::Column::OutcomeUnknown,
+            Expr::value(finish.outcome_unknown),
+        )
+        .col_expr(
+            content_job_attempt::Column::ProviderRequestCount,
+            Expr::value(i32::from(finish.usage.provider_request_count())),
+        )
+        .col_expr(
+            content_job_attempt::Column::McpCallCount,
+            Expr::value(i32::from(finish.usage.mcp_call_count())),
+        )
+        .col_expr(
+            content_job_attempt::Column::InputTokens,
+            Expr::value(i64::try_from(finish.usage.input_tokens()).map_err(|_| invalid())?),
+        )
+        .col_expr(
+            content_job_attempt::Column::OutputTokens,
+            Expr::value(i64::try_from(finish.usage.output_tokens()).map_err(|_| invalid())?),
+        )
+        .col_expr(
+            content_job_attempt::Column::EstimatedCostMicros,
+            Expr::value(
+                i64::try_from(finish.usage.estimated_cost_micros()).map_err(|_| invalid())?,
+            ),
+        )
+        .col_expr(
+            content_job_attempt::Column::ExecutionMetadataJson,
+            Expr::value(finish.usage.execution_metadata_json()),
+        )
+        .filter(content_job_attempt::Column::JobId.eq(claim.job_id()))
+        .filter(content_job_attempt::Column::Attempt.eq(i32::from(claim.attempt())))
+        .filter(content_job_attempt::Column::LeaseToken.eq(claim.lease_token()))
+        .filter(content_job_attempt::Column::Status.eq(AttemptStatus::Running.as_storage()))
+        .exec(transaction)
+        .await
+        .map_err(sql::database_error)?;
+    if result.rows_affected == 1 {
+        Ok(())
+    } else {
+        Err(lease_lost())
+    }
+}
+
+fn retry_delay(attempt: u8, retry_after: Option<std::time::Duration>) -> time::Duration {
+    let base_seconds: u64 = match attempt {
+        1 => 5,
+        2 => 30,
+        _ => 0,
+    };
+    let retry_after_seconds = retry_after.map_or(0, |duration| duration.as_secs());
+    let seconds = base_seconds.max(retry_after_seconds).min(60 * 60);
+    time::Duration::seconds(i64::try_from(seconds).unwrap_or(60 * 60))
+}
+
+async fn insert_artifact(
+    transaction: &sea_orm::DatabaseTransaction,
+    claim: &ContentJobClaim,
+    candidate: &ArtifactCandidate,
+    now: OffsetDateTime,
+) -> Result<ArtifactSnapshot, ContentRepositoryError> {
+    let identity = claim.identity();
+    let stored = content_artifact::ActiveModel {
+        id: Set(Uuid::new_v4().to_string()),
+        user_id: Set(identity.user_id().to_owned()),
+        entry_id: Set(identity.entry_id().to_owned()),
+        producer_job_id: Set(claim.job_id().to_owned()),
+        kind: Set(identity.kind().as_storage().to_owned()),
+        locale: Set(identity.target_locale().map(str::to_owned)),
+        schema_id: Set(identity.schema_id().to_owned()),
+        entry_content_hash: Set(identity.entry_content_hash().to_owned()),
+        input_hash: Set(identity.input_hash().to_owned()),
+        config_hash: Set(identity.config_hash().to_owned()),
+        processor_key: Set(identity.plugin_key().to_owned()),
+        processor_version: Set(identity.plugin_version().to_owned()),
+        component_digest: Set(identity.component_digest().to_owned()),
+        provider_binding_id: Set(identity.provider_binding_id().to_owned()),
+        provider_kind: Set(identity.provider_kind().as_storage().to_owned()),
+        provider_model: Set(identity.provider_model().to_owned()),
+        provider_revision: Set(i64::try_from(identity.provider_revision()).map_err(|_| invalid())?),
+        provider_label: Set(candidate.provider_label().to_owned()),
+        prompt_version: Set(identity.prompt_version().to_owned()),
+        mcp_provenance_hash: Set(identity.mcp_provenance_hash().to_owned()),
+        identity_hash: Set(identity.hash().to_owned()),
+        payload_json: Set(candidate.payload_json().to_owned()),
+        provenance_json: Set(candidate.provenance_json().to_owned()),
+        payload_size_bytes: Set(
+            i32::try_from(candidate.payload_size_bytes()).map_err(|_| invalid())?
+        ),
+        created_at: Set(now),
+    }
+    .insert(transaction)
+    .await
+    .map_err(sql::database_error)?;
+    artifact_matching(stored, identity)
+}
+
+fn attempt_snapshot(
+    model: content_job_attempt::Model,
+) -> Result<AttemptSnapshot, ContentRepositoryError> {
+    let attempt = u8::try_from(model.attempt).map_err(|_| sql::corrupt_data())?;
+    let provider_request_count =
+        u8::try_from(model.provider_request_count).map_err(|_| sql::corrupt_data())?;
+    let mcp_call_count = u8::try_from(model.mcp_call_count).map_err(|_| sql::corrupt_data())?;
+    let input_tokens = u64::try_from(model.input_tokens).map_err(|_| sql::corrupt_data())?;
+    let output_tokens = u64::try_from(model.output_tokens).map_err(|_| sql::corrupt_data())?;
+    let estimated_cost_micros =
+        u64::try_from(model.estimated_cost_micros).map_err(|_| sql::corrupt_data())?;
+    let metadata: Value =
+        serde_json::from_str(&model.execution_metadata_json).map_err(|_| sql::corrupt_data())?;
+    let usage = AttemptUsage::new(
+        provider_request_count,
+        mcp_call_count,
+        input_tokens,
+        output_tokens,
+        estimated_cost_micros,
+        metadata,
+    )
+    .map_err(|_| sql::corrupt_data())?;
+    if usage.execution_metadata_json() != model.execution_metadata_json {
+        return Err(sql::corrupt_data());
+    }
+    let status = AttemptStatus::from_storage(&model.status).map_err(|_| sql::corrupt_data())?;
+    let terminal = status != AttemptStatus::Running;
+    if terminal != model.completed_at.is_some()
+        || terminal != model.retryable.is_some()
+        || (status == AttemptStatus::Succeeded
+            && (model.error_code.is_some() || model.retryable != Some(false)))
+    {
+        return Err(sql::corrupt_data());
+    }
+    Ok(AttemptSnapshot {
+        attempt,
+        lease_token: model.lease_token,
+        status,
+        started_at: model.started_at,
+        deadline_at: model.deadline_at,
+        completed_at: model.completed_at,
+        error_code: model.error_code,
+        retryable: model.retryable,
+        outcome_unknown: model.outcome_unknown,
+        usage,
+    })
 }
 
 async fn abandon_attempt(
@@ -559,6 +976,16 @@ fn artifact_matching(
     model: content_artifact::Model,
     expected: &ArtifactIdentity,
 ) -> Result<ArtifactSnapshot, ContentRepositoryError> {
+    validate_stored_json(
+        &model.payload_json,
+        super::model::MAX_ARTIFACT_BYTES,
+        ContentRepositoryErrorKind::ArtifactTooLarge,
+    )?;
+    validate_stored_json(
+        &model.provenance_json,
+        super::model::MAX_METADATA_BYTES,
+        ContentRepositoryErrorKind::InvalidInput,
+    )?;
     let kind =
         super::model::ArtifactKind::from_storage(&model.kind).map_err(|_| sql::corrupt_data())?;
     let provider_kind =
@@ -605,6 +1032,21 @@ fn artifact_matching(
         provenance_json: model.provenance_json,
         created_at: model.created_at,
     })
+}
+
+fn validate_stored_json(
+    encoded: &str,
+    max_bytes: usize,
+    too_large: ContentRepositoryErrorKind,
+) -> Result<(), ContentRepositoryError> {
+    let value: Value = serde_json::from_str(encoded).map_err(|_| sql::corrupt_data())?;
+    let canonical = super::hash::canonical_json(value, max_bytes, too_large)
+        .map_err(|_| sql::corrupt_data())?;
+    if canonical == encoded {
+        Ok(())
+    } else {
+        Err(sql::corrupt_data())
+    }
 }
 
 async fn finish_transaction<T>(
