@@ -1,9 +1,15 @@
 #[allow(dead_code)]
 mod support;
 
-use raindrop::db::{
-    entities::{ai_provider, user},
-    migrate, rollback,
+use raindrop::{
+    content::provider::{
+        CreateProvider, ProviderCapabilities, ProviderCoreErrorKind, ProviderEndpoint,
+        ProviderKind, ProviderPolicy, ProviderScope, UpdateProvider,
+    },
+    db::{
+        entities::{ai_provider, user},
+        migrate, rollback,
+    },
 };
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, DatabaseConnection, EntityTrait, PaginatorTrait,
@@ -18,6 +24,310 @@ use time::{OffsetDateTime, macros::datetime};
 
 const STORED_AT: OffsetDateTime = datetime!(2040-02-03 04:05:06.123456 UTC);
 const ENCRYPTED_SECRET: &str = "rdsec1.primary.AAAAAAAAAAAAAAAA.ciphertext-placeholder";
+
+#[test]
+fn provider_model_kind_endpoint_and_policy_contract() {
+    for (kind, storage, default_endpoint) in [
+        (
+            ProviderKind::AnthropicMessages,
+            "ANTHROPIC_MESSAGES",
+            "https://api.anthropic.com/",
+        ),
+        (
+            ProviderKind::OpenAiResponses,
+            "OPENAI_RESPONSES",
+            "https://api.openai.com/",
+        ),
+        (
+            ProviderKind::OpenAiChatCompletions,
+            "OPENAI_CHAT_COMPLETIONS",
+            "https://api.openai.com/",
+        ),
+        (
+            ProviderKind::GoogleGemini,
+            "GOOGLE_GEMINI",
+            "https://generativelanguage.googleapis.com/",
+        ),
+    ] {
+        assert_eq!(kind.as_storage(), storage);
+        assert_eq!(ProviderKind::from_storage(storage).unwrap(), kind);
+        assert_eq!(kind.default_endpoint(), default_endpoint);
+        assert_eq!(
+            ProviderEndpoint::new(kind, None).unwrap().as_str(),
+            default_endpoint
+        );
+    }
+    assert_eq!(
+        ProviderKind::from_storage("UNKNOWN")
+            .expect_err("unknown provider storage kind should fail")
+            .kind(),
+        ProviderCoreErrorKind::CorruptData
+    );
+
+    let endpoint = ProviderEndpoint::new(
+        ProviderKind::OpenAiResponses,
+        Some("https://gateway.example/api/tenant-sentinel"),
+    )
+    .expect("path-prefixed HTTPS endpoint should normalize");
+    assert_eq!(
+        endpoint.as_str(),
+        "https://gateway.example/api/tenant-sentinel/"
+    );
+    assert_eq!(
+        endpoint
+            .join_adapter_path("/v1/responses")
+            .expect("adapter path should join")
+            .as_str(),
+        "https://gateway.example/api/tenant-sentinel/v1/responses"
+    );
+    assert_eq!(
+        endpoint
+            .join_adapter_path("/v1beta/models/model%2Fvariant:generateContent")
+            .expect("encoded model separator should remain data")
+            .as_str(),
+        "https://gateway.example/api/tenant-sentinel/v1beta/models/model%2Fvariant:generateContent"
+    );
+    let formatted = format!("{endpoint:?}");
+    assert!(formatted.contains("gateway.example"));
+    assert!(!formatted.contains("tenant-sentinel"));
+}
+
+#[test]
+fn provider_endpoint_rejects_ambiguous_or_private_routes() {
+    for invalid in [
+        "http://api.example.com/",
+        "https://user:password@api.example.com/",
+        "https://api.example.com/?tenant=secret",
+        "https://api.example.com/#fragment",
+        "https://api.example.com/a/../b",
+        "https://api.example.com/a/%2e%2e/b",
+        "https://api.example.com/a/%2f/b",
+        "https://api.example.com/a/%5c/b",
+        "https://api.example.com/a\\b",
+        "https://127.0.0.1/",
+        "https://10.0.0.1/",
+        "https://[::1]/",
+    ] {
+        let error = ProviderEndpoint::new(ProviderKind::OpenAiResponses, Some(invalid))
+            .expect_err("unsafe endpoint should fail");
+        assert_eq!(error.kind(), ProviderCoreErrorKind::InvalidEndpoint);
+        let formatted = format!("{error:?} {error}");
+        assert!(!formatted.contains(invalid));
+    }
+    ProviderEndpoint::new(
+        ProviderKind::OpenAiResponses,
+        Some("https://93.184.216.34/"),
+    )
+    .expect("public literal endpoint should be admitted");
+
+    let endpoint = ProviderEndpoint::new(ProviderKind::OpenAiResponses, None).unwrap();
+    for invalid in [
+        "",
+        "v1/responses",
+        "//other.example/path",
+        "/../v1/responses",
+        "/v1/./responses",
+        "/v1/responses?debug=true",
+        "/v1/responses#fragment",
+        "/v1\\responses",
+        "/v1/\nresponses",
+    ] {
+        assert_eq!(
+            endpoint
+                .join_adapter_path(invalid)
+                .expect_err("unsafe adapter path should fail")
+                .kind(),
+            ProviderCoreErrorKind::InvalidEndpoint
+        );
+    }
+}
+
+#[test]
+fn provider_scope_capability_policy_and_patch_bounds_are_exact() {
+    assert!(ProviderScope::user(USER_A_ID).is_ok());
+    assert_eq!(
+        ProviderScope::user("invalid-user")
+            .expect_err("invalid user scope should fail")
+            .kind(),
+        ProviderCoreErrorKind::InvalidUserId
+    );
+
+    let capabilities = ProviderCapabilities {
+        supports_usage: true,
+        supports_idempotency: true,
+        supports_streaming: false,
+    };
+    capabilities.validate().unwrap();
+    assert_eq!(
+        ProviderCapabilities {
+            supports_streaming: true,
+            ..capabilities
+        }
+        .validate()
+        .expect_err("streaming should remain unavailable")
+        .kind(),
+        ProviderCoreErrorKind::UnsupportedCapability
+    );
+
+    for policy in [
+        ProviderPolicy {
+            max_concurrency: 1,
+            requests_per_minute: Some(1),
+            max_input_tokens_per_request: 1,
+            max_output_tokens_per_request: 1,
+            input_cost_micros_per_million_tokens: Some(0),
+            output_cost_micros_per_million_tokens: Some(0),
+            max_cost_micros_per_request: Some(0),
+        },
+        ProviderPolicy {
+            max_concurrency: 64,
+            requests_per_minute: Some(1_000_000),
+            max_input_tokens_per_request: 1_048_576,
+            max_output_tokens_per_request: 16_384,
+            input_cost_micros_per_million_tokens: Some(1_000_000_000_000),
+            output_cost_micros_per_million_tokens: Some(1_000_000_000_000),
+            max_cost_micros_per_request: Some(1_000_000_000_000),
+        },
+    ] {
+        policy.validate().unwrap();
+    }
+    for policy in [
+        ProviderPolicy {
+            max_concurrency: 0,
+            ..valid_policy()
+        },
+        ProviderPolicy {
+            max_concurrency: 65,
+            ..valid_policy()
+        },
+        ProviderPolicy {
+            requests_per_minute: Some(0),
+            ..valid_policy()
+        },
+        ProviderPolicy {
+            requests_per_minute: Some(1_000_001),
+            ..valid_policy()
+        },
+        ProviderPolicy {
+            max_input_tokens_per_request: 0,
+            ..valid_policy()
+        },
+        ProviderPolicy {
+            max_output_tokens_per_request: 16_385,
+            ..valid_policy()
+        },
+        ProviderPolicy {
+            max_cost_micros_per_request: Some(1_000_000_000_001),
+            ..valid_policy()
+        },
+    ] {
+        assert_eq!(
+            policy
+                .validate()
+                .expect_err("invalid policy should fail")
+                .kind(),
+            ProviderCoreErrorKind::InvalidPolicy
+        );
+    }
+
+    assert_eq!(
+        UpdateProvider::default()
+            .validate(ProviderKind::OpenAiResponses)
+            .expect_err("empty patch should fail")
+            .kind(),
+        ProviderCoreErrorKind::InvalidPatch
+    );
+}
+
+#[test]
+fn provider_create_validation_enforces_name_model_and_nested_contracts() {
+    let valid = valid_create();
+    valid.validate().unwrap();
+
+    for display_name in [
+        String::new(),
+        " ".to_owned(),
+        "x".repeat(81),
+        "bad\nname".to_owned(),
+    ] {
+        assert_eq!(
+            CreateProvider {
+                display_name,
+                ..valid_create()
+            }
+            .validate()
+            .expect_err("invalid display name should fail")
+            .kind(),
+            ProviderCoreErrorKind::InvalidDisplayName
+        );
+    }
+    CreateProvider {
+        display_name: "x".repeat(80),
+        ..valid_create()
+    }
+    .validate()
+    .unwrap();
+
+    for model in [String::new(), "x".repeat(201), "bad\u{0}model".to_owned()] {
+        assert_eq!(
+            CreateProvider {
+                model,
+                ..valid_create()
+            }
+            .validate()
+            .expect_err("invalid model should fail")
+            .kind(),
+            ProviderCoreErrorKind::InvalidModel
+        );
+    }
+    CreateProvider {
+        model: "x".repeat(200),
+        ..valid_create()
+    }
+    .validate()
+    .unwrap();
+
+    let redacted = CreateProvider {
+        endpoint: Some("https://gateway.example/endpoint-sentinel/".to_owned()),
+        model: "model-sentinel".to_owned(),
+        credential: SecretString::from("credential-sentinel"),
+        ..valid_create()
+    };
+    let formatted = format!("{redacted:?}");
+    for sentinel in ["endpoint-sentinel", "model-sentinel", "credential-sentinel"] {
+        assert!(!formatted.contains(sentinel));
+    }
+}
+
+fn valid_policy() -> ProviderPolicy {
+    ProviderPolicy {
+        max_concurrency: 2,
+        requests_per_minute: Some(60),
+        max_input_tokens_per_request: 128_000,
+        max_output_tokens_per_request: 16_384,
+        input_cost_micros_per_million_tokens: Some(2_500),
+        output_cost_micros_per_million_tokens: Some(10_000),
+        max_cost_micros_per_request: Some(250_000),
+    }
+}
+
+fn valid_create() -> CreateProvider {
+    CreateProvider {
+        scope: ProviderScope::Instance,
+        display_name: "Provider".to_owned(),
+        kind: ProviderKind::OpenAiResponses,
+        endpoint: None,
+        model: "gpt-test-model".to_owned(),
+        credential: SecretString::from("test-provider-credential"),
+        capabilities: ProviderCapabilities {
+            supports_usage: true,
+            supports_idempotency: true,
+            supports_streaming: false,
+        },
+        policy: valid_policy(),
+        is_enabled: true,
+    }
+}
 
 #[tokio::test]
 async fn sqlite_ai_provider_storage_contract() {

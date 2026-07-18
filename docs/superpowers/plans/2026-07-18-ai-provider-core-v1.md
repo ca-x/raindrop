@@ -109,14 +109,14 @@ git diff --check
 - Produces `ProviderScope`, `ProviderEndpoint`, `ProviderCapabilities`, `ProviderPolicy`, `CreateProvider`, `UpdateProvider`, `ProviderMetadata`, `ProviderBinding`, `ProviderCoreError`, and exact validation/conversion helpers used by the repository and client.
 - `ProviderEndpoint::join_adapter_path(&self, path: &str) -> Result<url::Url, ProviderCoreError>` is the only raw request URL construction entry.
 
-- [ ] Write failing tests for every four-kind storage/default mapping and unknown storage value.
-- [ ] Add endpoint tests for HTTPS defaults, path-prefix join, normalized trailing slash, length, userinfo/query/fragment, HTTP, public/private literal IP, literal/encoded dot segments, encoded slash/backslash, adapter `//`, query/fragment/backslash, and redacted `Debug`.
-- [ ] Add exact validation tests for display name/model, user UUID scope, v1 streaming rejection, concurrency/rate/token/cost lower and upper bounds, empty patch, revision overflow/corruption, and redacted metadata/binding/error formatting.
-- [ ] Implement `from_storage` for Task 1's stable kind strings and the exact default endpoint mapping; prove unknown values fail closed and existing envelope fixtures remain unchanged.
-- [ ] Implement `ProviderEndpoint` with private `Url`, no `Display`/Serde, HTTPS-only authority, public literal classification via `AddressPolicy::public_only`, safe path-prefix normalization, and exact adapter path joining.
-- [ ] Implement typed capability/policy validation and database conversions bounded to signed `i64`. `supports_streaming = true` returns `UnsupportedCapability`.
-- [ ] Implement custom `Debug` for metadata/binding/errors. Endpoint/model/credential are `[REDACTED]`; metadata exposes no secret field.
-- [ ] Verify:
+- [x] Write failing tests for every four-kind storage/default mapping and unknown storage value.
+- [x] Add endpoint tests for HTTPS defaults, path-prefix join, normalized trailing slash, length, userinfo/query/fragment, HTTP, public/private literal IP, literal/encoded dot segments, encoded slash/backslash, adapter `//`, query/fragment/backslash, and redacted `Debug`.
+- [x] Add exact validation tests for display name/model, user UUID scope, v1 streaming rejection, concurrency/rate/token/cost lower and upper bounds, empty patch, maximum in-memory revision, and redacted metadata/binding/error formatting. Persisted negative/overflow/corrupt conversions remain in Task 4's repository contract.
+- [x] Implement `from_storage` for Task 1's stable kind strings and the exact default endpoint mapping; prove unknown values fail closed and existing envelope fixtures remain unchanged.
+- [x] Implement `ProviderEndpoint` with private `Url`, no `Display`/Serde, HTTPS-only authority, public literal classification via `AddressPolicy::public_only`, safe path-prefix normalization, and exact adapter path joining.
+- [x] Implement typed capability/policy validation; Task 4 applies checked conversions to signed database integers. `supports_streaming = true` returns `UnsupportedCapability`.
+- [x] Implement custom `Debug` for metadata/binding/errors. Endpoint/model/credential are `[REDACTED]`; metadata exposes no secret field.
+- [x] Verify:
 
 ```bash
 cargo fmt --check
@@ -126,7 +126,7 @@ cargo clippy --locked --all-targets --all-features -- -D warnings
 git diff --check
 ```
 
-- [ ] Explicitly stage focused model/type/test files; commit and push `feat: define ai provider core model`.
+- [x] Explicitly stage focused model/type/test files; commit and push `feat: define ai provider core model`.
 
 ### Task 4: Scoped repository and encrypted binding load
 
