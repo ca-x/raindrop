@@ -1,0 +1,173 @@
+name: Release binaries
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_TERM_COLOR: always
+  NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
+  NPM_CONFIG_REPLACE_REGISTRY_HOST: always
+
+jobs:
+  web-assets:
+    name: Build embedded Web assets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version: 26.4.0
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Verify npm version
+        run: test "$(npm --version)" = "12.0.1"
+
+      - name: Install locked Web dependencies
+        run: npm --prefix web ci --ignore-scripts
+
+      - name: Verify generated contracts
+        run: npm --prefix web run check:reader-types
+
+      - name: Build production Web bundle
+        run: npm --prefix web run build
+
+      - name: Upload embedded Web assets
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: raindrop-web-dist
+          path: web/dist
+          if-no-files-found: error
+          retention-days: 3
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: web-assets
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            extension: ""
+            archive: tar.gz
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            extension: ""
+            archive: tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            extension: .exe
+            archive: zip
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+            extension: ""
+            archive: tar.gz
+          - os: macos-15
+            target: aarch64-apple-darwin
+            extension: ""
+            archive: tar.gz
+    steps:
+      - name: Check out source
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable snapshot
+        with:
+          toolchain: 1.94.0
+          targets: ${{ matrix.target }}
+
+      - name: Download embedded Web assets
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: raindrop-web-dist
+          path: web/dist
+
+      - name: Verify tag matches package version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          package_version="$(sed -n '/^\[package\]/,/^\[/ s/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
+          test -n "$package_version"
+          test "${GITHUB_REF_NAME}" = "v${package_version}"
+
+      - name: Build release binary
+        run: cargo build --release --locked --target "${{ matrix.target }}"
+
+      - name: Package release archive
+        env:
+          TARGET: ${{ matrix.target }}
+          EXTENSION: ${{ matrix.extension }}
+          ARCHIVE: ${{ matrix.archive }}
+        run: |
+          set -euo pipefail
+          package="raindrop-${TARGET}"
+          staging="dist/${package}"
+          mkdir -p "$staging"
+          cp "target/${TARGET}/release/raindrop${EXTENSION}" "$staging/"
+          cp README.md LICENSE .env.example "$staging/"
+          if [[ "$ARCHIVE" == "zip" ]]; then
+            (cd dist && 7z a -tzip "${package}.zip" "$package" >/dev/null)
+          else
+            archive_path="${PWD}/dist/${package}.tar.gz"
+            tar -C dist -czf "$archive_path" "$package"
+          fi
+
+      - name: Upload release archive
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: raindrop-${{ matrix.target }}
+          path: dist/raindrop-${{ matrix.target }}.${{ matrix.archive }}
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download release archives
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: raindrop-*
+          path: dist
+          merge-multiple: true
+
+      - name: Generate SHA-256 checksums
+        run: |
+          set -euo pipefail
+          cd dist
+          find . -maxdepth 1 -type f -name 'raindrop-*' -printf '%f\0' \
+            | sort -z \
+            | xargs -0 sha256sum > SHA256SUMS
+
+      - name: Publish tagged release
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
+        with:
+          files: dist/*
+          fail_on_unmatched_files: true
+          generate_release_notes: true

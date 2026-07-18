@@ -114,6 +114,7 @@ git push origin feature/foundation-bootstrap
 ### Task 2: Cross-platform binary artifacts and checksums
 
 **Files:**
+- Create: `.github/actionlint.yaml`
 - Create: `.github/workflows/release-binaries.yml`
 - Modify: `web/scripts/verify-release-contracts.mjs`
 
@@ -121,17 +122,17 @@ git push origin feature/foundation-bootstrap
 - Consumes `web/dist` and the release binary embedding contract.
 - Produces five archives plus `SHA256SUMS` on `v*` tags; manual runs retain downloadable workflow artifacts without creating a release.
 
-- [ ] **Step 1: Extend the verifier RED contract**
+- [x] **Step 1: Extend the verifier RED contract**
 
 Require `release-binaries.yml` to contain `push.tags: v*`, `workflow_dispatch`, read-only default permissions, five frozen targets, Web artifact upload/download, README/LICENSE/`.env.example`, immutable action SHAs, SHA-256 generation, and a tag-only release job.
 
-- [ ] **Step 2: Run and confirm RED**
+- [x] **Step 2: Run and confirm RED**
 
 Run: `npm --prefix web run check:release-contracts`
 
 Expected: non-zero with `required file is missing: .github/workflows/release-binaries.yml`.
 
-- [ ] **Step 3: Implement the binary workflow**
+- [x] **Step 3: Implement the binary workflow**
 
 Create one `web-assets` job and a native matrix with:
 
@@ -149,11 +150,11 @@ include:
     target: x86_64-pc-windows-msvc
     extension: .exe
     archive: zip
-  - os: macos-13
+  - os: macos-15-intel
     target: x86_64-apple-darwin
     extension: ""
     archive: tar.gz
-  - os: macos-14
+  - os: macos-15
     target: aarch64-apple-darwin
     extension: ""
     archive: tar.gz
@@ -161,22 +162,22 @@ include:
 
 Each job installs Rust 1.94.0, downloads `web/dist`, builds `--release --locked --target`, verifies `v<package version>` on tags, packages the binary with README, LICENSE, and `.env.example`, and uploads the archive. The release job runs only for tag refs, downloads all archives with `merge-multiple: true`, creates sorted `SHA256SUMS`, and publishes through pinned `softprops/action-gh-release` with `generate_release_notes: true`.
 
-- [ ] **Step 4: Verify workflow contracts and syntax**
+- [x] **Step 4: Verify workflow contracts and syntax**
 
 Run:
 
 ```bash
 npm --prefix web run check:release-contracts
-ruby -e 'require "yaml"; YAML.parse_file(".github/workflows/release-binaries.yml")'
+go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 .github/workflows/release-binaries.yml
 git diff --check
 ```
 
 Expected: all pass.
 
-- [ ] **Step 5: Commit and push**
+- [x] **Step 5: Commit and push**
 
 ```bash
-git add .github/workflows/release-binaries.yml web/scripts/verify-release-contracts.mjs docs/superpowers/plans/2026-07-18-release-delivery-v1.md
+git add .github/actionlint.yaml .github/workflows/release-binaries.yml web/scripts/verify-release-contracts.mjs docs/superpowers/plans/2026-07-18-release-delivery-v1.md
 git commit -m "ci: package release binaries"
 git push origin feature/foundation-bootstrap
 ```
@@ -274,7 +275,7 @@ Add build/run examples, `/data` ownership, setup token handling, `RAINDROP_PUBLI
 
 ```bash
 npm --prefix web run check:release-contracts
-ruby -e 'require "yaml"; Dir[".github/workflows/*.yml"].each { |path| YAML.parse_file(path) }'
+go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
 npm --prefix web run check:reader-types
 npm --prefix web run typecheck
 npm --prefix web run test:ci
