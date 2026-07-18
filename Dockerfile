@@ -30,7 +30,7 @@ ARG GIT_COMMIT=unknown
 
 LABEL org.opencontainers.image.title="Raindrop" \
       org.opencontainers.image.description="A self-hosted, multi-user RSS reader" \
-      org.opencontainers.image.source="https://github.com/czyt/raindrop" \
+      org.opencontainers.image.source="https://github.com/ca-x/raindrop" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.created="${BUILD_TIME}" \

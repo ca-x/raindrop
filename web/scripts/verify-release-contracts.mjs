@@ -6,6 +6,11 @@ const repositoryRoot = fileURLToPath(new URL("../../", import.meta.url))
 const maximumContractBytes = 1024 * 1024
 
 const dockerfile = read("Dockerfile")
+const cargoManifest = read("Cargo.toml")
+const readme = read("README.md")
+const repositoryUrl = "https://github.com/ca-x/raindrop"
+requireMatch(cargoManifest, new RegExp(escapeRegExp(repositoryUrl), "u"), "Cargo repository URL")
+requireMatch(dockerfile, new RegExp(escapeRegExp(repositoryUrl), "u"), "Docker source URL")
 const webBuilderStage = dockerfile.slice(
   0,
   dockerfile.indexOf("FROM rust:1.94.0-bookworm AS rust-builder"),
@@ -78,8 +83,22 @@ for (const target of [
 ]) {
   requireMatch(binaryWorkflow, new RegExp(target, "u"), `binary target ${target}`)
 }
-for (const packagedFile of ["README.md", "LICENSE", ".env.example", "SHA256SUMS"]) {
+for (const packagedFile of [
+  "README.md",
+  "LICENSE",
+  ".env.example",
+  "docs/assets/screenshots/reader-desktop.png",
+  "docs/assets/screenshots/reader-mobile.png",
+  "SHA256SUMS",
+]) {
   requireMatch(binaryWorkflow, new RegExp(escapeRegExp(packagedFile), "u"), `packaged ${packagedFile}`)
+}
+for (const screenshot of [
+  "docs/assets/screenshots/reader-desktop.png",
+  "docs/assets/screenshots/reader-mobile.png",
+]) {
+  requireMatch(readme, new RegExp(escapeRegExp(screenshot), "u"), `README screenshot ${screenshot}`)
+  requireAsset(screenshot)
 }
 requireMatch(binaryWorkflow, /^\s+tags:\s*\n\s+- ["']v\*["']$/mu, "v* binary tag trigger")
 requireMatch(binaryWorkflow, /^\s+workflow_dispatch:\s*$/mu, "manual binary trigger")
@@ -161,6 +180,18 @@ function requireNoMatch(source, pattern, message) {
 function requireCount(source, pattern, expected, message) {
   const actual = [...source.matchAll(pattern)].length
   if (actual !== expected) fail(`${message}: expected ${expected}, received ${actual}`)
+}
+
+function requireAsset(relativePath) {
+  let size
+  try {
+    size = statSync(resolve(repositoryRoot, relativePath)).size
+  } catch {
+    fail(`required asset is missing: ${relativePath}`)
+  }
+  if (size === 0 || size > maximumContractBytes) {
+    fail(`required asset has invalid size: ${relativePath}`)
+  }
 }
 
 function requirePinnedActions(source, file) {

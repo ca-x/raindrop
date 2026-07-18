@@ -127,8 +127,12 @@ jobs:
           package="raindrop-${TARGET}"
           staging="dist/${package}"
           mkdir -p "$staging"
+          mkdir -p "$staging/docs/assets/screenshots"
           cp "target/${TARGET}/release/raindrop${EXTENSION}" "$staging/"
           cp README.md LICENSE .env.example "$staging/"
+          cp docs/assets/screenshots/reader-desktop.png \
+             docs/assets/screenshots/reader-mobile.png \
+             "$staging/docs/assets/screenshots/"
           if [[ "$ARCHIVE" == "zip" ]]; then
             (cd dist && 7z a -tzip "${package}.zip" "$package" >/dev/null)
           else

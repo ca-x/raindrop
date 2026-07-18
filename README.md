@@ -1,6 +1,18 @@
 # Raindrop
 
-Raindrop 是使用 Rust、Axum、SeaORM 和 React 构建的自托管 RSS 阅读器。当前 foundation 提供 SQLite、PostgreSQL、MySQL 连接，本地管理员初始化、浏览器会话，以及嵌入单个 Rust 可执行文件的 Web 界面。
+Raindrop 是使用 Rust、Axum、SeaORM 和 React 构建的自托管 RSS 阅读器。它提供安全的 Feed 抓取与正文清洗、分类管理、未读与收藏状态、Feed 内搜索、批量已读、键盘导航、响应式阅读界面，以及 SQLite、PostgreSQL、MySQL 三种数据库支持。生产 Web 界面会嵌入单个 Rust 可执行文件。
+
+## 界面预览
+
+桌面端同时呈现来源、文章队列和正文；移动端收敛为专注阅读视图。以下截图来自本地 `v0.1.0` 实例实际订阅并刷新 `https://www.ithome.com/rss/` 后的界面。
+
+![Raindrop 桌面阅读器：来源、文章队列与正文三栏视图](docs/assets/screenshots/reader-desktop.png)
+
+<p align="center">
+  <img src="docs/assets/screenshots/reader-mobile.png" width="390" alt="Raindrop 移动端文章阅读视图">
+</p>
+
+`v0.1.0` 不捆绑可执行插件。仓库已经包含版本化插件合同、注册表和受限 Wasmtime host，官方 AI 摘要与翻译插件将在后续版本接入。
 
 ## 环境要求
 

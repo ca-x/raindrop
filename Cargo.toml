@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.94"
 license = "MIT"
 description = "A self-hosted, multi-user RSS reader"
-repository = "https://github.com/czyt/raindrop"
+repository = "https://github.com/ca-x/raindrop"
 
 [dependencies]
 ammonia = "=4.1.3"
