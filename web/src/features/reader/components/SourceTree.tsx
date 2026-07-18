@@ -7,6 +7,8 @@ import type { Ref } from "react"
 
 import { CategoryList } from "../categories/CategoryList"
 import type { ReaderSource, ReaderState } from "../model/types"
+import { refreshPresentation } from "../refresh/refreshPresentation"
+import { RefreshStatusSummary } from "../refresh/RefreshStatusSummary"
 import { SourceToolbar } from "./ReaderToolbar"
 
 interface SourceTreeProps {
@@ -41,6 +43,9 @@ export function SourceTree({
       .map((id) => state.subscriptionsById[id])
       .find((subscription) => subscription.feedId === selectedFeedId)
     : undefined
+  const selectedRefresh = selectedSubscription
+    ? refreshPresentation(selectedSubscription.refresh)
+    : null
   return (
     <div className="reader-source-tree" aria-busy={state.paneStatus.subscriptions === "loading"}>
       <SourceToolbar
@@ -53,8 +58,12 @@ export function SourceTree({
         refresh={selectedSubscription ? {
           label: i18n._("reader.refreshFeed", { title: selectedSubscription.title }),
           onRefresh: () => onRefresh(selectedSubscription.subscriptionId),
+          isDisabled: selectedRefresh?.isPending ?? false,
         } : undefined}
       />
+      {selectedSubscription ? (
+        <RefreshStatusSummary refresh={selectedSubscription.refresh} />
+      ) : null}
       <CategoryList state={state} onSelect={onSelect} density={density} />
       {state.paneStatus.subscriptions === "error" ? (
         <Banner

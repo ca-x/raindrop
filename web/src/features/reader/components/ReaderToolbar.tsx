@@ -18,7 +18,7 @@ interface SourceToolbarProps {
   onLogout: () => Promise<void>
   manageButtonRef?: Ref<HTMLButtonElement>
   preferencesButtonRef?: Ref<HTMLButtonElement>
-  refresh?: { label: string; onRefresh: () => Promise<void> }
+  refresh?: { label: string; onRefresh: () => Promise<void>; isDisabled: boolean }
 }
 
 export function SourceToolbar({
@@ -46,6 +46,7 @@ export function SourceToolbar({
               isIconOnly
               tooltip={refresh.label}
               clickAction={refresh.onRefresh}
+              isDisabled={refresh.isDisabled}
               variant="ghost"
             />
           ) : null}

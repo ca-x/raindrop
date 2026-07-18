@@ -20,6 +20,24 @@
   overscroll-behavior: contain;
 }
 
+.reader-refresh-summary,
+.reader-refresh-banner {
+  flex: none;
+  min-inline-size: 0;
+  border-block-end: 1px solid var(--color-border);
+  background: var(--color-background-surface);
+}
+
+.reader-refresh-summary {
+  padding: 10px 16px;
+}
+
+.reader-refresh-summary-copy {
+  flex: 1;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
 .reader-source-tree [role="treeitem"],
 .reader-source-tree :where(button, a),
 .reader-queue :where(button, a),

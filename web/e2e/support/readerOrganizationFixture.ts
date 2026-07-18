@@ -36,7 +36,17 @@ export interface ReaderOrganizationFixture {
   categoryCalls: CategoryCall[]
   subscriptionPatches: SubscriptionPatchCall[]
   feedIdsForCategory: (categoryId: string) => Set<string>
+  setRefreshState: (subscriptionId: string, state: RefreshFixtureState) => void
 }
+
+export type RefreshFixtureState =
+  | "IDLE"
+  | "QUEUED"
+  | "RUNNING"
+  | "READY"
+  | "DEGRADED"
+  | "BACKING_OFF"
+  | "ERROR"
 
 interface ReaderOrganizationOptions {
   feedA: string
@@ -55,12 +65,19 @@ export async function installReaderOrganizationFixture(
   const subscriptions = createSubscriptions(options)
   const categoryCalls: CategoryCall[] = []
   const subscriptionPatches: SubscriptionPatchCall[] = []
+  const refreshPolls = new Map<string, Refresh[]>()
 
   await page.route("**/api/v1/categories**", async (route) => {
     await handleCategories(route, categories, subscriptions, categoryCalls)
   })
   await page.route("**/api/v1/subscriptions**", async (route) => {
-    await handleSubscriptions(route, categories, subscriptions, subscriptionPatches)
+    await handleSubscriptions(
+      route,
+      categories,
+      subscriptions,
+      subscriptionPatches,
+      refreshPolls,
+    )
   })
 
   return {
@@ -74,6 +91,12 @@ export async function installReaderOrganizationFixture(
           .filter((subscription) => subscription.categoryId === categoryId)
           .map((subscription) => subscription.feedId),
       ),
+    setRefreshState: (subscriptionId, state) => {
+      const subscription = subscriptions.find((item) => item.subscriptionId === subscriptionId)
+      if (!subscription) throw new Error(`unknown fixture subscription ${subscriptionId}`)
+      subscription.refresh = state === "IDLE" ? null : refreshFor(state)
+      refreshPolls.delete(subscriptionId)
+    },
   }
 }
 
@@ -139,6 +162,7 @@ async function handleSubscriptions(
   categories: Category[],
   subscriptions: Subscription[],
   patches: SubscriptionPatchCall[],
+  refreshPolls: Map<string, Refresh[]>,
 ): Promise<void> {
   const request = route.request()
   const url = new URL(request.url())
@@ -150,20 +174,39 @@ async function handleSubscriptions(
   const refreshMatch = /^\/api\/v1\/subscriptions\/([^/]+)\/refresh$/u.exec(url.pathname)
   if (refreshMatch && method === "POST") {
     requireCsrf(request.headers())
-    await json(route, pendingRefresh())
+    const subscriptionId = decodeURIComponent(refreshMatch[1])
+    const subscription = subscriptions.find((item) => item.subscriptionId === subscriptionId)
+    if (!subscription) {
+      await notFound(route)
+      return
+    }
+    const queued = refreshFor("QUEUED")
+    subscription.refresh = queued
+    refreshPolls.set(subscriptionId, [
+      refreshFor("QUEUED"),
+      refreshFor("RUNNING"),
+      refreshFor("READY"),
+    ])
+    await json(route, queued)
     return
   }
   const match = /^\/api\/v1\/subscriptions\/([^/]+)$/u.exec(url.pathname)
-  if (!match || method !== "PATCH") {
+  if (!match || (method !== "GET" && method !== "PATCH")) {
     throw new Error(`unexpected Subscription request: ${method} ${url.pathname}`)
   }
   const subscriptionId = decodeURIComponent(match[1])
-  const csrf = requireCsrf(request.headers())
   const subscription = subscriptions.find((item) => item.subscriptionId === subscriptionId)
   if (!subscription || subscriptionId === readerOrganizationIds.otherUserSubscription) {
     await notFound(route)
     return
   }
+  if (method === "GET") {
+    const nextRefresh = refreshPolls.get(subscriptionId)?.shift()
+    if (nextRefresh) subscription.refresh = nextRefresh
+    await json(route, subscription)
+    return
+  }
+  const csrf = requireCsrf(request.headers())
   const body = request.postDataJSON() as UpdateSubscriptionRequest
   if (
     body.categoryId !== undefined &&
@@ -213,22 +256,28 @@ function subscription(
   }
 }
 
-function pendingRefresh(): Refresh {
+function refreshFor(state: Exclude<RefreshFixtureState, "IDLE">): Refresh {
+  const pendingState = state === "QUEUED" || state === "RUNNING" ? state : null
+  const publicState: Refresh["state"] =
+    state === "QUEUED" || state === "RUNNING" ? "PENDING" : state
   return {
     operationId: "00000000-0000-4000-8000-000000000401",
-    state: "PENDING",
-    pendingState: "QUEUED",
-    newCount: 0,
+    state: publicState,
+    pendingState,
+    newCount: state === "READY" || state === "DEGRADED" ? 3 : 0,
     updatedCount: 0,
-    droppedCount: 0,
-    entryIssues: [],
-    generation: null,
-    errorCode: null,
-    retryAt: null,
-    lastSuccessAt: null,
+    droppedCount: state === "DEGRADED" ? 2 : 0,
+    entryIssues:
+      state === "DEGRADED" ? [{ code: "DUPLICATE_ENTRY", count: 2 }] : [],
+    generation: pendingState ? null : 3,
+    errorCode: state === "ERROR" || state === "BACKING_OFF" ? "REFRESH_FAILED" : null,
+    retryAt:
+      state === "BACKING_OFF" ? "2026-07-18T03:00:00.000000Z" : null,
+    lastSuccessAt:
+      state === "QUEUED" || state === "RUNNING" ? null : "2026-07-18T02:00:00.000000Z",
     queuedAt: "2026-07-18T00:00:00.000000Z",
-    startedAt: null,
-    completedAt: null,
+    startedAt: state === "QUEUED" ? null : "2026-07-18T00:00:01.000000Z",
+    completedAt: pendingState ? null : "2026-07-18T00:00:02.000000Z",
   }
 }
 

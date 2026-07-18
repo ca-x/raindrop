@@ -129,10 +129,11 @@ git diff --check
 - Create: `web/src/features/reader/refresh/RefreshStatusSummary.tsx`
 - Create: `web/src/features/reader/refresh/RefreshStatusSummary.test.tsx`
 - Modify: `web/src/features/reader/components/SourceTree.tsx`
+- Create: `web/src/features/reader/components/SourceTree.test.tsx`
 - Modify: `web/src/features/reader/components/ReaderToolbar.tsx`
 - Modify: `web/src/features/reader/reader.css`
-- Modify: `web/src/features/reader/ReaderWorkspace.test.tsx`
 - Modify: `web/e2e/support/readerApiFixture.ts`
+- Modify: `web/e2e/support/readerOrganizationFixture.ts`
 - Modify: `web/e2e/reader-workspace.spec.ts`
 
 **Interfaces:**
@@ -140,23 +141,23 @@ git diff --check
 - Adds `refresh.isDisabled` to the existing source-toolbar action contract.
 - Renders one selected-Feed summary in both persistent and drawer source panes.
 
-- [ ] Write RED component tests for queued/running rows, disabled refresh action, ready last-success copy, degraded duplicate feedback, cooldown retry copy, error plus previous success, and locale switching.
-- [ ] Implement `RefreshStatusSummary` as a cardless section. Use `Banner` only for degraded, cooldown, and error; keep queued/running/ready as compact status rows.
-- [ ] Pass the selected Subscription refresh to the summary and disable the refresh button while pending.
-- [ ] Add only layout CSS: flush divider, wrapping, tabular timestamps, and compact spacing. Reuse existing tokens and reduced-motion rules.
-- [ ] Extend stateful Playwright fixtures and cover queued to running to ready, degraded duplicates, cooldown, compact source drawer, 44px actions, and zero horizontal overflow at all four viewports.
-- [ ] Verify:
+- [x] Write RED component tests for queued/running rows, disabled refresh action, ready last-success copy, degraded duplicate feedback, cooldown retry copy, error plus previous success, and locale switching.
+- [x] Implement `RefreshStatusSummary` as a cardless section. Use `Banner` only for degraded, cooldown, and error; keep queued/running/ready as compact status rows.
+- [x] Pass the selected Subscription refresh to the summary and disable the refresh button while pending.
+- [x] Add only layout CSS: flush divider, wrapping, tabular timestamps, and compact spacing. Reuse existing tokens and reduced-motion rules.
+- [x] Extend stateful Playwright fixtures and cover queued to running to ready, degraded duplicates, cooldown, compact source drawer, 44px actions, and zero horizontal overflow at all four viewports.
+- [x] Verify:
 
 ```bash
 cd web
 npm run test -- --run src/features/reader/refresh/RefreshStatusSummary.test.tsx src/features/reader/ReaderWorkspace.test.tsx
 npm run typecheck
-PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium npm run test:e2e
+PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium npx playwright test --grep "Reader refresh observability"
 cd ..
 git diff --check
 ```
 
-- [ ] Commit and push: `feat: show refresh health in reader`.
+- [x] Commit and push: `feat: show refresh health in reader`.
 
 ### Task 4: Real feed, full gates, documentation, and CI
 

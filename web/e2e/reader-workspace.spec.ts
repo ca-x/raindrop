@@ -86,6 +86,56 @@ test("Reader stable snapshot bulk read", async ({ page }, testInfo) => {
   }
 })
 
+test("Reader refresh observability", async ({ page }, testInfo) => {
+  testInfo.setTimeout(60_000)
+  const fixture = await installReaderApiFixture(page)
+  switch (testInfo.project.name) {
+    case "reader-900x800":
+      fixture.organization.setRefreshState(readerIds.subscriptionA, "DEGRADED")
+      break
+    case "reader-390x844":
+      fixture.organization.setRefreshState(readerIds.subscriptionA, "BACKING_OFF")
+      break
+    case "reader-360x800":
+      fixture.organization.setRefreshState(readerIds.subscriptionA, "ERROR")
+      break
+  }
+  await completeSetup(page, server, createCredentials())
+  const sources = await selectQuietWebAndShowSources(page)
+  const refreshButton = sources.getByRole("button", { name: "Refresh Quiet Web" })
+  await expectTouchTarget(refreshButton)
+
+  switch (testInfo.project.name) {
+    case "reader-1280x800":
+      await refreshButton.click()
+      await expect(sources.getByText("Waiting for a refresh worker.")).toBeVisible()
+      await expect(refreshButton).toHaveAttribute("aria-disabled", "true")
+      await expect(sources.getByText("Fetching and processing feed updates.")).toBeVisible({
+        timeout: 3_000,
+      })
+      await expect(sources.getByText(/Last successful refresh:/)).toBeVisible({
+        timeout: 3_000,
+      })
+      break
+    case "reader-900x800":
+      await expect(sources.getByRole("alert")).toContainText(
+        "2 duplicate entries were ignored.",
+      )
+      break
+    case "reader-390x844":
+      await expect(sources.getByRole("alert")).toContainText("Refresh cooling down")
+      await expect(sources.getByRole("alert")).toContainText("Next attempt after")
+      break
+    case "reader-360x800":
+      await expect(sources.getByRole("alert")).toContainText("Refresh failed")
+      await expect(sources.getByRole("alert")).toContainText("Last successful refresh:")
+      break
+    default:
+      throw new Error(`unexpected Reader project ${testInfo.project.name}`)
+  }
+  await expectNoHorizontalOverflow(page)
+})
+
 async function verifyWide(page: Page, fixture: ReaderApiFixture): Promise<void> {
   await expect(page.getByRole("navigation", { name: "Sources" })).toBeVisible()
   await expect(page.getByRole("region", { name: "Entry queue" })).toBeVisible()
@@ -161,6 +211,31 @@ async function verifyWide(page: Page, fixture: ReaderApiFixture): Promise<void> 
   await expect(categoryDialog).not.toBeVisible()
   await verifyWidePreferences(page, fixture)
   await expectNoHorizontalOverflow(page)
+}
+
+async function selectQuietWebAndShowSources(page: Page) {
+  const navigation = page.getByRole("navigation", { name: "Sources" })
+  if (await navigation.count()) {
+    await navigation.getByRole("button", { name: "Quiet Web" }).click()
+    await expect(page).toHaveURL(`${server.baseURL}/reader/feed/${readerIds.feedA}`)
+    return navigation
+  }
+
+  const openSources = page.getByRole("button", { name: "Open sources" })
+  await openSources.click()
+  let sources = page.getByRole("dialog", { name: "Sources" })
+  await sources.getByRole("button", { name: "Quiet Web" }).click()
+  await expect(page).toHaveURL(`${server.baseURL}/reader/feed/${readerIds.feedA}`)
+  await openSources.click()
+  sources = page.getByRole("dialog", { name: "Sources" })
+  await expect(sources).toBeVisible()
+  return sources
+}
+
+async function expectTouchTarget(locator: ReturnType<Page["getByRole"]>): Promise<void> {
+  const box = await locator.boundingBox()
+  expect(box?.width ?? 0).toBeGreaterThanOrEqual(44)
+  expect(box?.height ?? 0).toBeGreaterThanOrEqual(44)
 }
 
 async function verifyMedium(page: Page, fixture: ReaderApiFixture): Promise<void> {
