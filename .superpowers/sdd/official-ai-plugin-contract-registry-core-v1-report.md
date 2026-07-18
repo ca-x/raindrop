@@ -100,8 +100,18 @@ Result:
 - Tests ignored: 1.
 - The ignored test is only `ithome_feed_securely_ingests_and_deduplicates`, which requires `RAINDROP_LIVE_RSS_SMOKE=1` and public network.
 - SQLite plugin asset/validator/migration/repository/concurrency contracts ran locally.
-- PostgreSQL/MySQL plugin repository tests are committed and wired to `RAINDROP_TEST_POSTGRES_URL` / `RAINDROP_TEST_MYSQL_URL`; those URLs were not configured in the local shell, so the release CI service jobs remain the final backend gate.
+- PostgreSQL/MySQL plugin repository tests are wired to `RAINDROP_TEST_POSTGRES_URL` / `RAINDROP_TEST_MYSQL_URL`. They were skipped locally because the URLs were absent, then ran successfully with real service containers in CI run `29657539274`.
 - The existing SeaORM-chain `proc-macro-error2 2.0.1` future-incompatibility warning remains tracked in `tasks/todo.md`; it is not introduced by this slice.
+
+CI evidence: <https://github.com/ca-x/raindrop/actions/runs/29657539274>
+
+- Rust foundation: success, including formatting, Clippy, explicit SQLite/PostgreSQL/MySQL contracts, and full Rust tests with masked service URLs.
+- ASTRYX web: success.
+- Rust Windows durable replace: success.
+- Rust current-stable compatibility: success.
+- Supply-chain audit: success.
+- Non-root container build and live health: success.
+- Release embedding and Playwright E2E: success.
 
 ## Explicitly still pending
 
