@@ -29,6 +29,7 @@
 
 - [x] 分类：schema、CRUD、订阅分组、Reader category filter 与四视口验证。
 - [ ] 排序、阅读游标和用户设置。
+  - [x] 用户设置 v1：theme/locale/density/reading scale 的三数据库存储、严格 API、ASTRYX 设置流、首屏 hint 与四视口验证。
 - [ ] 注册策略、管理员用户管理和跨用户隔离测试。
 
 ## 4. OIDC

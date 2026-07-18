@@ -6,6 +6,10 @@ import type {
   EntryStateResponse,
   PatchEntryStateRequest,
 } from "../../src/features/reader/api/reader.generated"
+import type {
+  PatchUserPreferencesRequest,
+  UserPreferences,
+} from "../../src/features/preferences/api/preferences.generated"
 import {
   installReaderOrganizationFixture,
   readerOrganizationIds,
@@ -33,11 +37,23 @@ interface PatchCall {
   csrf: string | undefined
 }
 
+interface PreferencePatchCall {
+  body: PatchUserPreferencesRequest
+  csrf: string
+}
+
+export interface ReaderPreferenceFixture {
+  current: () => UserPreferences
+  failNextPatch: () => void
+  patches: PreferencePatchCall[]
+}
+
 export interface ReaderApiFixture {
   discoverPending: () => void
   entryState: (entryId: string) => EntryStateResponse
   organization: ReaderOrganizationFixture
   patches: PatchCall[]
+  preferences: ReaderPreferenceFixture
 }
 
 export async function installReaderApiFixture(page: Page): Promise<ReaderApiFixture> {
@@ -48,6 +64,7 @@ export async function installReaderApiFixture(page: Page): Promise<ReaderApiFixt
   const pending = createEntry(readerIds.pendingEntry, readerIds.feedA, 12, "Newly discovered entry")
   details.set(pending.entryId, detailFor(pending))
   const patches: PatchCall[] = []
+  const preferences = await installPreferenceFixture(page)
   let hasPending = false
   const organization = await installReaderOrganizationFixture(page, {
     feedA: readerIds.feedA,
@@ -122,6 +139,53 @@ export async function installReaderApiFixture(page: Page): Promise<ReaderApiFixt
     },
     organization,
     patches,
+    preferences,
+  }
+}
+
+async function installPreferenceFixture(page: Page): Promise<ReaderPreferenceFixture> {
+  let current: UserPreferences = {
+    locale: "en",
+    themeMode: "SYSTEM",
+    layoutDensity: "BALANCED",
+    readingFontScale: 100,
+  }
+  let shouldFailNextPatch = false
+  const patches: PreferencePatchCall[] = []
+
+  await page.route("**/api/v1/preferences", async (route) => {
+    const request = route.request()
+    const method = request.method()
+    if (method === "GET") {
+      await json(route, current)
+      return
+    }
+    if (method !== "PATCH") {
+      throw new Error(`unexpected Preferences request: ${method}`)
+    }
+    const csrf = request.headers()["x-csrf-token"]
+    if (!csrf) throw new Error("preference mutation omitted CSRF")
+    const body = request.postDataJSON() as PatchUserPreferencesRequest
+    patches.push({ body, csrf })
+    if (shouldFailNextPatch) {
+      shouldFailNextPatch = false
+      await json(route, {
+        error: {
+          code: "INTERNAL_ERROR",
+          message: "Preferences unavailable",
+          requestId: "00000000-0000-4000-8000-000000000902",
+        },
+      }, 500)
+      return
+    }
+    current = { ...current, ...body }
+    await json(route, current)
+  })
+
+  return {
+    current: () => structuredClone(current),
+    failNextPatch: () => { shouldFailNextPatch = true },
+    patches,
   }
 }
 
@@ -177,6 +241,6 @@ function hostileDetail(entry: EntryListItemResponse): EntryDetailResponse {
   }
 }
 
-async function json(route: Route, body: unknown): Promise<void> {
-  await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) })
+async function json(route: Route, body: unknown, status = 200): Promise<void> {
+  await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) })
 }

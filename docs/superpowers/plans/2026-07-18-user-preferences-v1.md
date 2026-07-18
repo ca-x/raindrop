@@ -347,19 +347,19 @@ git push origin feature/foundation-bootstrap
 **Interfaces:**
 - Produces deterministic browser evidence and authoritative progress state.
 
-- [ ] **Step 1: Extend the Reader fixture**
+- [x] **Step 1: Extend the Reader fixture**
 
 Support preference GET/PATCH with mutable per-user state, strict CSRF capture, and a controllable PATCH failure. Keep bootstrap, session, embedded production assets, and application routing real.
 
-- [ ] **Step 2: Add viewport scenarios**
+- [x] **Step 2: Add viewport scenarios**
 
 At 1280×800 change all four values, save, reload, and prove persistence. At 900×800 verify MoreMenu and focus restoration. At 390×844 and 360×800 verify Dialog containment, locale copy, no horizontal overflow, and theme attributes. Verify a PATCH failure preserves the draft and effective previous preferences.
 
-- [ ] **Step 3: Run local agent-browser on the production binary**
+- [x] **Step 3: Run local agent-browser on the production binary**
 
 Use a temporary SQLite instance, create/login a user, switch dark/light/system and zh-CN/en, reload, and record theme attribute, locale, density, reading scale, console/errors, and viewport containment. Do not retain cookies or database files.
 
-- [ ] **Step 4: Run the bounded final gates once**
+- [x] **Step 4: Run the bounded final gates once**
 
 ```bash
 cd web
@@ -373,11 +373,11 @@ cargo test --locked --all-features
 git diff --check
 ```
 
-- [ ] **Step 5: Update task and report state**
+- [x] **Step 5: Update task and report state**
 
 Record exact counts and existing advisories. Do not mark the combined sorting/reading-cursor/user-settings line complete unless sorting and cursor are also implemented; add a completed nested user preference line while leaving the parent unchecked. Leave OIDC, AI/plugin/MCP, OPML, and release items unchecked.
 
-- [ ] **Step 6: Commit and push**
+- [x] **Step 6: Commit and push**
 
 ```bash
 git add web/e2e/support/readerApiFixture.ts web/e2e/reader-workspace.spec.ts web/e2e/support/readerPreferenceScenarios.ts tasks/todo.md tasks/plan.md docs/superpowers/plans/2026-07-18-user-preferences-v1.md docs/superpowers/specs/2026-07-18-user-preferences-v1-design.md

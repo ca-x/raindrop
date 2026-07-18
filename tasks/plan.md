@@ -4,6 +4,8 @@
 
 当前详细计划：`docs/superpowers/plans/2026-07-18-user-preferences-v1.md`。
 
+当前进展：用户设置 v1 已形成可运行纵向切片并通过三数据库、前端、四视口 E2E 与真实生产浏览器验证；排序与阅读游标仍留在后续独立计划。
+
 ## 依赖顺序
 
 1. Foundation/bootstrap：Rust + ASTRYX Web 构建、配置、SQLite、设置向导、管理员、本地登录、内嵌 UI。

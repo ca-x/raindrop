@@ -21,6 +21,11 @@ import {
   verifyMediumCategoryFocus,
   verifyWideCategoryWorkflow,
 } from "./support/readerCategoryScenarios"
+import {
+  verifyCompactPreferences,
+  verifyMediumPreferencesFocus,
+  verifyWidePreferences,
+} from "./support/readerPreferenceScenarios"
 import { startProductionServer, type ProductionServer } from "./support/productionServer"
 
 let server: ProductionServer
@@ -46,10 +51,10 @@ test("Reader workspace production contract", async ({ page }, testInfo) => {
       await verifyMedium(page, fixture)
       break
     case "reader-390x844":
-      await verifyCompactHistory(page)
+      await verifyCompactHistory(page, fixture)
       break
     case "reader-360x800":
-      await verifyDirectCompact(page)
+      await verifyDirectCompact(page, fixture)
       break
     default:
       throw new Error(`unexpected Reader project ${testInfo.project.name}`)
@@ -127,6 +132,10 @@ async function verifyWide(page: Page, fixture: ReaderApiFixture): Promise<void> 
   await readerRowButton(page, readerIds.firstEntry).click()
   await expectScrollTop(article, 320)
   await verifyWideCategoryWorkflow(page, fixture, server.baseURL)
+  const categoryDialog = page.getByRole("dialog", { name: "Manage categories" })
+  await categoryDialog.getByRole("button", { name: "Close" }).click()
+  await expect(categoryDialog).not.toBeVisible()
+  await verifyWidePreferences(page, fixture)
   await expectNoHorizontalOverflow(page)
 }
 
@@ -153,10 +162,14 @@ async function verifyMedium(page: Page, fixture: ReaderApiFixture): Promise<void
   await sources.getByText("Rust Dispatch", { exact: true }).click()
   await expect(page).toHaveURL(`${server.baseURL}/reader/feed/${readerIds.feedB}`)
   await verifyMediumCategoryFocus(page)
+  await verifyMediumPreferencesFocus(page)
   await expectNoHorizontalOverflow(page)
 }
 
-async function verifyCompactHistory(page: Page): Promise<void> {
+async function verifyCompactHistory(
+  page: Page,
+  fixture: ReaderApiFixture,
+): Promise<void> {
   const queue = page.getByTestId("entry-queue-scroll")
   const restoredOffset = await setScrollTop(queue, 260)
   await readerRowButton(page, readerIds.fourthEntry).click()
@@ -171,10 +184,15 @@ async function verifyCompactHistory(page: Page): Promise<void> {
   await page.goBack()
   await expect(page).toHaveURL(`${server.baseURL}/reader/unread`)
   await verifyCompactCategoryRoute(page, server.baseURL)
+  await verifyCompactPreferences(page, fixture, false)
 }
 
-async function verifyDirectCompact(page: Page): Promise<void> {
+async function verifyDirectCompact(
+  page: Page,
+  fixture: ReaderApiFixture,
+): Promise<void> {
   await verifyDirectCompactCategory(page, server.baseURL)
+  await verifyCompactPreferences(page, fixture, true)
 }
 
 async function verifyHostileDeepLink(page: Page, testInfo: TestInfo): Promise<void> {
