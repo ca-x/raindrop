@@ -1,5 +1,7 @@
 mod hash;
 mod model;
+mod repository;
+mod sql;
 
 pub use model::{
     ArtifactCandidate, ArtifactIdentity, ArtifactIdentityInput, ArtifactKind, ArtifactSnapshot,
@@ -8,3 +10,4 @@ pub use model::{
     ContentRepositoryErrorKind, EnqueueContentJob, EnqueueContentJobInput, EnqueueResult,
     JobSnapshot, JobStatus, LeaseDeadline, StoredArtifactResult,
 };
+pub use repository::ContentRepository;
