@@ -6,6 +6,7 @@ mod lifecycle;
 mod manifest;
 mod model;
 mod repository;
+pub mod runtime;
 
 pub use artifact::{SummaryArtifact, TranslationArtifact};
 pub use config::AiContentConfig;
