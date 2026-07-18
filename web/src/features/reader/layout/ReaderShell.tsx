@@ -1,8 +1,7 @@
 import { AppShell } from "@astryxdesign/core/AppShell"
 import { Banner } from "@astryxdesign/core/Banner"
-import { Layout, LayoutContent, LayoutPanel } from "@astryxdesign/core/Layout"
 import { MobileNav } from "@astryxdesign/core/MobileNav"
-import { ResizeHandle, useResizable } from "@astryxdesign/core/Resizable"
+import { useResizable } from "@astryxdesign/core/Resizable"
 import { useLingui } from "@lingui/react"
 import { useRef, useState } from "react"
 
@@ -12,15 +11,17 @@ import { toAstryxDensity } from "../../preferences/model/preferenceTypes"
 import type { PreferencesController } from "../../preferences/model/usePreferencesController"
 import { ArticleReader } from "../components/ArticleReader"
 import { EntryQueue } from "../components/EntryQueue"
-import { CompactArticleNavigation } from "../components/ReaderToolbar"
+import { MarkReadDialog } from "../components/MarkReadDialog"
 import { MutationFeedback } from "../components/MutationFeedback"
 import { SourceTree } from "../components/SourceTree"
 import { SubscriptionDialog } from "../components/SubscriptionDialog"
 import { ReaderCategoryDialog } from "../categories/ReaderCategoryDialog"
 import { useReaderHotkeys } from "../keyboard/useReaderHotkeys"
 import { sourceKey, type ReaderSource } from "../model/types"
+import { selectedSourceLabel } from "../model/sourcePresentation"
 import type { ReaderController } from "../model/useReaderController"
 import { pathForEntry, type ReaderRouteMatch } from "../routes/readerRoute"
+import { ReaderWorkspacePanels } from "./ReaderWorkspacePanels"
 
 interface ReaderShellProps {
   controller: ReaderController
@@ -46,6 +47,7 @@ export function ReaderShell(props: ReaderShellProps) {
   const [isAddOpen, setIsAddOpen] = useState(false)
   const [isCategoryOpen, setIsCategoryOpen] = useState(false)
   const [isPreferencesOpen, setIsPreferencesOpen] = useState(false)
+  const [isMarkReadOpen, setIsMarkReadOpen] = useState(false)
   const mobileNavRef = useRef<HTMLDialogElement>(null)
   const categoryButtonRef = useRef<HTMLButtonElement>(null)
   const preferencesButtonRef = useRef<HTMLButtonElement>(null)
@@ -66,6 +68,7 @@ export function ReaderShell(props: ReaderShellProps) {
       isAddOpen ||
       isCategoryOpen ||
       isPreferencesOpen ||
+      isMarkReadOpen ||
       !props.isSourceReady,
     isUnread: (entryId) => {
       const entry = props.controller.state.entriesById[entryId] ?? props.controller.state.detailsById[entryId]
@@ -129,6 +132,11 @@ export function ReaderShell(props: ReaderShellProps) {
       savedScrollOffset={props.controller.state.scrollAnchorByRoute[props.route.sourcePath] ?? 0}
       onRecordScroll={props.controller.recordScrollAnchor}
       onReload={props.controller.reloadEntries}
+      onSearchFeed={props.controller.searchFeed}
+      onNextUnreadSource={props.controller.nextUnreadSource}
+      onPreviousUnreadSource={props.controller.previousUnreadSource}
+      onRequestMarkRead={() => setIsMarkReadOpen(true)}
+      isMarkingRead={props.controller.isMarkingRead}
       onMergePending={props.controller.mergePendingEntries}
       onMergedEntryFocus={props.onCursorChange}
       density={toAstryxDensity(
@@ -172,7 +180,19 @@ export function ReaderShell(props: ReaderShellProps) {
         )
       }
     >
-      {renderWorkspace(props.viewportMode, Boolean(props.route.entryId))}
+      <ReaderWorkspacePanels
+        viewportMode={props.viewportMode}
+        hasEntry={Boolean(props.route.entryId)}
+        queueStatus={props.controller.state.paneStatus.queue}
+        detailStatus={props.controller.state.paneStatus.detail}
+        sourceTree={sourceTree}
+        queuePane={queuePane}
+        articlePane={articlePane}
+        sourcesResizable={sources.props}
+        queueResizable={queue.props}
+        onOpenSources={() => setIsNavOpen(true)}
+        onBack={props.onBack}
+      />
       <SubscriptionDialog
         isOpen={isAddOpen}
         mutationError={props.controller.state.errors.mutation}
@@ -219,69 +239,20 @@ export function ReaderShell(props: ReaderShellProps) {
           requestAnimationFrame(() => preferencesButtonRef.current?.focus())
         }}
       />
+      <MarkReadDialog
+        isOpen={isMarkReadOpen}
+        sourceLabel={selectedSourceLabel(props.controller.state, (id) => i18n._(id))}
+        isLoading={props.controller.isMarkingRead}
+        onOpenChange={setIsMarkReadOpen}
+        onConfirm={props.controller.markCurrentSourceRead}
+      />
       <MutationFeedback
         error={props.controller.state.errors.mutation}
-        isDialogOpen={isAddOpen || isCategoryOpen || isPreferencesOpen}
+        isDialogOpen={
+          isAddOpen || isCategoryOpen || isPreferencesOpen || isMarkReadOpen
+        }
         onClear={props.controller.clearMutationError}
       />
     </AppShell>
   )
-
-  function renderWorkspace(mode: ViewportMode, hasEntry: boolean) {
-    if (mode === "compact") {
-      return (
-        <Layout height="fill" padding={0} content={
-          <LayoutContent
-            padding={0}
-            role="region"
-            label={hasEntry ? i18n._("reader.article") : i18n._("reader.queue")}
-            aria-busy={hasEntry ? props.controller.state.paneStatus.detail === "loading" : props.controller.state.paneStatus.queue === "loading"}
-          >
-            {hasEntry ? (
-              <div className="reader-compact-detail">
-                <CompactArticleNavigation
-                  onOpenSources={() => setIsNavOpen(true)}
-                  onBack={props.onBack}
-                />
-                <div className="reader-compact-article-content">{articlePane}</div>
-              </div>
-            ) : queuePane}
-          </LayoutContent>
-        } />
-      )
-    }
-    return (
-      <Layout
-        height="fill"
-        padding={0}
-        start={
-          <>
-            {mode === "wide" ? (
-              <>
-                <LayoutPanel padding={0} role="navigation" label={i18n._("reader.sources")} resizable={sources.props}>{sourceTree}</LayoutPanel>
-                <ResizeHandle hasDivider label={i18n._("reader.resizeSources")} resizable={sources.props} />
-              </>
-            ) : null}
-            <LayoutPanel
-              padding={0}
-              role="region"
-              label={i18n._("reader.queue")}
-              aria-busy={props.controller.state.paneStatus.queue === "loading"}
-              resizable={mode === "wide" ? queue.props : undefined}
-              width={380}
-            >{queuePane}</LayoutPanel>
-            {mode === "wide" ? <ResizeHandle hasDivider label={i18n._("reader.resizeQueue")} resizable={queue.props} /> : null}
-          </>
-        }
-        content={
-          <LayoutContent
-            padding={0}
-            role="complementary"
-            label={i18n._("reader.article")}
-            aria-busy={props.controller.state.paneStatus.detail === "loading"}
-          >{articlePane}</LayoutContent>
-        }
-      />
-    )
-  }
 }

@@ -22,7 +22,11 @@ const editableSelector = [
   "[role='spinbutton']",
   "[role='slider']",
 ].join(",")
-const modalSelector = "dialog[open], [role='dialog'][aria-modal='true'], [role='alertdialog'][aria-modal='true']"
+const modalSelector = [
+  "dialog[open]",
+  ":not(dialog)[role='dialog'][aria-modal='true']",
+  ":not(dialog)[role='alertdialog'][aria-modal='true']",
+].join(",")
 const readerKeys = new Set(["j", "k", "n", "p", "m", "s"])
 
 export function useReaderHotkeys(options: UseReaderHotkeysOptions): void {

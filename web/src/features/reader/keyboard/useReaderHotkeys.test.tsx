@@ -178,6 +178,18 @@ describe("useReaderHotkeys", () => {
       expect(options.onCursorChange).not.toHaveBeenCalled()
     },
   )
+
+  it("does not block shortcuts for a closed native alert dialog", () => {
+    const options = hotkeyOptions()
+    renderHook(() => useReaderHotkeys(options))
+    document.body.append(element("dialog", {
+      role: "alertdialog",
+      "aria-modal": "true",
+    }))
+
+    press("j")
+    expect(options.onCursorChange).toHaveBeenCalledWith("second")
+  })
 })
 
 function hotkeyOptions(overrides: Partial<UseReaderHotkeysOptions> & { unread?: Set<string> } = {}): UseReaderHotkeysOptions {

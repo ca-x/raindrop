@@ -10,7 +10,8 @@ import { useEffect, useLayoutEffect, useRef } from "react"
 
 import { MountTransition } from "../../../shared/motion/MountTransition"
 import { sourceKey, type ReaderState } from "../model/types"
-import { QueueToolbar } from "./ReaderToolbar"
+import { FeedSearchInput } from "./FeedSearchInput"
+import { QueueToolbar, type MarkReadAvailability } from "./QueueToolbar"
 
 interface EntryQueueProps {
   state: ReaderState
@@ -25,6 +26,11 @@ interface EntryQueueProps {
   savedScrollOffset: number
   onRecordScroll: (route: string, offset: number) => void
   onReload: () => Promise<void>
+  onSearchFeed: (query: string) => Promise<void>
+  onNextUnreadSource: () => Promise<void>
+  onPreviousUnreadSource: () => Promise<void>
+  onRequestMarkRead: () => void
+  isMarkingRead: boolean
   onMergePending: () => void
   onMergedEntryFocus: (entryId: string) => void
   density: ListDensity
@@ -43,6 +49,11 @@ export function EntryQueue({
   savedScrollOffset,
   onRecordScroll,
   onReload,
+  onSearchFeed,
+  onNextUnreadSource,
+  onPreviousUnreadSource,
+  onRequestMarkRead,
+  isMarkingRead,
   onMergePending,
   onMergedEntryFocus,
   density,
@@ -53,6 +64,14 @@ export function EntryQueue({
   const key = sourceKey(state.selectedSource)
   const queue = state.queueBySourceKey[key] ?? []
   const pendingCount = state.pendingNewEntryCountBySource[key] ?? 0
+  const markReadAvailability: MarkReadAvailability =
+    state.selectedSource.kind === "smart" && state.selectedSource.state === "STARRED"
+      ? "hidden"
+      : state.feedSearchQuery ||
+          state.snapshotGenerationBySource[key] === undefined ||
+          state.paneStatus.queue !== "ready"
+        ? "disabled"
+        : "enabled"
   useLayoutEffect(() => {
     const node = scrollRef.current
     if (!node || state.paneStatus.queue !== "ready" || !isRouteReady) return
@@ -69,7 +88,24 @@ export function EntryQueue({
   }, [cursorEntryId, cursorFocusNonce, isRouteReady])
   return (
     <div ref={rootRef} className="reader-queue" aria-busy={state.paneStatus.queue === "loading"}>
-      <QueueToolbar showMenu={showMenu} isCompact={isCompact} onOpenSources={onOpenSources} onReload={onReload} />
+      <QueueToolbar
+        showMenu={showMenu}
+        isCompact={isCompact}
+        markReadAvailability={markReadAvailability}
+        isMarkingRead={isMarkingRead}
+        onOpenSources={onOpenSources}
+        onReload={onReload}
+        onNextUnreadSource={onNextUnreadSource}
+        onPreviousUnreadSource={onPreviousUnreadSource}
+        onRequestMarkRead={onRequestMarkRead}
+      />
+      {state.selectedSource.kind === "feed" ? (
+        <FeedSearchInput
+          query={state.feedSearchQuery}
+          isLoading={state.paneStatus.queue === "loading"}
+          onSearch={onSearchFeed}
+        />
+      ) : null}
       {pendingCount > 0 ? (
         <MountTransition preset="slideDown">
           <Banner

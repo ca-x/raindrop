@@ -56,6 +56,21 @@
   gap: 6px;
 }
 
+.reader-queue-shortcuts {
+  flex: none;
+  min-inline-size: 0;
+  min-block-size: 36px;
+  padding: 4px 12px;
+  overflow-x: auto;
+  border-block-end: 1px solid var(--color-border);
+  background: var(--color-background-surface);
+  scrollbar-width: none;
+}
+
+.reader-queue-shortcuts::-webkit-scrollbar {
+  display: none;
+}
+
 .reader-shortcut-label {
   color: var(--color-text-secondary);
   font-size: 0.75rem;
@@ -85,6 +100,17 @@
 .reader-queue {
   background: var(--color-background-body);
   padding-block-end: env(safe-area-inset-bottom);
+}
+
+.reader-feed-search {
+  flex: none;
+  padding: 10px 12px;
+  border-block-end: 1px solid var(--color-border);
+  background: var(--color-background-surface);
+}
+
+.reader-feed-search input {
+  min-block-size: 44px;
 }
 
 .reader-queue-scroll {

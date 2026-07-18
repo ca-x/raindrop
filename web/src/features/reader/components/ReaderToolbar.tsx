@@ -82,56 +82,6 @@ export function SourceToolbar({
   )
 }
 
-interface QueueToolbarProps {
-  showMenu: boolean
-  isCompact: boolean
-  onOpenSources: () => void
-  onReload: () => Promise<void>
-}
-
-export function QueueToolbar({ showMenu, isCompact, onOpenSources, onReload }: QueueToolbarProps) {
-  const { i18n } = useLingui()
-  const toolbar = (
-    <Toolbar
-      label={i18n._("reader.queue.actions")}
-      size="lg"
-      dividers={["bottom"]}
-      startContent={showMenu ? (
-        <Button
-          label={i18n._("reader.openSources")}
-          icon={<Icon icon="menu" />}
-          isIconOnly
-          tooltip={i18n._("reader.openSources")}
-          onClick={onOpenSources}
-          variant="ghost"
-        />
-      ) : undefined}
-      centerContent={<strong>{i18n._("reader.queue")}</strong>}
-      endContent={
-        <>
-          {!isCompact ? (
-            <span className="reader-queue-shortcuts" aria-label={i18n._("reader.queueShortcuts")}>
-              <span className="reader-shortcut-label">{i18n._("reader.openEntryShortcut")}</span>
-              <Kbd keys="j" /><Kbd keys="k" />
-              <span className="reader-shortcut-label">{i18n._("reader.moveCursorShortcut")}</span>
-              <Kbd keys="n" /><Kbd keys="p" />
-            </span>
-          ) : null}
-          <Button
-            label={i18n._("reader.reloadStored")}
-            icon={<Icon icon="arrowsUpDown" />}
-            isIconOnly
-            tooltip={i18n._("reader.reloadStored")}
-            clickAction={onReload}
-            variant="ghost"
-          />
-        </>
-      }
-    />
-  )
-  return isCompact ? <div className="reader-compact-navigation">{toolbar}</div> : toolbar
-}
-
 interface CompactArticleNavigationProps {
   onOpenSources: () => void
   onBack: () => void
