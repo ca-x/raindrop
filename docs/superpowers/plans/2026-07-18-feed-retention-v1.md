@@ -283,11 +283,11 @@ git diff --check
 
 Expected: all pass. CI additionally runs PostgreSQL/MySQL retention and migration contracts.
 
-- [ ] **Step 7: Update state and report**
+- [x] **Step 7: Update state and report**
 
 Mark only `Feed 保留策略` complete. Record exact tests, CI run, schema/index, configuration, concurrency behavior, and remaining RSS items in `.superpowers/sdd/feed-retention-v1-report.md`.
 
-- [ ] **Step 8: Commit and push**
+- [x] **Step 8: Commit and push**
 
 ```bash
 git add src/feeds/runtime.rs src/main.rs tests/feed_runtime.rs .env.example \

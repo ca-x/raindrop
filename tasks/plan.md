@@ -4,7 +4,7 @@
 
 当前详细计划：`docs/superpowers/plans/2026-07-18-feed-retention-v1.md`。
 
-当前进展：Release Delivery v1 已在功能分支完成并由 CI run `29636752426` 验证全部质量门、生产资源嵌入、14 个 E2E 场景、非 root 容器启动和 healthcheck。现在由主 Agent 按 Feed Retention v1 计划补齐 orphan Feed 的有界物理清理；真实 `v*` tag 的 GitHub Release 与 registry 发布 smoke 仍保留在后续任务。
+当前进展：Feed Retention v1 已由主 Agent 完成配置、三数据库索引、数据库时钟 cutoff、有界逐 Feed 锁定清理、双实例收敛、重订阅竞态恢复、runtime 维护和运维文档，并由 CI run `29638020707` 验证 Rust、Web、发布版 E2E 与非 root 容器门禁。真实 `v*` tag 的 GitHub Release 与 registry 发布 smoke 仍保留在后续任务。
 
 ## 依赖顺序
 
