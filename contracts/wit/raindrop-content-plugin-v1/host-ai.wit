@@ -1,0 +1,57 @@
+package raindrop:content-plugin@1.0.0;
+
+interface host-ai {
+  use types.{canonical-json, operation};
+
+  enum finish-reason {
+    completed,
+    length,
+    content-filter,
+    tool-plan,
+    unknown,
+  }
+
+  enum generate-error-code {
+    capability-denied,
+    provider-unavailable,
+    quota-exceeded,
+    rate-limited,
+    timeout,
+    output-schema-invalid,
+    cost-limit-exceeded,
+    invalid-request,
+  }
+
+  record generate-request {
+    provider-binding-id: string,
+    operation: operation,
+    system-instruction: string,
+    untrusted-input-json: canonical-json,
+    output-schema-id: string,
+    output-schema-json: canonical-json,
+    provider-request-ordinal: u32,
+    max-input-tokens: u32,
+    max-output-tokens: u32,
+  }
+
+  record token-usage {
+    input-tokens: option<u64>,
+    output-tokens: option<u64>,
+  }
+
+  record generate-response {
+    output-json: canonical-json,
+    finish-reason: finish-reason,
+    usage: token-usage,
+    model-label: string,
+    estimated-cost-micros: option<u64>,
+  }
+
+  record generate-error {
+    code: generate-error-code,
+    retryable: bool,
+    retry-at-unix-ms: option<u64>,
+  }
+
+  generate-structured: func(request: generate-request) -> result<generate-response, generate-error>;
+}

@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "eventId": "00000000-0000-4000-8000-000000010001",
+  "eventType": "feed.refresh.before",
+  "refreshId": "00000000-0000-4000-8000-000000020001",
+  "sequence": 1,
+  "occurredAt": "2026-07-19T12:00:00Z",
+  "idempotencyKey": "refresh:00000000-0000-4000-8000-000000020001:before:v1",
+  "context": {
+    "feedId": "00000000-0000-4000-8000-000000030001",
+    "requestUrl": {
+      "scheme": "https",
+      "host": "example.com",
+      "pathHash": "5f6d4c2c837c501d47d9b3f8321953e9a67761c0df78dc4cf1f6a81a79583626",
+      "hasQuery": false
+    },
+    "conditionalRequest": {
+      "hasEtag": true,
+      "hasLastModified": true
+    }
+  }
+}

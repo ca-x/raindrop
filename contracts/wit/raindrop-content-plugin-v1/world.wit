@@ -1,0 +1,7 @@
+package raindrop:content-plugin@1.0.0;
+
+world content-plugin-v1 {
+  import host-ai;
+  import host-mcp;
+  export content-plugin;
+}

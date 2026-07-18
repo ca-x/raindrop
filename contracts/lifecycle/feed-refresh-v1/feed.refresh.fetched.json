@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "eventId": "00000000-0000-4000-8000-000000010002",
+  "eventType": "feed.refresh.fetched",
+  "refreshId": "00000000-0000-4000-8000-000000020001",
+  "sequence": 5,
+  "occurredAt": "2026-07-19T12:00:01Z",
+  "idempotencyKey": "refresh:00000000-0000-4000-8000-000000020001:fetched:v1",
+  "context": {
+    "feedId": "00000000-0000-4000-8000-000000030001",
+    "status": 200,
+    "mediaType": "application/rss+xml",
+    "bodyHandle": "body:00000000-0000-4000-8000-000000020001:v1",
+    "bodySizeBytes": 4096,
+    "hasEtag": true,
+    "hasLastModified": true
+  }
+}

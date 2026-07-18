@@ -1,0 +1,9 @@
+package raindrop:content-plugin@1.0.0;
+
+interface content-plugin {
+  use types.{artifact-candidate, event-outcome, lifecycle-event, operation-request, plugin-descriptor, plugin-error};
+
+  descriptor: func() -> plugin-descriptor;
+  execute: func(request: operation-request) -> result<artifact-candidate, plugin-error>;
+  on-event: func(event: lifecycle-event) -> result<event-outcome, plugin-error>;
+}

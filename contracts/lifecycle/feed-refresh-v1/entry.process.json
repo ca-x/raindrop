@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "eventId": "00000000-0000-4000-8000-000000010003",
+  "eventType": "entry.process",
+  "refreshId": "00000000-0000-4000-8000-000000020001",
+  "sequence": 8,
+  "occurredAt": "2026-07-19T12:00:02Z",
+  "idempotencyKey": "refresh:00000000-0000-4000-8000-000000020001:entry:0:process:v1",
+  "context": {
+    "feedId": "00000000-0000-4000-8000-000000030001",
+    "candidateOrdinal": 0,
+    "identityKind": "GUID",
+    "identityHash": "2b65d0f03b9f67175c4fab4f3285aa23ed6cab55e9cc7bbf8b74b0be3bc5ee66",
+    "sanitizedEntry": {
+      "title": "Example entry",
+      "summaryText": "A safe normalized summary.",
+      "contentText": "Safe normalized content.",
+      "sourceLocale": "en"
+    }
+  }
+}
