@@ -31,12 +31,7 @@ export function SourceToolbar({
       label={i18n._("reader.sources.actions")}
       size="lg"
       dividers={["bottom"]}
-      startContent={(
-        <Stack direction="horizontal" gap={2} align="center">
-          <BrandMark size="sm" decorative />
-          <Text type="label">Raindrop</Text>
-        </Stack>
-      )}
+      startContent={<BrandMark size="sm" />}
       endContent={
         <>
           {refresh ? (
@@ -58,8 +53,22 @@ export function SourceToolbar({
             onClick={onManage}
             variant="ghost"
           />
-          <Button label={i18n._("reader.addSubscription")} onClick={onAdd} variant="ghost" />
-          <Button label={i18n._("common.logout")} clickAction={onLogout} variant="ghost" />
+          <Button
+            label={i18n._("reader.addSubscription")}
+            icon={<span aria-hidden="true">＋</span>}
+            isIconOnly
+            tooltip={i18n._("reader.addSubscription")}
+            onClick={onAdd}
+            variant="ghost"
+          />
+          <Button
+            label={i18n._("common.logout")}
+            icon={<Icon icon="externalLink" />}
+            isIconOnly
+            tooltip={i18n._("common.logout")}
+            clickAction={onLogout}
+            variant="ghost"
+          />
         </>
       }
     />

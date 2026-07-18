@@ -51,8 +51,8 @@ describe("Local authentication", () => {
     await user.click(screen.getByRole("button", { name: "Sign in" }))
 
     expect(await screen.findByRole("heading", { name: "No entries here" })).toBeVisible()
-    expect(screen.queryByRole("img", { name: "Raindrop" })).not.toBeInTheDocument()
-    expect(screen.getByText("Raindrop")).toBeVisible()
+    expect(screen.getByRole("img", { name: "Raindrop" })).toBeVisible()
+    expect(screen.queryByText("Raindrop")).not.toBeInTheDocument()
     const storedValues = Array.from(
       { length: localStorage.length },
       (_, index) => localStorage.getItem(localStorage.key(index) ?? ""),

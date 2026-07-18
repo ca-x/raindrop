@@ -333,37 +333,44 @@ git push origin feature/foundation-bootstrap
 
 **Files:**
 - Modify: `web/e2e/support/readerApiFixture.ts`
+- Modify: `web/e2e/support/readerAssertions.ts`
 - Modify: `web/e2e/reader-workspace.spec.ts`
+- Create: `web/e2e/support/readerOrganizationFixture.ts`
+- Create: `web/e2e/support/readerCategoryScenarios.ts`
+- Modify: `web/src/features/reader/components/ReaderToolbar.tsx`
+- Modify: `web/src/shared/brand/BrandMark.test.tsx`
+- Modify: `web/src/features/auth/LoginPage.test.tsx`
 - Modify: `tasks/todo.md`
 - Create: `.superpowers/sdd/category-organization-v1-report.md`
 
 **Interfaces:**
 - Produces deterministic browser evidence and updates the authoritative task state.
 
-- [ ] **Step 1: Extend the stateful Reader fixture**
+- [x] **Step 1: Extend the stateful Reader fixture**
 
 Support category CRUD, subscription PATCH, category-filtered entry pages, category deletion set-null, and cross-user denial while keeping bootstrap/session/CSRF/production assets real.
 
-- [ ] **Step 2: Add Playwright scenarios**
+- [x] **Step 2: Add Playwright scenarios**
 
 At 1280×800 create/rename/assign/navigate/delete; at 900×800 verify drawer focus; at 390×844 and 360×800 verify category deep link, UI/browser Back, Dialog containment, and no horizontal overflow.
 
-- [ ] **Step 3: Run local agent-browser with the real IT Home subscription**
+- [x] **Step 3: Run local agent-browser with the real IT Home subscription**
 
 Use `https://www.ithome.com/rss/`, create a category, assign the subscription, open a category article, reload, and prove the assignment/filter persists. Record sanitized console/error/viewport evidence without cookies or database files.
 
-- [ ] **Step 4: Run full gates once**
+- [x] **Step 4: Run full gates once**
 
 Run the Reader type drift check, TypeScript, Vitest, production build, Playwright, full locked Rust suite, and `git diff --check` once after the implementation stabilizes.
 
-- [ ] **Step 5: Update task/report state**
+- [x] **Step 5: Update task/report state**
 
 Mark categories complete while leaving user settings, admin management, OIDC, OPML, AI/plugin/MCP and release unchecked. Record exact test counts and existing chunk/future-incompatibility advisories.
 
-- [ ] **Step 6: Commit and push**
+- [x] **Step 6: Commit and push**
 
 ```bash
-git add web/e2e/support/readerApiFixture.ts web/e2e/reader-workspace.spec.ts tasks/todo.md .superpowers/sdd/category-organization-v1-report.md
+git add web/e2e/reader-workspace.spec.ts web/e2e/support/readerApiFixture.ts web/e2e/support/readerAssertions.ts web/e2e/support/readerOrganizationFixture.ts web/e2e/support/readerCategoryScenarios.ts web/src/features/reader/components/ReaderToolbar.tsx web/src/shared/brand/BrandMark.test.tsx web/src/features/auth/LoginPage.test.tsx tasks/todo.md docs/superpowers/plans/2026-07-18-category-organization-v1.md
+git add -f .superpowers/sdd/category-organization-v1-report.md
 git commit -m "test: verify category organization"
 git push origin feature/foundation-bootstrap
 ```

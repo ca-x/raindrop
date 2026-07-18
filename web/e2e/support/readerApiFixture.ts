@@ -6,12 +6,14 @@ import type {
   EntryStateResponse,
   PatchEntryStateRequest,
 } from "../../src/features/reader/api/reader.generated"
-import type {
-  Refresh,
-  Subscription,
-} from "../../src/features/reader/api/subscription.generated"
+import {
+  installReaderOrganizationFixture,
+  readerOrganizationIds,
+  type ReaderOrganizationFixture,
+} from "./readerOrganizationFixture"
 
 export const readerIds = {
+  ...readerOrganizationIds,
   feedA: "00000000-0000-4000-8000-000000000101",
   feedB: "00000000-0000-4000-8000-000000000102",
   subscriptionA: "00000000-0000-4000-8000-000000000201",
@@ -20,6 +22,7 @@ export const readerIds = {
   secondEntry: "00000000-0000-4000-8000-000000000302",
   thirdEntry: "00000000-0000-4000-8000-000000000303",
   fourthEntry: "00000000-0000-4000-8000-000000000304",
+  seventhEntry: "00000000-0000-4000-8000-000000000307",
   pendingEntry: "00000000-0000-4000-8000-00000000030c",
   deepOnlyEntry: "00000000-0000-4000-8000-00000000030d",
 } as const
@@ -33,6 +36,7 @@ interface PatchCall {
 export interface ReaderApiFixture {
   discoverPending: () => void
   entryState: (entryId: string) => EntryStateResponse
+  organization: ReaderOrganizationFixture
   patches: PatchCall[]
 }
 
@@ -45,19 +49,13 @@ export async function installReaderApiFixture(page: Page): Promise<ReaderApiFixt
   details.set(pending.entryId, detailFor(pending))
   const patches: PatchCall[] = []
   let hasPending = false
+  const organization = await installReaderOrganizationFixture(page, {
+    feedA: readerIds.feedA,
+    feedB: readerIds.feedB,
+    subscriptionA: readerIds.subscriptionA,
+    subscriptionB: readerIds.subscriptionB,
+  })
 
-  await page.route("**/api/v1/subscriptions**", async (route) => {
-    await handleSubscriptions(route)
-  })
-  await page.route("**/api/v1/categories**", async (route) => {
-    const request = route.request()
-    const url = new URL(request.url())
-    if (url.pathname === "/api/v1/categories" && request.method() === "GET") {
-      await json(route, { items: [] })
-      return
-    }
-    throw new Error(`unexpected Category request: ${request.method()} ${url.pathname}`)
-  })
   await page.route("**/api/v1/entries**", async (route) => {
     const request = route.request()
     const url = new URL(request.url())
@@ -87,11 +85,26 @@ export async function installReaderApiFixture(page: Page): Promise<ReaderApiFixt
     if (url.pathname === "/api/v1/entries" && request.method() === "GET") {
       const state = url.searchParams.get("state")
       const feedId = url.searchParams.get("feedId")
+      const categoryId = url.searchParams.get("categoryId")
+      if (feedId && categoryId) {
+        throw new Error("Reader fixture received mutually exclusive feed/category filters")
+      }
       let items = entries
       if (feedId) items = items.filter((entry) => entry.feedId === feedId)
+      if (categoryId) {
+        const feedIds = organization.feedIdsForCategory(categoryId)
+        items = items.filter((entry) => feedIds.has(entry.feedId))
+      }
       if (state === "UNREAD") items = items.filter((entry) => !entry.isRead)
       if (state === "STARRED") items = items.filter((entry) => entry.isStarred)
-      if (hasPending && state === "UNREAD" && (!feedId || feedId === pending.feedId)) {
+      const pendingMatchesCategory =
+        !categoryId || organization.feedIdsForCategory(categoryId).has(pending.feedId)
+      if (
+        hasPending &&
+        state === "UNREAD" &&
+        (!feedId || feedId === pending.feedId) &&
+        pendingMatchesCategory
+      ) {
         items = [pending, ...items]
       }
       await json(route, { items, nextCursor: null, snapshotGeneration: 1 })
@@ -107,41 +120,8 @@ export async function installReaderApiFixture(page: Page): Promise<ReaderApiFixt
       if (!detail) throw new Error(`unknown fixture entry ${entryId}`)
       return { entryId, isRead: detail.isRead, isStarred: detail.isStarred }
     },
+    organization,
     patches,
-  }
-}
-
-async function handleSubscriptions(route: Route): Promise<void> {
-  const request = route.request()
-  const url = new URL(request.url())
-  if (url.pathname === "/api/v1/subscriptions" && request.method() === "GET") {
-    await json(route, { items: subscriptions, nextCursor: null })
-    return
-  }
-  const refreshMatch = /^\/api\/v1\/subscriptions\/([^/]+)\/refresh$/u.exec(url.pathname)
-  if (refreshMatch && request.method() === "POST") {
-    await json(route, pendingRefresh())
-    return
-  }
-  throw new Error(`unexpected Subscription request: ${request.method()} ${url.pathname}`)
-}
-
-const subscriptions: Subscription[] = [
-  subscription(readerIds.subscriptionA, readerIds.feedA, "Quiet Web", "https://quiet.example/"),
-  subscription(readerIds.subscriptionB, readerIds.feedB, "Rust Dispatch", "https://rust.example/"),
-]
-
-function subscription(subscriptionId: string, feedId: string, title: string, siteUrl: string): Subscription {
-  return {
-    subscriptionId,
-    feedId,
-    categoryId: null,
-    titleOverride: null,
-    position: 0,
-    title,
-    siteUrl,
-    unreadCount: 6,
-    refresh: null,
   }
 }
 
@@ -194,22 +174,6 @@ function hostileDetail(entry: EntryListItemResponse): EntryDetailResponse {
       height: 900,
     }],
     enclosures: [],
-  }
-}
-
-function pendingRefresh(): Refresh {
-  return {
-    operationId: "00000000-0000-4000-8000-000000000401",
-    state: "PENDING",
-    newCount: 0,
-    updatedCount: 0,
-    droppedCount: 0,
-    generation: null,
-    errorCode: null,
-    retryAt: null,
-    queuedAt: "2026-07-18T00:00:00.000000Z",
-    startedAt: null,
-    completedAt: null,
   }
 }
 

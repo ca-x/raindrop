@@ -15,6 +15,12 @@ import {
   readerRowButton,
   setScrollTop,
 } from "./support/readerAssertions"
+import {
+  verifyCompactCategoryRoute,
+  verifyDirectCompactCategory,
+  verifyMediumCategoryFocus,
+  verifyWideCategoryWorkflow,
+} from "./support/readerCategoryScenarios"
 import { startProductionServer, type ProductionServer } from "./support/productionServer"
 
 let server: ProductionServer
@@ -120,6 +126,7 @@ async function verifyWide(page: Page, fixture: ReaderApiFixture): Promise<void> 
   await setScrollTop(article, 180)
   await readerRowButton(page, readerIds.firstEntry).click()
   await expectScrollTop(article, 320)
+  await verifyWideCategoryWorkflow(page, fixture, server.baseURL)
   await expectNoHorizontalOverflow(page)
 }
 
@@ -145,6 +152,7 @@ async function verifyMedium(page: Page, fixture: ReaderApiFixture): Promise<void
   await menu.click()
   await sources.getByText("Rust Dispatch", { exact: true }).click()
   await expect(page).toHaveURL(`${server.baseURL}/reader/feed/${readerIds.feedB}`)
+  await verifyMediumCategoryFocus(page)
   await expectNoHorizontalOverflow(page)
 }
 
@@ -162,13 +170,11 @@ async function verifyCompactHistory(page: Page): Promise<void> {
   await expect(page).toHaveURL(`${server.baseURL}/reader/unread/entry/${readerIds.fourthEntry}`)
   await page.goBack()
   await expect(page).toHaveURL(`${server.baseURL}/reader/unread`)
+  await verifyCompactCategoryRoute(page, server.baseURL)
 }
 
 async function verifyDirectCompact(page: Page): Promise<void> {
-  await page.goto(`${server.baseURL}/reader/unread/entry/${readerIds.deepOnlyEntry}`)
-  await expect(page.getByRole("heading", { name: "Hostile deep-link article" })).toBeVisible()
-  await page.getByRole("button", { name: "Back to entry queue" }).click()
-  await expect(page).toHaveURL(`${server.baseURL}/reader/unread`)
+  await verifyDirectCompactCategory(page, server.baseURL)
 }
 
 async function verifyHostileDeepLink(page: Page, testInfo: TestInfo): Promise<void> {

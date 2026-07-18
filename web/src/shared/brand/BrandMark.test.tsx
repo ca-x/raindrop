@@ -26,7 +26,7 @@ it("renders an undistorted semantic brand image and supports decorative reuse", 
   expect(decorative).toHaveAttribute("height", "72")
 })
 
-it("does not announce the desktop shell logo beside visible Raindrop text", () => {
+it("uses one semantic brand image in the compact desktop shell toolbar", () => {
   setTestViewport(1280, 800)
   render(
     <Providers>
@@ -41,6 +41,6 @@ it("does not announce the desktop shell logo beside visible Raindrop text", () =
     </Providers>,
   )
 
-  expect(screen.queryByRole("img", { name: "Raindrop" })).not.toBeInTheDocument()
-  expect(screen.getByText("Raindrop")).toBeVisible()
+  expect(screen.getByRole("img", { name: "Raindrop" })).toBeVisible()
+  expect(screen.queryByText("Raindrop")).not.toBeInTheDocument()
 })

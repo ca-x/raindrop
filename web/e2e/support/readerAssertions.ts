@@ -15,6 +15,26 @@ export async function expectNoHorizontalOverflow(page: Page): Promise<void> {
   }))).toEqual({ documentFits: true, bodyFits: true })
 }
 
+export async function expectDialogContained(dialog: Locator, page: Page): Promise<void> {
+  await expect(dialog).toBeVisible()
+  const viewport = page.viewportSize()
+  if (!viewport) throw new Error("expected a fixed Playwright viewport")
+  await expect.poll(async () => {
+    const box = await dialog.boundingBox()
+    if (!box) return false
+    return (
+      box.x >= 0 &&
+      box.y >= 0 &&
+      box.x + box.width <= viewport.width &&
+      box.y + box.height <= viewport.height
+    )
+  }).toBe(true)
+  await expect.poll(() => dialog.evaluate((element) => ({
+    inline: element.scrollWidth <= element.clientWidth,
+    block: element.scrollHeight <= element.clientHeight,
+  }))).toEqual({ inline: true, block: true })
+}
+
 export async function setScrollTop(locator: Locator, offset: number): Promise<number> {
   return locator.evaluate((element, value) => {
     const maximum = element.scrollHeight - element.clientHeight
