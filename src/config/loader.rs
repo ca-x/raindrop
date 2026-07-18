@@ -87,9 +87,9 @@ pub fn load(args: &ConfigArgs, env: &impl EnvSource) -> Result<LoadedConfig, Con
             database_url,
             session_secret,
             bootstrap_admin,
-            feed_retention,
             database_kind,
-        ),
+        )
+        .with_feed_retention(feed_retention),
         mode,
         sources: ConfigSources {
             config_path: loaded_config_path,

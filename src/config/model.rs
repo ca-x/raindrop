@@ -57,7 +57,6 @@ impl RuntimeConfig {
         database_url: Option<SecretString>,
         session_secret: Option<SecretString>,
         bootstrap_admin: Option<BootstrapAdmin>,
-        feed_retention: FeedRetentionConfig,
         database_kind: Option<DatabaseKind>,
     ) -> Self {
         Self {
@@ -67,15 +66,32 @@ impl RuntimeConfig {
             database_url,
             session_secret,
             bootstrap_admin,
-            feed_retention,
+            feed_retention: FeedRetentionConfig::DEFAULT,
             database_kind,
         }
+    }
+
+    pub(crate) const fn with_feed_retention(mut self, feed_retention: FeedRetentionConfig) -> Self {
+        self.feed_retention = feed_retention;
+        self
     }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct FeedRetentionConfig {
     pub orphan_grace: Option<Duration>,
+}
+
+impl FeedRetentionConfig {
+    pub(crate) const DEFAULT: Self = Self {
+        orphan_grace: Some(Duration::from_secs(30 * 86_400)),
+    };
+}
+
+impl Default for FeedRetentionConfig {
+    fn default() -> Self {
+        Self::DEFAULT
+    }
 }
 
 #[derive(Debug)]
