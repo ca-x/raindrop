@@ -3,6 +3,7 @@ import type {
   EntryListItemResponse,
   EntryStateResponse,
 } from "../api/reader.generated"
+import type { Category } from "../api/organization.generated"
 import type {
   Refresh,
   Subscription,
@@ -12,6 +13,7 @@ import {
   startEntryMutation,
   succeedEntryMutation,
 } from "./reducerMutations"
+import { deleteCategoryState, upsertCategory } from "./reducerCategories"
 import { receiveDetail, receiveSource } from "./reducerEntries"
 import {
   deleteSubscriptionState,
@@ -30,11 +32,14 @@ export type ReaderAction =
       type: "subscriptionsReceived"
       generation: number
       subscriptions: Subscription[]
+      categories: Category[]
     }
   | { type: "subscriptionsFailed"; generation: number; error: string }
   | { type: "subscriptionUpserted"; subscription: Subscription }
   | { type: "subscriptionDeleted"; subscriptionId: string }
   | { type: "subscriptionRefreshUpdated"; subscriptionId: string; refresh: Refresh }
+  | { type: "categoryUpserted"; category: Category }
+  | { type: "categoryDeleted"; categoryId: string }
   | { type: "sourceSelected"; source: ReaderSource }
   | { type: "entrySelected"; entryId: string | null }
   | { type: "scrollAnchorRecorded"; route: string; offset: number }
@@ -70,6 +75,8 @@ export type ReaderAction =
   | { type: "sessionExpired" }
 
 export const initialReaderState: ReaderState = {
+  categoriesById: {},
+  categoryOrder: [],
   subscriptionsById: {},
   subscriptionOrder: [],
   entriesById: {},
@@ -92,7 +99,12 @@ export function readerReducer(state: ReaderState, action: ReaderAction): ReaderS
     case "subscriptionsRequested":
       return requestSubscriptions(state, action.generation)
     case "subscriptionsReceived":
-      return receiveSubscriptions(state, action.generation, action.subscriptions)
+      return receiveSubscriptions(
+        state,
+        action.generation,
+        action.subscriptions,
+        action.categories,
+      )
     case "subscriptionsFailed":
       return failSubscriptions(state, action.generation, action.error)
     case "subscriptionUpserted":
@@ -101,6 +113,10 @@ export function readerReducer(state: ReaderState, action: ReaderAction): ReaderS
       return deleteSubscriptionState(state, action.subscriptionId)
     case "subscriptionRefreshUpdated":
       return updateSubscriptionRefresh(state, action.subscriptionId, action.refresh)
+    case "categoryUpserted":
+      return upsertCategory(state, action.category)
+    case "categoryDeleted":
+      return deleteCategoryState(state, action.categoryId)
     case "sourceSelected":
       return { ...state, selectedSource: action.source, selectedEntryId: null }
     case "entrySelected":

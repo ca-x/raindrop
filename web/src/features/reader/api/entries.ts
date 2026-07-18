@@ -10,13 +10,18 @@ import {
   type PatchEntryStateRequest,
 } from "./reader.generated"
 
-export interface ListEntriesOptions {
+interface ListEntriesBaseOptions {
   cursor?: string
   limit?: number
-  feedId?: string
   state?: EntryListState
   signal?: AbortSignal
 }
+
+export type ListEntriesOptions = ListEntriesBaseOptions &
+  (
+    | { feedId?: string; categoryId?: never }
+    | { categoryId?: string; feedId?: never }
+  )
 
 export async function listEntries(
   options: ListEntriesOptions = {},
@@ -25,6 +30,7 @@ export async function listEntries(
   if (options.cursor !== undefined) query.set("cursor", options.cursor)
   if (options.limit !== undefined) query.set("limit", String(options.limit))
   if (options.feedId !== undefined) query.set("feedId", options.feedId)
+  if (options.categoryId !== undefined) query.set("categoryId", options.categoryId)
   if (options.state !== undefined) query.set("state", options.state)
   const response = await apiRequest(withQuery("/api/v1/entries", query), {
     signal: options.signal,

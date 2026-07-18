@@ -3,13 +3,18 @@ import type {
   EntryListItemResponse,
   EntryListState,
 } from "../api/reader.generated"
+import type { Category } from "../api/organization.generated"
 import type { Subscription } from "../api/subscription.generated"
 
 export type ReaderSource =
   | { kind: "smart"; state: EntryListState }
   | { kind: "feed"; feedId: string }
+  | { kind: "category"; categoryId: string }
 
-export type SourceKey = `smart:${EntryListState}` | `feed:${string}`
+export type SourceKey =
+  | `smart:${EntryListState}`
+  | `feed:${string}`
+  | `category:${string}`
 
 export type EntryMutationField = "isRead" | "isStarred"
 
@@ -25,6 +30,8 @@ export interface OptimisticMutationSnapshot {
 export type PaneStatus = "idle" | "loading" | "ready" | "error"
 
 export interface ReaderState {
+  categoriesById: Record<string, Category>
+  categoryOrder: string[]
   subscriptionsById: Record<string, Subscription>
   subscriptionOrder: string[]
   entriesById: Record<string, EntryListItemResponse>
@@ -59,5 +66,12 @@ export interface ReaderState {
 }
 
 export function sourceKey(source: ReaderSource): SourceKey {
-  return source.kind === "feed" ? `feed:${source.feedId}` : `smart:${source.state}`
+  switch (source.kind) {
+    case "smart":
+      return `smart:${source.state}`
+    case "feed":
+      return `feed:${source.feedId}`
+    case "category":
+      return `category:${source.categoryId}`
+  }
 }

@@ -1,6 +1,11 @@
 import { afterEach, expect, it, vi } from "vitest"
 
-import { getEntry, listEntries, patchEntryState } from "./entries"
+import {
+  getEntry,
+  listEntries,
+  patchEntryState,
+  type ListEntriesOptions,
+} from "./entries"
 import type { PatchEntryStateRequest } from "./reader.generated"
 
 // @ts-expect-error The OpenAPI anyOf contract requires at least one state field.
@@ -11,6 +16,7 @@ afterEach(() => vi.unstubAllGlobals())
 
 const entryId = "00000000-0000-4000-8000-000000000301"
 const feedId = "00000000-0000-4000-8000-000000000101"
+const categoryId = "00000000-0000-4000-8000-000000000501"
 const entry = {
   entryId,
   feedId,
@@ -40,6 +46,21 @@ it("lists entries with artifact-backed state and query parameters", async () => 
     `/api/v1/entries?cursor=next&limit=20&feedId=${feedId}&state=STARRED`,
   )
 })
+
+it("serializes category filters without a feed filter", async () => {
+  const fetchMock = vi.fn().mockResolvedValue(jsonResponse(entryPage))
+  vi.stubGlobal("fetch", fetchMock)
+
+  await listEntries({ categoryId, state: "ALL" })
+
+  expect(fetchMock.mock.calls[0]?.[0]).toBe(
+    `/api/v1/entries?categoryId=${categoryId}&state=ALL`,
+  )
+})
+
+// @ts-expect-error Feed and category filters are mutually exclusive in the Reader contract.
+const invalidSourceFilters: ListEntriesOptions = { feedId, categoryId }
+void invalidSourceFilters
 
 it.each([
   ["non-array page", () => listEntries(), { ...entryPage, items: {} }],

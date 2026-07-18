@@ -69,7 +69,13 @@ function emitPrimitiveCheck(type, schema, value, path, depth) {
     case "array": {
       assertSchema(schema.items, `${path}.items`)
       const item = `item${depth}`
-      return `Array.isArray(${value}) && ${value}.every((${item}) => ${emitCheck(schema.items, item, `${path}.items`, depth + 1)})`
+      const checks = [`Array.isArray(${value})`]
+      if (Number.isInteger(schema.minItems)) checks.push(`${value}.length >= ${schema.minItems}`)
+      if (Number.isInteger(schema.maxItems)) checks.push(`${value}.length <= ${schema.maxItems}`)
+      checks.push(
+        `${value}.every((${item}) => ${emitCheck(schema.items, item, `${path}.items`, depth + 1)})`,
+      )
+      return parenthesize(checks.join(" && "))
     }
     case "object":
       return emitObjectCheck(schema, value, path, depth)
@@ -109,6 +115,9 @@ function emitObjectCheck(schema, value, path, depth) {
 
   if (schema.additionalProperties === false) {
     checks.push(`hasOnlyKeys(${value}, ${JSON.stringify(allowed)})`)
+  }
+  if (Number.isInteger(schema.minProperties)) {
+    checks.push(`Object.keys(${value}).length >= ${schema.minProperties}`)
   }
   for (const [field, fieldSchema] of Object.entries(properties)) {
     const fieldValue = `${value}[${JSON.stringify(field)}]`

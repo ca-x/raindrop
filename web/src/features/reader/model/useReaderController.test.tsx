@@ -3,13 +3,22 @@ import { expect, it, vi } from "vitest"
 
 import type { ListSubscriptionsOptions } from "../api/subscriptions"
 import type { ReaderApi } from "./controllerApi"
-import { entryId, makeDetail, makeEntry, makeSubscription } from "./testFixtures"
+import {
+  categoryId,
+  entryId,
+  makeCategory,
+  makeDetail,
+  makeEntry,
+  makeSubscription,
+} from "./testFixtures"
 import { sourceKey } from "./types"
 import { useReaderController } from "./useReaderController"
 
 it("loads every subscription page and the selected source through injected clients", async () => {
   const subscription = makeSubscription()
+  const category = makeCategory()
   const entry = makeEntry()
+  const listCategories = vi.fn(async () => ({ items: [category] }))
   const listSubscriptions = vi.fn(async ({ cursor }: ListSubscriptionsOptions = {}) =>
     cursor === undefined
       ? { items: [subscription], nextCursor: "next" }
@@ -20,7 +29,7 @@ it("loads every subscription page and the selected source through injected clien
     nextCursor: null,
     snapshotGeneration: 1,
   }))
-  const api = makeApi({ listSubscriptions, listEntries })
+  const api = makeApi({ listCategories, listSubscriptions, listEntries })
   const { result } = renderHook(() =>
     useReaderController({
       csrfToken: "csrf-memory",
@@ -32,6 +41,7 @@ it("loads every subscription page and the selected source through injected clien
   await act(async () => result.current.load())
 
   expect(listSubscriptions).toHaveBeenCalledTimes(2)
+  expect(listCategories).toHaveBeenCalledWith(expect.any(AbortSignal))
   expect(listSubscriptions.mock.calls.map(([options]) => options?.cursor)).toEqual([
     undefined,
     "next",
@@ -45,6 +55,7 @@ it("loads every subscription page and the selected source through injected clien
   expect(result.current.state.subscriptionOrder).toEqual([
     subscription.subscriptionId,
   ])
+  expect(result.current.state.categoryOrder).toEqual([category.categoryId])
   expect(
     result.current.state.queueBySourceKey[
       sourceKey({ kind: "smart", state: "UNREAD" })
@@ -109,6 +120,11 @@ it("discovers stored entries without reordering until merge and selects feed sou
       nextCursor: null,
       snapshotGeneration: 3,
     })
+    .mockResolvedValueOnce({
+      items: [makeEntry()],
+      nextCursor: null,
+      snapshotGeneration: 4,
+    })
   const { result } = renderHook(() =>
     useReaderController({
       csrfToken: "csrf-memory",
@@ -137,15 +153,27 @@ it("discovers stored entries without reordering until merge and selects feed sou
     expect.objectContaining({ feedId: feed.feedId, state: "ALL" }),
   )
   expect(result.current.state.selectedSource).toEqual(feed)
+
+  const category = { kind: "category", categoryId } as const
+  await act(async () => result.current.selectSource(category))
+  expect(listEntries).toHaveBeenLastCalledWith(
+    expect.objectContaining({ categoryId, state: "ALL" }),
+  )
+  expect(result.current.state.selectedSource).toEqual(category)
 })
 
 function makeApi(overrides: Partial<ReaderApi> = {}): ReaderApi {
   return {
+    listCategories: vi.fn(async () => ({ items: [] })),
+    createCategory: vi.fn(),
+    updateCategory: vi.fn(),
+    deleteCategory: vi.fn(),
     listSubscriptions: vi.fn(async () => ({ items: [], nextCursor: null })),
     getSubscription: vi.fn(),
     createSubscription: vi.fn(),
     deleteSubscription: vi.fn(),
     refreshSubscription: vi.fn(),
+    updateSubscription: vi.fn(),
     listEntries: vi.fn(async () => ({
       items: [],
       nextCursor: null,

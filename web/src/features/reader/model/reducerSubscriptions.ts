@@ -1,5 +1,7 @@
+import type { Category } from "../api/organization.generated"
 import type { Refresh, Subscription } from "../api/subscription.generated"
 import { reconcileSubscription } from "./reducerOptimistic"
+import { sortedCategoryIds } from "./reducerCategories"
 import { sourceKey, type ReaderState } from "./types"
 
 export function requestSubscriptions(
@@ -21,6 +23,7 @@ export function receiveSubscriptions(
   state: ReaderState,
   generation: number,
   subscriptions: Subscription[],
+  categories: Category[],
 ): ReaderState {
   if (generation !== state.requestGenerationByPane.subscriptions) return state
   const reconciled = subscriptions.map((subscription) =>
@@ -28,6 +31,12 @@ export function receiveSubscriptions(
   )
   return {
     ...state,
+    categoriesById: Object.fromEntries(
+      categories.map((category) => [category.categoryId, category]),
+    ),
+    categoryOrder: sortedCategoryIds(
+      Object.fromEntries(categories.map((category) => [category.categoryId, category])),
+    ),
     subscriptionsById: Object.fromEntries(
       reconciled.map((subscription) => [subscription.subscriptionId, subscription]),
     ),

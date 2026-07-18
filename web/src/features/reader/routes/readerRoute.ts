@@ -26,18 +26,34 @@ export function parseReaderPath(pathname: string): ReaderRouteMatch | null {
   if (smartState) return { source: { kind: "smart", state: smartState }, sourcePath, entryId }
 
   const feedMatch = /^\/reader\/feed\/([^/]+)$/.exec(sourcePath)
-  if (!feedMatch) return null
-  const feedId = safeDecode(feedMatch[1])
-  if (feedId === null) return null
-  return {
-    source: { kind: "feed", feedId },
-    sourcePath,
-    entryId,
+  if (feedMatch) {
+    const feedId = safeDecode(feedMatch[1])
+    if (feedId === null) return null
+    return {
+      source: { kind: "feed", feedId },
+      sourcePath,
+      entryId,
+    }
   }
+
+  const categoryMatch = /^\/reader\/category\/([^/]+)$/.exec(sourcePath)
+  if (categoryMatch) {
+    const categoryId = safeDecode(categoryMatch[1])
+    if (categoryId === null) return null
+    return {
+      source: { kind: "category", categoryId },
+      sourcePath,
+      entryId,
+    }
+  }
+  return null
 }
 
 export function pathForSource(source: ReaderSource): string {
   if (source.kind === "feed") return `/reader/feed/${encodeURIComponent(source.feedId)}`
+  if (source.kind === "category") {
+    return `/reader/category/${encodeURIComponent(source.categoryId)}`
+  }
   return `/reader/${source.state.toLowerCase()}`
 }
 
@@ -46,8 +62,15 @@ export function pathForEntry(sourcePath: string, entryId: string): string {
 }
 
 export function sameReaderSource(left: ReaderSource, right: ReaderSource): boolean {
-  return left.kind === right.kind &&
-    (left.kind === "feed" ? left.feedId === (right as typeof left).feedId : left.state === (right as typeof left).state)
+  if (left.kind !== right.kind) return false
+  switch (left.kind) {
+    case "smart":
+      return left.state === (right as typeof left).state
+    case "feed":
+      return left.feedId === (right as typeof left).feedId
+    case "category":
+      return left.categoryId === (right as typeof left).categoryId
+  }
 }
 
 function safeDecode(value: string): string | null {

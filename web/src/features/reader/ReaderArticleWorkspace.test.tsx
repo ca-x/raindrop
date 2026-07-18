@@ -227,6 +227,10 @@ function articleController(): ReaderController {
     addSubscription: vi.fn().mockResolvedValue(undefined),
     deleteSubscription: vi.fn().mockResolvedValue(undefined),
     refreshSubscription: vi.fn().mockResolvedValue(undefined),
+    createCategory: vi.fn().mockResolvedValue(undefined),
+    updateCategory: vi.fn().mockResolvedValue(undefined),
+    deleteCategory: vi.fn().mockResolvedValue(undefined),
+    updateSubscription: vi.fn().mockResolvedValue(undefined),
     recordScrollAnchor: vi.fn(),
     clearMutationError: vi.fn(),
   }

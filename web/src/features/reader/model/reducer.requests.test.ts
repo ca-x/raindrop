@@ -1,7 +1,14 @@
 import { expect, it } from "vitest"
 
 import { initialReaderState, readerReducer } from "./reducer"
-import { entryId, makeDetail, makeEntry } from "./testFixtures"
+import {
+  categoryId,
+  entryId,
+  makeCategory,
+  makeDetail,
+  makeEntry,
+  makeSubscription,
+} from "./testFixtures"
 import type { ReaderState } from "./types"
 import { sourceKey, type ReaderSource } from "./types"
 
@@ -84,6 +91,68 @@ it("rejects late source responses and errors after a newer generation starts", (
     mode: "replace",
   })
   expect(state.entriesById[entryId]?.title).toBe("Winning entry")
+})
+
+it("loads categories and subscriptions atomically and rejects late organization pages", () => {
+  const selectedSource: ReaderSource = { kind: "category", categoryId }
+  let state = readerReducer(initialReaderState, {
+    type: "sourceSelected",
+    source: selectedSource,
+  })
+  state = readerReducer(state, { type: "subscriptionsRequested", generation: 1 })
+  state = readerReducer(state, { type: "subscriptionsRequested", generation: 2 })
+  state = readerReducer(state, {
+    type: "subscriptionsReceived",
+    generation: 1,
+    subscriptions: [makeSubscription({ title: "Late subscription" })],
+    categories: [makeCategory({ title: "Late category" })],
+  })
+  expect(state.subscriptionOrder).toEqual([])
+  expect(state.categoryOrder).toEqual([])
+
+  const secondCategory = makeCategory({
+    categoryId: "00000000-0000-4000-8000-000000000502",
+    title: "Science",
+    position: 512,
+  })
+  state = readerReducer(state, {
+    type: "subscriptionsReceived",
+    generation: 2,
+    subscriptions: [makeSubscription({ categoryId })],
+    categories: [makeCategory(), secondCategory],
+  })
+
+  expect(state.categoryOrder).toEqual([secondCategory.categoryId, categoryId])
+  expect(state.subscriptionsById[makeSubscription().subscriptionId]?.categoryId).toBe(
+    categoryId,
+  )
+  expect(state.selectedSource).toEqual(selectedSource)
+})
+
+it("deletes a category without a second store and clears affected subscription projections", () => {
+  const source: ReaderSource = { kind: "category", categoryId }
+  const key = sourceKey(source)
+  let state: ReaderState = {
+    ...initialReaderState,
+    categoriesById: { [categoryId]: makeCategory() },
+    categoryOrder: [categoryId],
+    subscriptionsById: {
+      [makeSubscription().subscriptionId]: makeSubscription({ categoryId }),
+    },
+    subscriptionOrder: [makeSubscription().subscriptionId],
+    selectedSource: source,
+    selectedEntryId: entryId,
+    queueBySourceKey: { [key]: [entryId] },
+  }
+
+  state = readerReducer(state, { type: "categoryDeleted", categoryId })
+
+  expect(state.categoriesById).toEqual({})
+  expect(state.categoryOrder).toEqual([])
+  expect(state.subscriptionsById[makeSubscription().subscriptionId]?.categoryId).toBeNull()
+  expect(state.queueBySourceKey[key]).toBeUndefined()
+  expect(state.selectedSource).toEqual({ kind: "smart", state: "UNREAD" })
+  expect(state.selectedEntryId).toBeNull()
 })
 
 it("keeps request generations monotonic across session expiry", () => {

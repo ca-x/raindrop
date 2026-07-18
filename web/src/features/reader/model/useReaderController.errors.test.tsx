@@ -93,11 +93,16 @@ it("rejects a malformed state response through the Task 1 PATCH validator", asyn
 
 function makeApi(overrides: Partial<ReaderApi> = {}): ReaderApi {
   return {
+    listCategories: vi.fn(async () => ({ items: [] })),
+    createCategory: vi.fn(),
+    updateCategory: vi.fn(),
+    deleteCategory: vi.fn(),
     listSubscriptions: vi.fn(async () => ({ items: [], nextCursor: null })),
     getSubscription: vi.fn(),
     createSubscription: vi.fn(),
     deleteSubscription: vi.fn(),
     refreshSubscription: vi.fn(),
+    updateSubscription: vi.fn(),
     listEntries: vi.fn(async () => ({
       items: [makeEntry()],
       nextCursor: null,

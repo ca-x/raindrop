@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from "react"
 
 import type { ListEntriesOptions } from "../api/entries"
+import type { Category } from "../api/organization.generated"
 import type { Subscription } from "../api/subscription.generated"
 import type { ReaderApi } from "./controllerApi"
 import type { ReaderSession } from "./controllerSession"
@@ -10,7 +11,7 @@ import {
   readerErrorMessage,
 } from "./controllerErrors"
 import type { ReaderAction } from "./reducer"
-import type { ReaderSource, ReaderState } from "./types"
+import { sourceKey, type ReaderSource, type ReaderState } from "./types"
 
 interface ReaderRequestOptions {
   api: ReaderApi
@@ -50,15 +51,13 @@ export function useReaderRequests({
       stateRef.current.requestGenerationByPane.subscriptions === generation
     dispatch({ type: "subscriptionsRequested", generation })
     try {
-      const subscriptions: Subscription[] = []
-      let cursor: string | undefined
-      do {
-        const page = await api.listSubscriptions({ cursor, signal: controller.signal })
-        if (!current()) return
-        subscriptions.push(...page.items)
-        cursor = page.nextCursor ?? undefined
-      } while (cursor !== undefined)
-      if (current()) dispatch({ type: "subscriptionsReceived", generation, subscriptions })
+      const [categories, subscriptions] = await Promise.all([
+        loadCategories(api, controller.signal),
+        loadAllSubscriptions(api, controller.signal, current),
+      ])
+      if (current()) {
+        dispatch({ type: "subscriptionsReceived", generation, subscriptions, categories })
+      }
     } catch (error) {
       if (isAbortError(error)) return
       if (!current()) return
@@ -190,13 +189,36 @@ export function useReaderRequests({
 }
 
 function entryListOptions(source: ReaderSource): ListEntriesOptions {
-  return source.kind === "feed"
-    ? { feedId: source.feedId, state: "ALL" }
-    : { state: source.state }
+  switch (source.kind) {
+    case "smart":
+      return { state: source.state }
+    case "feed":
+      return { feedId: source.feedId, state: "ALL" }
+    case "category":
+      return { categoryId: source.categoryId, state: "ALL" }
+  }
 }
 
 function sameSource(left: ReaderSource, right: ReaderSource): boolean {
-  if (left.kind === "feed" && right.kind === "feed") return left.feedId === right.feedId
-  if (left.kind === "smart" && right.kind === "smart") return left.state === right.state
-  return false
+  return sourceKey(left) === sourceKey(right)
+}
+
+async function loadCategories(api: ReaderApi, signal: AbortSignal): Promise<Category[]> {
+  return (await api.listCategories(signal)).items
+}
+
+async function loadAllSubscriptions(
+  api: ReaderApi,
+  signal: AbortSignal,
+  current: () => boolean,
+): Promise<Subscription[]> {
+  const subscriptions: Subscription[] = []
+  let cursor: string | undefined
+  do {
+    const page = await api.listSubscriptions({ cursor, signal })
+    if (!current()) return subscriptions
+    subscriptions.push(...page.items)
+    cursor = page.nextCursor ?? undefined
+  } while (cursor !== undefined)
+  return subscriptions
 }

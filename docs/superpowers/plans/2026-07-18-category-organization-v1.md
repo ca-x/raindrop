@@ -254,27 +254,27 @@ git push origin feature/foundation-bootstrap
 - Extends `ReaderState` with normalized `categoriesById` and `categoryOrder`.
 - Produces category CRUD and subscription patch functions in `ReaderApi`.
 
-- [ ] **Step 1: Add generator/client RED tests**
+- [x] **Step 1: Add generator/client RED tests**
 
 Check that `organization.generated.ts` is absent/stale, malformed category responses fail closed, PATCH sends CSRF, and `listEntries({ categoryId })` serializes only the category filter.
 
-- [ ] **Step 2: Run and confirm RED**
+- [x] **Step 2: Run and confirm RED**
 
 Run: `cd web && npm run test:ci -- categories/api.test.ts subscriptions.test.ts entries.test.ts`
 
-- [ ] **Step 3: Extend generation and strict validators**
+- [x] **Step 3: Extend generation and strict validators**
 
 Add `docs/openapi/organization-v1.json` to the artifact list, regenerate all clients, and implement API functions using the existing `apiRequest`/`invalidResponseError` boundary.
 
-- [ ] **Step 4: Extend the single reducer/controller**
+- [x] **Step 4: Extend the single reducer/controller**
 
 Load categories and subscriptions together, reject late generations, preserve the selected route, and update subscription/category entities after mutations without introducing a second store.
 
-- [ ] **Step 5: Verify generated contracts and state tests**
+- [x] **Step 5: Verify generated contracts and state tests**
 
 Run: `cd web && npm run generate:reader-types && npm run check:reader-types && npm run typecheck && npm run test:ci`
 
-- [ ] **Step 6: Commit and push**
+- [x] **Step 6: Commit and push**
 
 ```bash
 git add web/scripts/generate-reader-types.mjs web/src/features/reader/api web/src/features/reader/categories web/src/features/reader/model

@@ -49,6 +49,15 @@ export async function installReaderApiFixture(page: Page): Promise<ReaderApiFixt
   await page.route("**/api/v1/subscriptions**", async (route) => {
     await handleSubscriptions(route)
   })
+  await page.route("**/api/v1/categories**", async (route) => {
+    const request = route.request()
+    const url = new URL(request.url())
+    if (url.pathname === "/api/v1/categories" && request.method() === "GET") {
+      await json(route, { items: [] })
+      return
+    }
+    throw new Error(`unexpected Category request: ${request.method()} ${url.pathname}`)
+  })
   await page.route("**/api/v1/entries**", async (route) => {
     const request = route.request()
     const url = new URL(request.url())
@@ -123,7 +132,17 @@ const subscriptions: Subscription[] = [
 ]
 
 function subscription(subscriptionId: string, feedId: string, title: string, siteUrl: string): Subscription {
-  return { subscriptionId, feedId, title, siteUrl, unreadCount: 6, refresh: null }
+  return {
+    subscriptionId,
+    feedId,
+    categoryId: null,
+    titleOverride: null,
+    position: 0,
+    title,
+    siteUrl,
+    unreadCount: 6,
+    refresh: null,
+  }
 }
 
 function createEntries(): EntryListItemResponse[] {

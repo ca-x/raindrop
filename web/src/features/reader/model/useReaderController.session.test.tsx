@@ -111,11 +111,16 @@ it("expires once and quarantines concurrent 401 and ignored-abort completions", 
 
 function makeApi(overrides: Partial<ReaderApi> = {}): ReaderApi {
   return {
+    listCategories: vi.fn(async () => ({ items: [] })),
+    createCategory: vi.fn(),
+    updateCategory: vi.fn(),
+    deleteCategory: vi.fn(),
     listSubscriptions: vi.fn(async () => ({ items: [makeSubscription()], nextCursor: null })),
     getSubscription: vi.fn(),
     createSubscription: vi.fn(),
     deleteSubscription: vi.fn(),
     refreshSubscription: vi.fn(),
+    updateSubscription: vi.fn(),
     listEntries: vi.fn(async () => page(makeEntry())),
     getEntry: vi.fn(async () => makeDetail()),
     patchEntryState: vi.fn(),

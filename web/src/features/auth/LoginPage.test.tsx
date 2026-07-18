@@ -164,6 +164,7 @@ function mockLoginBootstrap(resetViewport = true) {
 
 function mockReaderWorkspace() {
   fetchMock
+    .mockResolvedValueOnce(jsonResponse({ items: [] }))
     .mockResolvedValueOnce(jsonResponse({ items: [], nextCursor: null }))
     .mockResolvedValueOnce(jsonResponse({ items: [], nextCursor: null, snapshotGeneration: 1 }))
 }

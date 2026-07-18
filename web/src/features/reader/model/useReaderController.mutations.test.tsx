@@ -6,7 +6,9 @@ import type { Refresh, RefreshState, Subscription } from "../api/subscription.ge
 import { ApiClientError } from "../../../shared/api/client"
 import type { ReaderApi } from "./controllerApi"
 import {
+  categoryId,
   entryId,
+  makeCategory,
   makeDetail,
   makeEntry,
   makeSubscription,
@@ -174,6 +176,68 @@ it("adds, refreshes, and deletes subscriptions through CSRF-aware actions", asyn
   expect(result.current.state.subscriptionsById[created.subscriptionId]).toBeUndefined()
 })
 
+it("creates, updates, deletes, and assigns categories through the shared Reader state", async () => {
+  const createdCategory = makeCategory()
+  const renamedCategory = makeCategory({ title: "Science", position: 512 })
+  const categorizedSubscription = makeSubscription({ categoryId })
+  const createCategory = vi.fn(async () => createdCategory)
+  const updateCategory = vi.fn(async () => renamedCategory)
+  const deleteCategory = vi.fn(async () => undefined)
+  const updateSubscription = vi.fn(async () => categorizedSubscription)
+  const { result } = renderHook(() =>
+    useReaderController({
+      csrfToken: "csrf-memory",
+      onUnauthenticated: vi.fn(),
+      api: makeApi({
+        createCategory,
+        updateCategory,
+        deleteCategory,
+        updateSubscription,
+      }),
+    }),
+  )
+  await act(async () => result.current.load())
+
+  await act(async () => result.current.createCategory("Technology"))
+  expect(createCategory).toHaveBeenCalledWith(
+    { title: "Technology" },
+    "csrf-memory",
+    expect.any(AbortSignal),
+  )
+  expect(result.current.state.categoriesById[categoryId]).toEqual(createdCategory)
+
+  await act(async () => result.current.updateCategory(categoryId, { title: "Science" }))
+  expect(updateCategory).toHaveBeenCalledWith(
+    categoryId,
+    { title: "Science" },
+    "csrf-memory",
+    expect.any(AbortSignal),
+  )
+  expect(result.current.state.categoriesById[categoryId]).toEqual(renamedCategory)
+
+  await act(async () =>
+    result.current.updateSubscription(subscriptionId, { categoryId }),
+  )
+  expect(updateSubscription).toHaveBeenCalledWith(
+    subscriptionId,
+    { categoryId },
+    "csrf-memory",
+    expect.any(AbortSignal),
+  )
+  expect(result.current.state.subscriptionsById[subscriptionId]?.categoryId).toBe(
+    categoryId,
+  )
+
+  await act(async () => result.current.deleteCategory(categoryId))
+  expect(deleteCategory).toHaveBeenCalledWith(
+    categoryId,
+    "csrf-memory",
+    expect.any(AbortSignal),
+  )
+  expect(result.current.state.categoriesById[categoryId]).toBeUndefined()
+  expect(result.current.state.subscriptionsById[subscriptionId]?.categoryId).toBeNull()
+})
+
 it("reconciles provisional subscription metadata after create refresh completes", async () => {
   const pending = makeRefresh("PENDING")
   const ready = makeRefresh("READY")
@@ -282,6 +346,10 @@ it("continues polling pending refreshes and stops at the first terminal subscrip
 
 function makeApi(overrides: Partial<ReaderApi> = {}): ReaderApi {
   return {
+    listCategories: vi.fn(async () => ({ items: [] })),
+    createCategory: vi.fn(),
+    updateCategory: vi.fn(),
+    deleteCategory: vi.fn(),
     listSubscriptions: vi.fn(async () => ({
       items: [makeSubscription()],
       nextCursor: null,
@@ -290,6 +358,7 @@ function makeApi(overrides: Partial<ReaderApi> = {}): ReaderApi {
     createSubscription: vi.fn(),
     deleteSubscription: vi.fn(),
     refreshSubscription: vi.fn(),
+    updateSubscription: vi.fn(),
     listEntries: vi.fn(async () => ({
       items: [makeEntry()],
       nextCursor: null,

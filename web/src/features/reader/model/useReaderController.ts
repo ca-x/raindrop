@@ -5,8 +5,11 @@ import { initialReaderState, readerReducer, type ReaderAction } from "./reducer"
 import { useReaderSession } from "./controllerSession"
 import type { ReaderSource, ReaderState } from "./types"
 import { useEntryMutations } from "./useEntryMutations"
+import { useOrganizationActions } from "./useOrganizationActions"
 import { useReaderRequests } from "./useReaderRequests"
 import { useSubscriptionActions } from "./useSubscriptionActions"
+import type { UpdateCategoryRequest } from "../api/organization.generated"
+import type { UpdateSubscriptionRequest } from "../api/subscription.generated"
 
 export interface ReaderController {
   state: ReaderState
@@ -20,6 +23,13 @@ export interface ReaderController {
   addSubscription: (url: string) => Promise<void>
   deleteSubscription: (subscriptionId: string) => Promise<void>
   refreshSubscription: (subscriptionId: string) => Promise<void>
+  createCategory: (title: string) => Promise<void>
+  updateCategory: (categoryId: string, request: UpdateCategoryRequest) => Promise<void>
+  deleteCategory: (categoryId: string) => Promise<void>
+  updateSubscription: (
+    subscriptionId: string,
+    request: UpdateSubscriptionRequest,
+  ) => Promise<void>
   recordScrollAnchor: (route: string, offset: number) => void
   clearMutationError: () => void
 }
@@ -63,6 +73,12 @@ export function useReaderController({
     dispatch,
     session,
   })
+  const organizationActions = useOrganizationActions({
+    api,
+    csrfToken,
+    dispatch,
+    session,
+  })
 
   const recordScrollAnchor = useCallback(
     (route: string, offset: number) => {
@@ -81,6 +97,7 @@ export function useReaderController({
     ...requests,
     ...entryMutations,
     ...subscriptionActions,
+    ...organizationActions,
     recordScrollAnchor,
     clearMutationError,
   }

@@ -10,6 +10,14 @@ const repositoryRoot = resolve(scriptDirectory, "../..")
 const webRoot = resolve(repositoryRoot, "web")
 const artifacts = [
   {
+    source: "docs/openapi/organization-v1.json",
+    output: "src/features/reader/api/organization.generated.ts",
+    aliases: {
+      CategoryResponse: "Category",
+      CategoryListResponse: "CategoryList",
+    },
+  },
+  {
     source: "docs/openapi/subscription-v1.json",
     output: "src/features/reader/api/subscription.generated.ts",
     aliases: {

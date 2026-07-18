@@ -11,7 +11,13 @@ import {
   getSubscription,
   listSubscriptions,
   refreshSubscription,
+  updateSubscription,
 } from "./subscriptions"
+import type { UpdateSubscriptionRequest } from "./subscription.generated"
+
+// @ts-expect-error The OpenAPI minProperties contract requires at least one patch field.
+const emptySubscriptionPatch: UpdateSubscriptionRequest = {}
+void emptySubscriptionPatch
 
 const temporaryDirectories: string[] = []
 
@@ -26,6 +32,9 @@ const requestId = "00000000-0000-4000-8000-000000000901"
 const subscription = {
   subscriptionId: "00000000-0000-4000-8000-000000000201",
   feedId: "00000000-0000-4000-8000-000000000101",
+  categoryId: null,
+  titleOverride: null,
+  position: 0,
   title: "Example Feed",
   siteUrl: "https://example.com/",
   unreadCount: 3,
@@ -75,6 +84,11 @@ it.each([
     () => refreshSubscription(subscription.subscriptionId, { requestId }, "csrf"),
     { ...refresh, state: "QUEUED" },
   ],
+  [
+    "missing patch projection field",
+    () => updateSubscription(subscription.subscriptionId, { position: 1 }, "csrf"),
+    { ...subscription, categoryId: undefined },
+  ],
 ])("rejects a malformed 2xx %s response", async (_name, request, body) => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(body)))
   await expect(request()).rejects.toMatchObject({
@@ -87,11 +101,17 @@ it("sends in-memory CSRF tokens for every subscription mutation", async () => {
   const fetchMock = vi
     .fn()
     .mockResolvedValueOnce(jsonResponse({ created: true, subscription }))
+    .mockResolvedValueOnce(jsonResponse({ ...subscription, position: 1024 }))
     .mockResolvedValueOnce(new Response(null, { status: 204 }))
     .mockResolvedValueOnce(jsonResponse(refresh))
   vi.stubGlobal("fetch", fetchMock)
 
   await createSubscription({ url: "https://example.com/feed.xml" }, "csrf-memory")
+  await updateSubscription(
+    subscription.subscriptionId,
+    { categoryId: null, titleOverride: "Focused", position: 1024 },
+    "csrf-memory",
+  )
   await deleteSubscription(subscription.subscriptionId, "csrf-memory")
   await refreshSubscription(subscription.subscriptionId, { requestId }, "csrf-memory")
 
@@ -100,15 +120,22 @@ it("sends in-memory CSRF tokens for every subscription mutation", async () => {
   }
   expect(fetchMock.mock.calls.map((call) => call[1]?.method)).toEqual([
     "POST",
+    "PATCH",
     "DELETE",
     "POST",
   ])
+  expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+    categoryId: null,
+    titleOverride: "Focused",
+    position: 1024,
+  })
 })
 
 it("passes AbortSignal through every subscription request", async () => {
   const fetchMock = vi.fn(async (path: string | URL | Request, init?: RequestInit) => {
     const url = String(path)
     if (init?.method === "DELETE") return new Response(null, { status: 204 })
+    if (init?.method === "PATCH") return jsonResponse({ ...subscription, position: 1024 })
     if (url.endsWith("/refresh")) return jsonResponse(refresh)
     if (url === "/api/v1/subscriptions" && init?.method === "POST") {
       return jsonResponse({ created: true, subscription })
@@ -121,10 +148,11 @@ it("passes AbortSignal through every subscription request", async () => {
   await listSubscriptions({ signal })
   await getSubscription(subscription.subscriptionId, signal)
   await createSubscription({ url: "https://example.com/feed.xml" }, "csrf", signal)
+  await updateSubscription(subscription.subscriptionId, { position: 1024 }, "csrf", signal)
   await deleteSubscription(subscription.subscriptionId, "csrf", signal)
   await refreshSubscription(subscription.subscriptionId, { requestId }, "csrf", signal)
 
-  expect(fetchMock.mock.calls).toHaveLength(5)
+  expect(fetchMock.mock.calls).toHaveLength(6)
   expect(fetchMock.mock.calls.every((call) => call[1]?.signal === signal)).toBe(true)
 })
 
@@ -147,6 +175,7 @@ it("generates both artifacts deterministically and detects missing or edited out
   expect(generated.status, generated.stderr).toBe(0)
   expect(generated.stdout).toContain("subscription.generated.ts")
   expect(generated.stdout).toContain("reader.generated.ts")
+  expect(generated.stdout).toContain("organization.generated.ts")
 
   const clean = runGenerator("--check", "--output-root", outputRoot)
   expect(clean.status, clean.stderr).toBe(0)
@@ -157,6 +186,9 @@ it("generates both artifacts deterministically and detects missing or edited out
   )
   const original = readFileSync(subscriptionPath, "utf8")
   expect(original).toContain("title: string")
+  expect(original).toContain("categoryId: string | null")
+  expect(original).toContain("export type UpdateSubscriptionRequest = {")
+  expect(original).toContain("| { position: number }")
   expect(original).toContain("export type SubscriptionResponse = Subscription")
   expect(original).toContain("export type SubscriptionPageResponse = SubscriptionPage")
   expect(original).toContain("export type RefreshResponse = Refresh")
@@ -185,6 +217,23 @@ it("generates both artifacts deterministically and detects missing or edited out
   const editedReader = runGenerator("--check", "--output-root", outputRoot)
   expect(editedReader.status).toBe(1)
   expect(editedReader.stderr).toContain("reader.generated.ts")
+
+  writeFileSync(readerPath, originalReader)
+  const organizationPath = join(
+    outputRoot,
+    "src/features/reader/api/organization.generated.ts",
+  )
+  const originalOrganization = readFileSync(organizationPath, "utf8")
+  expect(originalOrganization).toContain("export interface Category")
+  expect(originalOrganization).toContain("export type UpdateCategoryRequest = {")
+  expect(originalOrganization).toContain("value[\"items\"].length <= 250")
+  writeFileSync(
+    organizationPath,
+    originalOrganization.replace("title: string", "title: number"),
+  )
+  const editedOrganization = runGenerator("--check", "--output-root", outputRoot)
+  expect(editedOrganization.status).toBe(1)
+  expect(editedOrganization.stderr).toContain("organization.generated.ts")
 })
 
 function runGenerator(...args: string[]) {

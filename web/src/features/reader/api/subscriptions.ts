@@ -10,6 +10,7 @@ import {
   type RefreshSubscriptionRequest,
   type SubscriptionPageResponse,
   type SubscriptionResponse,
+  type UpdateSubscriptionRequest,
 } from "./subscription.generated"
 
 export interface ListSubscriptionsOptions {
@@ -66,6 +67,22 @@ export async function deleteSubscription(
     signal,
   })
   if (response !== undefined) throw invalidResponseError()
+}
+
+export async function updateSubscription(
+  subscriptionId: string,
+  request: UpdateSubscriptionRequest,
+  csrfToken: string,
+  signal?: AbortSignal,
+): Promise<SubscriptionResponse> {
+  const response = await apiRequest(subscriptionPath(subscriptionId), {
+    method: "PATCH",
+    headers: csrfHeaders(csrfToken),
+    body: JSON.stringify(request),
+    signal,
+  })
+  if (!isSubscriptionResponse(response)) throw invalidResponseError()
+  return response
 }
 
 export async function refreshSubscription(

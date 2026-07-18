@@ -69,6 +69,14 @@ function emitConstrainedObject(name, schema, aliases, choices) {
 }
 
 function requiredChoices(schema) {
+  if (
+    schema.minProperties === 1 &&
+    isObject(schema.properties) &&
+    (!Array.isArray(schema.required) || schema.required.length === 0)
+  ) {
+    const fields = Object.keys(schema.properties)
+    return fields.length === 0 ? null : fields.map((field) => [field])
+  }
   if (!Array.isArray(schema.anyOf) || schema.anyOf.length === 0) return null
   const choices = []
   for (const candidate of schema.anyOf) {

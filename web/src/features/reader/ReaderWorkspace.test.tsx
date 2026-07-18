@@ -51,6 +51,9 @@ describe("Reader workspace", () => {
         subscription: {
           subscriptionId: "subscription",
           feedId: "feed-rust",
+          categoryId: null,
+          titleOverride: null,
+          position: 0,
           title: "Planet Rust",
           siteUrl: "https://planet-rust.example",
           unreadCount: 7,
@@ -137,6 +140,9 @@ describe("Reader workspace", () => {
         subscription: {
           subscriptionId: "subscription",
           feedId: "feed-rust",
+          categoryId: null,
+          titleOverride: null,
+          position: 0,
           title: "Planet Rust",
           siteUrl: null,
           unreadCount: 7,
@@ -236,6 +242,10 @@ function fakeController(state: Partial<ReaderState> = {}): ReaderController {
     addSubscription: vi.fn().mockResolvedValue(undefined),
     deleteSubscription: vi.fn().mockResolvedValue(undefined),
     refreshSubscription: vi.fn().mockResolvedValue(undefined),
+    createCategory: vi.fn().mockResolvedValue(undefined),
+    updateCategory: vi.fn().mockResolvedValue(undefined),
+    deleteCategory: vi.fn().mockResolvedValue(undefined),
+    updateSubscription: vi.fn().mockResolvedValue(undefined),
     recordScrollAnchor: vi.fn(),
     clearMutationError: vi.fn(),
   }

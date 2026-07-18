@@ -160,6 +160,7 @@ it("keeps pending read and star state across stale source detail and subscriptio
     type: "subscriptionsReceived",
     generation: 1,
     subscriptions: [makeSubscription({ unreadCount: 3 })],
+    categories: [],
   })
   state = readerReducer(state, {
     type: "subscriptionUpserted",
@@ -217,6 +218,7 @@ it("rolls back one unread delta after a stale reload during a pending mutation",
     type: "subscriptionsReceived",
     generation: 1,
     subscriptions: [makeSubscription({ unreadCount: 3 })],
+    categories: [],
   })
   state = readerReducer(state, {
     type: "entryMutationFailed",
