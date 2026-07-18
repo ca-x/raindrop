@@ -149,7 +149,7 @@ git diff --check
 - [x] Implement exact scope predicates. Instance uses `owner_user_id IS NULL`; user uses exact UUID. Cross-scope ID and missing ID both return `NotFound`.
 - [x] Implement update by loading the exact row, constructing and validating the complete prospective state, optionally encrypting a new credential, and issuing a revision-predicated `update_many`. Increment revision with checked arithmetic; zero rows returns `RevisionConflict`.
 - [x] Implement binding load for `(instance OR requesting user) AND enabled`; decrypt only after the row passes scope, kind, endpoint, model, capability, policy, and enabled validation.
-- [ ] Run the same repository contract on PostgreSQL/MySQL. Add three explicit CI steps immediately after RSS schema verification:
+- [x] Run the same repository contract on PostgreSQL/MySQL. Add three explicit CI steps immediately after RSS schema verification:
 
 ```yaml
 - name: Verify AI provider storage on SQLite
@@ -188,13 +188,13 @@ git diff --check
 - Private injection traits `DnsResolver`, `HttpExecutor`, and `HttpBody` allow unit abuse tests without external network access.
 - Consumes only validated `ProviderEndpoint` and adapter-produced `EncodedProviderRequest`; performs exactly one POST.
 
-- [ ] In `types.rs`, write redacted error/response contracts first. `ProviderTransportError::Debug` contains provider ID, kind/stage/count only; reqwest sources use `without_url()`.
-- [ ] In `dns.rs`, write fake-resolver tests for public IPv4/IPv6, standard NAT64, literal address, empty/17-answer/mixed-private/private/documentation/duplicate results, exact 3-second timeout, deduplication, and effective port. Implement hickory A+AAAA resolution and all-address fail-closed approval with `AddressPolicy::public_only()`.
-- [ ] In `http.rs`, write fake-executor tests for forbidden hop-by-hop/host/content-length/proxy headers, invalid secret/public header values, no proxy/redirect/decompression builder settings, connect/first-byte timeout mapping, exact POST body, missing/mismatched peer, redirect body not polled, and one executor call.
-- [ ] In `body.rs`, write fake-body and deterministic compressor tests for identity/gzip/Brotli/zlib success, multiple/unknown encodings, content-length early rejection, 2 MiB compressed/decoded boundaries, 100x expansion boundary, empty chunks yielding, idle/total deadline, and reqwest body error redaction.
-- [ ] In `mod.rs`, orchestrate total deadline, endpoint join, DNS approval, header conversion, first-byte execution, peer check, single `Retry-After`, redirect denial, non-2xx body discard, and 2xx bounded decode. Use 90s total, 5s connect, 20s first byte, 10s idle, 2 MiB compressed/decoded, and 16 DNS answers exactly.
-- [ ] Add unit tests proving invalid/multiple `Retry-After` is `ResponseHeaders`, delta/date values preserve a UTC deadline, and non-2xx response bodies are never polled.
-- [ ] Verify:
+- [x] In `types.rs`, write redacted error/response contracts first. `ProviderTransportError::Debug` contains provider ID, kind/stage/count only; reqwest sources use `without_url()`.
+- [x] In `dns.rs`, write fake-resolver tests for public IPv4/IPv6, standard NAT64, literal address, empty/17-answer/mixed-private/private/documentation/duplicate results, exact 3-second timeout, deduplication, and effective port. Implement hickory A+AAAA resolution and all-address fail-closed approval with `AddressPolicy::public_only()`.
+- [x] In `http.rs`, write fake-executor tests for forbidden hop-by-hop/host/content-length/proxy headers, invalid secret/public header values, no proxy/redirect/decompression builder settings, connect/first-byte timeout mapping, exact POST body, missing/mismatched peer, redirect body not polled, and one executor call.
+- [x] In `body.rs`, write fake-body and deterministic compressor tests for identity/gzip/Brotli/zlib success, multiple/unknown encodings, content-length early rejection, 2 MiB compressed/decoded boundaries, 100x expansion boundary, empty chunks yielding, idle/total deadline, and reqwest body error redaction.
+- [x] In `mod.rs`, orchestrate total deadline, endpoint join, DNS approval, header conversion, first-byte execution, peer check, single `Retry-After`, redirect denial, non-2xx body discard, and 2xx bounded decode. Use 90s total, 5s connect, 20s first byte, 10s idle, 2 MiB compressed/decoded, and 16 DNS answers exactly.
+- [x] Add unit tests proving invalid/multiple `Retry-After` is `ResponseHeaders`, delta/date values preserve a UTC deadline, and non-2xx response bodies are never polled.
+- [x] Verify:
 
 ```bash
 cargo fmt --check

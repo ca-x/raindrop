@@ -342,11 +342,7 @@ Stable transport kinds:
 - `AddressDenied`
 - `InvalidHeaders`
 - `Network`
-- `TimeoutDns`
-- `TimeoutConnect`
-- `TimeoutFirstByte`
-- `TimeoutBodyIdle`
-- `TimeoutTotal`
+- `Timeout`, paired with `ProviderTimeoutStage::{Dns, Connect, FirstByte, BodyIdle, Total}`
 - `PeerMismatch`
 - `RedirectDenied`
 - `ResponseHeaders`

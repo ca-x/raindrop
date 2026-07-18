@@ -5,6 +5,7 @@ mod openai_chat;
 mod openai_responses;
 mod repository;
 mod secret;
+mod transport;
 mod types;
 mod validation;
 
@@ -15,6 +16,10 @@ pub use model::{
 };
 pub use repository::ProviderRepository;
 pub use secret::{ProviderSecretError, ProviderSecretErrorKind, ProviderSecretKeyring};
+pub use transport::{
+    HttpsProviderTransport, ProviderRetryAfter, ProviderTimeoutStage, ProviderTransport,
+    ProviderTransportError, ProviderTransportErrorKind, ProviderTransportResponse,
+};
 pub use types::{
     EncodedProviderRequest, FinishReason, OutputSchema, ProviderAdapterError,
     ProviderAdapterErrorKind, ProviderHeader, ProviderKind, StructuredGenerationRequest,
