@@ -1,3 +1,4 @@
+pub mod jobs;
 pub mod provider;
 pub mod sanitize;
 pub(crate) mod search;

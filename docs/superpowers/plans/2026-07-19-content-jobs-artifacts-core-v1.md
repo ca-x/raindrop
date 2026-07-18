@@ -102,7 +102,7 @@ impl ContentRepository {
 ```rust
 pub enum EnqueueResult {
     Queued(JobSnapshot),
-    Reused { job: JobSnapshot, artifact: ArtifactSnapshot },
+    Reused { job: JobSnapshot, artifact: Box<ArtifactSnapshot> },
     Existing(JobSnapshot),
 }
 
