@@ -10,8 +10,7 @@ use raindrop::{
 };
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectOptions, ConnectionTrait, Database,
-    DatabaseBackend, DatabaseConnection, EntityTrait, QueryFilter, QueryResult, Statement,
-    TransactionTrait,
+    DatabaseBackend, DatabaseConnection, EntityTrait, QueryFilter, Statement, TransactionTrait,
 };
 use secrecy::SecretString;
 use support::database::{
@@ -794,33 +793,28 @@ async fn backend_reports_lock_wait(
             .expect("PostgreSQL lock wait result should exist")
             .try_get::<bool>("", "waiting")
             .expect("PostgreSQL lock wait should decode"),
-        DatabaseBackend::MySql => observer
-            .query_one(Statement::from_sql_and_values(
-                backend,
-                "SELECT CAST(ID AS SIGNED) AS connection_id,
-                        COMMAND AS command, STATE AS state
-                 FROM information_schema.PROCESSLIST
-                 WHERE ID = ?",
-                [connection_id.into()],
-            ))
-            .await
-            .expect("MySQL process list should query without PROCESS privilege")
-            .as_ref()
-            .is_some_and(mysql_processlist_row_is_lock_wait),
+        DatabaseBackend::MySql => {
+            let row = observer
+                .query_one(Statement::from_sql_and_values(
+                    backend,
+                    "SELECT CAST(EXISTS (
+                         SELECT 1
+                         FROM performance_schema.data_lock_waits waits
+                         JOIN performance_schema.threads threads
+                           ON threads.THREAD_ID = waits.REQUESTING_THREAD_ID
+                         WHERE threads.PROCESSLIST_ID = ?
+                     ) AS SIGNED) AS waiting",
+                    [connection_id.into()],
+                ))
+                .await
+                .expect("MySQL lock wait should query")
+                .expect("MySQL lock wait result should exist");
+            row.try_get::<i64>("", "waiting")
+                .expect("MySQL lock wait should decode")
+                == 1
+        }
         DatabaseBackend::Sqlite => unreachable!("backend contract is server-only"),
     }
-}
-
-fn mysql_processlist_row_is_lock_wait(row: &QueryResult) -> bool {
-    let command: String = row
-        .try_get("", "command")
-        .expect("MySQL process list command should decode");
-    let state: Option<String> = row
-        .try_get("", "state")
-        .expect("MySQL process list state should decode");
-    let command = command.trim().to_ascii_lowercase();
-    matches!(command.as_str(), "query" | "execute")
-        && state.is_some_and(|state| state.to_ascii_lowercase().contains("lock"))
 }
 
 #[tokio::test]
