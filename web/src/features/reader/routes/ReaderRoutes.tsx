@@ -1,8 +1,9 @@
 import { Navigate, useLocation, useNavigate } from "react-router-dom"
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 
 import type { ViewportMode } from "../../../shared/responsive/useViewportMode"
 import type { PreferencesController } from "../../preferences/model/usePreferencesController"
+import { adjacentUnreadSource, type UnreadSourceDirection } from "../model/unreadSourceNavigation"
 import { sourceKey } from "../model/types"
 import type { ReaderController } from "../model/useReaderController"
 import { ReaderShell } from "../layout/ReaderShell"
@@ -25,6 +26,12 @@ interface ReaderRoutesProps {
 export function ReaderRoutes(props: ReaderRoutesProps) {
   const location = useLocation()
   const navigate = useNavigate()
+  const readerStateRef = useRef(props.controller.state)
+  readerStateRef.current = props.controller.state
+  const navigateUnreadSource = useCallback(async (direction: UnreadSourceDirection) => {
+    const source = adjacentUnreadSource(readerStateRef.current, direction)
+    if (source) await navigate(pathForSource(source))
+  }, [navigate])
   const route = parseReaderPath(location.pathname)
   const [cursorEntryId, setCursorEntryId] = useState<string | null>(route?.entryId ?? null)
   const [cursorFocusNonce, setCursorFocusNonce] = useState(0)
@@ -109,6 +116,8 @@ export function ReaderRoutes(props: ReaderRoutesProps) {
           state: hasQueueOrigin ? { readerQueuePath: route.sourcePath } : null,
         })
       }}
+      onNextUnreadSource={() => navigateUnreadSource(1)}
+      onPreviousUnreadSource={() => navigateUnreadSource(-1)}
       onBack={() => {
         if (readerQueuePath === route.sourcePath) navigate(-1)
         else navigate(route.sourcePath, { replace: true })

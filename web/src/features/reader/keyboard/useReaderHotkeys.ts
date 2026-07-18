@@ -1,5 +1,5 @@
 import { useHotkeys } from "@astryxdesign/core/hooks"
-import { useEffect, useState } from "react"
+import { useEffect, useRef } from "react"
 
 export interface UseReaderHotkeysOptions {
   queueEntryIds: string[]
@@ -30,46 +30,52 @@ const modalSelector = [
 const readerKeys = new Set(["j", "k", "n", "p", "m", "s"])
 
 export function useReaderHotkeys(options: UseReaderHotkeysOptions): void {
-  useImmediateModalGuard()
-  const hasEditableFocus = useReaderEditableFocus()
-  const isDisabled = options.isDisabled || hasEditableFocus
+  useImmediateInteractionGuard()
+  const optionsRef = useRef(options)
+  optionsRef.current = options
+  const disabledRef = useRef(options.isDisabled)
+  disabledRef.current = options.isDisabled
   const move = (direction: 1 | -1, open: boolean) => {
-    const target = adjacentEntry(options.queueEntryIds, options.cursorEntryId, direction)
+    const current = optionsRef.current
+    const target = adjacentEntry(current.queueEntryIds, current.cursorEntryId, direction)
     if (!target) return
-    options.onCursorChange(target)
+    current.onCursorChange(target)
     if (!open) return
-    options.onOpenEntry(target)
-    if (options.isUnread(target)) void options.onToggleRead(target)
+    current.onOpenEntry(target)
+    if (current.isUnread(target)) void current.onToggleRead(target)
   }
   const toggle = (field: "read" | "star", event: KeyboardEvent) => {
     if (event.repeat) return
-    const target = options.cursorEntryId ?? options.openEntryId
+    const current = optionsRef.current
+    const target = current.cursorEntryId ?? current.openEntryId
     if (!target) return
-    if (field === "read") void options.onToggleRead(target)
-    else void options.onToggleStar(target)
+    if (field === "read") void current.onToggleRead(target)
+    else void current.onToggleStar(target)
   }
+  const guardedHotkey = (
+    keys: string,
+    onPress: (event: KeyboardEvent) => void,
+  ) => ({
+    keys,
+    onPress,
+    get isDisabled() {
+      return disabledRef.current
+    },
+  })
 
   useHotkeys([
-    {
-      keys: "shift+j",
-      onPress: (event) => {
-        if (!event.repeat) void options.onNextUnreadSource()
-      },
-      isDisabled,
-    },
-    {
-      keys: "shift+k",
-      onPress: (event) => {
-        if (!event.repeat) void options.onPreviousUnreadSource()
-      },
-      isDisabled,
-    },
-    { keys: "j", onPress: () => move(1, true), isDisabled },
-    { keys: "k", onPress: () => move(-1, true), isDisabled },
-    { keys: "n", onPress: () => move(1, false), isDisabled },
-    { keys: "p", onPress: () => move(-1, false), isDisabled },
-    { keys: "m", onPress: (event) => toggle("read", event), isDisabled },
-    { keys: "s", onPress: (event) => toggle("star", event), isDisabled },
+    guardedHotkey("shift+j", (event) => {
+      if (!event.repeat) void optionsRef.current.onNextUnreadSource()
+    }),
+    guardedHotkey("shift+k", (event) => {
+      if (!event.repeat) void optionsRef.current.onPreviousUnreadSource()
+    }),
+    guardedHotkey("j", () => move(1, true)),
+    guardedHotkey("k", () => move(-1, true)),
+    guardedHotkey("n", () => move(1, false)),
+    guardedHotkey("p", () => move(-1, false)),
+    guardedHotkey("m", (event) => toggle("read", event)),
+    guardedHotkey("s", (event) => toggle("star", event)),
   ])
 }
 
@@ -84,35 +90,21 @@ function adjacentEntry(
   return queue[currentIndex + direction] ?? null
 }
 
-function useReaderEditableFocus(): boolean {
-  const [hasEditableFocus, setHasEditableFocus] = useState(
-    () => isAdditionalEditable(document.activeElement),
-  )
-  useEffect(() => {
-    const update = (event: FocusEvent) => {
-      const target = event.type === "focusin" ? event.target : event.relatedTarget
-      setHasEditableFocus(isAdditionalEditable(target))
-    }
-    document.addEventListener("focusin", update)
-    document.addEventListener("focusout", update)
-    return () => {
-      document.removeEventListener("focusin", update)
-      document.removeEventListener("focusout", update)
-    }
-  }, [])
-  return hasEditableFocus
-}
-
 function isAdditionalEditable(target: EventTarget | null): boolean {
   return target instanceof Element && target.closest(editableSelector) !== null
 }
 
-function useImmediateModalGuard(): void {
+function useImmediateInteractionGuard(): void {
   useEffect(() => {
     const guard = (event: KeyboardEvent) => {
       if (!readerKeys.has(event.key.toLowerCase())) return
       if (event.ctrlKey || event.metaKey || event.altKey) return
-      if (document.querySelector(modalSelector)) event.stopImmediatePropagation()
+      if (
+        isAdditionalEditable(event.target) ||
+        document.querySelector(modalSelector)
+      ) {
+        event.stopImmediatePropagation()
+      }
     }
     window.addEventListener("keydown", guard, { capture: true })
     return () => window.removeEventListener("keydown", guard, { capture: true })

@@ -35,6 +35,8 @@ interface ReaderShellProps {
   onSelectSource: (source: ReaderSource) => void
   onSelectEntry: (entryId: string) => void
   onOpenEntryFromHotkey: (entryId: string) => void
+  onNextUnreadSource: () => Promise<void>
+  onPreviousUnreadSource: () => Promise<void>
   cursorEntryId: string | null
   cursorFocusNonce: number
   onCursorChange: (entryId: string) => void
@@ -78,8 +80,8 @@ export function ReaderShell(props: ReaderShellProps) {
     onOpenEntry: props.onOpenEntryFromHotkey,
     onToggleRead: props.controller.toggleRead,
     onToggleStar: props.controller.toggleStar,
-    onNextUnreadSource: props.controller.nextUnreadSource,
-    onPreviousUnreadSource: props.controller.previousUnreadSource,
+    onNextUnreadSource: props.onNextUnreadSource,
+    onPreviousUnreadSource: props.onPreviousUnreadSource,
   })
   const sourceTree = (
     <SourceTree
@@ -133,8 +135,8 @@ export function ReaderShell(props: ReaderShellProps) {
       onRecordScroll={props.controller.recordScrollAnchor}
       onReload={props.controller.reloadEntries}
       onSearchFeed={props.controller.searchFeed}
-      onNextUnreadSource={props.controller.nextUnreadSource}
-      onPreviousUnreadSource={props.controller.previousUnreadSource}
+      onNextUnreadSource={props.onNextUnreadSource}
+      onPreviousUnreadSource={props.onPreviousUnreadSource}
       onRequestMarkRead={() => setIsMarkReadOpen(true)}
       isMarkingRead={props.controller.isMarkingRead}
       onMergePending={props.controller.mergePendingEntries}

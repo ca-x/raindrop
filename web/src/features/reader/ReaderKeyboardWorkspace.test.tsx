@@ -72,6 +72,25 @@ describe("Reader keyboard workspace", () => {
     }
   })
 
+  it("navigates Shift+J/K through canonical source routes", async () => {
+    const controller = withUnreadSources(keyboardController())
+    window.history.replaceState(null, "", "/reader/unread")
+    const view = render(workspace(controller))
+    await screen.findByText("Rust Dispatch")
+
+    fireEvent.keyDown(window, { key: "J", shiftKey: true })
+    await waitFor(() => expect(window.location.pathname).toBe("/reader/feed/feed-rust"))
+    view.unmount()
+
+    const previous = withUnreadSources(keyboardController())
+    previous.state.selectedSource = { kind: "feed", feedId: "feed-rust" }
+    previous.state.queueBySourceKey["feed:feed-rust"] = []
+    window.history.replaceState(null, "", "/reader/feed/feed-rust")
+    render(workspace(previous))
+    fireEvent.keyDown(window, { key: "K", shiftKey: true })
+    await waitFor(() => expect(window.location.pathname).toBe("/reader/unread"))
+  })
+
   it("restores the originating queue row focus after compact Back", async () => {
     const controller = keyboardController()
     window.history.replaceState(null, "", "/reader/unread")
@@ -224,4 +243,38 @@ function keyboardController(): ReaderController {
     recordScrollAnchor: vi.fn(),
     clearMutationError: vi.fn(),
   }
+}
+
+function subscription(
+  subscriptionId: string,
+  feedId: string,
+  title: string,
+  categoryId: string | null,
+) {
+  return {
+    subscriptionId,
+    feedId,
+    categoryId,
+    titleOverride: null,
+    position: 0,
+    title,
+    siteUrl: null,
+    unreadCount: 3,
+    refresh: null,
+  }
+}
+
+function withUnreadSources(controller: ReaderController): ReaderController {
+  controller.state.categoriesById.category = {
+    categoryId: "category",
+    title: "Engineering",
+    position: 1024,
+  }
+  controller.state.categoryOrder = ["category"]
+  controller.state.subscriptionsById = {
+    rust: subscription("rust", "feed-rust", "Rust Dispatch", "category"),
+    quiet: subscription("quiet", "feed-quiet", "Quiet Web", null),
+  }
+  controller.state.subscriptionOrder = ["quiet", "rust"]
+  return controller
 }

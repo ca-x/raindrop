@@ -4,6 +4,7 @@ import type {
   EntryDetailResponse,
   EntryListItemResponse,
   EntryStateResponse,
+  MarkEntriesReadRequest,
   PatchEntryStateRequest,
 } from "../../src/features/reader/api/reader.generated"
 import type {
@@ -29,6 +30,7 @@ export const readerIds = {
   seventhEntry: "00000000-0000-4000-8000-000000000307",
   pendingEntry: "00000000-0000-4000-8000-00000000030c",
   deepOnlyEntry: "00000000-0000-4000-8000-00000000030d",
+  latePendingEntry: "00000000-0000-4000-8000-00000000030e",
 } as const
 
 interface PatchCall {
@@ -42,6 +44,19 @@ interface PreferencePatchCall {
   csrf: string
 }
 
+interface EntryListCall {
+  state: string | null
+  feedId: string | null
+  categoryId: string | null
+  search: string | null
+  snapshotGeneration: number
+}
+
+interface MarkReadCall {
+  body: MarkEntriesReadRequest
+  csrf: string | undefined
+}
+
 export interface ReaderPreferenceFixture {
   current: () => UserPreferences
   failNextPatch: () => void
@@ -50,7 +65,10 @@ export interface ReaderPreferenceFixture {
 
 export interface ReaderApiFixture {
   discoverPending: () => void
+  discoverLatePending: () => void
   entryState: (entryId: string) => EntryStateResponse
+  entryLists: EntryListCall[]
+  markReadCalls: MarkReadCall[]
   organization: ReaderOrganizationFixture
   patches: PatchCall[]
   preferences: ReaderPreferenceFixture
@@ -63,19 +81,70 @@ export async function installReaderApiFixture(page: Page): Promise<ReaderApiFixt
   details.set(deepOnly.entryId, hostileDetail(deepOnly))
   const pending = createEntry(readerIds.pendingEntry, readerIds.feedA, 12, "Newly discovered entry")
   details.set(pending.entryId, detailFor(pending))
+  const latePending = createEntry(
+    readerIds.latePendingEntry,
+    readerIds.feedA,
+    14,
+    "Later snapshot entry",
+  )
+  details.set(latePending.entryId, detailFor(latePending))
   const patches: PatchCall[] = []
+  const entryLists: EntryListCall[] = []
+  const markReadCalls: MarkReadCall[] = []
   const preferences = await installPreferenceFixture(page)
   let hasPending = false
+  let hasLatePending = false
   const organization = await installReaderOrganizationFixture(page, {
     feedA: readerIds.feedA,
     feedB: readerIds.feedB,
     subscriptionA: readerIds.subscriptionA,
     subscriptionB: readerIds.subscriptionB,
   })
+  const availableEntries = () => [
+    ...(hasLatePending ? [latePending] : []),
+    ...(hasPending ? [pending] : []),
+    ...entries,
+  ]
+  const currentSnapshot = () => hasLatePending ? 3 : hasPending ? 2 : 1
+  const entryGeneration = new Map([
+    ...entries.map((entry) => [entry.entryId, 1] as const),
+    [pending.entryId, 2] as const,
+    [latePending.entryId, 3] as const,
+  ])
+  const syncUnreadCounts = () => {
+    for (const subscription of organization.subscriptions) {
+      subscription.unreadCount = availableEntries().filter(
+        (entry) => entry.feedId === subscription.feedId && !entry.isRead,
+      ).length
+    }
+  }
 
   await page.route("**/api/v1/entries**", async (route) => {
     const request = route.request()
     const url = new URL(request.url())
+    if (url.pathname === "/api/v1/entries/mark-read" && request.method() === "POST") {
+      const body = request.postDataJSON() as MarkEntriesReadRequest
+      markReadCalls.push({ body, csrf: request.headers()["x-csrf-token"] })
+      const categoryFeedIds = body.categoryId
+        ? organization.feedIdsForCategory(body.categoryId)
+        : null
+      for (const entry of availableEntries()) {
+        const generation = entryGeneration.get(entry.entryId)
+        const inScope = body.feedId
+          ? entry.feedId === body.feedId
+          : categoryFeedIds
+            ? categoryFeedIds.has(entry.feedId)
+            : true
+        if (generation !== undefined && generation <= body.snapshotGeneration && inScope) {
+          entry.isRead = true
+          const detail = details.get(entry.entryId)
+          if (detail) detail.isRead = true
+        }
+      }
+      syncUnreadCounts()
+      await route.fulfill({ status: 204, body: "" })
+      return
+    }
     const stateMatch = /^\/api\/v1\/entries\/([^/]+)\/state$/u.exec(url.pathname)
     if (stateMatch && request.method() === "PATCH") {
       const entryId = decodeURIComponent(stateMatch[1])
@@ -89,6 +158,7 @@ export async function installReaderApiFixture(page: Page): Promise<ReaderApiFixt
         detail.isRead = item.isRead
         detail.isStarred = item.isStarred
       }
+      syncUnreadCounts()
       await json(route, { entryId, isRead: item.isRead, isStarred: item.isStarred })
       return
     }
@@ -103,10 +173,11 @@ export async function installReaderApiFixture(page: Page): Promise<ReaderApiFixt
       const state = url.searchParams.get("state")
       const feedId = url.searchParams.get("feedId")
       const categoryId = url.searchParams.get("categoryId")
+      const search = url.searchParams.get("search")
       if (feedId && categoryId) {
         throw new Error("Reader fixture received mutually exclusive feed/category filters")
       }
-      let items = entries
+      let items = availableEntries()
       if (feedId) items = items.filter((entry) => entry.feedId === feedId)
       if (categoryId) {
         const feedIds = organization.feedIdsForCategory(categoryId)
@@ -114,33 +185,50 @@ export async function installReaderApiFixture(page: Page): Promise<ReaderApiFixt
       }
       if (state === "UNREAD") items = items.filter((entry) => !entry.isRead)
       if (state === "STARRED") items = items.filter((entry) => entry.isStarred)
-      const pendingMatchesCategory =
-        !categoryId || organization.feedIdsForCategory(categoryId).has(pending.feedId)
-      if (
-        hasPending &&
-        state === "UNREAD" &&
-        (!feedId || feedId === pending.feedId) &&
-        pendingMatchesCategory
-      ) {
-        items = [pending, ...items]
-      }
-      await json(route, { items, nextCursor: null, snapshotGeneration: 1 })
+      if (search) items = items.filter((entry) => matchesSearch(entry, details, search))
+      const snapshotGeneration = currentSnapshot()
+      entryLists.push({ state, feedId, categoryId, search, snapshotGeneration })
+      await json(route, { items, nextCursor: null, snapshotGeneration })
       return
     }
     throw new Error(`unexpected Reader request: ${request.method()} ${url.pathname}${url.search}`)
   })
 
   return {
-    discoverPending: () => { hasPending = true },
+    discoverPending: () => {
+      hasPending = true
+      syncUnreadCounts()
+    },
+    discoverLatePending: () => {
+      if (!hasPending) throw new Error("discover the first pending Entry before the late Entry")
+      hasLatePending = true
+      syncUnreadCounts()
+    },
     entryState: (entryId) => {
       const detail = details.get(entryId)
       if (!detail) throw new Error(`unknown fixture entry ${entryId}`)
       return { entryId, isRead: detail.isRead, isStarred: detail.isStarred }
     },
+    entryLists,
+    markReadCalls,
     organization,
     patches,
     preferences,
   }
+}
+
+function matchesSearch(
+  entry: EntryListItemResponse,
+  details: Map<string, EntryDetailResponse>,
+  rawSearch: string,
+): boolean {
+  const terms = rawSearch.trim().toLocaleLowerCase().split(/\s+/u).filter(Boolean)
+  const content = details.get(entry.entryId)?.contentHtml.replace(/<[^>]*>/gu, " ") ?? ""
+  const projection = [entry.title, entry.author, entry.summary, content]
+    .filter((value): value is string => Boolean(value))
+    .join(" ")
+    .toLocaleLowerCase()
+  return terms.every((term) => projection.includes(term))
 }
 
 async function installPreferenceFixture(page: Page): Promise<ReaderPreferenceFixture> {

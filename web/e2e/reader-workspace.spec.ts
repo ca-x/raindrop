@@ -26,6 +26,12 @@ import {
   verifyMediumPreferencesFocus,
   verifyWidePreferences,
 } from "./support/readerPreferenceScenarios"
+import {
+  verifyCompactQueueMenu,
+  verifyMediumFeedSearchAndMenu,
+  verifyStableSnapshotBulkRead,
+  verifyWideUnreadSourceHotkeys,
+} from "./support/readerEfficiencyScenarios"
 import { startProductionServer, type ProductionServer } from "./support/productionServer"
 
 let server: ProductionServer
@@ -39,6 +45,7 @@ test.afterAll(async () => {
 })
 
 test("Reader workspace production contract", async ({ page }, testInfo) => {
+  testInfo.setTimeout(60_000)
   const fixture = await installReaderApiFixture(page)
   await completeSetup(page, server, createCredentials())
   await expectNoHorizontalOverflow(page)
@@ -63,6 +70,22 @@ test("Reader workspace production contract", async ({ page }, testInfo) => {
   await verifyHostileDeepLink(page, testInfo)
 })
 
+test("Reader stable snapshot bulk read", async ({ page }, testInfo) => {
+  test.skip(
+    testInfo.project.name !== "reader-1280x800",
+    "Stable snapshot transaction is exercised once in the wide Reader project.",
+  )
+  const transactionServer = await startProductionServer()
+  try {
+    const fixture = await installReaderApiFixture(page)
+    fixture.discoverPending()
+    await completeSetup(page, transactionServer, createCredentials())
+    await verifyStableSnapshotBulkRead(page, fixture, transactionServer.baseURL)
+  } finally {
+    await transactionServer.stop()
+  }
+})
+
 async function verifyWide(page: Page, fixture: ReaderApiFixture): Promise<void> {
   await expect(page.getByRole("navigation", { name: "Sources" })).toBeVisible()
   await expect(page.getByRole("region", { name: "Entry queue" })).toBeVisible()
@@ -70,6 +93,7 @@ async function verifyWide(page: Page, fixture: ReaderApiFixture): Promise<void> 
   for (const key of ["J", "K", "N", "P"]) {
     await expect(page.getByRole("img", { name: key, exact: true })).toBeVisible()
   }
+  await verifyWideUnreadSourceHotkeys(page, server.baseURL)
 
   await page.keyboard.press("n")
   await expect(readerRow(page, readerIds.firstEntry)).toHaveAttribute("aria-selected", "true")
@@ -155,12 +179,7 @@ async function verifyMedium(page: Page, fixture: ReaderApiFixture): Promise<void
   await expect(sources).not.toBeVisible()
   await expect(menu).toBeFocused()
 
-  await menu.click()
-  await sources.getByText("Quiet Web", { exact: true }).click()
-  await expect(page).toHaveURL(`${server.baseURL}/reader/feed/${readerIds.feedA}`)
-  await menu.click()
-  await sources.getByText("Rust Dispatch", { exact: true }).click()
-  await expect(page).toHaveURL(`${server.baseURL}/reader/feed/${readerIds.feedB}`)
+  await verifyMediumFeedSearchAndMenu(page, fixture, server.baseURL)
   await verifyMediumCategoryFocus(page)
   await verifyMediumPreferencesFocus(page)
   await expectNoHorizontalOverflow(page)
@@ -170,6 +189,7 @@ async function verifyCompactHistory(
   page: Page,
   fixture: ReaderApiFixture,
 ): Promise<void> {
+  await verifyCompactQueueMenu(page)
   const queue = page.getByTestId("entry-queue-scroll")
   const restoredOffset = await setScrollTop(queue, 260)
   await readerRowButton(page, readerIds.fourthEntry).click()
@@ -191,6 +211,7 @@ async function verifyDirectCompact(
   page: Page,
   fixture: ReaderApiFixture,
 ): Promise<void> {
+  await verifyCompactQueueMenu(page)
   await verifyDirectCompactCategory(page, server.baseURL)
   await verifyCompactPreferences(page, fixture, true)
 }
