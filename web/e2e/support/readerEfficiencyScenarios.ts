@@ -65,15 +65,20 @@ export async function verifyMediumFeedSearchAndMenu(
 export async function verifyCompactQueueMenu(page: Page): Promise<void> {
   const trigger = page.getByRole("button", { name: "Queue menu" })
   await trigger.click()
-  for (const action of [
+  const actions = [
     "Next unread source",
     "Previous unread source",
     "Mark current source read",
-  ]) {
+  ]
+  for (const action of actions) {
     await expect(page.getByRole("menuitem", { name: action })).toBeVisible()
   }
+  const firstItem = page.getByRole("menuitem", { name: actions[0] })
+  await expect(firstItem).toBeFocused()
   await page.keyboard.press("Escape")
+  await expect(firstItem).not.toBeVisible()
   await expect(trigger).toBeFocused()
+  await expect(trigger).toHaveAttribute("aria-expanded", "false")
   await expectNoHorizontalOverflow(page)
 }
 

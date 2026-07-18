@@ -3,7 +3,7 @@ import { Banner } from "@astryxdesign/core/Banner"
 import { Center } from "@astryxdesign/core/Center"
 import { Spinner } from "@astryxdesign/core/Spinner"
 import { useLingui } from "@lingui/react"
-import { useState } from "react"
+import { useCallback, useState } from "react"
 
 import { LoginPage } from "../features/auth/LoginPage"
 import type { SessionResponse } from "../features/auth/session"
@@ -17,6 +17,11 @@ export function App() {
   const [override, setOverride] = useState<
     { phase: "login" } | { phase: "ready"; session: SessionResponse } | null
   >(null)
+  const showLogin = useCallback(() => setOverride({ phase: "login" }), [])
+  const showReady = useCallback(
+    (session: SessionResponse) => setOverride({ phase: "ready", session }),
+    [],
+  )
 
   if (state.status === "loading") {
     return (
@@ -43,7 +48,7 @@ export function App() {
   if (override?.phase === "login") {
     return (
       <LoginPage
-        onAuthenticated={(session) => setOverride({ phase: "ready", session })}
+        onAuthenticated={showReady}
       />
     )
   }
@@ -51,7 +56,7 @@ export function App() {
     return (
       <ReadyPage
         session={override.session}
-        onLoggedOut={() => setOverride({ phase: "login" })}
+        onLoggedOut={showLogin}
       />
     )
   }
@@ -61,19 +66,17 @@ export function App() {
       return (
         <SetupPage
           mode={state.value.bootstrap.setupMode!}
-          onAuthenticated={(session) => setOverride({ phase: "ready", session })}
-          onLoginRequired={() => setOverride({ phase: "login" })}
+          onAuthenticated={showReady}
+          onLoginRequired={showLogin}
         />
       )
     case "login":
-      return (
-        <LoginPage onAuthenticated={(session) => setOverride({ phase: "ready", session })} />
-      )
+      return <LoginPage onAuthenticated={showReady} />
     case "ready":
       return (
         <ReadyPage
           session={state.value.session}
-          onLoggedOut={() => setOverride({ phase: "login" })}
+          onLoggedOut={showLogin}
         />
       )
   }
