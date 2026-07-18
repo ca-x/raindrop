@@ -3,6 +3,8 @@
 FROM node:26.4.0-bookworm-slim AS web-builder
 
 WORKDIR /src/web
+ENV NPM_CONFIG_REGISTRY=https://registry.npmjs.org/ \
+    NPM_CONFIG_REPLACE_REGISTRY_HOST=always
 COPY web/package.json web/package-lock.json ./
 RUN npm install --global npm@12.0.1 --ignore-scripts
 RUN --mount=type=cache,target=/root/.npm,sharing=locked \

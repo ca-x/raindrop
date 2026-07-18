@@ -6,6 +6,25 @@ const repositoryRoot = fileURLToPath(new URL("../../", import.meta.url))
 const maximumContractBytes = 1024 * 1024
 
 const dockerfile = read("Dockerfile")
+const webBuilderStage = dockerfile.slice(
+  0,
+  dockerfile.indexOf("FROM rust:1.94.0-bookworm AS rust-builder"),
+)
+const dockerRegistryConfigIndex = webBuilderStage.indexOf(
+  "ENV NPM_CONFIG_REGISTRY=https://registry.npmjs.org/",
+)
+const dockerLockedInstallIndex = webBuilderStage.indexOf("npm ci --ignore-scripts")
+if (
+  dockerRegistryConfigIndex < 0 ||
+  dockerRegistryConfigIndex > dockerLockedInstallIndex
+) {
+  fail("Docker npm registry normalization before locked install")
+}
+requireMatch(
+  webBuilderStage,
+  /NPM_CONFIG_REPLACE_REGISTRY_HOST=always/u,
+  "Docker lockfile registry host replacement",
+)
 requireMatch(
   dockerfile,
   /^FROM node:26\.4\.0-bookworm-slim AS web-builder$/mu,
