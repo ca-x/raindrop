@@ -812,24 +812,15 @@ async fn backend_reports_lock_wait(
 }
 
 fn mysql_processlist_row_is_lock_wait(row: &QueryResult) -> bool {
-    let command = mysql_processlist_text(row, &["Command", "COMMAND", "command"])
-        .expect("MySQL SHOW PROCESSLIST Command should be non-null");
-    let state = mysql_processlist_text(row, &["State", "STATE", "state"]);
+    let command: String = row
+        .try_get("", "command")
+        .expect("MySQL process list command should decode");
+    let state: Option<String> = row
+        .try_get("", "state")
+        .expect("MySQL process list state should decode");
     let command = command.trim().to_ascii_lowercase();
     matches!(command.as_str(), "query" | "execute")
         && state.is_some_and(|state| state.to_ascii_lowercase().contains("lock"))
-}
-
-fn mysql_processlist_text(row: &QueryResult, columns: &[&str]) -> Option<String> {
-    for column in columns {
-        if let Ok(value) = row.try_get::<Option<String>>("", column) {
-            return value;
-        }
-        if let Ok(value) = row.try_get::<String>("", column) {
-            return Some(value);
-        }
-    }
-    None
 }
 
 #[tokio::test]
