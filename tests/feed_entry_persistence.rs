@@ -1352,6 +1352,10 @@ async fn external_backend_persistence_contract(url: String, key: &str) {
         )
     );
 
+    entry::Entity::delete_many()
+        .exec(&database)
+        .await
+        .expect("entry persistence fixtures should delete before rollback");
     rollback(&database)
         .await
         .expect("dedicated entry persistence database should roll back");
