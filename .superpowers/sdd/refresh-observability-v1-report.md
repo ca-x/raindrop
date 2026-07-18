@@ -20,8 +20,9 @@ Branch: `feature/foundation-bootstrap`
 - `5f81281 feat: expose refresh observability`
 - `6e5fe17 feat: distinguish refresh activity`
 - `5ad984a feat: show refresh health in reader`
+- `c34e27e test: verify refresh observability`
 
-The final verification commit and remote CI run are appended after push.
+The report closeout is committed separately with `[skip ci]` after the successful remote run.
 
 ## Data and API contract
 
@@ -62,11 +63,18 @@ Temporary browser state, application processes, and the SQLite directory were re
 - `$find-animation-opportunities` found no additional motion worth adding to refresh state changes. The existing ASTRYX pulse already communicates queued and running activity, while the high-frequency Reader workflow remains restrained and reduced-motion safe.
 - `$kill-ai-slop` scanned 122 frontend files. Nine textual matches were inspected and were existing valid semantics or fixture data; the new refresh UI had no confirmed AI-slop issue.
 
+## Remote CI evidence
+
+- GitHub Actions run [`29646491921`](https://github.com/ca-x/raindrop/actions/runs/29646491921) passed for `c34e27e` on 2026-07-18.
+- Supply-chain audit, ASTRYX Web, Rust current-stable compatibility, Rust foundation and three-database contracts, Windows durable replacement compilation, non-root container health, and release embedding plus Playwright E2E all completed successfully.
+- The committed release/E2E job confirmed both lockfiles remained frozen and verified the release version.
+
 ## Existing advisories
 
 - Release test/build preparation reports the existing `src/feeds/repository.rs::validate_counts` dead-code warning; the strict all-target/all-feature Clippy gate passes.
 - `proc-macro-error2 v2.0.1` remains the tracked future-incompatibility advisory through the SeaORM dependency chain.
 - Vite continues to report the existing main-chunk size advisory.
+- GitHub annotates the pinned Docker setup/build actions because they still target the deprecated Node.js 20 action runtime and are currently forced onto Node.js 24; the container job passed, and action upgrades remain separate release-maintenance work.
 
 ## Explicitly remaining
 

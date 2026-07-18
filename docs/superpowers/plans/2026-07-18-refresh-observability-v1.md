@@ -188,8 +188,8 @@ git diff --check
 
 - [x] Update `tasks/todo.md` only for queued/running and entry-level partial feedback. Keep AI, plugin, MCP, OIDC, OPML, sorting/cursor, admin, and release smoke open.
 - [x] Update `tasks/plan.md` to point at this detailed plan and record exact evidence in the report.
-- [ ] Commit and push: `test: verify refresh observability`.
-- [ ] Monitor the triggered CI only for concrete failures. Apply bounded fixes, then append final run evidence and push a `[skip ci]` report closeout.
+- [x] Commit and push: `test: verify refresh observability`.
+- [x] Monitor the triggered CI only for concrete failures. Apply bounded fixes, then append final run evidence and push a `[skip ci]` report closeout.
 
 ## Plan self-review
 
