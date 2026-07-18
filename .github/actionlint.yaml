@@ -1,0 +1,5 @@
+self-hosted-runner:
+  labels:
+    # GitHub documents this as its current hosted macOS 15 x64 label.
+    # actionlint 1.7.7 predates the label, so register it for static validation.
+    - macos-15-intel

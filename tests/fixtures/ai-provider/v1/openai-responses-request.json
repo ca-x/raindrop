@@ -1,0 +1,31 @@
+{
+  "model": "model-v1",
+  "instructions": "Return only the requested JSON object.",
+  "input": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "{\"article\":\"untrusted article text\"}"
+        }
+      ]
+    }
+  ],
+  "max_output_tokens": 4096,
+  "text": {
+    "format": {
+      "type": "json_schema",
+      "name": "ai_summary_v1",
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["summary"],
+        "properties": {
+          "summary": { "type": "string" }
+        }
+      },
+      "strict": true
+    }
+  }
+}

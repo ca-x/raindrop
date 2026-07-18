@@ -1,0 +1,803 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Raindrop Reader API",
+    "version": "1.0.0",
+    "description": "User-scoped entry listing, Feed-local search, detail reading, and read/star state updates. This committed fragment is the DTO source for Reader clients."
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Reader"
+    }
+  ],
+  "paths": {
+    "/api/v1/entries": {
+      "get": {
+        "tags": [
+          "Reader"
+        ],
+        "operationId": "listEntries",
+        "summary": "List current-user entries",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/FeedId"
+          },
+          {
+            "$ref": "#/components/parameters/CategoryId"
+          },
+          {
+            "$ref": "#/components/parameters/EntryListState"
+          },
+          {
+            "$ref": "#/components/parameters/Search"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/EntryPage"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/entries/mark-read": {
+      "post": {
+        "tags": [
+          "Reader"
+        ],
+        "operationId": "markEntriesRead",
+        "summary": "Mark a current-user source read through a committed ingestion snapshot",
+        "description": "feedId and categoryId are mutually exclusive. Omitting both targets all current-user subscriptions.",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarkEntriesReadRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "$ref": "#/components/responses/NoContent"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/entries/{entryId}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/EntryId"
+        }
+      ],
+      "get": {
+        "tags": [
+          "Reader"
+        ],
+        "operationId": "getEntry",
+        "summary": "Get one current-user entry with safe display content",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/EntryDetail"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/entries/{entryId}/state": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/EntryId"
+        }
+      ],
+      "patch": {
+        "tags": [
+          "Reader"
+        ],
+        "operationId": "patchEntryState",
+        "summary": "Update supplied read or star state fields",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchEntryStateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/EntryState"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "sessionCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "raindrop_session"
+      }
+    },
+    "parameters": {
+      "Cursor": {
+        "name": "cursor",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "Limit": {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 50
+        }
+      },
+      "FeedId": {
+        "name": "feedId",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "CategoryId": {
+        "name": "categoryId",
+        "in": "query",
+        "required": false,
+        "description": "Filter entries to subscriptions assigned to this current-user category. Cannot be combined with feedId.",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "EntryListState": {
+        "name": "state",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "$ref": "#/components/schemas/EntryListState",
+          "default": "UNREAD"
+        }
+      },
+      "Search": {
+        "name": "search",
+        "in": "query",
+        "required": false,
+        "description": "Feed-local title, author, summary, and rendered-content search. Requires feedId and permits at most eight terms.",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "x-raindrop-maxUtf8Bytes": 128
+        }
+      },
+      "EntryId": {
+        "name": "entryId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "CsrfToken": {
+        "name": "x-csrf-token",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      }
+    },
+    "headers": {
+      "CacheControl": {
+        "description": "Sensitive responses are never stored.",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "no-store"
+          ]
+        }
+      },
+      "Pragma": {
+        "description": "Compatibility cache directive.",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "no-cache"
+          ]
+        }
+      }
+    },
+    "responses": {
+      "EntryPage": {
+        "description": "Current-user entry page.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/CacheControl"
+          },
+          "Pragma": {
+            "$ref": "#/components/headers/Pragma"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/EntryPageResponse"
+            }
+          }
+        }
+      },
+      "EntryDetail": {
+        "description": "Current-user entry detail with display-safe HTML and inert media metadata.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/CacheControl"
+          },
+          "Pragma": {
+            "$ref": "#/components/headers/Pragma"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/EntryDetailResponse"
+            }
+          }
+        }
+      },
+      "EntryState": {
+        "description": "Current-user entry state after the update.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/CacheControl"
+          },
+          "Pragma": {
+            "$ref": "#/components/headers/Pragma"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/EntryStateResponse"
+            }
+          }
+        }
+      },
+      "NoContent": {
+        "description": "The confirmed source snapshot is marked read.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/CacheControl"
+          },
+          "Pragma": {
+            "$ref": "#/components/headers/Pragma"
+          }
+        }
+      },
+      "Error": {
+        "description": "Stable public error envelope.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/CacheControl"
+          },
+          "Pragma": {
+            "$ref": "#/components/headers/Pragma"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorEnvelope"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "EntryListState": {
+        "type": "string",
+        "enum": [
+          "ALL",
+          "UNREAD",
+          "STARRED"
+        ]
+      },
+      "PatchEntryStateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "isRead": {
+            "type": "boolean"
+          },
+          "isStarred": {
+            "type": "boolean"
+          }
+        },
+        "anyOf": [
+          {
+            "required": [
+              "isRead"
+            ]
+          },
+          {
+            "required": [
+              "isStarred"
+            ]
+          }
+        ]
+      },
+      "MarkEntriesReadRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "snapshotGeneration"
+        ],
+        "properties": {
+          "snapshotGeneration": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "feedId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "categoryId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "EntryPageResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "items",
+          "nextCursor",
+          "snapshotGeneration"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EntryListItemResponse"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "snapshotGeneration": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "EntryListItemResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "entryId",
+          "feedId",
+          "feedTitle",
+          "siteUrl",
+          "title",
+          "author",
+          "summary",
+          "canonicalUrl",
+          "publishedAtUs",
+          "sortAtUs",
+          "isRead",
+          "isStarred"
+        ],
+        "properties": {
+          "entryId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "feedId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "feedTitle": {
+            "type": "string"
+          },
+          "siteUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "author": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "summary": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "canonicalUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri"
+          },
+          "publishedAtUs": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "sortAtUs": {
+            "type": "integer"
+          },
+          "isRead": {
+            "type": "boolean"
+          },
+          "isStarred": {
+            "type": "boolean"
+          }
+        }
+      },
+      "EntryDetailResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "entryId",
+          "feedId",
+          "feedTitle",
+          "siteUrl",
+          "title",
+          "author",
+          "summary",
+          "canonicalUrl",
+          "publishedAtUs",
+          "sortAtUs",
+          "isRead",
+          "isStarred",
+          "contentHtml",
+          "inertImages",
+          "enclosures"
+        ],
+        "properties": {
+          "entryId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "feedId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "feedTitle": {
+            "type": "string"
+          },
+          "siteUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "author": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "summary": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "canonicalUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri"
+          },
+          "publishedAtUs": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "sortAtUs": {
+            "type": "integer"
+          },
+          "isRead": {
+            "type": "boolean"
+          },
+          "isStarred": {
+            "type": "boolean"
+          },
+          "contentHtml": {
+            "type": "string",
+            "description": "Backend-produced display-safe entry HTML."
+          },
+          "inertImages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InertImageResponse"
+            }
+          },
+          "enclosures": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EnclosureResponse"
+            }
+          }
+        }
+      },
+      "EntryStateResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "entryId",
+          "isRead",
+          "isStarred"
+        ],
+        "properties": {
+          "entryId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "isRead": {
+            "type": "boolean"
+          },
+          "isStarred": {
+            "type": "boolean"
+          }
+        }
+      },
+      "InertImageResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "imageIndex",
+          "sourceUrl",
+          "alt",
+          "width",
+          "height"
+        ],
+        "properties": {
+          "imageIndex": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sourceUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "alt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "width": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "height": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          }
+        }
+      },
+      "EnclosureResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "url",
+          "mediaType",
+          "length",
+          "title",
+          "duration"
+        ],
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "mediaType": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "length": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "duration": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ErrorEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ApiError"
+          }
+        }
+      },
+      "ApiError": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "message",
+          "requestId"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "AUTHENTICATION_REQUIRED",
+              "FORBIDDEN",
+              "VALIDATION_ERROR",
+              "NOT_FOUND",
+              "INTERNAL_ERROR"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "fields": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      }
+    }
+  }
+}

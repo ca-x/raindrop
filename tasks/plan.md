@@ -2,7 +2,9 @@
 
 权威设计规格：`docs/superpowers/specs/2026-07-16-raindrop-design.md`。
 
-当前详细计划：`docs/superpowers/plans/2026-07-16-foundation-bootstrap.md`。
+当前详细计划：`docs/superpowers/plans/2026-07-19-wasmtime-component-host-core-v1.md`。
+
+当前进展：Refresh Observability v1 已由 CI run `29646491921` 验证，AI Provider Adapters v1 已由 CI run `29648253330` 验证，AI Provider Core v1 已由 CI run `29652502840` 验证，Content Jobs / Artifacts Core v1 已由 CI run `29655164960` 验证，Official AI Plugin Contract / Registry Core v1 已由 CI run `29657539274` 验证，Wasmtime Component Host Core v1 已由 CI run `29663971184` 验证。生成式 Component Model bindings、verified binary compilation、无 ambient WASI 的 exact linker、fresh Store、descriptor gate、AI/MCP capability session，以及 fuel/memory/epoch/request/output 限制均已落地。下一真实依赖是官方 `raindrop.ai-content` 组件与 ProviderClient broker composition，再接入摘要/翻译 worker、lifecycle dispatcher、MCP transport 和 Reader sidecar。在这些能力真正接通前，AI、插件生态和 MCP 总任务继续保持未完成。OIDC、OPML、排序/阅读游标和真实 `v*` 发布 smoke 仍保留在后续任务。
 
 ## 依赖顺序
 
@@ -10,7 +12,7 @@
 2. RSS core：订阅、Feed 租约调度、抓取/解析/清洗、幂等条目、文章列表、稀疏阅读状态。
 3. Multi-user organization：分类、用户设置、注册策略、管理员和跨用户隔离契约。
 4. OIDC：provider discovery、PKCE、账号绑定、claim 策略和管理 UI。
-5. AI content：OpenAI-compatible provider、任务、摘要、翻译、artifact、配额和缓存。
+5. AI content：Anthropic Messages-compatible、OpenAI Responses、OpenAI Chat Completions-compatible、Google Gemini provider adapters，以及任务、摘要、翻译、artifact、配额和缓存。
 6. Plugin ecosystem：WIT SDK、Wasmtime host、内容管线、Feed 生命周期 outbox 和示例插件。
 7. MCP：Raindrop MCP client，以及 Streamable HTTP/stdio MCP server。
 8. Portability/import：PostgreSQL/MySQL 契约、OPML 导入/导出、设置 JSON、保留和备份。

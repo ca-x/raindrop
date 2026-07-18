@@ -1,0 +1,487 @@
+{
+  "files": {
+    "atom_mixed.xml": {
+      "decoded_hash": "8cd1e697e48731919b6e993b669d47a3f4cfd0eb94dc9db3daa7f09d75904f5e",
+      "entries": [
+        {
+          "content_hash": "cd61eadb93f8266ac0e5b9399b967af6222b561a53337953ef647669c54dc744",
+          "identity": "atom-entry-one",
+          "identity_kind": "GUID",
+          "index_hash": "7ce573dec82225ac4f77bbd1c70b79e7093381205ddb87d35a2dd1d35345b7b2"
+        },
+        {
+          "content_hash": "bd99b89b653a2b092eaef204d051221e74def93ed12cc941a54a6bbd9b99621d",
+          "identity": "atom-entry-two",
+          "identity_kind": "GUID",
+          "index_hash": "aaa0d94623b924c386efa96cf3d33a474896bdae22a44350e369ca6ea24c7f1a"
+        }
+      ],
+      "expected_entries": 2,
+      "format": "atom10",
+      "raw_hash": "8cd1e697e48731919b6e993b669d47a3f4cfd0eb94dc9db3daa7f09d75904f5e"
+    },
+    "json_feed.json": {
+      "decoded_hash": "3d670ad169ee62b12423da0140b7341351a6155ba8f52a1922032ea3b47bd852",
+      "entries": [
+        {
+          "content_hash": "74dee53b335a36a83d9676264e41456327b8f6b8d204b51b741e6757a5b4833a",
+          "identity": "json-entry-one",
+          "identity_kind": "GUID",
+          "index_hash": "1c4861a5d34d2006e77d2b364edf338e1e56bcec25f4733634319eabba1eea33"
+        }
+      ],
+      "expected_entries": 1,
+      "format": "json11",
+      "raw_hash": "3d670ad169ee62b12423da0140b7341351a6155ba8f52a1922032ea3b47bd852"
+    },
+    "malicious_html.xml": {
+      "decoded_hash": "f1d0e196682eab7bc4999dab49e546119355835d782b01ea852e70a6ef1bb5ad",
+      "entries": [
+        {
+          "content_hash": "f576828504fcb64acae1db3d4ff7572f48b6585d390f2a574b1c2c5a26c68987",
+          "identity": "malicious-one",
+          "identity_kind": "GUID",
+          "index_hash": "21849419fb05fce2c8be6936036f9dfd4d8620b84d11251c537e52d76fd39c1d"
+        }
+      ],
+      "expected_entries": 1,
+      "format": "rss20",
+      "raw_hash": "f1d0e196682eab7bc4999dab49e546119355835d782b01ea852e70a6ef1bb5ad"
+    },
+    "rss_1_rdf.xml": {
+      "decoded_hash": "fbf6e3b7783bdb7bc6104645e8e77274453df4154b2adbefbfc5891d6c62dded",
+      "entries": [
+        {
+          "content_hash": "023f62b476276ab045a50e30779fd089d44af8f426117ed1679ec1641db5a6c6",
+          "identity": "https://rdf.example.test/items/one",
+          "identity_kind": "URL",
+          "index_hash": "6a24c0fb603f931514ec64480ea34ff8d5d47538e5550ee911a539e68cfa1079"
+        }
+      ],
+      "expected_entries": 1,
+      "format": "rss10",
+      "raw_hash": "fbf6e3b7783bdb7bc6104645e8e77274453df4154b2adbefbfc5891d6c62dded"
+    },
+    "rss_2_60_items.xml": {
+      "decoded_hash": "5bb6375a372f3d5725ae937a4c84f59481b53a87d5d442cfde4c40d3132f6554",
+      "entries": [
+        {
+          "content_hash": "26b4ffa3785140bdc3db5a34ec9cb0cb5d3f95e564217355d7a9bae4b654176f",
+          "identity": "fixture-guid-01",
+          "identity_kind": "GUID",
+          "index_hash": "950e35a36d06ecf9b444c3b606b8a5966a1da9ab76c0f47b747ca55a80113197"
+        },
+        {
+          "content_hash": "8d94c7db15ae13bd371668d6c8c0d7fd27672a707832e110ea755806bf5ef585",
+          "identity": "fixture-guid-02",
+          "identity_kind": "GUID",
+          "index_hash": "89d10d8c5f02fd6cd10463788420aee1d0304fea7702e75485e9d4292f55ddd0"
+        },
+        {
+          "content_hash": "cbb0f5fde279eb27b5bb113719dced9bb198dc32c928b515513876c9c0618e4d",
+          "identity": "fixture-guid-03",
+          "identity_kind": "GUID",
+          "index_hash": "ec429e0a44e3de97576e6b93af58c6cbd9f6ad4344963b952594b524c9b75182"
+        },
+        {
+          "content_hash": "16cd16a741b99d2d8b3f8a15f998102bf748e9b07bf1d0703a3f2fe05e9af9ca",
+          "identity": "fixture-guid-04",
+          "identity_kind": "GUID",
+          "index_hash": "8fbf10c516eea236a9df9e723d92310e064e1ef19a947273852209845ea540a2"
+        },
+        {
+          "content_hash": "3058b1e93daf5633d28d44d05587362ce8d5786dbb66958bd543c8f153301a39",
+          "identity": "fixture-guid-05",
+          "identity_kind": "GUID",
+          "index_hash": "c91fa3813eb68097a89a959803893dfa97e5fd4cb30dba11c98e7e521efce663"
+        },
+        {
+          "content_hash": "ed0fddb3294a560c61254d78aab74c1053d61a288ed1a497842a20ec26c40981",
+          "identity": "fixture-guid-06",
+          "identity_kind": "GUID",
+          "index_hash": "506200f2bf8a337732479a0e50327fae2e72b63d08973ff5c9b57d24df4ed426"
+        },
+        {
+          "content_hash": "9cd70fc425b267a12020234d373ba9d3aa7bd70544f3aa1cf6ecfaa5790f88e8",
+          "identity": "fixture-guid-07",
+          "identity_kind": "GUID",
+          "index_hash": "53b2fd64ade454fad0251566c35fcd9275549224b46359f97b18c642a9cac4e0"
+        },
+        {
+          "content_hash": "3cc6c99d0fe652ead7c1eac484bead055302c110a1185cc107b83c5a0685b7ee",
+          "identity": "fixture-guid-08",
+          "identity_kind": "GUID",
+          "index_hash": "1b414abab431b0af738d6fe3e65234f52cfb8d9860ced276f85a05f004339e7b"
+        },
+        {
+          "content_hash": "671320817a022d25fcb1c194026da1dfa06f571b7715a3738fb1ca73cab26a67",
+          "identity": "fixture-guid-09",
+          "identity_kind": "GUID",
+          "index_hash": "830541cd88277ca6f734545b63d20e0cce3b13ba6a97562706099145ce49cec8"
+        },
+        {
+          "content_hash": "581b46044b7927663041e3ff1e179ff2c28868c34d1339baa61322e30b65b08e",
+          "identity": "fixture-guid-10",
+          "identity_kind": "GUID",
+          "index_hash": "7232b12a444e16f76301b2e478b3e2412c5adabcb46aaf4e1c7349888e689aad"
+        },
+        {
+          "content_hash": "39ac7abf2565ca50759098a5370171545aba39c0768db5f31d8c041adb19ff12",
+          "identity": "fixture-guid-11",
+          "identity_kind": "GUID",
+          "index_hash": "38b1779b14e6f51f98521fc6269a470b6040dc9aa63adf05c3b1f842d32e5a14"
+        },
+        {
+          "content_hash": "ce68b6b742d697bb253293392196c1ea0a9cb6b6e78e793df87271c443dc5351",
+          "identity": "fixture-guid-12",
+          "identity_kind": "GUID",
+          "index_hash": "74e97f3bd86f241d55924bac2bd867ec37ccb38c982fedd5b7ced879cd03df7a"
+        },
+        {
+          "content_hash": "cda36ceb91d1bb74efa222d8c0e7555c9eaa859f360508609870675e638d835f",
+          "identity": "fixture-guid-13",
+          "identity_kind": "GUID",
+          "index_hash": "cf71d1de64e47587353a4b7e1b2885a77ed9f8f33bda0f671b427dc1314e4309"
+        },
+        {
+          "content_hash": "9112b6f2b0ffd9329779749bb74bccb015f71b08c55c3dc2ec04c5b78afdb9b2",
+          "identity": "fixture-guid-14",
+          "identity_kind": "GUID",
+          "index_hash": "c6c2ed65e955d1bb6ea3d63ff78180002e908f92f5edb3c5d98f46e20199282c"
+        },
+        {
+          "content_hash": "1dc9ae95cd9065b3cb86f8a15a762aed0da7afb1ef85a721ab0545c11d3c295d",
+          "identity": "fixture-guid-15",
+          "identity_kind": "GUID",
+          "index_hash": "ae6e6848f7b868e7646f4c12771b814ee6e2633b68e098b83532fa624d2dd84b"
+        },
+        {
+          "content_hash": "90a1d717c9526891e7faa35e5938eb5b21a1120c5f9b80038c31d8ba49ac4708",
+          "identity": "fixture-guid-16",
+          "identity_kind": "GUID",
+          "index_hash": "abe9f23fb44061cde6f9c01f10df3125b3676a876995361ffd7cda2368861501"
+        },
+        {
+          "content_hash": "61b3105b3f9e95d8cefd4f7c594ff05f12870579ff172378be34cbe0b870eb8e",
+          "identity": "fixture-guid-17",
+          "identity_kind": "GUID",
+          "index_hash": "810fb23905b78a022f72168ef91fb7d31e6e0509a225323e396cd454f382ef39"
+        },
+        {
+          "content_hash": "b5d4698ac06fa35729ba505026e477b7cf880c46aaeb782460c59513b6e1d345",
+          "identity": "fixture-guid-18",
+          "identity_kind": "GUID",
+          "index_hash": "572092b69d74465627e0b8b124e0b2a4392f3ff859323ec2a3e866007983de49"
+        },
+        {
+          "content_hash": "bffba3466d8780f1e7c99cf22fa2a34deb336b3889bbb944c206cb6c4d6ae6a9",
+          "identity": "fixture-guid-19",
+          "identity_kind": "GUID",
+          "index_hash": "c69e54d3d35b43264953b63965e60b45605098ea71a3f11f7a8f901e111b135c"
+        },
+        {
+          "content_hash": "9196805f46447cd2f91070a30564ec95e663a9a085681b3e3f138e3ec0bdefe0",
+          "identity": "fixture-guid-20",
+          "identity_kind": "GUID",
+          "index_hash": "6b4c6a8359ccebb71bbb44a270785a666f0db8b2e0ccacbc4a104d8ecec71fd5"
+        },
+        {
+          "content_hash": "f719eaa09ae9400a6d3f5bb5568e4a88db53d28951ee470864bd29b1ab055a32",
+          "identity": "fixture-guid-21",
+          "identity_kind": "GUID",
+          "index_hash": "1d4e0e433834276ce2129f5e8e592db07b159b8a4d1304303c721b32bd5e844d"
+        },
+        {
+          "content_hash": "711c1894481652319bd97f69029675a00ca507a3ddf554990cd2e0d70bad0e93",
+          "identity": "fixture-guid-22",
+          "identity_kind": "GUID",
+          "index_hash": "7794d431dd251f52443c8470e1ec8ca4c76f8367993b343be165abfca1820cef"
+        },
+        {
+          "content_hash": "25d53f999f69b6be96127f7759cc14b45507171d9f52e8ff4f8bbbab36ed9d75",
+          "identity": "fixture-guid-23",
+          "identity_kind": "GUID",
+          "index_hash": "4cb3feef599fa8dcf8dbc0142ea32bc7f09cce55332a988ae65ba67d5a27d44b"
+        },
+        {
+          "content_hash": "a68aea94ea697e0d37db6655398230663ea9ae48491a78aa2122be989e9d965b",
+          "identity": "fixture-guid-24",
+          "identity_kind": "GUID",
+          "index_hash": "0f7e845406c52c916eacfc72d215d58564daee466e105e5fe0ddec50c76e7347"
+        },
+        {
+          "content_hash": "399836783820610fc80afd7c73dc8341803fae0ff9eedbff4aedf9acb2578e80",
+          "identity": "fixture-guid-25",
+          "identity_kind": "GUID",
+          "index_hash": "f01770e2c81e62ebca3466448bf2476fd68bfa43865fb3ef257e391577f4d730"
+        },
+        {
+          "content_hash": "1d2e1f82ee18b5f0bf583e71e4d1cb6ef3308ec84db038472408dbc428648269",
+          "identity": "fixture-guid-26",
+          "identity_kind": "GUID",
+          "index_hash": "768399d9eb773b83bface0def23bf61fbdc904f9619fe7e56251f6d0b83a25b9"
+        },
+        {
+          "content_hash": "f8e90d923b277c8940ab8264cb8a0664c1f853527c2ad3c8b70151e9216bb917",
+          "identity": "fixture-guid-27",
+          "identity_kind": "GUID",
+          "index_hash": "3f9cb702cdb7ad97c4f94b93a22ac9cefcca28ef161211672e619564234352be"
+        },
+        {
+          "content_hash": "c142f3a7d43c1e510ea823fc2d8aff4b29ecf45ca09f0aba6d2cc677d81caee8",
+          "identity": "fixture-guid-28",
+          "identity_kind": "GUID",
+          "index_hash": "bc61f7089219fa40c249db68a39dbda2836786c1e69df5f141ef0f2b7228d12a"
+        },
+        {
+          "content_hash": "6d161bb1b3fe6320384ec967342dc1d1d8bf908d2b95fc4dc7d34bd0ffd78bf6",
+          "identity": "fixture-guid-29",
+          "identity_kind": "GUID",
+          "index_hash": "4488eb76d40da750dd9e93bfd79d36c6da2695065694b75bb9cc8884a804b78e"
+        },
+        {
+          "content_hash": "138644e71291489d2dbdc646ba385dc599f1ce97db8695c783b9c56b78045f99",
+          "identity": "fixture-guid-30",
+          "identity_kind": "GUID",
+          "index_hash": "2bda93372aa80f5879f03540475bfd1e2197fe8389920e79d223aa64db00ae75"
+        },
+        {
+          "content_hash": "e26c00dc1c7c415424518d8cac7f08681724fdbd215e047922f4caaf1dc66248",
+          "identity": "fixture-guid-31",
+          "identity_kind": "GUID",
+          "index_hash": "3768ed35207364c1bae6c7ccd43ee2f7ad10020aa9b07076af5df392b4bd48d6"
+        },
+        {
+          "content_hash": "d2d109ceed3c676964fb0ff16bbe79bf52ea8bbeee9ea26ae6117e0ea66ffe2e",
+          "identity": "fixture-guid-32",
+          "identity_kind": "GUID",
+          "index_hash": "b64a1bc377e7c74b13c161a85580de3d8d7cd83e4a36ee1920b25e8b331290cd"
+        },
+        {
+          "content_hash": "ce48da8eb01e66c10cbac292411896420ebcc05c068df9096f24423a4074e69e",
+          "identity": "fixture-guid-33",
+          "identity_kind": "GUID",
+          "index_hash": "ee04883ede3132adaf4a6e6027be93fad7b1efc40c7b73fbc3f64dba6913b3c7"
+        },
+        {
+          "content_hash": "c2bbdd90898e50daa723757464c03d69b6595e98eeb2803d75837f4c02b9aff0",
+          "identity": "fixture-guid-34",
+          "identity_kind": "GUID",
+          "index_hash": "a7e9f90a98d7e39d0d834371ec8257fe9071ee5c50530cda240c6696b7708336"
+        },
+        {
+          "content_hash": "3162178121673e020ba470af785ed8eb8d63729594e747fa8e74baf00b398e49",
+          "identity": "fixture-guid-35",
+          "identity_kind": "GUID",
+          "index_hash": "e340214124a9d629dc9007c06964f8ccd1920be704933a6e285ac7d8723dc516"
+        },
+        {
+          "content_hash": "c9ffea6924609fb1f6a5bb6b1b21c59a5f22de6da603863d6d49a5b8ac01d6c6",
+          "identity": "fixture-guid-36",
+          "identity_kind": "GUID",
+          "index_hash": "c97b2767c21331000821ee387bc214201ca6add85bf1a23221f2362738643477"
+        },
+        {
+          "content_hash": "c1941a14ffc04a8e04a129d051b6d621afec68be0ddea78a5a07d532c33cec92",
+          "identity": "fixture-guid-37",
+          "identity_kind": "GUID",
+          "index_hash": "c0ff15e700c364b0bdc31c2d3da0b1f54002e1b8851eafb1128eab0d55094dbf"
+        },
+        {
+          "content_hash": "46d7c072002668b6115fb9629e40f09221a71f04bdb63b58195633f31e1bf5f1",
+          "identity": "fixture-guid-38",
+          "identity_kind": "GUID",
+          "index_hash": "4033e3716baf27a5694d74801e2910eab346958e029d34bd59fbbb93e1fa2d2b"
+        },
+        {
+          "content_hash": "e465892e1e0d9d8fc2d7dbcc4911104c63e65ad1d014a503e84bd008c72ae0af",
+          "identity": "fixture-guid-39",
+          "identity_kind": "GUID",
+          "index_hash": "14a4862949f5d5ea56c9e1d7ce864f6b98ee9b249e86a6f5c48cc42d843c2a46"
+        },
+        {
+          "content_hash": "6d4698ad60717e71ac3c5ea91296c14461940f677953a9bd9476dce738a33a37",
+          "identity": "fixture-guid-40",
+          "identity_kind": "GUID",
+          "index_hash": "44317c297896fa45315aa65d99b4642b5ecce98f75c41a561ca8c3ffb208a3e0"
+        },
+        {
+          "content_hash": "5dae183e98176e2815063f0c90ce195f0823aa177125f5b37acf5bb12a95ab1d",
+          "identity": "fixture-guid-41",
+          "identity_kind": "GUID",
+          "index_hash": "6119c44a4557e5eb5c63500708f31a4c797bd635913d4c6cbe9f93ebdadd59d4"
+        },
+        {
+          "content_hash": "43b2b76b4b066a55ec85c52b371ab7ecda557fe98aaad9000bd1eb74c5188e6d",
+          "identity": "fixture-guid-42",
+          "identity_kind": "GUID",
+          "index_hash": "e6e8bd0c176bbecddbfb77bee93742851005a8bd09496ccf3dddc7d5614744b9"
+        },
+        {
+          "content_hash": "8ce353eadcd7e1d9395e4438ceb09750665e3d1e2fe3ce1f8d3a0de10074aa74",
+          "identity": "fixture-guid-43",
+          "identity_kind": "GUID",
+          "index_hash": "3fa0cfbb1c7865983a77f26f7fbf5d4e2ba1506f5b1a8443f526afb1189e9dcb"
+        },
+        {
+          "content_hash": "70c921009cee93f3cce68d6671ded42a11c3344f327b6eab8488d2358adc0a13",
+          "identity": "fixture-guid-44",
+          "identity_kind": "GUID",
+          "index_hash": "762417f56564bb8b9b5222be604d6343a58e0bca5c75ae393181e1a0b337b5ef"
+        },
+        {
+          "content_hash": "49b8212104ea154ba879cc3335de83429f5d41bea58520f7da12edcf90392931",
+          "identity": "fixture-guid-45",
+          "identity_kind": "GUID",
+          "index_hash": "ed32c93160d4496346783b9c95cbcf94991bfd44bfb20f146591e9e5fc4f7ebd"
+        },
+        {
+          "content_hash": "fcd8ef9db142d30125a7529b01823876a6c466d27de50dcfb52676b47375b8f3",
+          "identity": "fixture-guid-46",
+          "identity_kind": "GUID",
+          "index_hash": "451a53ae8ad36b90c7325aeae80a468164c75684b4627db01728143ba5a29228"
+        },
+        {
+          "content_hash": "8967b1a37dd1fa35506ab710ed6d104f2448022eb76db2a3fb3486c40dfc19d1",
+          "identity": "fixture-guid-47",
+          "identity_kind": "GUID",
+          "index_hash": "a23ba7a5730e7ef85e4338eb3a96b037115e30ce26f559fa2432ded66ec56343"
+        },
+        {
+          "content_hash": "0b4f4f236db102bd3db3c80679bbfcf9d7420f94c6eee068a15ba8f6688bb4e4",
+          "identity": "fixture-guid-48",
+          "identity_kind": "GUID",
+          "index_hash": "a2b0d6431193a6f3f708a4bb7c10a4cdb66e55b8db0296563af986507fd8bb20"
+        },
+        {
+          "content_hash": "998b2c1ade2fa7eba345fce0cd4e57ab1b8b5f3c82fe99739cd12652986bcd7d",
+          "identity": "fixture-guid-49",
+          "identity_kind": "GUID",
+          "index_hash": "953e3ee63650281986eb18edb7d03259bb9e993a1655a00bac064a65cede1390"
+        },
+        {
+          "content_hash": "e49d232f7301a2de09867bb7fb15e485a698cc1652903dd1c2271e79eeb56cdf",
+          "identity": "fixture-guid-50",
+          "identity_kind": "GUID",
+          "index_hash": "7c709a99a4872f857f90b62edf276aac9e36939680e07770bf79667565eae589"
+        },
+        {
+          "content_hash": "f48bcf88f50bcf6010c2161eb37791e8d6f3367b23c6592caaa568e8bba5ad20",
+          "identity": "fixture-guid-51",
+          "identity_kind": "GUID",
+          "index_hash": "eb9e170db4e11a73a9ac7f8bc3bddb5923a8679a599b784ac6ce708890e6dfb2"
+        },
+        {
+          "content_hash": "30534f8d94887f08cccf7639b23ee4fa49ed8413a04c021dd5816f5974b740bc",
+          "identity": "fixture-guid-52",
+          "identity_kind": "GUID",
+          "index_hash": "4d606b24d2207fa3d72d3467fc373ba1b03029f5ae37c31ae3f8100329fe89c5"
+        },
+        {
+          "content_hash": "759e2c3654bad1af334f6993bb6a6ba65b36deddaa4dd5320840512af74e897c",
+          "identity": "fixture-guid-53",
+          "identity_kind": "GUID",
+          "index_hash": "cb2d13819ebdd0791464bbb3ebb40e8796f8e5bfa394cb02bcb1bc01e78f880f"
+        },
+        {
+          "content_hash": "d605b2d38a9083a51769153f7304b6ec4b8c37786ad729711bb96a1c5353f1c4",
+          "identity": "fixture-guid-54",
+          "identity_kind": "GUID",
+          "index_hash": "40a5260ce797f48d8590b69324fb256744ace49dc2193be23467e54e05032647"
+        },
+        {
+          "content_hash": "bfd66eec94008eab31b858dd9ce7da05f87d216b456713624aee4367ac538827",
+          "identity": "fixture-guid-55",
+          "identity_kind": "GUID",
+          "index_hash": "0a4a2786e578fb6e0ab28ddc06d3d5172fb70557bed6e91194e1dd129b99feea"
+        },
+        {
+          "content_hash": "2a3fc5a0ac92edc7e03d7f35a94c68304502808fe3b61292f08f16e9bf1d97e0",
+          "identity": "fixture-guid-56",
+          "identity_kind": "GUID",
+          "index_hash": "a375577b6ef963bd56b8302a448d0dbb59ac93aa2643e227dca3651c879136d0"
+        },
+        {
+          "content_hash": "33289d55918433477189b9e949a0bbc015876abbd6ff7d692b35db689b255b87",
+          "identity": "fixture-guid-57",
+          "identity_kind": "GUID",
+          "index_hash": "ac20e104abf6f6cb93c40d1efee8407ea3ce3865a8587990de22fa5a83a3da7b"
+        },
+        {
+          "content_hash": "a19a99de6b8ccb9ebe91aaf816cd3d11b68c6ae20151c1d9456914d955a0ffa1",
+          "identity": "fixture-guid-58",
+          "identity_kind": "GUID",
+          "index_hash": "295e7713166376d7d7b3c4062a29d9d81576cfad9348da3082fea04c74c80fef"
+        },
+        {
+          "content_hash": "45c6f2be25dba1a2cebabbfc06466f6ef42832917080fe6c5bb7e74aec221fc8",
+          "identity": "fixture-guid-59",
+          "identity_kind": "GUID",
+          "index_hash": "5105211e9d7fd84a48d702082e5497566394b1cab913dd8e115c878121ea0350"
+        },
+        {
+          "content_hash": "2abebda96c45c2eb29843effc977878f7eaad14b7facbee528d5e2d4bcad9ebc",
+          "identity": "fixture-guid-60",
+          "identity_kind": "GUID",
+          "index_hash": "c4edbe09e6b4b82fdc46d1b378232bb3c8628d117b65903e282ce7521bf30a8f"
+        }
+      ],
+      "expected_entries": 60,
+      "format": "rss20",
+      "raw_hash": "5bb6375a372f3d5725ae937a4c84f59481b53a87d5d442cfde4c40d3132f6554"
+    },
+    "rss_identity_edges.xml": {
+      "decoded_hash": "bd04f4df4a6815b569664de09ddd5501daa6f62fb6d40cc778b0857a8c335a29",
+      "entries": [
+        {
+          "content_hash": "601d0cbdb39de200f2ca72580cf7343feeeeee834cec4b3b43206176d09650b7",
+          "identity": "duplicate-guid",
+          "identity_kind": "GUID",
+          "index_hash": "e057e0e29e7d1b0dcf4060b90f1ccae36710a57ac0931187102d704bf94f7a8f"
+        },
+        {
+          "content_hash": "76f781e1af37238263ae0665f2250a52ab889a63f8ccd56dbe7b6568da74e03b",
+          "identity": "https://identity.example.test/url-only",
+          "identity_kind": "URL",
+          "index_hash": "a106ada5f183248919fe1c76e7a76e14b279ad428bcffc6ae7634a748f34a68e"
+        },
+        {
+          "content_hash": "063715143e26740cacfc45277c06146dfd15113e8cbf551c518855f409a78c18",
+          "identity": "9cc50f0bf2ef036e6a4c2af49480617a41b3fbe9b9462ae528e195f77eebb917",
+          "identity_kind": "FINGERPRINT",
+          "index_hash": "319e995dc1f760f5067994bcf80f6de3f1f70d1b2c9f50d58c76058edac1cf9c"
+        },
+        {
+          "content_hash": "58b22a2b3cfbd4ecbada3fb71e7e66988c68c4094a127344590f7efc2b8fcacf",
+          "identity": "tie-guid",
+          "identity_kind": "GUID",
+          "index_hash": "3bacc3fb7aa523d40dc8dfbaf111fee731ec7fca46bb920d60a71c411cb85f4f"
+        }
+      ],
+      "expected_entries": 4,
+      "format": "rss20",
+      "raw_hash": "bd04f4df4a6815b569664de09ddd5501daa6f62fb6d40cc778b0857a8c335a29"
+    },
+    "rss_windows_1252.xml": {
+      "decoded_hash": "39047a5297c20dfdcc1648470b1b0d9ddb5e92e77dbf05f5ad1941685fab9dff",
+      "entries": [
+        {
+          "content_hash": "ecac4feeda7c8eaefd9c09f8edb193d212f52f3aadd68441c861f9b5ef028eaf",
+          "identity": "win-one",
+          "identity_kind": "GUID",
+          "index_hash": "efb1b0f5cbbd89df4b0767ef43811f40ac36e14d8391d8c1a2b1d28b70102d6b"
+        }
+      ],
+      "expected_entries": 1,
+      "format": "rss20",
+      "raw_hash": "f2dd1b2bd77c314cf31a3afc3420fafed7ad2e604726c1ea8343b67435efc450"
+    },
+    "unsafe_xml.xml": {
+      "decoded_hash": "d06fec69bf5beb77c0c749dbcb4531e76b7fafe0effc8d27be22f8f94bc6c9a1",
+      "entries": [],
+      "expected_error": "DoctypeForbidden",
+      "raw_hash": "d06fec69bf5beb77c0c749dbcb4531e76b7fafe0effc8d27be22f8f94bc6c9a1"
+    }
+  },
+  "version": 1
+}

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "raindrop://schemas/artifacts/ai-translation/v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "detectedSourceLanguage",
+    "targetLocale",
+    "title",
+    "bodyMarkdown"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "detectedSourceLanguage": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 35,
+      "pattern": "^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$"
+    },
+    "targetLocale": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 35,
+      "pattern": "^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 16384
+    },
+    "bodyMarkdown": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 262144
+    }
+  }
+}

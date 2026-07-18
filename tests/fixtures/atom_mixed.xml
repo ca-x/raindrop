@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:base="https://atom.example.test/root/">
+  <title>Atom mixed fixture</title>
+  <link rel="alternate" href="../home#fragment"/>
+  <updated>2026-07-16T15:00:00Z</updated>
+  <entry xml:base="posts/">
+    <id>atom-entry-one</id>
+    <title>Atom one</title>
+    <link rel="alternate" href="one#fragment"/>
+    <published>2026-07-16T12:00:00Z</published>
+    <updated>2026-07-16T14:00:00Z</updated>
+    <content type="html" xml:base="../assets/">&lt;p&gt;Atom &lt;img src="one.jpg" alt="One" width="320" height="200"&gt;&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <id>atom-entry-two</id>
+    <title type="text">Atom two</title>
+    <link rel="alternate" href="two"/>
+    <updated>2026-07-16T13:00:00Z</updated>
+    <summary type="text">&lt;b&gt;literal markup&lt;/b&gt;</summary>
+  </entry>
+</feed>

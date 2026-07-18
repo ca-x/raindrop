@@ -1,0 +1,203 @@
+import { Banner } from "@astryxdesign/core/Banner"
+import { Button } from "@astryxdesign/core/Button"
+import { EmptyState } from "@astryxdesign/core/EmptyState"
+import { Item } from "@astryxdesign/core/Item"
+import { List, type ListDensity } from "@astryxdesign/core/List"
+import { Skeleton } from "@astryxdesign/core/Skeleton"
+import { StatusDot } from "@astryxdesign/core/StatusDot"
+import { useLingui } from "@lingui/react"
+import { useEffect, useLayoutEffect, useRef } from "react"
+
+import { MountTransition } from "../../../shared/motion/MountTransition"
+import { sourceKey, type ReaderState } from "../model/types"
+import { FeedSearchInput } from "./FeedSearchInput"
+import { QueueToolbar, type MarkReadAvailability } from "./QueueToolbar"
+
+interface EntryQueueProps {
+  state: ReaderState
+  showMenu: boolean
+  isCompact: boolean
+  onOpenSources: () => void
+  onSelect: (entryId: string) => void
+  isRouteReady: boolean
+  cursorEntryId: string | null
+  cursorFocusNonce: number
+  sourceRoute: string
+  savedScrollOffset: number
+  onRecordScroll: (route: string, offset: number) => void
+  onReload: () => Promise<void>
+  onSearchFeed: (query: string) => Promise<void>
+  onNextUnreadSource: () => Promise<void>
+  onPreviousUnreadSource: () => Promise<void>
+  onRequestMarkRead: () => void
+  isMarkingRead: boolean
+  onMergePending: () => void
+  onMergedEntryFocus: (entryId: string) => void
+  density: ListDensity
+}
+
+export function EntryQueue({
+  state,
+  showMenu,
+  isCompact,
+  onOpenSources,
+  onSelect,
+  isRouteReady,
+  cursorEntryId,
+  cursorFocusNonce,
+  sourceRoute,
+  savedScrollOffset,
+  onRecordScroll,
+  onReload,
+  onSearchFeed,
+  onNextUnreadSource,
+  onPreviousUnreadSource,
+  onRequestMarkRead,
+  isMarkingRead,
+  onMergePending,
+  onMergedEntryFocus,
+  density,
+}: EntryQueueProps) {
+  const { i18n } = useLingui()
+  const rootRef = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const key = sourceKey(state.selectedSource)
+  const queue = state.queueBySourceKey[key] ?? []
+  const pendingCount = state.pendingNewEntryCountBySource[key] ?? 0
+  const markReadAvailability: MarkReadAvailability =
+    state.selectedSource.kind === "smart" && state.selectedSource.state === "STARRED"
+      ? "hidden"
+      : state.feedSearchQuery ||
+          state.snapshotGenerationBySource[key] === undefined ||
+          state.paneStatus.queue !== "ready"
+        ? "disabled"
+        : "enabled"
+  useLayoutEffect(() => {
+    const node = scrollRef.current
+    if (!node || state.paneStatus.queue !== "ready" || !isRouteReady) return
+    node.scrollTop = clampOffset(node, savedScrollOffset)
+    return () => onRecordScroll(sourceRoute, node.scrollTop)
+  }, [isRouteReady, sourceRoute, state.paneStatus.queue])
+  useEffect(() => {
+    if (!isRouteReady || !cursorEntryId || cursorFocusNonce === 0) return
+    const row = [...(rootRef.current?.querySelectorAll<HTMLElement>("[data-reader-entry-id]") ?? [])]
+      .find((item) => item.dataset.readerEntryId === cursorEntryId)
+    const button = row?.querySelector<HTMLButtonElement>("button")
+    button?.focus({ preventScroll: true })
+    row?.scrollIntoView?.({ behavior: "auto", block: "nearest" })
+  }, [cursorEntryId, cursorFocusNonce, isRouteReady])
+  return (
+    <div ref={rootRef} className="reader-queue" aria-busy={state.paneStatus.queue === "loading"}>
+      <QueueToolbar
+        showMenu={showMenu}
+        isCompact={isCompact}
+        markReadAvailability={markReadAvailability}
+        isMarkingRead={isMarkingRead}
+        onOpenSources={onOpenSources}
+        onReload={onReload}
+        onNextUnreadSource={onNextUnreadSource}
+        onPreviousUnreadSource={onPreviousUnreadSource}
+        onRequestMarkRead={onRequestMarkRead}
+      />
+      {state.selectedSource.kind === "feed" ? (
+        <FeedSearchInput
+          query={state.feedSearchQuery}
+          isLoading={state.paneStatus.queue === "loading"}
+          onSearch={onSearchFeed}
+        />
+      ) : null}
+      {pendingCount > 0 ? (
+        <MountTransition preset="slideDown">
+          <Banner
+            container="section"
+            status="info"
+            title={i18n._("reader.newEntriesAvailable", { count: pendingCount })}
+            endContent={
+              <Button
+                label={i18n._("reader.showNewEntries", { count: pendingCount })}
+                isDisabled={!isRouteReady}
+                onClick={() => {
+                  const firstPending = state.pendingNewEntriesBySource[key]?.[0]
+                  onMergePending()
+                  if (scrollRef.current) scrollRef.current.scrollTop = 0
+                  onRecordScroll(sourceRoute, 0)
+                  if (firstPending) onMergedEntryFocus(firstPending)
+                }}
+                variant="ghost"
+              />
+            }
+          />
+        </MountTransition>
+      ) : null}
+      {state.paneStatus.queue === "error" ? (
+        <Banner
+          container="section"
+          status="error"
+          title={i18n._("reader.queueError")}
+          description={state.errors.queue ?? i18n._("reader.genericError")}
+        />
+      ) : state.paneStatus.queue === "loading" ? (
+        <div className="reader-skeletons" role="status" aria-label={i18n._("reader.loadingEntries")}>
+          {[0, 1, 2, 3].map((index) => <Skeleton key={index} height={72} radius={2} index={index} />)}
+        </div>
+      ) : queue.length === 0 ? (
+        <EmptyState
+          isCompact
+          title={i18n._("reader.noEntries")}
+          description={i18n._("reader.noEntriesDescription")}
+        />
+      ) : (
+        <div
+          ref={scrollRef}
+          className="reader-queue-scroll"
+          data-testid="entry-queue-scroll"
+          onScroll={(event) => {
+            if (isRouteReady) onRecordScroll(sourceRoute, event.currentTarget.scrollTop)
+          }}
+        >
+          <List density={density} hasDividers data-testid="entry-list">
+            {queue.map((entryId) => {
+              const entry = state.entriesById[entryId]
+              if (!entry) return null
+              const date = new Intl.DateTimeFormat(i18n.locale, {
+                month: "short",
+                day: "numeric",
+              }).format(new Date((entry.publishedAtUs ?? entry.sortAtUs) / 1000))
+              return (
+                <Item
+                  as="li"
+                  key={entryId}
+                  className="reader-entry-item"
+                  data-reader-entry-id={entryId}
+                  density={density}
+                  isDisabled={!isRouteReady}
+                  isSelected={cursorEntryId === entryId}
+                  onClick={() => {
+                    if (!isRouteReady) return
+                    if (scrollRef.current) onRecordScroll(sourceRoute, scrollRef.current.scrollTop)
+                    onSelect(entryId)
+                  }}
+                  label={
+                    <span className="reader-entry-title">
+                      {!entry.isRead ? <StatusDot variant="accent" label={i18n._("reader.unreadEntry")} /> : null}
+                      <span>{entry.title ?? i18n._("reader.untitled")}</span>
+                      {entry.isStarred ? <span aria-label={i18n._("reader.starredEntry")}>★</span> : null}
+                    </span>
+                  }
+                  description={[entry.feedTitle, entry.author, entry.summary].filter(Boolean).join(" · ")}
+                  descriptionLines={2}
+                  labelLines={2}
+                  endContent={<time dateTime={new Date((entry.publishedAtUs ?? entry.sortAtUs) / 1000).toISOString()}>{date}</time>}
+                />
+              )
+            })}
+          </List>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function clampOffset(element: HTMLElement, offset: number): number {
+  return Math.max(0, Math.min(offset, Math.max(0, element.scrollHeight - element.clientHeight)))
+}

@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "eventId": "00000000-0000-4000-8000-000000010004",
+  "eventType": "feed.refresh.persisted",
+  "refreshId": "00000000-0000-4000-8000-000000020001",
+  "sequence": 10,
+  "occurredAt": "2026-07-19T12:00:03Z",
+  "idempotencyKey": "refresh:00000000-0000-4000-8000-000000020001:persisted:v1",
+  "context": {
+    "feedId": "00000000-0000-4000-8000-000000030001",
+    "commitGeneration": 42,
+    "newCount": 1,
+    "updatedCount": 0,
+    "droppedCount": 0,
+    "newEntries": [
+      {
+        "entryId": "00000000-0000-4000-8000-000000040001",
+        "contentHash": "b3788c7661d79a104f4dfa15f2c284f5f7ee35f9b3dfbd520c4e1ef3d068cf65"
+      }
+    ],
+    "updatedEntries": []
+  }
+}

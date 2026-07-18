@@ -320,7 +320,7 @@ Run: `cargo test --test session_security`
 
 - [ ] **Step 3: Implement sessions**
 
-Generate independent 256-bit session and CSRF tokens; store BLAKE3 hashes. Cookie name is `raindrop_session`; set HttpOnly, SameSite=Lax, Path=/, and Secure when `public_url` is HTTPS. `CurrentUser` joins user roles and rejects disabled accounts. `CsrfGuard` requires `X-CSRF-Token`, compares hashes in constant time, and verifies Origin/Host when Origin is present.
+Generate a random 256-bit session token and derive a distinct 256-bit CSRF token with BLAKE3 domain separation; store only their hashes. The one-way derivation lets `/auth/session` recover the same CSRF value after reload without storing it raw or invalidating other browser tabs. Cookie name is `raindrop_session`; set HttpOnly, SameSite=Lax, Path=/, and Secure when `public_url` is HTTPS. `CurrentUser` joins user roles and rejects disabled accounts. `CsrfGuard` requires `X-CSRF-Token`, compares hashes in constant time, and verifies Origin/Host when Origin is present.
 
 - [ ] **Step 4: Verify**
 

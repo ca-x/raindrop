@@ -1,0 +1,26 @@
+{
+  "modelVersion": "gemini-fixture",
+  "candidates": [
+    {
+      "content": {
+        "role": "model",
+        "parts": [
+          {
+            "text": "{\"summary\":\"fixture summary\"}"
+          },
+          {
+            "futureOptionalPart": true
+          }
+        ]
+      },
+      "finishReason": "STOP",
+      "futureOptionalField": true
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 18,
+    "candidatesTokenCount": 8,
+    "totalTokenCount": 26
+  },
+  "futureOptionalField": true
+}

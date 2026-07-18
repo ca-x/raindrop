@@ -1,0 +1,31 @@
+{
+  "systemInstruction": {
+    "parts": [
+      {
+        "text": "Return only the requested JSON object."
+      }
+    ]
+  },
+  "contents": [
+    {
+      "role": "user",
+      "parts": [
+        {
+          "text": "{\"article\":\"untrusted article text\"}"
+        }
+      ]
+    }
+  ],
+  "generationConfig": {
+    "maxOutputTokens": 4096,
+    "responseMimeType": "application/json",
+    "responseJsonSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summary"],
+      "properties": {
+        "summary": { "type": "string" }
+      }
+    }
+  }
+}

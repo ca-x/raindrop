@@ -1,0 +1,68 @@
+[package]
+name = "raindrop"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94"
+license = "MIT"
+description = "A self-hosted, multi-user RSS reader"
+repository = "https://github.com/ca-x/raindrop"
+
+[dependencies]
+ammonia = "=4.1.3"
+anyhow = "1.0.103"
+argon2 = { version = "0.5.3", features = ["std"] }
+async-compression = { version = "0.4.42", default-features = false, features = ["tokio", "gzip", "zlib", "brotli"] }
+async-trait = "0.1.89"
+axum = { version = "0.8.9", features = ["json", "macros"] }
+base64 = "0.22.1"
+blake3 = "1.8.3"
+cookie = "0.18.1"
+constant_time_eq = "0.4.2"
+encoding_rs = "=0.8.35"
+feedparser-rs = { version = "=0.5.5", default-features = false }
+futures-util = "0.3.32"
+hickory-resolver = { version = "=0.26.1", default-features = false, features = ["system-config", "tokio"] }
+http = { version = "1.4.2", default-features = false }
+html5ever = "=0.39.0"
+httpdate = "1.0.3"
+ipnet = { version = "2.12.0", default-features = false }
+mime = "=0.3.17"
+mime_guess = "2.0.5"
+quick-xml = "=0.41.0"
+rand_core = { version = "0.6.4", features = ["getrandom"] }
+reqwest = { version = "0.13.4", default-features = false, features = ["rustls-no-provider", "stream"] }
+ring = "=0.17.14"
+rust-embed = "8.12.0"
+rustls = { version = "0.23.42", default-features = false, features = ["ring"] }
+sea-orm = { version = "1.1.19", default-features = false, features = ["macros", "runtime-tokio-rustls", "sqlx-mysql", "sqlx-postgres", "sqlx-sqlite", "with-time"] }
+sea-orm-migration = { version = "1.1.19", default-features = false, features = ["runtime-tokio-rustls", "sqlx-mysql", "sqlx-postgres", "sqlx-sqlite"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = { version = "1.0.150", features = ["unbounded_depth"] }
+secrecy = "0.10.3"
+thiserror = "2.0.18"
+time = { version = "0.3.53", features = ["formatting", "parsing", "serde"] }
+tokio = { version = "1.52.3", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+toml = "0.9.8"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
+url = { version = "2.5.7", features = ["serde"] }
+uuid = { version = "1.24.0", features = ["v4"] }
+wasmtime = { version = "=46.0.1", default-features = false, features = ["async", "call-hook", "component-model", "component-model-async", "cranelift", "runtime", "std"] }
+zeroize = "1.8.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem"] }
+
+[dev-dependencies]
+http-body-util = "0.1.4"
+tempfile = "3.27.0"
+tokio = { version = "1.52.3", features = ["test-util"] }
+tower = { version = "0.5.3", features = ["util"] }
+wasmprinter = { version = "=0.253.0", default-features = false, features = ["component-model", "validate"] }
+wat = "=1.253.0"
+wit-component = { version = "=0.253.0", default-features = false, features = ["dummy-module"] }
+wit-parser = { version = "0.253.0", default-features = false, features = ["std"] }
+
+[profile.release]
+lto = "thin"
+strip = "symbols"

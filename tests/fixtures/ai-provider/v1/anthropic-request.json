@@ -1,0 +1,29 @@
+{
+  "model": "model-v1",
+  "max_tokens": 4096,
+  "system": "Return only the requested JSON object.",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"article\":\"untrusted article text\"}"
+        }
+      ]
+    }
+  ],
+  "output_config": {
+    "format": {
+      "type": "json_schema",
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["summary"],
+        "properties": {
+          "summary": { "type": "string" }
+        }
+      }
+    }
+  }
+}

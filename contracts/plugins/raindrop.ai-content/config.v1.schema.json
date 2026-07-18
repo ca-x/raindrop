@@ -1,0 +1,209 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "raindrop://schemas/plugins/raindrop.ai-content/config/v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "operations",
+    "automatic"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "operations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "summarize",
+        "translate"
+      ],
+      "properties": {
+        "summarize": {
+          "$ref": "#/$defs/summarizeOperation"
+        },
+        "translate": {
+          "$ref": "#/$defs/translateOperation"
+        }
+      }
+    },
+    "automatic": {
+      "$ref": "#/$defs/automatic"
+    }
+  },
+  "$defs": {
+    "mcp": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "failurePolicy",
+        "maxToolCalls",
+        "tools"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "DISABLED",
+            "CONTEXT_ENRICHMENT"
+          ]
+        },
+        "failurePolicy": {
+          "enum": [
+            "FAIL_OPEN",
+            "FAIL_CLOSED"
+          ]
+        },
+        "maxToolCalls": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "tools": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "connectionId",
+              "toolName"
+            ],
+            "properties": {
+              "connectionId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "toolName": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+              }
+            }
+          }
+        }
+      }
+    },
+    "summarizeOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "providerId",
+        "style",
+        "maxOutputTokens",
+        "mcp"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "providerId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "style": {
+          "enum": [
+            "CONCISE",
+            "BALANCED",
+            "DETAILED"
+          ]
+        },
+        "maxOutputTokens": {
+          "type": "integer",
+          "minimum": 128,
+          "maximum": 4096
+        },
+        "mcp": {
+          "$ref": "#/$defs/mcp"
+        }
+      }
+    },
+    "translateOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "providerId",
+        "defaultTargetLocale",
+        "maxOutputTokens",
+        "mcp"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "providerId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "defaultTargetLocale": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 35,
+          "pattern": "^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$"
+        },
+        "maxOutputTokens": {
+          "type": "integer",
+          "minimum": 256,
+          "maximum": 16384
+        },
+        "mcp": {
+          "$ref": "#/$defs/mcp"
+        }
+      }
+    },
+    "automatic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "operations",
+        "allSubscribedFeeds",
+        "feedIds",
+        "categoryIds"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "operations": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "SUMMARIZE",
+              "TRANSLATE"
+            ]
+          }
+        },
+        "allSubscribedFeeds": {
+          "type": "boolean"
+        },
+        "feedIds": {
+          "type": "array",
+          "maxItems": 1000,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "categoryIds": {
+          "type": "array",
+          "maxItems": 250,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      }
+    }
+  }
+}

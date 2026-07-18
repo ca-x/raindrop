@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<rss version="2.0"><channel><title>Identity edges</title><link>https://identity.example.test/</link>
+  <item><guid isPermaLink="false">duplicate-guid</guid><title>Older duplicate</title><description>&lt;p&gt;old&lt;/p&gt;</description><pubDate>Thu, 16 Jul 2026 10:00:00 GMT</pubDate></item>
+  <item><guid isPermaLink="false">duplicate-guid</guid><title>Newer duplicate</title><description>&lt;p&gt;new&lt;/p&gt;</description><pubDate>Thu, 16 Jul 2026 11:00:00 GMT</pubDate></item>
+  <item><guid></guid><link>https://identity.example.test/url-only#fragment</link><title>URL identity</title><description>&lt;p&gt;url&lt;/p&gt;</description></item>
+  <item><title>Fingerprint identity</title><author>Fixture Author</author><description>&lt;p&gt;fingerprint&lt;/p&gt;</description></item>
+  <item><guid isPermaLink="false">tie-guid</guid><title>First tie</title><description>&lt;p&gt;first&lt;/p&gt;</description><pubDate>Thu, 16 Jul 2026 12:00:00 GMT</pubDate></item>
+  <item><guid isPermaLink="false">tie-guid</guid><title>Second tie</title><description>&lt;p&gt;second&lt;/p&gt;</description><pubDate>Thu, 16 Jul 2026 12:00:00 GMT</pubDate></item>
+</channel></rss>

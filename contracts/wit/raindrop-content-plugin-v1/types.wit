@@ -1,0 +1,130 @@
+package raindrop:content-plugin@1.0.0;
+
+interface types {
+  type canonical-json = string;
+
+  enum operation {
+    summarize,
+    translate,
+  }
+
+  enum trigger {
+    manual-api,
+    reader-sidecar,
+    feed-refresh-persisted,
+    mcp-server,
+  }
+
+  enum plugin-error-code {
+    disabled,
+    invalid-request,
+    capability-denied,
+    config-invalid,
+    output-invalid,
+    output-too-large,
+    budget-exhausted,
+    deadline-exceeded,
+    host-failure,
+  }
+
+  record lifecycle-subscription {
+    event: string,
+    schema-version: u32,
+  }
+
+  record plugin-descriptor {
+    plugin-key: string,
+    version: string,
+    abi: string,
+    operations: list<operation>,
+    lifecycle-subscriptions: list<lifecycle-subscription>,
+    required-capabilities: list<string>,
+    optional-capabilities: list<string>,
+  }
+
+  record user-scope {
+    subject: string,
+  }
+
+  record entry-reference {
+    entry-id: string,
+    feed-id: string,
+    content-hash: string,
+    title: string,
+    text: string,
+    canonical-url: option<string>,
+    source-locale: option<string>,
+  }
+
+  record tool-binding {
+    binding-id: string,
+    display-label: string,
+  }
+
+  record invocation-budget {
+    remaining-depth: u32,
+    deadline-unix-ms: u64,
+    remaining-provider-requests: u32,
+    remaining-mcp-calls: u32,
+    remaining-input-tokens: u32,
+    remaining-output-tokens: u32,
+    remaining-cost-micros: u64,
+  }
+
+  record operation-request {
+    invocation-id: string,
+    job-id: string,
+    idempotency-key: string,
+    plugin-key: string,
+    plugin-version: string,
+    component-digest: string,
+    user-scope: user-scope,
+    trigger: trigger,
+    operation: operation,
+    target-locale: option<string>,
+    entry: entry-reference,
+    config-json: canonical-json,
+    config-hash: string,
+    provider-binding-id: string,
+    tool-bindings: list<tool-binding>,
+    call-chain-id: string,
+    budget: invocation-budget,
+  }
+
+  record artifact-candidate {
+    schema-id: string,
+    locale: option<string>,
+    payload-json: canonical-json,
+    provenance-json: canonical-json,
+  }
+
+  record lifecycle-event {
+    event-id: string,
+    event-type: string,
+    schema-version: u32,
+    refresh-id: string,
+    sequence: u32,
+    occurred-at: string,
+    idempotency-key: string,
+    user-scope: user-scope,
+    context-json: canonical-json,
+  }
+
+  record content-job-intent {
+    operation: operation,
+    entry-id: string,
+    target-locale: option<string>,
+    idempotency-key: string,
+  }
+
+  record event-outcome {
+    job-intents: list<content-job-intent>,
+    diagnostics: list<string>,
+  }
+
+  record plugin-error {
+    code: plugin-error-code,
+    retryable: bool,
+    message-key: string,
+  }
+}

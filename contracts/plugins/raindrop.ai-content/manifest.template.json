@@ -1,0 +1,42 @@
+{
+  "manifestVersion": 1,
+  "pluginKey": "raindrop.ai-content",
+  "version": "1.0.0",
+  "abi": "raindrop:content-plugin@1.0.0",
+  "distribution": "BUNDLED_OFFICIAL",
+  "operations": [
+    "summarize",
+    "translate"
+  ],
+  "lifecycleSubscriptions": [
+    {
+      "event": "feed.refresh.persisted",
+      "schemaVersion": 1
+    }
+  ],
+  "capabilities": {
+    "required": [
+      "ai.generate_structured"
+    ],
+    "optional": [
+      "mcp.call_tool"
+    ]
+  },
+  "ambientPermissions": [],
+  "configSchema": "raindrop://schemas/plugins/raindrop.ai-content/config/v1",
+  "artifactSchemas": [
+    "raindrop://schemas/artifacts/ai-summary/v1",
+    "raindrop://schemas/artifacts/ai-translation/v1"
+  ],
+  "componentDigest": {
+    "algorithm": "SHA-256",
+    "valueEncoding": "LOWER_HEX",
+    "valueSource": "RELEASE_BUILD"
+  },
+  "signature": {
+    "algorithm": "Ed25519",
+    "valueEncoding": "BASE64URL",
+    "keyId": "raindrop-release-2026",
+    "valueSource": "RELEASE_BUILD"
+  }
+}

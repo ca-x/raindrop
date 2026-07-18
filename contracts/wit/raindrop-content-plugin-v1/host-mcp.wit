@@ -1,0 +1,37 @@
+package raindrop:content-plugin@1.0.0;
+
+interface host-mcp {
+  use types.{canonical-json};
+
+  enum call-error-code {
+    disabled,
+    capability-denied,
+    connection-denied,
+    tool-denied,
+    side-effect-confirmation-required,
+    schema-invalid,
+    timeout,
+    result-too-large,
+    budget-exhausted,
+    recursion-blocked,
+  }
+
+  record call-request {
+    tool-binding-id: string,
+    arguments-json: canonical-json,
+    requested-timeout-ms: u32,
+  }
+
+  record call-response {
+    result-json: canonical-json,
+    connection-label: string,
+    tool-label: string,
+  }
+
+  record call-error {
+    code: call-error-code,
+    retryable: bool,
+  }
+
+  call-tool: func(request: call-request) -> result<call-response, call-error>;
+}

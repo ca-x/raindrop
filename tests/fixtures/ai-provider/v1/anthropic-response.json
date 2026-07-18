@@ -1,0 +1,20 @@
+{
+  "id": "msg_fixture",
+  "model": "claude-fixture",
+  "content": [
+    {
+      "type": "text",
+      "text": "{\"summary\":\"fixture summary\"}"
+    },
+    {
+      "type": "future_optional_block",
+      "value": "ignored"
+    }
+  ],
+  "stop_reason": "end_turn",
+  "usage": {
+    "input_tokens": 12,
+    "output_tokens": 5
+  },
+  "future_optional_field": true
+}
