@@ -2,7 +2,7 @@
 mod support;
 
 use raindrop::db::{
-    entities::{category, feed, subscription},
+    entities::{category, feed, rss_counter, subscription},
     migrate, rollback,
 };
 use raindrop::feeds::{EntryListState, FeedRepository, ListEntriesQuery, RepositoryError};
@@ -274,10 +274,13 @@ async fn seed_noise(database: &DatabaseConnection) {
         .await
         .expect("noise entry");
     }
-    database
-        .execute_unprepared("UPDATE rss_counters SET value = 1 WHERE key = 'INGEST_GENERATION'")
-        .await
-        .expect("ingest generation should advance");
+    rss_counter::ActiveModel {
+        key: Set("INGEST_GENERATION".to_owned()),
+        value: Set(1),
+    }
+    .update(database)
+    .await
+    .expect("ingest generation should advance");
 }
 
 async fn insert_category(
