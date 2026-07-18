@@ -385,7 +385,7 @@ async fn seed_entry(
         entry_id,
         sequence,
         &identity,
-        &blake3::hash(identity.as_bytes()).to_hex().to_string(),
+        blake3::hash(identity.as_bytes()).to_hex().as_ref(),
         Some(1_800_000_000_000_000 + sequence),
         now,
     );
