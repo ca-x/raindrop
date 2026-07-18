@@ -133,6 +133,9 @@ pub fn entry_model(
         sanitized_content: Set(
             "rdsc:v1:{\"html\":\"<p>Safe content</p>\",\"inertImages\":[]}".to_owned(),
         ),
+        search_text: Set(format!(
+            "entry {feed_sequence} example author safe summary safe content"
+        )),
         summary: Set(Some("Safe summary".to_owned())),
         published_at_us: Set(published_at_us),
         sort_at_us: Set(2_147_483_648_000_001 + feed_sequence),

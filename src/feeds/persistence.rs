@@ -16,7 +16,7 @@ use sea_orm::{
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::content::sanitize::canonical_summary_text;
+use crate::content::{sanitize::canonical_summary_text, search::build_entry_search_text};
 
 use super::lifecycle::{record_completed_event, record_persisted_event};
 use super::{
@@ -159,6 +159,7 @@ pub struct PersistEntry {
     title: Option<String>,
     author: Option<String>,
     sanitized_content: EncodedEntryContent,
+    search_text: String,
     summary: Option<String>,
     published_at_us: Option<i64>,
     source_content_hash: String,
@@ -177,6 +178,13 @@ impl TryFrom<super::ParsedEntry> for PersistEntry {
                     .map_err(|_| RefreshRepositoryError::InvalidTime)
             })
             .transpose()?;
+        let summary = entry.summary.as_deref().and_then(canonical_summary_text);
+        let search_text = build_entry_search_text(
+            entry.title.as_deref(),
+            entry.author.as_deref(),
+            summary.as_deref(),
+            entry.content.html(),
+        );
         let sanitized_content = EncodedEntryContent::from_sanitized(&entry.content)
             .map_err(RefreshRepositoryError::Content)?;
         let enclosure_json = encode_enclosures(&entry.enclosures)?;
@@ -187,7 +195,8 @@ impl TryFrom<super::ParsedEntry> for PersistEntry {
             title: entry.title,
             author: entry.author,
             sanitized_content,
-            summary: entry.summary.as_deref().and_then(canonical_summary_text),
+            search_text,
+            summary,
             published_at_us,
             source_content_hash: hash_hex(entry.source_content_hash),
             content_hash: hash_hex(entry.content_hash),
@@ -209,6 +218,7 @@ impl fmt::Debug for PersistEntry {
             .field("title", &self.title.as_ref().map(|_| "[REDACTED]"))
             .field("author", &self.author.as_ref().map(|_| "[REDACTED]"))
             .field("sanitized_content", &self.sanitized_content)
+            .field("search_text_bytes", &self.search_text.len())
             .field("summary", &self.summary.as_ref().map(|_| "[REDACTED]"))
             .field("published_at_us", &self.published_at_us)
             .field("source_content_hash", &"[PRESENT]")
@@ -573,6 +583,7 @@ struct ExistingEntry {
     title: Option<String>,
     author: Option<String>,
     sanitized_content: String,
+    search_text: String,
     summary: Option<String>,
     published_at_us: Option<i64>,
     source_content_hash: String,
@@ -771,7 +782,7 @@ fn identity_lookup_statement(
     };
     let columns = if full {
         "id, identity_kind, identity, identity_hash, canonical_url, title, author,
-         sanitized_content, summary, published_at_us, source_content_hash, content_hash,
+         sanitized_content, search_text, summary, published_at_us, source_content_hash, content_hash,
          pipeline_version, enclosure_json"
     } else {
         "identity_kind, identity, identity_hash"
@@ -798,6 +809,7 @@ fn decode_existing_entry(row: QueryResult) -> Result<ExistingEntry, RefreshRepos
         title: optional(&row, "title")?,
         author: optional(&row, "author")?,
         sanitized_content: required(&row, "sanitized_content")?,
+        search_text: required(&row, "search_text")?,
         summary: optional(&row, "summary")?,
         published_at_us: optional(&row, "published_at_us")?,
         source_content_hash: required(&row, "source_content_hash")?,
@@ -901,6 +913,7 @@ async fn update_existing_entry<C: ConnectionTrait>(
     let metadata_changed = existing.canonical_url != entry.canonical_url
         || existing.title != entry.title
         || existing.author != entry.author
+        || existing.search_text != entry.search_text
         || existing.summary != entry.summary
         || existing.published_at_us != entry.published_at_us
         || existing.enclosure_json != entry.enclosure_json;
@@ -932,16 +945,18 @@ fn update_entry_metadata_statement(
 ) -> Statement {
     let sql = match backend {
         DatabaseBackend::Sqlite => {
-            "UPDATE entries SET canonical_url=?, title=?, author=?, summary=?, published_at_us=?,
-                enclosure_json=?, updated_at=strftime('%Y-%m-%dT%H:%M:%f000Z','now') WHERE id=?"
+            "UPDATE entries SET canonical_url=?, title=?, author=?, search_text=?, summary=?,
+                published_at_us=?, enclosure_json=?,
+                updated_at=strftime('%Y-%m-%dT%H:%M:%f000Z','now') WHERE id=?"
         }
         DatabaseBackend::Postgres => {
-            "UPDATE entries SET canonical_url=$1, title=$2, author=$3, summary=$4,
-                published_at_us=$5, enclosure_json=$6, updated_at=clock_timestamp() WHERE id=$7"
+            "UPDATE entries SET canonical_url=$1, title=$2, author=$3, search_text=$4,
+                summary=$5, published_at_us=$6, enclosure_json=$7,
+                updated_at=clock_timestamp() WHERE id=$8"
         }
         DatabaseBackend::MySql => {
-            "UPDATE entries SET canonical_url=?, title=?, author=?, summary=?, published_at_us=?,
-                enclosure_json=?, updated_at=UTC_TIMESTAMP(6) WHERE id=?"
+            "UPDATE entries SET canonical_url=?, title=?, author=?, search_text=?, summary=?,
+                published_at_us=?, enclosure_json=?, updated_at=UTC_TIMESTAMP(6) WHERE id=?"
         }
     };
     Statement::from_sql_and_values(
@@ -951,6 +966,7 @@ fn update_entry_metadata_statement(
             entry.canonical_url.as_deref().into(),
             entry.title.as_deref().into(),
             entry.author.as_deref().into(),
+            entry.search_text.as_str().into(),
             entry.summary.as_deref().into(),
             entry.published_at_us.into(),
             entry.enclosure_json.as_deref().into(),
@@ -966,18 +982,19 @@ fn update_entry_with_envelope_statement(
 ) -> Statement {
     let sql = match backend {
         DatabaseBackend::Sqlite => {
-            "UPDATE entries SET canonical_url=?, title=?, author=?, sanitized_content=?, summary=?,
-                published_at_us=?, enclosure_json=?,
+            "UPDATE entries SET canonical_url=?, title=?, author=?, sanitized_content=?,
+                search_text=?, summary=?, published_at_us=?, enclosure_json=?,
                 updated_at=strftime('%Y-%m-%dT%H:%M:%f000Z','now') WHERE id=?"
         }
         DatabaseBackend::Postgres => {
             "UPDATE entries SET canonical_url=$1, title=$2, author=$3, sanitized_content=$4,
-                summary=$5, published_at_us=$6, enclosure_json=$7,
-                updated_at=clock_timestamp() WHERE id=$8"
+                search_text=$5, summary=$6, published_at_us=$7, enclosure_json=$8,
+                updated_at=clock_timestamp() WHERE id=$9"
         }
         DatabaseBackend::MySql => {
-            "UPDATE entries SET canonical_url=?, title=?, author=?, sanitized_content=?, summary=?,
-                published_at_us=?, enclosure_json=?, updated_at=UTC_TIMESTAMP(6) WHERE id=?"
+            "UPDATE entries SET canonical_url=?, title=?, author=?, sanitized_content=?,
+                search_text=?, summary=?, published_at_us=?, enclosure_json=?,
+                updated_at=UTC_TIMESTAMP(6) WHERE id=?"
         }
     };
     Statement::from_sql_and_values(
@@ -988,6 +1005,7 @@ fn update_entry_with_envelope_statement(
             entry.title.as_deref().into(),
             entry.author.as_deref().into(),
             entry.sanitized_content.as_storage_str().into(),
+            entry.search_text.as_str().into(),
             entry.summary.as_deref().into(),
             entry.published_at_us.into(),
             entry.enclosure_json.as_deref().into(),
@@ -1003,19 +1021,21 @@ fn update_entry_with_hashes_statement(
 ) -> Statement {
     let sql = match backend {
         DatabaseBackend::Sqlite => {
-            "UPDATE entries SET canonical_url=?, title=?, author=?, sanitized_content=?, summary=?,
-                published_at_us=?, source_content_hash=?, content_hash=?, pipeline_version=?,
-                enclosure_json=?, updated_at=strftime('%Y-%m-%dT%H:%M:%f000Z','now') WHERE id=?"
+            "UPDATE entries SET canonical_url=?, title=?, author=?, sanitized_content=?,
+                search_text=?, summary=?, published_at_us=?, source_content_hash=?, content_hash=?,
+                pipeline_version=?, enclosure_json=?,
+                updated_at=strftime('%Y-%m-%dT%H:%M:%f000Z','now') WHERE id=?"
         }
         DatabaseBackend::Postgres => {
             "UPDATE entries SET canonical_url=$1, title=$2, author=$3, sanitized_content=$4,
-                summary=$5, published_at_us=$6, source_content_hash=$7, content_hash=$8,
-                pipeline_version=$9, enclosure_json=$10, updated_at=clock_timestamp() WHERE id=$11"
+                search_text=$5, summary=$6, published_at_us=$7, source_content_hash=$8,
+                content_hash=$9, pipeline_version=$10, enclosure_json=$11,
+                updated_at=clock_timestamp() WHERE id=$12"
         }
         DatabaseBackend::MySql => {
-            "UPDATE entries SET canonical_url=?, title=?, author=?, sanitized_content=?, summary=?,
-                published_at_us=?, source_content_hash=?, content_hash=?, pipeline_version=?,
-                enclosure_json=?, updated_at=UTC_TIMESTAMP(6) WHERE id=?"
+            "UPDATE entries SET canonical_url=?, title=?, author=?, sanitized_content=?,
+                search_text=?, summary=?, published_at_us=?, source_content_hash=?, content_hash=?,
+                pipeline_version=?, enclosure_json=?, updated_at=UTC_TIMESTAMP(6) WHERE id=?"
         }
     };
     Statement::from_sql_and_values(
@@ -1026,6 +1046,7 @@ fn update_entry_with_hashes_statement(
             entry.title.as_deref().into(),
             entry.author.as_deref().into(),
             entry.sanitized_content.as_storage_str().into(),
+            entry.search_text.as_str().into(),
             entry.summary.as_deref().into(),
             entry.published_at_us.into(),
             entry.source_content_hash.as_str().into(),
@@ -1096,7 +1117,7 @@ fn insert_entry_batch_statement(
     generation: i64,
     entries: &[NewEntryInsert<'_>],
 ) -> Statement {
-    let mut values = Vec::with_capacity(entries.len() * 19);
+    let mut values = Vec::with_capacity(entries.len() * 20);
     let value_rows = entries
         .iter()
         .enumerate()
@@ -1108,9 +1129,9 @@ fn insert_entry_batch_statement(
         .join(",");
     let sql = format!(
         "INSERT INTO entries (id,feed_id,feed_sequence,ingest_generation,identity_kind,identity,
-            identity_hash,canonical_url,title,author,sanitized_content,summary,published_at_us,
-            sort_at_us,inserted_at,updated_at,source_content_hash,content_hash,pipeline_version,
-            direction,enclosure_json) VALUES {value_rows}"
+            identity_hash,canonical_url,title,author,sanitized_content,search_text,summary,
+            published_at_us,sort_at_us,inserted_at,updated_at,source_content_hash,content_hash,
+            pipeline_version,direction,enclosure_json) VALUES {value_rows}"
     );
     Statement::from_sql_and_values(backend, sql, values)
 }
@@ -1118,18 +1139,18 @@ fn insert_entry_batch_statement(
 fn insert_entry_value_row(backend: DbBackend, row_index: usize) -> String {
     match backend {
         DatabaseBackend::Sqlite => {
-            "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,strftime('%Y-%m-%dT%H:%M:%f000Z','now'),strftime('%Y-%m-%dT%H:%M:%f000Z','now'),?,?,?,?,?)".to_owned()
+            "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,strftime('%Y-%m-%dT%H:%M:%f000Z','now'),strftime('%Y-%m-%dT%H:%M:%f000Z','now'),?,?,?,?,?)".to_owned()
         }
         DatabaseBackend::MySql => {
-            "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),?,?,?,?,?)".to_owned()
+            "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),?,?,?,?,?)".to_owned()
         }
         DatabaseBackend::Postgres => {
-            let first = row_index * 19 + 1;
-            let placeholders = (first..first + 19)
+            let first = row_index * 20 + 1;
+            let placeholders = (first..first + 20)
                 .map(|index| format!("${index}"))
                 .collect::<Vec<_>>();
             format!(
-                "({},{},{},{},{},{},{},{},{},{},{},{},{},{},clock_timestamp(),clock_timestamp(),{},{},{},{},{})",
+                "({},{},{},{},{},{},{},{},{},{},{},{},{},{},{},clock_timestamp(),clock_timestamp(),{},{},{},{},{})",
                 placeholders[0],
                 placeholders[1],
                 placeholders[2],
@@ -1149,6 +1170,7 @@ fn insert_entry_value_row(backend: DbBackend, row_index: usize) -> String {
                 placeholders[16],
                 placeholders[17],
                 placeholders[18],
+                placeholders[19],
             )
         }
     }
@@ -1173,6 +1195,7 @@ fn append_insert_entry_values(
         entry.title.as_deref().into(),
         entry.author.as_deref().into(),
         entry.sanitized_content.as_storage_str().into(),
+        entry.search_text.as_str().into(),
         entry.summary.as_deref().into(),
         entry.published_at_us.into(),
         pending.sort_at_us.into(),
@@ -1193,13 +1216,13 @@ async fn find_entry_by_identity_hash<C: ConnectionTrait>(
     let sql = match backend {
         DatabaseBackend::Postgres => {
             "SELECT id, identity_kind, identity, identity_hash, canonical_url, title, author,
-                sanitized_content, summary, published_at_us, source_content_hash, content_hash,
+                sanitized_content, search_text, summary, published_at_us, source_content_hash, content_hash,
                 pipeline_version, enclosure_json FROM entries
              WHERE feed_id=$1 AND identity_hash=$2"
         }
         DatabaseBackend::Sqlite | DatabaseBackend::MySql => {
             "SELECT id, identity_kind, identity, identity_hash, canonical_url, title, author,
-                sanitized_content, summary, published_at_us, source_content_hash, content_hash,
+                sanitized_content, search_text, summary, published_at_us, source_content_hash, content_hash,
                 pipeline_version, enclosure_json FROM entries
              WHERE feed_id=? AND identity_hash=?"
         }
@@ -1458,9 +1481,9 @@ mod tests {
         let first = insert_entry_value_row(DatabaseBackend::Postgres, 0);
         let last = insert_entry_value_row(DatabaseBackend::Postgres, 31);
         assert!(first.starts_with("($1,$2,$3"));
-        assert!(first.ends_with("$17,$18,$19)"));
-        assert!(last.starts_with("($590,$591,$592"));
-        assert!(last.ends_with("$606,$607,$608)"));
-        assert!(!last.contains("$609"));
+        assert!(first.ends_with("$18,$19,$20)"));
+        assert!(last.starts_with("($621,$622,$623"));
+        assert!(last.ends_with("$638,$639,$640)"));
+        assert!(!last.contains("$641"));
     }
 }

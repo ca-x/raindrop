@@ -457,6 +457,7 @@ async fn seed_entry(
         title: Set(Some("Retention entry".to_owned())),
         author: Set(None),
         sanitized_content: Set("rdsc:v1:{\"html\":\"<p>Safe</p>\",\"inertImages\":[]}".to_owned()),
+        search_text: Set("retention entry safe".to_owned()),
         summary: Set(None),
         published_at_us: Set(None),
         sort_at_us: Set(1),

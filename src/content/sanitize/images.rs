@@ -103,6 +103,80 @@ pub(super) fn extract_text(html: &str) -> String {
     tokenizer.sink.text.into_inner()
 }
 
+struct SearchTextSink {
+    text: RefCell<String>,
+}
+
+impl TokenSink for SearchTextSink {
+    type Handle = ();
+
+    fn process_token(&self, token: Token, _line_number: u64) -> TokenSinkResult<Self::Handle> {
+        match token {
+            Token::CharacterTokens(characters) => self.text.borrow_mut().push_str(&characters),
+            TagToken(tag) if is_search_text_boundary(tag.name.as_ref()) => {
+                self.text.borrow_mut().push(' ');
+            }
+            _ => {}
+        }
+        TokenSinkResult::Continue
+    }
+}
+
+pub(super) fn extract_search_text(html: &str) -> String {
+    let input = BufferQueue::default();
+    input.push_back(StrTendril::from(html));
+    let tokenizer = Tokenizer::new(
+        SearchTextSink {
+            text: RefCell::new(String::new()),
+        },
+        TokenizerOpts::default(),
+    );
+    let _ = tokenizer.feed(&input);
+    tokenizer.end();
+    tokenizer.sink.text.into_inner()
+}
+
+fn is_search_text_boundary(name: &str) -> bool {
+    matches!(
+        name,
+        "address"
+            | "article"
+            | "aside"
+            | "blockquote"
+            | "br"
+            | "dd"
+            | "div"
+            | "dl"
+            | "dt"
+            | "figcaption"
+            | "figure"
+            | "footer"
+            | "h1"
+            | "h2"
+            | "h3"
+            | "h4"
+            | "h5"
+            | "h6"
+            | "header"
+            | "hr"
+            | "li"
+            | "main"
+            | "nav"
+            | "ol"
+            | "p"
+            | "pre"
+            | "section"
+            | "table"
+            | "tbody"
+            | "td"
+            | "tfoot"
+            | "th"
+            | "thead"
+            | "tr"
+            | "ul"
+    )
+}
+
 struct ValidationSink {
     error: RefCell<Option<SanitizeError>>,
 }

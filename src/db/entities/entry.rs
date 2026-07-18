@@ -16,6 +16,7 @@ pub struct Model {
     pub title: Option<String>,
     pub author: Option<String>,
     pub sanitized_content: String,
+    pub search_text: String,
     pub summary: Option<String>,
     pub published_at_us: Option<i64>,
     pub sort_at_us: i64,

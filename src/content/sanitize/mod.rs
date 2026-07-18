@@ -5,7 +5,7 @@ mod policy;
 use std::{error::Error, fmt};
 
 pub(crate) use hash::{content_hash, source_content_hash};
-use images::{extract_images, extract_text, validate_image_metadata};
+use images::{extract_images, extract_search_text, extract_text, validate_image_metadata};
 use policy::sanitize_html;
 
 const MAX_FINAL_HTML_BYTES: usize = 1024 * 1024;
@@ -230,6 +230,10 @@ pub(crate) fn canonical_summary_text(input: &str) -> Option<String> {
         }
     }
     (!normalized.is_empty()).then_some(normalized)
+}
+
+pub(crate) fn extract_rendered_text(input: &str) -> String {
+    extract_search_text(input)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

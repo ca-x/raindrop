@@ -91,6 +91,7 @@ async fn rss_schema_contract(database_url: SecretString) {
     assert_expected_indexes(&database).await;
     assert_operational_timestamp_schema(&database).await;
     assert_entry_storage_physical_schema(&database).await;
+    assert_entry_search_schema(&database).await;
     assert_feed_metadata_schema(&database).await;
     assert_lifecycle_outbox_schema(&database).await;
     assert_multiple_pool_connections_use_utc(&database).await;
@@ -195,6 +196,7 @@ async fn rss_schema_contract(database_url: SecretString) {
     assert!(EntryContentDetail::decode(&after_2038.sanitized_content).is_ok());
 
     assert_entry_storage_reentry(&database).await;
+    assert_entry_search_reentry(&database).await;
 
     assert!(
         insert_entry_state(&database, USER_B_ID, 1, ROUNDTRIP_AT)
@@ -288,6 +290,7 @@ async fn rss_schema_contract(database_url: SecretString) {
         .await
         .unwrap_or_else(|_| panic!("RSS migrations should reapply after rollback"));
     assert_feed_metadata_schema(&database).await;
+    assert_entry_search_schema(&database).await;
     assert_lifecycle_outbox_schema(&database).await;
     rollback(&database)
         .await
@@ -378,6 +381,79 @@ async fn assert_entry_storage_reentry(database: &DatabaseConnection) {
     }
 }
 
+async fn assert_entry_search_reentry(database: &DatabaseConnection) {
+    let mut batch_ids = Vec::new();
+    for index in 0..33_i64 {
+        let id = format!("20000000-0000-4000-8000-{index:012}");
+        let mut model = entry_model(
+            &id,
+            index + 200,
+            &format!("search-batch-{index}"),
+            &format!("{:064x}", index + 200),
+            None,
+            ROUNDTRIP_AT,
+        );
+        model.title = Set(Some(format!("Search Title {index}")));
+        model.author = Set(Some("Writer".to_owned()));
+        model.summary = Set(Some("Alpha".to_owned()));
+        model.sanitized_content = Set(format!(
+            "rdsc:v1:{{\"html\":\"<p>Search ΓΕΙΑ {index}</p>\",\"inertImages\":[]}}"
+        ));
+        model.search_text = Set(String::new());
+        model
+            .insert(database)
+            .await
+            .expect("search backfill fixture should insert");
+        batch_ids.push((id, index));
+    }
+    database
+        .execute(Statement::from_sql_and_values(
+            database.get_database_backend(),
+            match database.get_database_backend() {
+                DatabaseBackend::Postgres => "UPDATE entries SET search_text = $1 WHERE id = $2",
+                DatabaseBackend::Sqlite | DatabaseBackend::MySql => {
+                    "UPDATE entries SET search_text = ? WHERE id = ?"
+                }
+            },
+            ["stale projection".into(), ENTRY_A_ID.into()],
+        ))
+        .await
+        .expect("stale entry search fixture should update");
+
+    delete_migration_marker(database, "entry_search").await;
+    migrate(database)
+        .await
+        .expect("entry search migration should recover partial work");
+
+    let entry = entry::Entity::find_by_id(ENTRY_A_ID)
+        .one(database)
+        .await
+        .expect("reprojected entry should query")
+        .expect("reprojected entry should exist");
+    assert_eq!(
+        entry.search_text,
+        "entry 1 example author safe summary rdsc:notes"
+    );
+    for (id, index) in &batch_ids {
+        let entry = entry::Entity::find_by_id(id)
+            .one(database)
+            .await
+            .expect("search batch entry should query")
+            .expect("search batch entry should exist");
+        assert_eq!(
+            entry.search_text,
+            format!("search title {index} writer alpha search γεια {index}")
+        );
+    }
+    assert_entry_search_schema(database).await;
+    for (id, _) in batch_ids {
+        entry::Entity::delete_by_id(id)
+            .exec(database)
+            .await
+            .expect("search batch entry should delete");
+    }
+}
+
 async fn assert_entry_storage_down_is_fail_closed(database: &DatabaseConnection) {
     if database.get_database_backend() == DatabaseBackend::MySql {
         database
@@ -457,6 +533,36 @@ async fn assert_entry_storage_physical_schema(database: &DatabaseConnection) {
     let medium_count: i64 = row.try_get("", "medium_count").expect("MEDIUMTEXT count");
     assert_eq!(long_count, 1);
     assert_eq!(medium_count, 5);
+}
+
+async fn assert_entry_search_schema(database: &DatabaseConnection) {
+    let manager = SchemaManager::new(database);
+    assert!(
+        manager
+            .has_column("entries", "search_text")
+            .await
+            .expect("entry search column should query")
+    );
+    if database.get_database_backend() != DatabaseBackend::MySql {
+        return;
+    }
+    let row = database
+        .query_one(Statement::from_string(
+            DatabaseBackend::MySql,
+            "SELECT CAST(COUNT(*) AS SIGNED) AS matching_count
+             FROM information_schema.columns
+             WHERE table_schema = DATABASE() AND table_name = 'entries'
+               AND column_name = 'search_text' AND data_type = 'text'
+               AND is_nullable = 'NO'"
+                .to_owned(),
+        ))
+        .await
+        .expect("MySQL entry search column should query")
+        .expect("MySQL entry search column count should exist");
+    let matching_count: i64 = row
+        .try_get("", "matching_count")
+        .expect("MySQL entry search column count");
+    assert_eq!(matching_count, 1);
 }
 
 async fn assert_feed_metadata_schema(database: &DatabaseConnection) {

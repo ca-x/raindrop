@@ -725,6 +725,7 @@ async fn sqlite_tracking_image_source_and_content_changes_have_distinct_update_s
     );
     assert_eq!(image_changed.content_hash, original.content_hash);
     assert_ne!(image_changed.sanitized_content, original.sanitized_content);
+    assert_eq!(image_changed.search_text, original.search_text);
 
     let content = persist_one(
         &repository,
@@ -752,6 +753,8 @@ async fn sqlite_tracking_image_source_and_content_changes_have_distinct_update_s
         original.source_content_hash
     );
     assert_ne!(content_changed.content_hash, original.content_hash);
+    assert_ne!(content_changed.search_text, original.search_text);
+    assert!(content_changed.search_text.contains("different"));
 
     database.close().await.expect("database should close");
 }
@@ -1420,6 +1423,7 @@ async fn sqlite_stable_guid_metadata_change_updates_existing_row() {
         .await
         .expect("first metadata input should persist");
     let before = only_entry(&database).await;
+    assert!(before.search_text.contains("first title"));
 
     let second_claim = claim_refresh(&repository, "metadata-second").await;
     let result = repository
@@ -1454,6 +1458,8 @@ async fn sqlite_stable_guid_metadata_change_updates_existing_row() {
     assert_eq!(after.sanitized_content, before.sanitized_content);
     assert_eq!(after.source_content_hash, before.source_content_hash);
     assert_eq!(after.content_hash, before.content_hash);
+    assert!(after.search_text.contains("second title"));
+    assert!(!after.search_text.contains("first title"));
 
     database.close().await.expect("database should close");
 }

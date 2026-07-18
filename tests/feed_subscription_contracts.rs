@@ -2006,6 +2006,7 @@ fn entry_model(id: &str, feed_sequence: i64) -> entry::ActiveModel {
         title: Set(Some(format!("Entry {feed_sequence}"))),
         author: Set(None),
         sanitized_content: Set("rdsc:v1:{\"html\":\"<p>Safe</p>\",\"inertImages\":[]}".to_owned()),
+        search_text: Set(format!("entry {feed_sequence} safe")),
         summary: Set(None),
         published_at_us: Set(Some(1_752_667_200_000_000 + feed_sequence)),
         sort_at_us: Set(1_752_667_200_000_000 + feed_sequence),

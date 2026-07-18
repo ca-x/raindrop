@@ -43,12 +43,12 @@
 - Produces `normalize_search_query(raw) -> Result<NormalizedSearch, SearchQueryError>`.
 - Produces `entries.search_text` with a 60 KiB projection and 32-row re-entrant backfill.
 
-- [ ] Write RED unit tests for rendered text extraction, Unicode lowercase, whitespace collapse, field priority, literal `%/_`, duplicate terms, eight-term limit, 128-byte query limit, and UTF-8-safe 60 KiB truncation.
-- [ ] Write migration RED tests requiring the column, deterministic backfill, more than one keyset batch, migration-marker re-entry, and rollback.
-- [ ] Implement the content search builder and typed query normalizer without adding dependencies.
-- [ ] Add the schema migration, register it after existing Entry storage migrations, and add the entity field.
-- [ ] Populate `search_text` for new Entries and every metadata/envelope/hash update path. Include it in existing-entry load comparisons so projection repair is deterministic.
-- [ ] Update shared test ActiveModels and persistence assertions.
+- [x] Write RED unit tests for rendered text extraction, Unicode lowercase, whitespace collapse, field priority, literal `%/_`, duplicate terms, eight-term limit, 128-byte query limit, and UTF-8-safe 60 KiB truncation.
+- [x] Write migration RED tests requiring the column, deterministic backfill, more than one keyset batch, migration-marker re-entry, and rollback.
+- [x] Implement the content search builder and typed query normalizer without adding dependencies.
+- [x] Add the schema migration, register it after existing Entry storage migrations, and add the entity field.
+- [x] Populate `search_text` for new Entries and every metadata/envelope/hash update path. Include it in existing-entry load comparisons so projection repair is deterministic.
+- [x] Update shared test ActiveModels and persistence assertions.
 - [ ] Verify:
 
 ```bash
@@ -59,7 +59,7 @@ cargo test --locked --test feed_entry_persistence search_text -- --nocapture
 git diff --check
 ```
 
-- [ ] Commit and push: `feat: project searchable entry text`.
+- [x] Commit and push: `feat: project searchable entry text`.
 
 ### Task 2: Feed-local search repository and API contract
 

@@ -1,5 +1,6 @@
 pub mod counters;
 pub mod entries;
+pub mod entry_search;
 pub mod entry_states;
 pub mod entry_storage;
 pub mod feed_metadata;
