@@ -1,4 +1,5 @@
 mod anthropic;
+mod client;
 mod gemini;
 mod model;
 mod openai_chat;
@@ -9,6 +10,7 @@ mod transport;
 mod types;
 mod validation;
 
+pub use client::{ProviderCallError, ProviderCallErrorKind, ProviderClient};
 pub use model::{
     CreateProvider, ProviderBinding, ProviderCapabilities, ProviderCoreError,
     ProviderCoreErrorKind, ProviderEndpoint, ProviderMetadata, ProviderPolicy, ProviderScope,

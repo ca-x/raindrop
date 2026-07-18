@@ -42,7 +42,8 @@ pub struct ProviderTransportError {
 }
 
 impl ProviderTransportError {
-    pub(super) fn new(provider_id: &str, kind: ProviderTransportErrorKind) -> Self {
+    #[must_use]
+    pub fn new(provider_id: &str, kind: ProviderTransportErrorKind) -> Self {
         Self {
             provider_id: provider_id.to_owned(),
             kind,
@@ -52,7 +53,8 @@ impl ProviderTransportError {
         }
     }
 
-    pub(super) fn timeout(provider_id: &str, stage: ProviderTimeoutStage) -> Self {
+    #[must_use]
+    pub fn timeout(provider_id: &str, stage: ProviderTimeoutStage) -> Self {
         let mut error = Self::new(provider_id, ProviderTransportErrorKind::Timeout);
         error.stage = Some(stage);
         error
@@ -141,6 +143,13 @@ pub struct ProviderRetryAfter {
 }
 
 impl ProviderRetryAfter {
+    #[must_use]
+    pub fn from_deadline(at: OffsetDateTime) -> Self {
+        Self {
+            at: at.to_offset(UtcOffset::UTC),
+        }
+    }
+
     pub(super) fn parse(raw: &HeaderValue, received_at: OffsetDateTime) -> Result<Self, ()> {
         let bytes = trim_optional_whitespace(raw.as_bytes());
         if bytes.is_empty() {
@@ -182,7 +191,7 @@ pub struct ProviderTransportResponse {
 }
 
 impl ProviderTransportResponse {
-    pub(super) const fn new(
+    pub const fn new(
         status: StatusCode,
         body: Vec<u8>,
         retry_after: Option<ProviderRetryAfter>,

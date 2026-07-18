@@ -203,7 +203,7 @@ cargo clippy --locked --all-targets --all-features -- -D warnings
 git diff --check
 ```
 
-- [ ] Explicitly stage only transport files and module export; commit and push `feat: execute ai providers through pinned https`.
+- [x] Explicitly stage only transport files and module export; commit and push `feat: execute ai providers through pinned https`.
 
 ### Task 6: Provider client composition and stable call errors
 
@@ -219,13 +219,13 @@ git diff --check
 - Consumes `ProviderBinding`, existing adapter encode/decode methods, and Task 5 transport.
 - Returns only the existing `StructuredGenerationResponse`; provider wire data does not escape.
 
-- [ ] Write a recording fake transport that captures only safe request facts in assertions and returns the eight existing provider fixture bodies/statuses. Never implement `Debug` for the fake captured secret headers.
-- [ ] Add four success tests proving each binding uses its immutable kind/default or prefixed endpoint, exact adapter path/header/body, configured model, and canonical decoder result.
-- [ ] Add rejection tests for request model mismatch, policy output-token overflow, invalid credential header bytes, disabled/corrupt binding construction barriers, transport timeout/network/redirect/peer/body errors, adapter authentication/rate/rejected/upstream/malformed/schema errors, and retry deadline propagation.
-- [ ] Implement `ProviderClient::generate`: validate binding/request match, call `kind.encode_request(request, credential.clone())`, invoke transport once, then call `kind.decode_response(binding.model(), status, body)`. Map errors without retaining encoded request/response.
-- [ ] Implement stable call kinds `InvalidRequest`, `RequestTooLarge`, `Transport`, `Timeout`, `Authentication`, `RateLimited`, `Rejected`, `Upstream`, `ResponseTooLarge`, `MalformedResponse`, and `OutputSchemaInvalid`. `Debug`/`Display` contain no endpoint, model, secret, request, response, prompt, schema, or output.
-- [ ] Add a source-boundary test proving provider wire keys remain confined to adapter modules/tests/fixtures and transport does not branch on provider names beyond `ProviderKind` dispatch.
-- [ ] Verify:
+- [x] Write a recording fake transport that captures only safe request facts in assertions and returns the eight existing provider fixture bodies/statuses. Never implement `Debug` for the fake captured secret headers.
+- [x] Add four success tests proving each binding uses its immutable kind/default or prefixed endpoint, exact adapter path/header/body, configured model, and canonical decoder result.
+- [x] Add rejection tests for request model mismatch, policy output-token overflow, invalid credential header bytes, disabled/corrupt binding construction barriers, transport timeout/network/redirect/peer/body errors, adapter authentication/rate/rejected/upstream/malformed/schema errors, and retry deadline propagation.
+- [x] Implement `ProviderClient::generate`: validate binding/request match, call `kind.encode_request(request, credential.clone())`, invoke transport once, then call `kind.decode_response(binding.model(), status, body)`. Map errors without retaining encoded request/response.
+- [x] Implement stable call kinds `InvalidRequest`, `RequestTooLarge`, `Transport`, `Timeout`, `Authentication`, `RateLimited`, `Rejected`, `Upstream`, `ResponseTooLarge`, `MalformedResponse`, and `OutputSchemaInvalid`. `Debug`/`Display` contain no endpoint, model, secret, request, response, prompt, schema, or output.
+- [x] Add a source-boundary test proving provider wire keys remain confined to adapter modules/tests/fixtures and transport does not branch on provider names beyond `ProviderKind` dispatch.
+- [x] Verify:
 
 ```bash
 cargo fmt --check
