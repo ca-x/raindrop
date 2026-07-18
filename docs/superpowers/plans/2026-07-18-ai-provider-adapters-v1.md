@@ -126,8 +126,8 @@ git diff --check
 **Interfaces:**
 - Produces exact local/CI evidence and points the next AI slice at provider storage plus SSRF-safe transport.
 
-- [ ] Run a source-boundary scan proving provider wire keys and credential header names do not escape `src/content/provider`, its integration test, or its fixtures.
-- [ ] Run fresh full gates:
+- [x] Run a source-boundary scan proving provider wire keys and credential header names do not escape `src/content/provider`, its integration test, or its fixtures.
+- [x] Run fresh full gates:
 
 ```bash
 cargo fmt --check
@@ -136,9 +136,9 @@ cargo test --locked --all-features
 git diff --check
 ```
 
-- [ ] Record exact test counts, redaction evidence, fixture inventory, commits, explicit remaining work, and existing advisories in `.superpowers/sdd/ai-provider-adapters-v1-report.md`.
-- [ ] Update `tasks/plan.md` to name provider storage and SSRF-safe execution as the next AI slice. Keep the AI/plugin/MCP todo items unchecked because no user-visible plugin operation exists yet.
-- [ ] Commit and push: `test: verify ai provider adapters`.
+- [x] Record exact test counts, redaction evidence, fixture inventory, commits, explicit remaining work, and existing advisories in `.superpowers/sdd/ai-provider-adapters-v1-report.md`.
+- [x] Update `tasks/plan.md` to name provider storage and SSRF-safe execution as the next AI slice. Keep the AI/plugin/MCP todo items unchecked because no user-visible plugin operation exists yet.
+- [x] Commit and push: `test: verify ai provider adapters`.
 - [ ] Monitor the triggered CI only for concrete failures; append the successful run to the report and push a `[skip ci]` closeout.
 
 ## Plan self-review
