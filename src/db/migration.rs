@@ -4,6 +4,7 @@ use sea_orm_migration::prelude::*;
 use super::DbError;
 
 mod bootstrap_state;
+mod organization;
 mod rss;
 
 pub async fn migrate(database: &DatabaseConnection) -> Result<(), DbError> {
@@ -44,6 +45,7 @@ impl MigratorTrait for Migrator {
             Box::new(rss::entry_storage::EntryStorage),
             Box::new(rss::feed_metadata::FeedMetadata),
             Box::new(rss::outbox::CreateLifecycleOutbox),
+            Box::new(organization::CreateOrganizationTables),
         ]
     }
 }

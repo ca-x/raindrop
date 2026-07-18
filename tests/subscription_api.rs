@@ -360,6 +360,7 @@ async fn seed_subscription_quota(database: &DatabaseConnection) {
             id: Set(subscription_id),
             user_id: Set(USER_A_ID.to_owned()),
             feed_id: Set(feed_id),
+            category_id: Set(None),
             title_override: Set(None),
             position: Set(0),
             start_sequence: Set(0),

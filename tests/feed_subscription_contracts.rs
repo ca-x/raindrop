@@ -1841,6 +1841,7 @@ fn subscription_model(
         id: Set(id.to_owned()),
         user_id: Set(user_id.to_owned()),
         feed_id: Set(feed_id.to_owned()),
+        category_id: Set(None),
         title_override: Set(title_override.map(str::to_owned)),
         position: Set(0),
         start_sequence: Set(0),

@@ -36,7 +36,7 @@
 - Produces `categories(id, user_id, title, normalized_title, position, created_at, updated_at)` and nullable `subscriptions.category_id`.
 - Produces `category::Model` and additive `subscription::Model.category_id: Option<String>` used by all later tasks.
 
-- [ ] **Step 1: Write the migration RED contract**
+- [x] **Step 1: Write the migration RED contract**
 
 Add a SQLite contract that migrates twice, asserts the category indexes/foreign keys, inserts two users and categories, rejects duplicate normalized titles per user, assigns a subscription, deletes the category, and proves the subscription survives with `category_id = NULL`. Include opt-in PostgreSQL/MySQL entry points using `RAINDROP_TEST_POSTGRES_URL` and `RAINDROP_TEST_MYSQL_URL`.
 
@@ -48,13 +48,13 @@ async fn sqlite_organization_schema_contract() {
 }
 ```
 
-- [ ] **Step 2: Run the focused test and confirm RED**
+- [x] **Step 2: Run the focused test and confirm RED**
 
 Run: `cargo test --locked --all-features --test organization_migrations`
 
 Expected: compile failure because `entities::category` and `subscription.category_id` do not exist.
 
-- [ ] **Step 3: Implement the additive migration and entities**
+- [x] **Step 3: Implement the additive migration and entities**
 
 Append `CreateOrganizationTables` after the current RSS migrations. Create category indexes `uq_categories_user_normalized_title` and `idx_categories_user_position`; add `category_id`, FK `fk_subscriptions_category` with `ON DELETE SET NULL`, and `idx_subscriptions_user_category_position`.
 
@@ -70,17 +70,17 @@ pub struct Model {
 }
 ```
 
-- [ ] **Step 4: Update shared fixtures and all ActiveModels**
+- [x] **Step 4: Update shared fixtures and all ActiveModels**
 
 Set `category_id: Set(None)` in `tests/support/database.rs` and every direct `subscription::ActiveModel` literal found by `rg -n "subscription::ActiveModel" src tests`.
 
-- [ ] **Step 5: Verify migration contracts**
+- [x] **Step 5: Verify migration contracts**
 
 Run: `cargo test --locked --all-features --test organization_migrations --test rss_migrations --test database_migrations`
 
 Expected: all tests pass; external database contracts skip only when their URLs are absent.
 
-- [ ] **Step 6: Commit and push**
+- [x] **Step 6: Commit and push**
 
 ```bash
 git add src/db/migration.rs src/db/migration/organization.rs src/db/entities.rs src/db/entities/category.rs src/db/entities/subscription.rs tests/organization_migrations.rs tests/support/database.rs

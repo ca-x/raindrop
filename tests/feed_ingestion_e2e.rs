@@ -287,6 +287,7 @@ async fn two_users_securely_ingest_share_query_and_deduplicate_sixty_entries() {
             id: Set(Uuid::new_v4().to_string()),
             user_id: Set(user_id),
             feed_id: Set(first_subscription.subscription.feed_id.clone()),
+            category_id: Set(None),
             title_override: Set(None),
             position: Set(0),
             start_sequence: Set(60),
