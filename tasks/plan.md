@@ -2,9 +2,9 @@
 
 权威设计规格：`docs/superpowers/specs/2026-07-16-raindrop-design.md`。
 
-当前详细计划：`docs/superpowers/plans/2026-07-19-official-ai-plugin-contract-registry-core-v1.md`。
+当前详细计划：`docs/superpowers/plans/2026-07-19-wasmtime-component-host-core-v1.md`。
 
-当前进展：Refresh Observability v1 已由 CI run `29646491921` 验证，AI Provider Adapters v1 已由 CI run `29648253330` 验证，AI Provider Core v1 已由 CI run `29652502840` 验证，Content Jobs / Artifacts Core v1 已由 CI run `29655164960` 验证，Official AI Plugin Contract / Registry Core v1 已由 CI run `29657539274` 验证。当前插件核心包含可解析的版本化 WIT、官方 manifest/config/artifact/lifecycle 合同、组件 SHA-256 + Ed25519 验证、四张三数据库插件注册表以及 tenant-safe config/grant/KV 仓储。下一真实依赖是 Wasmtime Component Host / Broker Composition v1，再实现官方 `raindrop.ai-content` 组件、摘要/翻译 worker、lifecycle dispatcher、MCP 和 Reader sidecar。在这些能力真正接通前，AI、插件和 MCP 总任务继续保持未完成。OIDC、OPML、排序/阅读游标和真实 `v*` 发布 smoke 仍保留在后续任务。
+当前进展：Refresh Observability v1 已由 CI run `29646491921` 验证，AI Provider Adapters v1 已由 CI run `29648253330` 验证，AI Provider Core v1 已由 CI run `29652502840` 验证，Content Jobs / Artifacts Core v1 已由 CI run `29655164960` 验证，Official AI Plugin Contract / Registry Core v1 已由 CI run `29657539274` 验证，Wasmtime Component Host Core v1 已由 CI run `29663971184` 验证。生成式 Component Model bindings、verified binary compilation、无 ambient WASI 的 exact linker、fresh Store、descriptor gate、AI/MCP capability session，以及 fuel/memory/epoch/request/output 限制均已落地。下一真实依赖是官方 `raindrop.ai-content` 组件与 ProviderClient broker composition，再接入摘要/翻译 worker、lifecycle dispatcher、MCP transport 和 Reader sidecar。在这些能力真正接通前，AI、插件生态和 MCP 总任务继续保持未完成。OIDC、OPML、排序/阅读游标和真实 `v*` 发布 smoke 仍保留在后续任务。
 
 ## 依赖顺序
 

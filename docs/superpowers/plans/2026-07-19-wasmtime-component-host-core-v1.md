@@ -6,7 +6,7 @@
 
 **Architecture:** Generated bindings consume the committed WIT. A single hardened engine compiles only verified bundled binary components, while every invocation receives a fresh limited Store, exact linker, descriptor gate, capability session, fuel, and paused-host-time epoch budget. Broker traits remain capability abstractions; no provider or MCP transport is called in this slice.
 
-**Tech Stack:** Rust 2024 / Rust 1.94, Wasmtime 46.0.1, Tokio, async-trait, Serde JSON, ring SHA-256, wit-component 0.253.0 test fixtures.
+**Tech Stack:** Rust 2024 / Rust 1.94, Wasmtime 46.0.1, Tokio, async-trait, Serde JSON, ring SHA-256, wit-component/wasmprinter 0.253.0 and wat 1.253.0 test fixtures.
 
 ## Global Constraints
 
@@ -28,9 +28,9 @@
 - Consumes: official AI plugin parent design and completed contract/registry core.
 - Produces: exact dependency/features, limits, broker boundary, tests, and completion gates.
 
-- [ ] Run placeholder and `git diff --check` scans.
-- [ ] Reconcile every parent resource limit and sandbox requirement with Tasks 2-5.
-- [ ] Commit exact documents as `docs: design wasmtime component host core` and push.
+- [x] Run placeholder and `git diff --check` scans.
+- [x] Reconcile every parent resource limit and sandbox requirement with Tasks 2-5.
+- [x] Commit exact documents as `docs: design wasmtime component host core` and push.
 
 ### Task 2: Add Wasmtime dependency and generated bindings
 
@@ -46,13 +46,13 @@
 - Consumes: `contracts/wit/raindrop-content-plugin-v1`.
 - Produces: generated async typed bindings and compile-time names used by later tasks.
 
-- [ ] Write a red test importing the generated package/world and checking host/guest type identity.
-- [ ] Run `cargo test --test plugin_runtime_bindings`; expect missing runtime bindings.
-- [ ] Add exact Wasmtime 46.0.1 with only `async,call-hook,component-model,component-model-async,cranelift,runtime,std`.
-- [ ] Add `wit-component 0.253.0` with `dummy-module` and `wasmprinter 0.253.0` as dev dependencies.
-- [ ] Generate bindings with async/trappable imports and async exports.
-- [ ] Run the binding test, Clippy, and feature-tree assertion.
-- [ ] Commit as `feat: generate plugin runtime bindings` and push.
+- [x] Write a red test importing the generated package/world and checking host/guest type identity.
+- [x] Run `cargo test --test plugin_runtime_bindings`; expect missing runtime bindings.
+- [x] Add exact Wasmtime 46.0.1 with only `async,call-hook,component-model,component-model-async,cranelift,runtime,std`.
+- [x] Add `wit-component 0.253.0` with `dummy-module` and `wasmprinter 0.253.0` as dev dependencies.
+- [x] Generate bindings with async/trappable imports and async exports.
+- [x] Run the binding test, Clippy, and feature-tree assertion.
+- [x] Commit as `feat: generate plugin runtime bindings` and push.
 
 ### Task 3: Implement hardened engine and verified component compilation
 
@@ -69,11 +69,11 @@
 - Consumes: `BundledOfficialPlugin`, component bytes, generated WIT world.
 - Produces: `PluginRuntime::new`, `CompiledPlugin::compile`, stable `PluginRuntimeErrorKind`, deterministic component fixture helpers.
 
-- [ ] Red-test exact signed component compile, digest mismatch, empty/oversized input, malformed component, and WAT rejection.
-- [ ] Configure component async/fuel/epoch/cranelift engine and 10 ms epoch task.
-- [ ] Recompute SHA-256 before `Component::from_binary`; never use unsafe deserialize or WAT parsing.
-- [ ] Add redacted errors and immutable compiled descriptor fields.
-- [ ] Run targeted tests and commit as `feat: compile verified plugin components`; push.
+- [x] Red-test exact signed component compile, digest mismatch, empty/oversized input, malformed component, and WAT rejection.
+- [x] Configure component async/fuel/epoch/cranelift engine and 10 ms epoch task.
+- [x] Recompute SHA-256 before `Component::from_binary`; never use unsafe deserialize or WAT parsing.
+- [x] Add redacted errors and immutable compiled descriptor fields.
+- [x] Run targeted tests and commit as `feat: compile verified plugin components`; push.
 
 ### Task 4: Implement invocation capability session and brokers
 
@@ -87,31 +87,37 @@
 - Consumes: invocation context and generated host-ai/host-mcp request/response types.
 - Produces: `AiCapabilityBroker`, `McpCapabilityBroker`, deny brokers, broker DTOs/errors, `CapabilitySession`, generated Host implementations.
 
-- [ ] Red-test exact AI binding/operation/ordinal/call/token/JSON limits, broker timeout/output validation, and redaction.
-- [ ] Implement AI DTO validation and mock-broker success/error mapping.
-- [ ] Red-test exact MCP tool/depth/call/timeout/args/result limits and default denial.
-- [ ] Implement MCP validation and deny-by-default broker.
-- [ ] Implement generated host traits as thin delegates with no transport/repository access.
-- [ ] Run targeted tests and commit as `feat: broker plugin host capabilities`; push.
+- [x] Red-test exact AI binding/operation/ordinal/call/token/JSON limits, broker timeout/output validation, and redaction.
+- [x] Implement AI DTO validation and mock-broker success/error mapping.
+- [x] Red-test exact MCP tool/depth/call/timeout/args/result limits and default denial.
+- [x] Implement MCP validation and deny-by-default broker.
+- [x] Implement generated host traits as thin delegates with no transport/repository access.
+- [x] Run targeted tests and commit as `feat: broker plugin host capabilities`; push.
 
 ### Task 5: Instantiate and execute with descriptor, fuel, memory, and guest CPU gates
 
 **Files:**
+- Modify: `Cargo.toml`
+- Modify: `Cargo.lock`
+- Modify: `src/plugins/runtime/bindings.rs`
+- Modify: `src/plugins/runtime/capability.rs`
+- Modify: `src/plugins/runtime/component.rs`
 - Create: `src/plugins/runtime/execute.rs`
-- Modify: `src/plugins/runtime/engine.rs`
 - Modify: `src/plugins/runtime/mod.rs`
 - Create: `tests/plugin_runtime_sandbox.rs`
+- Modify: `tests/plugin_runtime_capabilities.rs`
+- Modify: `tests/support/plugin_component.rs`
 
 **Interfaces:**
 - Consumes: `CompiledPlugin`, `CapabilitySession`, generated guest calls.
 - Produces: `PluginRuntime::{execute,on_event}` returning validated guest data without persistence.
 
-- [ ] Generate deterministic dummy/hostile components from WIT in tests.
-- [ ] Red-test unexpected import link denial, descriptor trap/mismatch, generic trap, memory >64 MiB, execute/lifecycle fuel distinction, and 2s pure guest timeout.
-- [ ] Add fresh Store limits, call-hook guest-time accounting, epoch deadlines, fuel, exact linker, and descriptor-before-call flow.
-- [ ] Validate request/output bounds and stable error mapping.
-- [ ] Add source-confinement test forbidding WASI/direct ProviderClient/database/transport references.
-- [ ] Run all runtime tests and commit as `feat: execute sandboxed plugin components`; push.
+- [x] Add exact test-only `wat = 1.253.0` and generate deterministic dummy/hostile binary components from WIT in tests.
+- [x] Red-test unexpected import link denial, descriptor trap/mismatch, generic trap, memory >64 MiB, execute/lifecycle fuel distinction, and 2s pure guest timeout.
+- [x] Add fresh Store limits, call-hook guest-time accounting, epoch deadlines, fuel, exact linker, and descriptor-before-call flow with host capabilities suspended until descriptor acceptance.
+- [x] Validate request/output bounds and stable error mapping.
+- [x] Add source-confinement test forbidding WASI/direct ProviderClient/database/transport references.
+- [x] Run all runtime tests and commit as `feat: execute sandboxed plugin components`; push.
 
 ### Task 6: Record status and final verification
 
@@ -125,11 +131,11 @@
 - Consumes: verified Tasks 2-5.
 - Produces: accurate status leaving ProviderClient broker, official component, lifecycle, MCP, and UI pending.
 
-- [ ] Mark the detailed plan complete and update global task layering.
-- [ ] Run `cargo fmt --all -- --check`.
-- [ ] Run `cargo clippy --all-targets --all-features -- -D warnings`.
-- [ ] Run targeted runtime tests.
-- [ ] Run `cargo test --all-targets`.
-- [ ] Run diff/status/secret scans.
-- [ ] Commit as `docs: record wasmtime component host core` and push.
-- [ ] Follow the single resulting CI run through Rust service databases, Windows, ASTRYX, release E2E, and non-root container; fix only explicit failures.
+- [x] Mark the detailed plan complete and update global task layering.
+- [x] Run `cargo fmt --all -- --check`.
+- [x] Run `cargo clippy --all-targets --all-features -- -D warnings`.
+- [x] Run targeted runtime tests.
+- [x] Run `cargo test --all-targets`.
+- [x] Run diff/status/secret scans.
+- [x] Commit as `docs: record wasmtime component host core` and push.
+- [x] Follow CI run `29663971184` through Rust service databases, Windows, current-stable compatibility, ASTRYX, supply-chain audit, release E2E, and the non-root container; all seven jobs passed.

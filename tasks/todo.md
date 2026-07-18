@@ -50,7 +50,7 @@
 
 - [x] Contract Core：`raindrop:content-plugin@1.0.0` WIT、官方 manifest/config/artifact schema、五类 lifecycle fixture 和 CI parser gate。
 - [x] Registry Core：官方 bundle SHA-256/Ed25519 验证、installation/config/capability grant/KV 三数据库记录、CAS 和配额合同。
-- [ ] Wasmtime Component Host：无 ambient WASI、fuel/memory/epoch/output 限制、guest bindings 和 host capability broker。
+- [x] Wasmtime Component Host：无 ambient WASI、fuel/memory/epoch/output 限制、guest bindings 和 host capability broker。
 - [ ] `before/fetched/entry.process/persisted/completed` runtime dispatcher、delivery、outbox 重投与熔断。
 - [ ] 插件管理 API/UI、官方组件打包发现、后续 SDK 和第三方 additive 扩展文档。
 

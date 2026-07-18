@@ -39,7 +39,7 @@ Use exact `wasmtime = 46.0.1`, whose declared MSRV is Rust 1.94.0. Disable defau
 
 Do not add `wasmtime-wasi`, `wasmtime-wasi-http`, `cache`, `wat`, pooling allocator, GC, threads, profiling, coredump, or debug symbol features.
 
-Tests use `wit-component = 0.253.0` with `dummy-module` and `wasmprinter = 0.253.0` only to synthesize deterministic component fixtures from the committed WIT. Production code never accepts WAT text and uses `Component::from_binary`.
+Tests use `wit-component = 0.253.0` with `dummy-module`, `wasmprinter = 0.253.0`, and `wat = 1.253.0` only to synthesize deterministic component fixtures from the committed WIT. The fixture builder prints the generated core module, applies bounded mechanical replacements, and parses the result back to binary. Production code never accepts WAT text and uses `Component::from_binary`.
 
 ## 4. Scope
 
@@ -102,6 +102,8 @@ Each Store contains:
 
 The linker is newly created per invocation and receives only generated `host-ai` and `host-mcp` bindings. Any additional import causes link failure. No ambient import is stubbed or silently ignored.
 
+The capability session is suspended during instantiation and `descriptor`. Host AI and MCP imports return capability denial until the descriptor exactly matches the verified bundle. The runtime activates the session only before `execute` or `on-event`, so an unverified descriptor cannot spend provider or MCP budget.
+
 ## 7. Pure guest CPU deadline
 
 A shared ticker increments the engine epoch every 10 ms. Every invocation starts with 2 seconds of cumulative guest time.
@@ -140,6 +142,8 @@ Before any business call, the host invokes `descriptor` and requires exact equal
 - optional capability `mcp.call_tool`.
 
 Mismatch returns `DescriptorMismatch`. A descriptor trap is a guest failure and cannot be bypassed by trusting the manifest alone.
+
+The descriptor phase cannot call a capability broker. This is enforced in host state rather than assumed from the WIT signature.
 
 `execute` accepts only the generated WIT operation request after a domain constructor checks:
 
