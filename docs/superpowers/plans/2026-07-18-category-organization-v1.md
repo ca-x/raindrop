@@ -100,7 +100,7 @@ git push origin feature/foundation-bootstrap
 - Produces `CategoryRepository::list/create/update/delete`.
 - Produces `CategoryDto`, `CreateCategory`, `UpdateCategory`, and `CategoryError` for the API layer.
 
-- [ ] **Step 1: Write repository RED tests**
+- [x] **Step 1: Write repository RED tests**
 
 Cover title normalization, control-character rejection, 80-scalar/200-byte bounds, stable `(position,id)` order, per-user duplicate isolation, 250-category quota, cross-user update/delete as `NotFound`, delete set-null behavior, and concurrent duplicate create yielding exactly one row.
 
@@ -111,25 +111,25 @@ let result = repository
 assert_eq!(result.title, "Tech");
 ```
 
-- [ ] **Step 2: Run and confirm RED**
+- [x] **Step 2: Run and confirm RED**
 
 Run: `cargo test --locked --all-features --test category_repository`
 
 Expected: compile failure because `raindrop::organization` does not exist.
 
-- [ ] **Step 3: Implement validation and redacted errors**
+- [x] **Step 3: Implement validation and redacted errors**
 
 Use a private `NormalizedCategoryTitle { display, normalized }`. Reject C0/C1 controls, count Unicode scalars, bound UTF-8 bytes, and never include raw titles in `Debug`/`Display` errors.
 
-- [ ] **Step 4: Implement transaction methods**
+- [x] **Step 4: Implement transaction methods**
 
 Lock the active user row, enforce quota/exact conflicts inside the transaction, assign `max(position) + 1024`, scope update/delete by both category ID and user ID, and rely on the FK for delete set-null.
 
-- [ ] **Step 5: Verify repository and migration contracts**
+- [x] **Step 5: Verify repository and migration contracts**
 
 Run: `cargo test --locked --all-features --test category_repository --test organization_migrations`
 
-- [ ] **Step 6: Commit and push**
+- [x] **Step 6: Commit and push**
 
 ```bash
 git add src/lib.rs src/organization/mod.rs src/organization/category.rs tests/category_repository.rs
