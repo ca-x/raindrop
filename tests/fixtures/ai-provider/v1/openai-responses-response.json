@@ -1,0 +1,32 @@
+{
+  "id": "resp_fixture",
+  "model": "gpt-responses-fixture",
+  "status": "completed",
+  "output": [
+    {
+      "type": "message",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "{\"summary\":\"fixture summary\"}",
+          "annotations": []
+        },
+        {
+          "type": "future_optional_content",
+          "value": "ignored"
+        }
+      ]
+    },
+    {
+      "type": "future_optional_output",
+      "value": "ignored"
+    }
+  ],
+  "usage": {
+    "input_tokens": 14,
+    "output_tokens": 6,
+    "total_tokens": 20
+  },
+  "future_optional_field": true
+}

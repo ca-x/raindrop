@@ -1,9 +1,11 @@
 use http::{HeaderName, HeaderValue};
+use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use super::{
-    EncodedProviderRequest, ProviderAdapterError, ProviderAdapterErrorKind, ProviderHeader,
-    ProviderKind, StructuredGenerationRequest,
+    EncodedProviderRequest, FinishReason, ProviderAdapterError, ProviderAdapterErrorKind,
+    ProviderHeader, ProviderKind, StructuredGenerationRequest, StructuredGenerationResponse,
+    TokenUsage,
 };
 
 const MAX_MODEL_BYTES: usize = 200;
@@ -15,6 +17,7 @@ const MAX_OUTPUT_TOKENS: u32 = 16_384;
 const MAX_IDEMPOTENCY_KEY_BYTES: usize = 200;
 const MAX_REQUEST_BODY_BYTES: usize = 1024 * 1024;
 const MAX_RESPONSE_BODY_BYTES: usize = 2 * 1024 * 1024;
+const MAX_OUTPUT_BYTES: usize = 512 * 1024;
 
 pub(super) fn validate_request(
     request: &StructuredGenerationRequest,
@@ -62,6 +65,89 @@ pub(super) fn validate_response_body(
         ));
     }
     Ok(())
+}
+
+pub(super) fn validate_response_status(
+    provider: ProviderKind,
+    status: http::StatusCode,
+) -> Result<(), ProviderAdapterError> {
+    if status.is_success() {
+        return Ok(());
+    }
+    let kind = match status {
+        http::StatusCode::UNAUTHORIZED | http::StatusCode::FORBIDDEN => {
+            ProviderAdapterErrorKind::Authentication
+        }
+        http::StatusCode::REQUEST_TIMEOUT | http::StatusCode::GATEWAY_TIMEOUT => {
+            ProviderAdapterErrorKind::Timeout
+        }
+        http::StatusCode::TOO_MANY_REQUESTS => ProviderAdapterErrorKind::RateLimited,
+        _ if status.is_client_error() => ProviderAdapterErrorKind::Rejected,
+        _ => ProviderAdapterErrorKind::Upstream,
+    };
+    Err(ProviderAdapterError::for_provider(provider, kind))
+}
+
+pub(super) fn parse_response<T: DeserializeOwned>(
+    provider: ProviderKind,
+    body: &[u8],
+) -> Result<T, ProviderAdapterError> {
+    serde_json::from_slice(body).map_err(|_| malformed_response(provider))
+}
+
+pub(super) fn exactly_one_text<'a>(
+    provider: ProviderKind,
+    values: impl IntoIterator<Item = &'a str>,
+) -> Result<&'a str, ProviderAdapterError> {
+    let mut values = values.into_iter().filter(|value| !value.trim().is_empty());
+    let value = values.next().ok_or_else(|| malformed_response(provider))?;
+    if values.next().is_some() {
+        return Err(malformed_response(provider));
+    }
+    Ok(value)
+}
+
+pub(super) fn structured_response(
+    provider: ProviderKind,
+    requested_model: &str,
+    response_model: Option<&str>,
+    output_text: &str,
+    finish_reason: FinishReason,
+    usage: TokenUsage,
+) -> Result<StructuredGenerationResponse, ProviderAdapterError> {
+    let output = serde_json::from_str::<Value>(output_text).map_err(|_| {
+        ProviderAdapterError::for_provider(provider, ProviderAdapterErrorKind::OutputSchemaInvalid)
+    })?;
+    if !output.is_object() {
+        return Err(ProviderAdapterError::for_provider(
+            provider,
+            ProviderAdapterErrorKind::OutputSchemaInvalid,
+        ));
+    }
+    let output_bytes = serde_json::to_vec(&output).map_err(|_| {
+        ProviderAdapterError::for_provider(provider, ProviderAdapterErrorKind::OutputSchemaInvalid)
+    })?;
+    if output_bytes.len() > MAX_OUTPUT_BYTES {
+        return Err(ProviderAdapterError::for_provider(
+            provider,
+            ProviderAdapterErrorKind::OutputSchemaInvalid,
+        ));
+    }
+    let model_label = response_model.unwrap_or(requested_model);
+    if model_label.is_empty()
+        || model_label.len() > MAX_MODEL_BYTES
+        || model_label
+            .chars()
+            .any(|character| character.is_ascii_control())
+    {
+        return Err(malformed_response(provider));
+    }
+    Ok(StructuredGenerationResponse {
+        output,
+        finish_reason,
+        usage,
+        model_label: model_label.to_owned(),
+    })
 }
 
 pub(super) fn canonical_json(
@@ -154,4 +240,8 @@ fn validate_json_object(value: &Value, maximum_bytes: usize) -> Result<(), Provi
 
 const fn invalid_request() -> ProviderAdapterError {
     ProviderAdapterError::request(ProviderAdapterErrorKind::InvalidRequest)
+}
+
+const fn malformed_response(provider: ProviderKind) -> ProviderAdapterError {
+    ProviderAdapterError::for_provider(provider, ProviderAdapterErrorKind::MalformedResponse)
 }

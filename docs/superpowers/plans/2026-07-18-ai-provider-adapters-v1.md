@@ -101,12 +101,12 @@ git diff --check
 - Consumes requested model, HTTP status, and bounded response bytes.
 - Produces a top-level JSON object, normalized finish reason, optional usage counts, and bounded model label.
 
-- [ ] Add RED success fixtures for output extraction, model fallback, usage, zero usage, and each provider's stop/length/content-filter/tool/unknown finish mappings.
-- [ ] Add RED hostile fixtures for unknown additive fields, missing/multiple output text, malformed JSON, non-object output, excessive nesting, response/output size, and credential-like error bodies.
-- [ ] Implement status-first provider-safe error classification with no retained raw body.
-- [ ] Implement typed provider response structs that ignore unknown fields and fail closed on required output facts.
-- [ ] Parse extracted text with the default Serde recursion limit, require a top-level object, enforce the 512 KiB canonical output cap, and normalize usage/model/finish reason.
-- [ ] Verify:
+- [x] Add RED success fixtures for output extraction, model fallback, usage, zero usage, and each provider's stop/length/content-filter/tool/unknown finish mappings.
+- [x] Add RED hostile fixtures for unknown additive fields, missing/multiple output text, malformed JSON, non-object output, excessive nesting, response/output size, and credential-like error bodies.
+- [x] Implement status-first provider-safe error classification with no retained raw body.
+- [x] Implement typed provider response structs that ignore unknown fields and fail closed on required output facts.
+- [x] Parse extracted text with the default Serde recursion limit, require a top-level object, enforce the 512 KiB canonical output cap, and normalize usage/model/finish reason.
+- [x] Verify:
 
 ```bash
 cargo fmt --check
@@ -115,7 +115,7 @@ cargo clippy --locked --all-targets --all-features -- -D warnings
 git diff --check
 ```
 
-- [ ] Commit and push: `feat: decode ai provider responses`.
+- [x] Commit and push: `feat: decode ai provider responses`.
 
 ### Task 4: Full gates, source-boundary audit, report, and CI
 

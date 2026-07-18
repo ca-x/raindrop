@@ -1,10 +1,11 @@
 use http::{HeaderName, HeaderValue, header};
 use secrecy::SecretString;
+use serde::Deserialize;
 use serde_json::json;
 
 use super::{
-    EncodedProviderRequest, ProviderAdapterError, ProviderHeader, ProviderKind,
-    StructuredGenerationRequest, validation,
+    EncodedProviderRequest, FinishReason, ProviderAdapterError, ProviderHeader, ProviderKind,
+    StructuredGenerationRequest, StructuredGenerationResponse, TokenUsage, validation,
 };
 
 pub(super) fn encode(
@@ -46,4 +47,61 @@ pub(super) fn encode(
         }
     });
     validation::encode_request_body(provider, "/v1/messages".to_owned(), headers, &body)
+}
+
+pub(super) fn decode(
+    requested_model: &str,
+    body: &[u8],
+) -> Result<StructuredGenerationResponse, ProviderAdapterError> {
+    let provider = ProviderKind::AnthropicMessages;
+    let response: AnthropicResponse = validation::parse_response(provider, body)?;
+    let output_text = validation::exactly_one_text(
+        provider,
+        response
+            .content
+            .iter()
+            .filter(|block| block.kind == "text")
+            .filter_map(|block| block.text.as_deref()),
+    )?;
+    let finish_reason = match response.stop_reason.as_str() {
+        "end_turn" | "stop_sequence" => FinishReason::Stop,
+        "max_tokens" => FinishReason::Length,
+        "refusal" => FinishReason::ContentFilter,
+        "tool_use" => FinishReason::ToolCall,
+        _ => FinishReason::Other,
+    };
+    validation::structured_response(
+        provider,
+        requested_model,
+        response.model.as_deref(),
+        output_text,
+        finish_reason,
+        response
+            .usage
+            .map_or_else(TokenUsage::default, |usage| TokenUsage {
+                input_tokens: usage.input_tokens,
+                output_tokens: usage.output_tokens,
+            }),
+    )
+}
+
+#[derive(Deserialize)]
+struct AnthropicResponse {
+    model: Option<String>,
+    content: Vec<AnthropicContentBlock>,
+    stop_reason: String,
+    usage: Option<AnthropicUsage>,
+}
+
+#[derive(Deserialize)]
+struct AnthropicContentBlock {
+    #[serde(rename = "type")]
+    kind: String,
+    text: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct AnthropicUsage {
+    input_tokens: Option<u64>,
+    output_tokens: Option<u64>,
 }

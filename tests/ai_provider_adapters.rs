@@ -328,3 +328,385 @@ fn secret_header<'a>(request: &'a EncodedProviderRequest, name: &str) -> &'a str
         .map(ExposeSecret::expose_secret)
         .expect("secret header should exist")
 }
+
+#[test]
+fn response_decoders_match_v1_fixtures() {
+    let cases = [
+        (
+            ProviderKind::AnthropicMessages,
+            include_str!("fixtures/ai-provider/v1/anthropic-response.json"),
+            "claude-fixture",
+            12,
+            5,
+        ),
+        (
+            ProviderKind::OpenAiResponses,
+            include_str!("fixtures/ai-provider/v1/openai-responses-response.json"),
+            "gpt-responses-fixture",
+            14,
+            6,
+        ),
+        (
+            ProviderKind::OpenAiChatCompletions,
+            include_str!("fixtures/ai-provider/v1/openai-chat-response.json"),
+            "gpt-chat-fixture",
+            16,
+            7,
+        ),
+        (
+            ProviderKind::GoogleGemini,
+            include_str!("fixtures/ai-provider/v1/gemini-response.json"),
+            "gemini-fixture",
+            18,
+            8,
+        ),
+    ];
+
+    for (kind, fixture, model, input_tokens, output_tokens) in cases {
+        let response = kind
+            .decode_response("requested-model", StatusCode::OK, fixture.as_bytes())
+            .expect("fixture should decode");
+        assert_eq!(
+            response.output,
+            json!({ "summary": "fixture summary" }),
+            "{kind:?}"
+        );
+        assert_eq!(response.finish_reason, FinishReason::Stop, "{kind:?}");
+        assert_eq!(response.model_label, model, "{kind:?}");
+        assert_eq!(
+            response.usage,
+            TokenUsage {
+                input_tokens: Some(input_tokens),
+                output_tokens: Some(output_tokens),
+            },
+            "{kind:?}"
+        );
+    }
+}
+
+#[test]
+fn response_decoders_preserve_missing_and_zero_usage_and_model_fallback() {
+    for kind in provider_kinds() {
+        let mut missing = response_fixture_value(kind);
+        remove_usage(kind, &mut missing);
+        remove_model(kind, &mut missing);
+        let response = decode_value(kind, "requested-fallback", &missing).expect("missing usage");
+        assert_eq!(response.usage, TokenUsage::default(), "{kind:?}");
+        assert_eq!(response.model_label, "requested-fallback", "{kind:?}");
+
+        let mut zero = response_fixture_value(kind);
+        set_usage(kind, &mut zero, 0, 0);
+        let response = decode_value(kind, "requested-model", &zero).expect("zero usage");
+        assert_eq!(
+            response.usage,
+            TokenUsage {
+                input_tokens: Some(0),
+                output_tokens: Some(0),
+            },
+            "{kind:?}"
+        );
+    }
+}
+
+#[test]
+fn response_finish_reasons_normalize_each_provider_family() {
+    let anthropic = response_fixture_value(ProviderKind::AnthropicMessages);
+    for (value, expected) in [
+        ("end_turn", FinishReason::Stop),
+        ("stop_sequence", FinishReason::Stop),
+        ("max_tokens", FinishReason::Length),
+        ("refusal", FinishReason::ContentFilter),
+        ("tool_use", FinishReason::ToolCall),
+        ("future_reason", FinishReason::Other),
+    ] {
+        let mut fixture = anthropic.clone();
+        fixture["stop_reason"] = json!(value);
+        assert_finish(ProviderKind::AnthropicMessages, fixture, expected);
+    }
+
+    let responses = response_fixture_value(ProviderKind::OpenAiResponses);
+    assert_finish(
+        ProviderKind::OpenAiResponses,
+        responses.clone(),
+        FinishReason::Stop,
+    );
+    for (reason, expected) in [
+        ("max_output_tokens", FinishReason::Length),
+        ("content_filter", FinishReason::ContentFilter),
+        ("tool_call", FinishReason::ToolCall),
+        ("future_reason", FinishReason::Other),
+    ] {
+        let mut fixture = responses.clone();
+        fixture["status"] = json!("incomplete");
+        fixture["incomplete_details"] = json!({ "reason": reason });
+        assert_finish(ProviderKind::OpenAiResponses, fixture, expected);
+    }
+
+    let chat = response_fixture_value(ProviderKind::OpenAiChatCompletions);
+    for (reason, expected) in [
+        ("stop", FinishReason::Stop),
+        ("length", FinishReason::Length),
+        ("content_filter", FinishReason::ContentFilter),
+        ("tool_calls", FinishReason::ToolCall),
+        ("function_call", FinishReason::ToolCall),
+        ("future_reason", FinishReason::Other),
+    ] {
+        let mut fixture = chat.clone();
+        fixture["choices"][0]["finish_reason"] = json!(reason);
+        assert_finish(ProviderKind::OpenAiChatCompletions, fixture, expected);
+    }
+
+    let gemini = response_fixture_value(ProviderKind::GoogleGemini);
+    for (reason, expected) in [
+        ("STOP", FinishReason::Stop),
+        ("MAX_TOKENS", FinishReason::Length),
+        ("SAFETY", FinishReason::ContentFilter),
+        ("RECITATION", FinishReason::ContentFilter),
+        ("MALFORMED_FUNCTION_CALL", FinishReason::ToolCall),
+        ("UNEXPECTED_TOOL_CALL", FinishReason::ToolCall),
+        ("FUTURE_REASON", FinishReason::Other),
+    ] {
+        let mut fixture = gemini.clone();
+        fixture["candidates"][0]["finishReason"] = json!(reason);
+        assert_finish(ProviderKind::GoogleGemini, fixture, expected);
+    }
+}
+
+#[test]
+fn response_status_errors_are_stable_and_discard_upstream_bodies() {
+    let secret_body = br#"{"error":{"message":"rd-secret-provider-body and rd-secret-prompt"}}"#;
+    let cases = [
+        (
+            StatusCode::UNAUTHORIZED,
+            ProviderAdapterErrorKind::Authentication,
+        ),
+        (
+            StatusCode::FORBIDDEN,
+            ProviderAdapterErrorKind::Authentication,
+        ),
+        (
+            StatusCode::REQUEST_TIMEOUT,
+            ProviderAdapterErrorKind::Timeout,
+        ),
+        (
+            StatusCode::GATEWAY_TIMEOUT,
+            ProviderAdapterErrorKind::Timeout,
+        ),
+        (
+            StatusCode::TOO_MANY_REQUESTS,
+            ProviderAdapterErrorKind::RateLimited,
+        ),
+        (StatusCode::BAD_REQUEST, ProviderAdapterErrorKind::Rejected),
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ProviderAdapterErrorKind::Upstream,
+        ),
+    ];
+
+    for kind in provider_kinds() {
+        for (status, expected) in cases {
+            let error = kind
+                .decode_response("requested-model", status, secret_body)
+                .expect_err("non-success status should fail");
+            assert_eq!(error.provider(), Some(kind));
+            assert_eq!(error.kind(), expected, "{kind:?} {status}");
+            let rendered = format!("{error:?} {error}");
+            assert!(!rendered.contains("rd-secret-provider-body"));
+            assert!(!rendered.contains("rd-secret-prompt"));
+        }
+    }
+}
+
+#[test]
+fn response_decoders_fail_closed_on_ambiguous_or_invalid_output() {
+    for kind in provider_kinds() {
+        let mut missing = response_fixture_value(kind);
+        clear_output_text(kind, &mut missing);
+        assert_response_error(kind, missing, ProviderAdapterErrorKind::MalformedResponse);
+
+        let mut multiple = response_fixture_value(kind);
+        duplicate_output_text(kind, &mut multiple);
+        assert_response_error(kind, multiple, ProviderAdapterErrorKind::MalformedResponse);
+    }
+
+    let mut non_object = response_fixture_value(ProviderKind::OpenAiChatCompletions);
+    non_object["choices"][0]["message"]["content"] = json!("[1,2,3]");
+    assert_response_error(
+        ProviderKind::OpenAiChatCompletions,
+        non_object,
+        ProviderAdapterErrorKind::OutputSchemaInvalid,
+    );
+
+    let exact_output = object_with_serialized_size(512 * KIB);
+    let mut exact = response_fixture_value(ProviderKind::OpenAiChatCompletions);
+    exact["choices"][0]["message"]["content"] = json!(exact_output.to_string());
+    let response = decode_value(
+        ProviderKind::OpenAiChatCompletions,
+        "requested-model",
+        &exact,
+    )
+    .expect("exact output cap should pass");
+    assert_eq!(response.output, exact_output);
+
+    let mut oversized = response_fixture_value(ProviderKind::OpenAiChatCompletions);
+    oversized["choices"][0]["message"]["content"] =
+        json!(object_with_serialized_size(512 * KIB + 1).to_string());
+    assert_response_error(
+        ProviderKind::OpenAiChatCompletions,
+        oversized,
+        ProviderAdapterErrorKind::OutputSchemaInvalid,
+    );
+
+    let nested = format!("{}{{}}{}", "{\"x\":".repeat(140), "}".repeat(140));
+    let mut excessive_depth = response_fixture_value(ProviderKind::OpenAiChatCompletions);
+    excessive_depth["choices"][0]["message"]["content"] = json!(nested);
+    assert_response_error(
+        ProviderKind::OpenAiChatCompletions,
+        excessive_depth,
+        ProviderAdapterErrorKind::OutputSchemaInvalid,
+    );
+
+    let error = ProviderKind::GoogleGemini
+        .decode_response("requested-model", StatusCode::OK, br#"{"#)
+        .expect_err("malformed provider JSON should fail");
+    assert_eq!(error.kind(), ProviderAdapterErrorKind::MalformedResponse);
+
+    for kind in provider_kinds() {
+        let mut invalid_model = response_fixture_value(kind);
+        set_model(kind, &mut invalid_model, "model\nrd-secret-model-label");
+        let error = decode_value(kind, "requested-model", &invalid_model)
+            .expect_err("invalid response model should fail");
+        assert_eq!(error.kind(), ProviderAdapterErrorKind::MalformedResponse);
+        assert!(!format!("{error:?} {error}").contains("rd-secret-model-label"));
+    }
+}
+
+fn provider_kinds() -> [ProviderKind; 4] {
+    [
+        ProviderKind::AnthropicMessages,
+        ProviderKind::OpenAiResponses,
+        ProviderKind::OpenAiChatCompletions,
+        ProviderKind::GoogleGemini,
+    ]
+}
+
+fn response_fixture_value(kind: ProviderKind) -> Value {
+    let fixture = match kind {
+        ProviderKind::AnthropicMessages => {
+            include_str!("fixtures/ai-provider/v1/anthropic-response.json")
+        }
+        ProviderKind::OpenAiResponses => {
+            include_str!("fixtures/ai-provider/v1/openai-responses-response.json")
+        }
+        ProviderKind::OpenAiChatCompletions => {
+            include_str!("fixtures/ai-provider/v1/openai-chat-response.json")
+        }
+        ProviderKind::GoogleGemini => {
+            include_str!("fixtures/ai-provider/v1/gemini-response.json")
+        }
+    };
+    serde_json::from_str(fixture).expect("response fixture should be JSON")
+}
+
+fn decode_value(
+    kind: ProviderKind,
+    requested_model: &str,
+    value: &Value,
+) -> Result<StructuredGenerationResponse, raindrop::content::provider::ProviderAdapterError> {
+    kind.decode_response(
+        requested_model,
+        StatusCode::OK,
+        &serde_json::to_vec(value).expect("fixture value should encode"),
+    )
+}
+
+fn assert_finish(kind: ProviderKind, fixture: Value, expected: FinishReason) {
+    let response = decode_value(kind, "requested-model", &fixture).expect("fixture should decode");
+    assert_eq!(response.finish_reason, expected, "{kind:?}");
+}
+
+fn assert_response_error(kind: ProviderKind, fixture: Value, expected: ProviderAdapterErrorKind) {
+    let error = decode_value(kind, "requested-model", &fixture).expect_err("fixture should fail");
+    assert_eq!(error.kind(), expected, "{kind:?}");
+}
+
+fn remove_usage(kind: ProviderKind, fixture: &mut Value) {
+    fixture
+        .as_object_mut()
+        .expect("fixture should be an object")
+        .remove(match kind {
+            ProviderKind::GoogleGemini => "usageMetadata",
+            _ => "usage",
+        });
+}
+
+fn remove_model(kind: ProviderKind, fixture: &mut Value) {
+    fixture
+        .as_object_mut()
+        .expect("fixture should be an object")
+        .remove(match kind {
+            ProviderKind::GoogleGemini => "modelVersion",
+            _ => "model",
+        });
+}
+
+fn set_usage(kind: ProviderKind, fixture: &mut Value, input: u64, output: u64) {
+    match kind {
+        ProviderKind::AnthropicMessages => {
+            fixture["usage"] = json!({ "input_tokens": input, "output_tokens": output });
+        }
+        ProviderKind::OpenAiResponses => {
+            fixture["usage"] = json!({ "input_tokens": input, "output_tokens": output });
+        }
+        ProviderKind::OpenAiChatCompletions => {
+            fixture["usage"] = json!({ "prompt_tokens": input, "completion_tokens": output });
+        }
+        ProviderKind::GoogleGemini => {
+            fixture["usageMetadata"] =
+                json!({ "promptTokenCount": input, "candidatesTokenCount": output });
+        }
+    }
+}
+
+fn set_model(kind: ProviderKind, fixture: &mut Value, model: &str) {
+    fixture[match kind {
+        ProviderKind::GoogleGemini => "modelVersion",
+        _ => "model",
+    }] = json!(model);
+}
+
+fn clear_output_text(kind: ProviderKind, fixture: &mut Value) {
+    match kind {
+        ProviderKind::AnthropicMessages => fixture["content"] = json!([]),
+        ProviderKind::OpenAiResponses => fixture["output"][0]["content"] = json!([]),
+        ProviderKind::OpenAiChatCompletions => fixture["choices"] = json!([]),
+        ProviderKind::GoogleGemini => fixture["candidates"][0]["content"]["parts"] = json!([]),
+    }
+}
+
+fn duplicate_output_text(kind: ProviderKind, fixture: &mut Value) {
+    match kind {
+        ProviderKind::AnthropicMessages => {
+            let duplicate = fixture["content"][0].clone();
+            fixture["content"].as_array_mut().unwrap().push(duplicate);
+        }
+        ProviderKind::OpenAiResponses => {
+            let duplicate = fixture["output"][0]["content"][0].clone();
+            fixture["output"][0]["content"]
+                .as_array_mut()
+                .unwrap()
+                .push(duplicate);
+        }
+        ProviderKind::OpenAiChatCompletions => {
+            let duplicate = fixture["choices"][0].clone();
+            fixture["choices"].as_array_mut().unwrap().push(duplicate);
+        }
+        ProviderKind::GoogleGemini => {
+            let duplicate = fixture["candidates"][0]["content"]["parts"][0].clone();
+            fixture["candidates"][0]["content"]["parts"]
+                .as_array_mut()
+                .unwrap()
+                .push(duplicate);
+        }
+    }
+}

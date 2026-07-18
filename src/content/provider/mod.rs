@@ -31,14 +31,17 @@ impl ProviderKind {
 
     pub fn decode_response(
         self,
-        _requested_model: &str,
-        _status: StatusCode,
+        requested_model: &str,
+        status: StatusCode,
         body: &[u8],
     ) -> Result<StructuredGenerationResponse, ProviderAdapterError> {
         validation::validate_response_body(self, body)?;
-        Err(ProviderAdapterError::for_provider(
-            self,
-            ProviderAdapterErrorKind::MalformedResponse,
-        ))
+        validation::validate_response_status(self, status)?;
+        match self {
+            Self::AnthropicMessages => anthropic::decode(requested_model, body),
+            Self::OpenAiResponses => openai_responses::decode(requested_model, body),
+            Self::OpenAiChatCompletions => openai_chat::decode(requested_model, body),
+            Self::GoogleGemini => gemini::decode(requested_model, body),
+        }
     }
 }
