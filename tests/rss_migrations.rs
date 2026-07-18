@@ -574,7 +574,7 @@ async fn assert_lifecycle_outbox_schema(database: &DatabaseConnection) {
                AND tc.constraint_type = 'FOREIGN KEY'"
         }
         DatabaseBackend::MySql => {
-            "SELECT column_name
+            "SELECT column_name AS column_name
              FROM information_schema.key_column_usage
              WHERE table_schema = DATABASE()
                AND table_name = 'lifecycle_outbox'
@@ -676,9 +676,10 @@ async fn assert_lifecycle_outbox_columns(database: &DatabaseConnection) {
              ORDER BY ordinal_position"
         }
         DatabaseBackend::MySql => {
-            "SELECT column_name, data_type,
+            "SELECT column_name AS column_name, data_type AS data_type,
                     CASE WHEN is_nullable = 'YES' THEN 1 ELSE 0 END AS nullable,
-                    column_default, CAST(character_maximum_length AS SIGNED) AS character_length
+                    column_default AS column_default,
+                    CAST(character_maximum_length AS SIGNED) AS character_length
              FROM information_schema.columns
              WHERE table_schema = DATABASE() AND table_name = 'lifecycle_outbox'
              ORDER BY ordinal_position"
@@ -859,7 +860,7 @@ async fn lifecycle_index_contract(
         DatabaseBackend::MySql => {
             lifecycle_index_rows(
                 database,
-                "SELECT column_name,
+                "SELECT column_name AS column_name,
                         CASE WHEN non_unique = 0 THEN 1 ELSE 0 END AS is_unique
                  FROM information_schema.statistics
                  WHERE table_schema = DATABASE() AND table_name = 'lifecycle_outbox'

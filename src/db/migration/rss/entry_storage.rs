@@ -245,7 +245,7 @@ async fn alter_mysql_column_if_needed(
         .get_connection()
         .query_one(Statement::from_sql_and_values(
             DatabaseBackend::MySql,
-            "SELECT data_type, is_nullable
+            "SELECT data_type AS data_type, is_nullable AS is_nullable
              FROM information_schema.columns
              WHERE table_schema = DATABASE() AND table_name = 'entries' AND column_name = ?",
             [column.name.into()],
