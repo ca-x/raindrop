@@ -54,6 +54,7 @@ export function PreferencesDialog(props: PreferencesDialogProps) {
   }
   const update = (patch: Partial<UserPreferences>) => {
     setDraft((current) => ({ ...current, ...patch }))
+    props.onClearError()
   }
   const errorCopy = props.error
     ? {
