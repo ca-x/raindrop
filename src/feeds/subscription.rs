@@ -789,7 +789,7 @@ fn subscription_projection_sql(selected_subscriptions: &str) -> String {
                    r.queued_at, r.started_at, r.completed_at,
                    ROW_NUMBER() OVER (
                        PARTITION BY r.feed_id ORDER BY r.queued_at DESC, r.id DESC
-                   ) AS row_number
+                   ) AS refresh_rank
             FROM feed_refresh_runs r
             JOIN user_feeds uf ON uf.feed_id = r.feed_id
          )
@@ -816,7 +816,7 @@ fn subscription_projection_sql(selected_subscriptions: &str) -> String {
                 r.completed_at AS refresh_completed_at
          FROM selected_subscriptions s
          JOIN feeds f ON f.id = s.feed_id
-         LEFT JOIN latest_runs r ON r.feed_id = s.feed_id AND r.row_number = 1"
+         LEFT JOIN latest_runs r ON r.feed_id = s.feed_id AND r.refresh_rank = 1"
     )
 }
 
@@ -1513,4 +1513,23 @@ where
 {
     row.try_get("", column)
         .map_err(|_| SubscriptionRepositoryError::CorruptData)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mysql_projection_avoids_reserved_window_alias() {
+        let statement = subscription_list_statement(
+            DatabaseBackend::MySql,
+            "00000000-0000-4000-8000-000000000001",
+            50,
+            None,
+        );
+
+        assert!(statement.sql.contains("AS refresh_rank"));
+        assert!(statement.sql.contains("r.refresh_rank = 1"));
+        assert!(!statement.sql.contains("AS row_number"));
+    }
 }
