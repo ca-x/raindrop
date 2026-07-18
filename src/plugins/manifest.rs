@@ -16,7 +16,6 @@ use super::{
 const MAX_MANIFEST_BYTES: usize = 64 * 1024;
 const SIGNATURE_CONTEXT: &[u8] = b"raindrop.plugin-signature.v1";
 const OFFICIAL_PLUGIN_KEY: &str = "raindrop.ai-content";
-const OFFICIAL_VERSION: &str = "1.0.0";
 const OFFICIAL_ABI: &str = "raindrop:content-plugin@1.0.0";
 const OFFICIAL_DISTRIBUTION: &str = "BUNDLED_OFFICIAL";
 const CONFIG_SCHEMA: &str = "raindrop://schemas/plugins/raindrop.ai-content/config/v1";
@@ -190,7 +189,7 @@ impl ManifestDocument {
     fn validate(&self) -> Result<(), PluginRegistryError> {
         let valid = self.manifest_version == 1
             && self.plugin_key == OFFICIAL_PLUGIN_KEY
-            && self.version == OFFICIAL_VERSION
+            && valid_plugin_version(&self.version)
             && self.abi == OFFICIAL_ABI
             && self.distribution == OFFICIAL_DISTRIBUTION
             && self.operations == ["summarize", "translate"]
@@ -312,4 +311,49 @@ fn sha256_hex(component: &[u8]) -> String {
         write!(&mut encoded, "{byte:02x}").expect("writing to a String cannot fail");
     }
     encoded
+}
+
+pub(crate) fn validate_persisted_manifest(
+    manifest_json: &str,
+    plugin_key: &str,
+    version: &str,
+    abi_version: &str,
+    component_digest: &str,
+    signature_key_id: &str,
+    signature: &str,
+) -> Result<(), PluginRegistryError> {
+    let value = parse_unique_json(manifest_json.as_bytes(), MAX_MANIFEST_BYTES)
+        .map_err(|_| PluginRegistryError::new(PluginRegistryErrorKind::CorruptData))?;
+    let manifest = serde_json::from_value::<ManifestDocument>(value.clone())
+        .map_err(|_| PluginRegistryError::new(PluginRegistryErrorKind::CorruptData))?;
+    manifest
+        .validate()
+        .map_err(|_| PluginRegistryError::new(PluginRegistryErrorKind::CorruptData))?;
+    let canonical = canonical_json(value, MAX_MANIFEST_BYTES)
+        .map_err(|_| PluginRegistryError::new(PluginRegistryErrorKind::CorruptData))?;
+    if canonical != manifest_json
+        || manifest.plugin_key != plugin_key
+        || manifest.version != version
+        || manifest.abi != abi_version
+        || manifest.component_digest.value.as_deref() != Some(component_digest)
+        || manifest.signature.key_id != signature_key_id
+        || manifest.signature.value.as_deref() != Some(signature)
+    {
+        return Err(PluginRegistryError::new(
+            PluginRegistryErrorKind::CorruptData,
+        ));
+    }
+    Ok(())
+}
+
+fn valid_plugin_version(value: &str) -> bool {
+    let parts = value.split('.').collect::<Vec<_>>();
+    parts.len() == 3
+        && parts[0] == "1"
+        && parts[1..].iter().all(|part| {
+            !part.is_empty()
+                && part.bytes().all(|byte| byte.is_ascii_digit())
+                && (part == &"0" || !part.starts_with('0'))
+                && part.parse::<u32>().is_ok()
+        })
 }
