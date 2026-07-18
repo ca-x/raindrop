@@ -9,7 +9,7 @@ use std::{
 };
 
 use constant_time_eq::constant_time_eq;
-use sea_orm::{DatabaseConnection, EntityTrait, PaginatorTrait};
+use sea_orm::{ConnectionTrait, DatabaseConnection, Statement};
 use secrecy::{ExposeSecret, SecretString};
 use tokio::sync::Mutex;
 use url::Url;
@@ -21,11 +21,7 @@ use crate::{
         validate_create_admin_input,
     },
     config::DatabaseKind,
-    db::{
-        DatabaseConfig, DbError, connect,
-        entities::{bootstrap_state, user},
-        migrate,
-    },
+    db::{DatabaseConfig, DbError, connect, migrate},
 };
 
 #[derive(Clone)]
@@ -370,20 +366,29 @@ enum ConfiguredBootstrapState {
 async fn inspect_bootstrap_state(
     database: &DatabaseConnection,
 ) -> Result<ConfiguredBootstrapState, SetupError> {
-    let users = user::Entity::find()
-        .count(database)
-        .await
-        .map_err(DbError::from)
-        .map_err(SetupError::Database)?;
-    let has_claim = bootstrap_state::Entity::find_by_id(1)
-        .one(database)
+    // The user and claim counts must come from one database snapshot. Separate
+    // autocommit reads can straddle a concurrent administrator transaction and
+    // briefly combine the pre-commit user count with the post-commit claim.
+    let row = database
+        .query_one(Statement::from_string(
+            database.get_database_backend(),
+            "SELECT (SELECT COUNT(*) FROM users) AS user_count, \
+                    (SELECT COUNT(*) FROM bootstrap_state WHERE id = 1) AS claim_count"
+                .to_owned(),
+        ))
         .await
         .map_err(DbError::from)
         .map_err(SetupError::Database)?
-        .is_some();
-    Ok(match (users, has_claim) {
-        (0, false) => ConfiguredBootstrapState::Empty,
-        (1.., true) => ConfiguredBootstrapState::Ready,
+        .ok_or(SetupError::InconsistentBootstrap)?;
+    let users: i64 = row
+        .try_get("", "user_count")
+        .map_err(|_| SetupError::InconsistentBootstrap)?;
+    let claims: i64 = row
+        .try_get("", "claim_count")
+        .map_err(|_| SetupError::InconsistentBootstrap)?;
+    Ok(match (users, claims) {
+        (0, 0) => ConfiguredBootstrapState::Empty,
+        (1.., 1) => ConfiguredBootstrapState::Ready,
         _ => ConfiguredBootstrapState::Inconsistent,
     })
 }
@@ -696,6 +701,7 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+    use crate::db::entities::user;
 
     #[tokio::test]
     async fn durable_configuration_recovers_as_admin_only_then_ready_after_retry() {
