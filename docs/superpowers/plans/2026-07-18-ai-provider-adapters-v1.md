@@ -33,11 +33,11 @@
 - Produces `ProviderKind`, `OutputSchema`, `StructuredGenerationRequest`, `ProviderHeader`, `EncodedProviderRequest`, `StructuredGenerationResponse`, `TokenUsage`, `FinishReason`, `ProviderAdapterError`, and `ProviderAdapterErrorKind`.
 - Produces `ProviderKind::encode_request(&self, request, credential)` and `ProviderKind::decode_response(&self, requested_model, status, body)` dispatch points; provider arms may initially return the stable `MalformedResponse` error until their task lands.
 
-- [ ] Write RED tests for exact model/system/input/schema/token/idempotency bounds, top-level object requirements, schema-name syntax, request/response/output byte caps, and redacted `Debug`/`Display`.
-- [ ] Implement canonical types with custom `Debug` for `ProviderHeader`, `EncodedProviderRequest`, and `ProviderAdapterError`.
-- [ ] Implement validation helpers that canonicalize JSON through `serde_json::to_vec`, enforce byte bounds before provider mapping, and keep the default recursion limit enabled during response parsing.
-- [ ] Export `pub mod provider` from `src/content/mod.rs` and add explicit provider dispatch modules.
-- [ ] Verify:
+- [x] Write RED tests for exact model/system/input/schema/token/idempotency bounds, top-level object requirements, schema-name syntax, request/response/output byte caps, and redacted `Debug`/`Display`.
+- [x] Implement canonical types with custom `Debug` for `ProviderHeader`, `EncodedProviderRequest`, and `ProviderAdapterError`.
+- [x] Implement validation helpers that canonicalize JSON through `serde_json::to_vec`, enforce byte bounds before provider mapping, and keep the default recursion limit enabled during response parsing.
+- [x] Export `pub mod provider` from `src/content/mod.rs` and add explicit provider dispatch modules.
+- [x] Verify:
 
 ```bash
 cargo fmt --check
@@ -46,7 +46,7 @@ cargo clippy --locked --all-targets --all-features -- -D warnings
 git diff --check
 ```
 
-- [ ] Commit and push: `feat: define ai provider protocol`.
+- [x] Commit and push: `feat: define ai provider protocol`.
 
 ### Task 2: Deterministic provider request encoders
 
