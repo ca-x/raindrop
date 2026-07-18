@@ -229,19 +229,19 @@ git push origin feature/foundation-bootstrap
 - Produces `getPreferences()` and `patchPreferences(csrfToken, patch)`.
 - Produces `usePreferenceRuntime()` with `{ preferences, apply, clearHint }`.
 
-- [ ] **Step 1: Add generator, API, cache, and runtime RED tests**
+- [x] **Step 1: Add generator, API, cache, and runtime RED tests**
 
 Verify the new artifact participates in drift checking, malformed responses fail closed, PATCH sends CSRF and only changed fields, cache parsing rejects unknown/missing/out-of-range values, apply updates ASTRYX theme mode/locale/density/scale, and clear removes the hint.
 
-- [ ] **Step 2: Run and confirm RED**
+- [x] **Step 2: Run and confirm RED**
 
 Run: `cd web && npm run test:ci -- src/features/preferences`
 
-- [ ] **Step 3: Generate the strict wire client**
+- [x] **Step 3: Generate the strict wire client**
 
 Add `preferences-v1.json` to the artifact list and generate `UserPreferences`, `PatchUserPreferencesRequest`, enum aliases, and runtime validators. Handwritten API functions reuse `apiRequest` and `invalidResponseError`.
 
-- [ ] **Step 4: Implement the non-sensitive cache and runtime**
+- [x] **Step 4: Implement the non-sensitive cache and runtime**
 
 Cache shape:
 
@@ -254,11 +254,11 @@ interface PreferenceHintV1 {
 
 Only this exact object is stored under `raindrop.preferences.v1`. `theme-bootstrap.js` independently validates exact keys and values before setting presentation attributes. `PreferenceRuntime` maps uppercase wire modes to the ASTRYX `Theme` prop and applies `activateLocale` in one state transition.
 
-- [ ] **Step 5: Verify generated and runtime contracts**
+- [x] **Step 5: Verify generated and runtime contracts**
 
 Run: `cd web && npm run generate:reader-types && npm run check:reader-types && npm run typecheck && npm run test:ci -- src/features/preferences src/shared/i18n/i18n.test.ts`
 
-- [ ] **Step 6: Commit and push**
+- [x] **Step 6: Commit and push**
 
 ```bash
 git add web/scripts/generate-reader-types.mjs web/src/features/preferences web/public/theme-bootstrap.js web/index.html web/src/app/Providers.tsx web/src/shared/i18n/i18n.ts

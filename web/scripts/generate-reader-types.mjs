@@ -10,6 +10,11 @@ const repositoryRoot = resolve(scriptDirectory, "../..")
 const webRoot = resolve(repositoryRoot, "web")
 const artifacts = [
   {
+    source: "docs/openapi/preferences-v1.json",
+    output: "src/features/preferences/api/preferences.generated.ts",
+    aliases: {},
+  },
+  {
     source: "docs/openapi/organization-v1.json",
     output: "src/features/reader/api/organization.generated.ts",
     aliases: {

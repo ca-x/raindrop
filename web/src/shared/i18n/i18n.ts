@@ -280,8 +280,10 @@ const catalogs: Record<AppLocale, Messages> = {
 export const i18n = setupI18n()
 
 export function activateLocale(locale: AppLocale) {
-  i18n.load(locale, compileStaticCatalog(catalogs[locale]))
-  i18n.activate(locale)
+  if (i18n.locale !== locale) {
+    i18n.load(locale, compileStaticCatalog(catalogs[locale]))
+    i18n.activate(locale)
+  }
   document.documentElement.lang = locale
 }
 

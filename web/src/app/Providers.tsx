@@ -6,6 +6,11 @@ import { I18nProvider } from "@lingui/react"
 import { forwardRef, type AnchorHTMLAttributes, type ReactNode } from "react"
 import { BrowserRouter, Link } from "react-router-dom"
 
+import {
+  PreferenceRuntimeProvider,
+  usePreferenceRuntime,
+} from "../features/preferences/model/PreferenceRuntime"
+import { toAstryxThemeMode } from "../features/preferences/model/preferenceTypes"
 import { i18n } from "../shared/i18n/i18n"
 
 type RouterLinkProps = Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "href"> & {
@@ -21,7 +26,16 @@ const RouterLink = forwardRef<HTMLAnchorElement, RouterLinkProps>(function Route
 
 export function Providers({ children }: { children: ReactNode }) {
   return (
-    <Theme theme={neutralTheme} mode="system">
+    <PreferenceRuntimeProvider>
+      <PreferenceAwareProviders>{children}</PreferenceAwareProviders>
+    </PreferenceRuntimeProvider>
+  )
+}
+
+function PreferenceAwareProviders({ children }: { children: ReactNode }) {
+  const { preferences } = usePreferenceRuntime()
+  return (
+    <Theme theme={neutralTheme} mode={toAstryxThemeMode(preferences.themeMode)}>
       <LayerProvider toast={{ position: "bottomEnd", maxVisible: 3 }}>
         <I18nProvider i18n={i18n}>
           <BrowserRouter>
