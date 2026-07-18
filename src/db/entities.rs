@@ -1,3 +1,4 @@
+pub mod ai_provider;
 pub mod category;
 pub mod entry;
 pub mod entry_state;

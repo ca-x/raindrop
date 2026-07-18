@@ -77,12 +77,12 @@ git diff --check
 - Produces integration entry points `sqlite_ai_provider_storage_contract`, `postgres_ai_provider_storage_contract`, and `mysql_ai_provider_storage_contract`.
 - Does not yet expose repository operations; tests use the entity only to prove physical constraints and encrypted text round-trip.
 
-- [ ] Write failing SQLite schema assertions for the table, both indexes, owner FK cascade, operational timestamp type, boolean/integer/text round-trip, idempotent migrate, and rollback/up recreation.
-- [ ] Add PostgreSQL/MySQL variants using the existing optional test URL harness and `--test-threads=1`; make absent variables print one skip line and return, matching existing repository contracts.
-- [ ] Implement `CreateAiProviders` after user preferences in the migrator. Use string UUID IDs, nullable user FK with cascade, text endpoint/envelope, bounded string kind/model/name, booleans, signed database integers for validated policy values, revision, and `operational_timestamp` for both timestamps.
-- [ ] Add `idx_ai_providers_owner_enabled` and `idx_ai_providers_kind`; use stable explicit names and `if_not_exists`.
-- [ ] Add the entity in its own file and re-export it from `entities.rs`. Keep the ORM model private to persistence callers; never format it in tests because it contains ciphertext and endpoint.
-- [ ] Verify:
+- [x] Write failing SQLite schema assertions for the table, both indexes, owner FK cascade, operational timestamp type, boolean/integer/text round-trip, idempotent migrate, and rollback/up recreation.
+- [x] Add PostgreSQL/MySQL variants using the existing optional test URL harness and `--test-threads=1`; make absent variables print one skip line and return, matching existing repository contracts.
+- [x] Implement `CreateAiProviders` after user preferences in the migrator. Use string UUID IDs, nullable user FK with cascade, text endpoint/envelope, bounded string kind/model/name, booleans, signed database integers for validated policy values, revision, and `operational_timestamp` for both timestamps.
+- [x] Add `idx_ai_providers_owner_enabled` and `idx_ai_providers_kind`; use stable explicit names and `if_not_exists`.
+- [x] Add the entity in its own file and re-export it from `entities.rs`. Keep the ORM model private to persistence callers; never format it in tests because it contains ciphertext and endpoint.
+- [x] Verify:
 
 ```bash
 cargo fmt --check
@@ -91,7 +91,7 @@ cargo clippy --locked --all-targets --all-features -- -D warnings
 git diff --check
 ```
 
-- [ ] Explicitly stage migration/entity/storage-test files; commit and push `feat: persist ai provider records`.
+- [x] Explicitly stage migration/entity/storage-test files; commit and push `feat: persist ai provider records`.
 
 ### Task 3: Provider model, immutable kind, endpoint, capability, and policy contracts
 

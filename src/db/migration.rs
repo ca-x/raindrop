@@ -3,6 +3,7 @@ use sea_orm_migration::prelude::*;
 
 use super::DbError;
 
+mod ai_providers;
 mod bootstrap_state;
 mod organization;
 mod preferences;
@@ -50,6 +51,7 @@ impl MigratorTrait for Migrator {
             Box::new(rss::outbox::CreateLifecycleOutbox),
             Box::new(organization::CreateOrganizationTables),
             Box::new(preferences::CreateUserPreferences),
+            Box::new(ai_providers::CreateAiProviders),
         ]
     }
 }
