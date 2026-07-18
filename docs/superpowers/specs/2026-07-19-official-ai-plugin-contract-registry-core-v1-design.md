@@ -325,4 +325,3 @@ The approved public seams are fixed by this specification, so TDD does not requi
 - API design: versioned additive contracts, one canonical plugin identity, typed boundary validation, stable redacted errors, and an explicit signature frame make the interface difficult to misuse.
 - Security: no ambient authority, no secrets in config/grants/fixtures, duplicate-key rejection, exact digest/signature verification, tenant binding, bounded data, and corruption revalidation address the first executable plugin trust boundary.
 - Scope: the slice is independently valuable and testable but makes no false claim that Wasmtime, the official component, summary/translation, lifecycle execution, or MCP is complete.
-
