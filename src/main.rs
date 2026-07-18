@@ -8,11 +8,11 @@ use anyhow::{Context, Result, anyhow};
 use raindrop::{
     app::{AppState, build_router},
     auth::{CreateAdminInput, PasswordService, create_admin},
-    config::{BootstrapMode, ConfigArgs, SystemEnv, load, new_setup_token},
+    config::{BootstrapMode, ConfigArgs, FeedRetentionConfig, SystemEnv, load, new_setup_token},
     db::{DatabaseConfig, connect, migrate},
     feeds::{
-        FeedExecutor, FeedRepository, FeedRuntime, FeedRuntimeHandle, FeedServiceError,
-        FeedUrlPolicy, HttpFeedTransport,
+        FeedExecutor, FeedRepository, FeedRetentionPolicy, FeedRuntime, FeedRuntimeHandle,
+        FeedServiceError, FeedUrlPolicy, HttpFeedTransport,
     },
     setup::SetupService,
 };
@@ -47,6 +47,7 @@ async fn main() -> Result<()> {
     let address = loaded.runtime.bind;
     let data_dir = loaded.runtime.data_dir.clone();
     let public_url = loaded.runtime.public_url.clone();
+    let feed_retention = loaded.runtime.feed_retention();
     let database_url = loaded.runtime.database_url;
     let bootstrap_admin = loaded.runtime.bootstrap_admin;
     let setup = match loaded.mode {
@@ -106,7 +107,8 @@ async fn main() -> Result<()> {
     let listener = TcpListener::bind(address)
         .await
         .with_context(|| format!("failed to bind Raindrop to {address}"))?;
-    let (feed_runtime, feed_runtime_handle) = production_feed_runtime(setup.clone());
+    let (feed_runtime, feed_runtime_handle) =
+        production_feed_runtime(setup.clone(), feed_retention);
     let feed_runtime_task = tokio::spawn(feed_runtime.run());
 
     info!(%address, version = env!("CARGO_PKG_VERSION"), "Raindrop listening");
@@ -135,8 +137,9 @@ async fn main() -> Result<()> {
 
 fn production_feed_runtime(
     setup: SetupService,
+    retention: FeedRetentionConfig,
 ) -> (FeedRuntime<HttpFeedTransport>, FeedRuntimeHandle) {
-    FeedRuntime::new(setup, |database| {
+    let (runtime, handle) = FeedRuntime::new(setup, |database| {
         let url_policy = FeedUrlPolicy::new(false);
         let transport =
             HttpFeedTransport::new(url_policy).map_err(FeedServiceError::ExecutorInitialization)?;
@@ -145,7 +148,11 @@ fn production_feed_runtime(
             url_policy,
             transport,
         )))
-    })
+    });
+    (
+        runtime.with_retention_policy(FeedRetentionPolicy::new(retention.orphan_grace)),
+        handle,
+    )
 }
 
 async fn coordinate_server_and_feed_runtime<Signal, Shutdown, Server>(
@@ -355,7 +362,7 @@ mod tests {
     async fn production_feed_runtime_stays_inert_while_setup_is_required() {
         let data = tempfile::tempdir().expect("temporary directory should be created");
         let setup = SetupService::required(data.path(), SecretString::from("setup-token"), None);
-        let (runtime, handle) = production_feed_runtime(setup);
+        let (runtime, handle) = production_feed_runtime(setup, FeedRetentionConfig::default());
 
         handle.shutdown();
         runtime
@@ -368,7 +375,7 @@ mod tests {
     async fn coordinator_requests_runtime_shutdown_before_server_drain() {
         let data = tempfile::tempdir().expect("temporary directory should be created");
         let setup = SetupService::required(data.path(), SecretString::from("setup-token"), None);
-        let (runtime, handle) = production_feed_runtime(setup);
+        let (runtime, handle) = production_feed_runtime(setup, FeedRetentionConfig::default());
         let runtime_stopped = Arc::new(AtomicBool::new(false));
         let observed_runtime_stopped = runtime_stopped.clone();
         let runtime_task = tokio::spawn(async move {
@@ -427,7 +434,7 @@ mod tests {
     async fn coordinator_server_error_still_shuts_down_and_joins_runtime() {
         let data = tempfile::tempdir().expect("temporary directory should be created");
         let setup = SetupService::required(data.path(), SecretString::from("setup-token"), None);
-        let (runtime, handle) = production_feed_runtime(setup);
+        let (runtime, handle) = production_feed_runtime(setup, FeedRetentionConfig::default());
         let runtime_stopped = Arc::new(AtomicBool::new(false));
         let observed_runtime_stopped = runtime_stopped.clone();
         let runtime_task = tokio::spawn(async move {

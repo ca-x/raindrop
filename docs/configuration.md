@@ -1,6 +1,6 @@
 # Raindrop 配置
 
-本文记录当前 foundation 已实现的配置合同。未列出的 `RAINDROP_*` 变量不会改变程序行为，OIDC、Feed、AI、插件和 MCP 配置尚未实现。
+本文记录当前已实现的配置合同。未列出的 `RAINDROP_*` 变量不会改变程序行为，OIDC、AI、插件和 MCP 配置尚未实现。
 
 ## 加载顺序
 
@@ -22,6 +22,7 @@
 | `RAINDROP_BIND` | `bind` | `0.0.0.0:8080`。必须是 `IP:port`，不能填写主机名。 |
 | `RAINDROP_PUBLIC_URL` | `public_url` | 未设置。必须是带主机的绝对 `http://` 或 `https://` URL。当前主要用于决定 session cookie 是否带 `Secure`。 |
 | `RAINDROP_DATABASE_URL` | `database_url` | 未设置。支持 `sqlite://`、`postgres://`、`postgresql://`、`mysql://`。存在时连接受管数据库；空库会自动创建管理员或进入仅管理员设置模式。 |
+| `RAINDROP_FEED_ORPHAN_RETENTION_DAYS` | `feed_orphan_retention_days` | `30`。必须是 `0..=3650` 的整数天；`0` 禁用 orphan Feed 的物理清理。 |
 | `RAINDROP_SESSION_SECRET` | `session_secret` | 未设置。设置后至少 32 字节，否则启动失败。当前 foundation 会加载并脱敏该值，但浏览器会话令牌仍由系统随机源独立生成，因此交互式设置不要求提供此变量。 |
 | `RAINDROP_BOOTSTRAP_ADMIN_USERNAME` | `bootstrap_admin.username` | 未设置。与管理员密码成组使用；空数据库初始化时不能为空，最终用户名必须为 3 到 64 个非空白、非控制字符。 |
 | `RAINDROP_BOOTSTRAP_ADMIN_PASSWORD` | `bootstrap_admin.password` | 未设置。与管理员用户名成组使用，至少 12 字节。 |
@@ -69,6 +70,7 @@ bind = "127.0.0.1:8080"
 public_url = "https://rss.example.com"
 database_url = "sqlite:///var/lib/raindrop/raindrop.db?mode=rwc"
 session_secret = "REPLACE_WITH_AT_LEAST_32_RANDOM_BYTES"
+feed_orphan_retention_days = 30
 
 [bootstrap_admin]
 username = "admin"
@@ -145,6 +147,16 @@ RAINDROP_TEST_MYSQL_URL='mysql://USER:PASSWORD@127.0.0.1/raindrop_test' \
 ```
 
 未设置相应变量时，该 backend 合同会明确标记为跳过；测试输出不会回显数据库 URL。CI 使用一次性的 PostgreSQL/MySQL service 数据库，并串行运行三个 backend 合同。
+
+## Feed orphan 保留策略
+
+删除最后一个订阅时，Raindrop 先给 Feed 写入 `orphaned_at`，不会在用户请求内物理删除 Feed。Feed runtime 的 scheduler lane 在数据库就绪后立即执行一次维护，此后每小时最多扫描 100 个按 `(orphaned_at, id)` 排序的候选。
+
+只有超过宽限期、仍无任何订阅且没有 `QUEUED`/`RUNNING` 刷新任务的 orphan Feed 才会删除。每个候选都在短事务中锁定 Feed 后重新检查，多个实例可以并发执行；清理与重新订阅竞态时，订阅命令会重新发现或重建 Feed，不会把竞态暴露为内部错误。
+
+物理删除依赖现有外键级联清除该 Feed 的 Entries、EntryStates 和刷新历史。`lifecycle_outbox` 不带 refresh-run 外键，会继续保留已提交的版本化 payload，供后续插件投递和审计使用。本策略不会执行 SQLite `VACUUM`，也不清理已订阅 Feed 的旧文章、独立刷新历史或 outbox；这些属于单独的保留与备份策略。
+
+默认值 `30` 适合单机与普通自托管实例。需要更长的退订恢复窗口可提高到最多 `3650`；设为 `0` 会完全禁用物理清理，存储将持续增长。修改配置后需要重启进程。
 
 ## Session cookie 与反向代理
 

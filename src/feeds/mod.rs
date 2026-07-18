@@ -61,7 +61,7 @@ pub use refresh::{
     UnknownRefreshValue,
 };
 pub use repository::FeedRepository;
-pub use retention::FeedRetentionError;
+pub use retention::{FeedRetentionError, FeedRetentionPolicy};
 pub use runtime::{FeedRuntime, FeedRuntimeHandle};
 pub use schedule::{JitterSource, RefreshResult, RefreshSchedule, RetryAfter, ScheduleOutcome};
 pub use service::{FeedCommandService, FeedExecutor, FeedServiceError};

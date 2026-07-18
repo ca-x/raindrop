@@ -8,6 +8,40 @@ use time::OffsetDateTime;
 use super::FeedRepository;
 
 const MAX_RETENTION_LIMIT: u16 = 100;
+const DEFAULT_ORPHAN_GRACE: Duration = Duration::from_secs(30 * 86_400);
+const DEFAULT_SCAN_INTERVAL: Duration = Duration::from_secs(60 * 60);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FeedRetentionPolicy {
+    pub orphan_grace: Option<Duration>,
+    pub(super) scan_interval: Duration,
+    pub(super) batch_limit: u16,
+}
+
+impl FeedRetentionPolicy {
+    #[must_use]
+    pub const fn new(orphan_grace: Option<Duration>) -> Self {
+        Self {
+            orphan_grace,
+            scan_interval: DEFAULT_SCAN_INTERVAL,
+            batch_limit: MAX_RETENTION_LIMIT,
+        }
+    }
+
+    #[cfg(debug_assertions)]
+    #[doc(hidden)]
+    #[must_use]
+    pub const fn with_scan_interval(mut self, scan_interval: Duration) -> Self {
+        self.scan_interval = scan_interval;
+        self
+    }
+}
+
+impl Default for FeedRetentionPolicy {
+    fn default() -> Self {
+        Self::new(Some(DEFAULT_ORPHAN_GRACE))
+    }
+}
 
 #[derive(thiserror::Error)]
 pub enum FeedRetentionError {

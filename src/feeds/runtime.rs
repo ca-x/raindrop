@@ -11,8 +11,8 @@ use uuid::Uuid;
 use crate::setup::SetupService;
 
 use super::{
-    ClaimRequest, FeedExecutor, FeedRepository, FeedServiceError, FeedTransport,
-    RefreshRepositoryError,
+    ClaimRequest, FeedExecutor, FeedRepository, FeedRetentionPolicy, FeedServiceError,
+    FeedTransport, RefreshRepositoryError,
 };
 
 const LANE_COUNT: usize = 2;
@@ -25,6 +25,12 @@ const MAINTENANCE_LIMIT: u16 = 100;
 
 type ExecutorFactory<T> =
     Arc<dyn Fn(DatabaseConnection) -> Result<Arc<FeedExecutor<T>>, FeedServiceError> + Send + Sync>;
+
+struct LaneOptions {
+    retention_policy: FeedRetentionPolicy,
+    #[cfg(debug_assertions)]
+    terminal_ready_hook: Option<Arc<TerminalReadyHook>>,
+}
 
 #[derive(Clone)]
 pub struct FeedRuntimeHandle {
@@ -48,6 +54,7 @@ pub struct FeedRuntime<T: FeedTransport> {
     executor_factory: ExecutorFactory<T>,
     notify: Arc<Notify>,
     shutdown_rx: watch::Receiver<bool>,
+    retention_policy: FeedRetentionPolicy,
     #[cfg(debug_assertions)]
     terminal_ready_hook: Option<Arc<TerminalReadyHook>>,
     #[cfg(debug_assertions)]
@@ -87,6 +94,7 @@ where
                 executor_factory: Arc::new(executor_factory),
                 notify: notify.clone(),
                 shutdown_rx,
+                retention_policy: FeedRetentionPolicy::default(),
                 #[cfg(debug_assertions)]
                 terminal_ready_hook: None,
                 #[cfg(debug_assertions)]
@@ -97,6 +105,12 @@ where
                 shutdown_tx,
             },
         )
+    }
+
+    #[must_use]
+    pub const fn with_retention_policy(mut self, retention_policy: FeedRetentionPolicy) -> Self {
+        self.retention_policy = retention_policy;
+        self
     }
 
     #[cfg(debug_assertions)]
@@ -172,8 +186,11 @@ where
                 executor.clone(),
                 self.notify.clone(),
                 self.shutdown_rx.clone(),
-                #[cfg(debug_assertions)]
-                self.terminal_ready_hook.clone(),
+                LaneOptions {
+                    retention_policy: self.retention_policy,
+                    #[cfg(debug_assertions)]
+                    terminal_ready_hook: self.terminal_ready_hook.clone(),
+                },
             ));
         }
 
@@ -245,13 +262,14 @@ async fn run_lane<T>(
     executor: Arc<FeedExecutor<T>>,
     notify: Arc<Notify>,
     mut shutdown_rx: watch::Receiver<bool>,
-    #[cfg(debug_assertions)] terminal_ready_hook: Option<Arc<TerminalReadyHook>>,
+    options: LaneOptions,
 ) -> Result<(), FeedServiceError>
 where
     T: FeedTransport + 'static,
 {
     let scheduler_lane = lane_index == 0;
     let mut next_schedule_scan = Instant::now();
+    let mut next_retention_scan = Instant::now();
     loop {
         if *shutdown_rx.borrow() {
             return Ok(());
@@ -274,6 +292,23 @@ where
             }
             next_schedule_scan = Instant::now() + SCHEDULE_SCAN_INTERVAL;
         }
+        if scheduler_lane && Instant::now() >= next_retention_scan {
+            if let Some(grace) = options.retention_policy.orphan_grace {
+                match repository
+                    .purge_orphaned_feeds(grace, options.retention_policy.batch_limit)
+                    .await
+                {
+                    Ok(deleted) if deleted > 0 => {
+                        tracing::info!(deleted, "feed runtime retention purged orphaned feeds");
+                    }
+                    Ok(_) => {}
+                    Err(error) => {
+                        tracing::warn!(?error, "feed runtime retention failed");
+                    }
+                }
+            }
+            next_retention_scan = Instant::now() + options.retention_policy.scan_interval;
+        }
 
         if *shutdown_rx.borrow() {
             return Ok(());
@@ -293,7 +328,7 @@ where
                     claim,
                     notify.as_ref(),
                     #[cfg(debug_assertions)]
-                    terminal_ready_hook.clone(),
+                    options.terminal_ready_hook.clone(),
                 )
                 .await;
             }

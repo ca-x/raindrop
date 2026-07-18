@@ -243,11 +243,11 @@ git push origin feature/foundation-bootstrap
 - Produces `FeedRuntime::with_retention_policy(FeedRetentionPolicy)` while preserving `FeedRuntime::new` defaults for current callers.
 - Production consumes `RuntimeConfig::feed_retention()`.
 
-- [ ] **Step 1: Write the runtime RED test**
+- [x] **Step 1: Write the runtime RED test**
 
 Seed a configured database with an old orphan Feed and no work queue. Start `FeedRuntime` with a short debug scan interval and one-day grace, wait until the Feed disappears, then request shutdown and require clean completion.
 
-- [ ] **Step 2: Run the runtime RED gate**
+- [x] **Step 2: Run the runtime RED gate**
 
 Run:
 
@@ -257,19 +257,19 @@ cargo test --locked --test feed_runtime retention -- --nocapture
 
 Expected: compilation fails because runtime retention policy wiring is missing.
 
-- [ ] **Step 3: Wire scheduler-lane maintenance**
+- [x] **Step 3: Wire scheduler-lane maintenance**
 
 Add `FeedRetentionPolicy` to the runtime with defaults of 30-day grace, one-hour scan interval, and batch limit 100. Scheduler lane 0 runs retention immediately and then at the interval. `None` disables the deletion call. Log `deleted` at info when non-zero and log typed failures at warn without terminating the lane.
 
-- [ ] **Step 4: Wire production configuration**
+- [x] **Step 4: Wire production configuration**
 
 Read `loaded.runtime.feed_retention()` before moving other runtime fields and pass it to `production_feed_runtime`. Setup-required mode remains inert because `FeedRuntime::run` still waits for a ready database before constructing lanes.
 
-- [ ] **Step 5: Document the operator contract**
+- [x] **Step 5: Document the operator contract**
 
 Add `RAINDROP_FEED_ORPHAN_RETENTION_DAYS` and TOML `feed_orphan_retention_days` to configuration docs and `.env.example`, including default `30`, `0` disable behavior, maximum `3650`, one-hour bounded maintenance, cascaded Feed-owned data, and preserved lifecycle outbox.
 
-- [ ] **Step 6: Run final bounded gates**
+- [x] **Step 6: Run final bounded gates**
 
 ```bash
 cargo fmt --check

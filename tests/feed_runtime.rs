@@ -19,8 +19,8 @@ use raindrop::{
         migrate, rollback,
     },
     feeds::{
-        FeedCommandService, FeedExecutor, FeedFetchError, FeedRepository, FeedRuntime,
-        FeedTransport, FeedUrlPolicy, FetchOutcome, FetchRequest, JitterSource,
+        FeedCommandService, FeedExecutor, FeedFetchError, FeedRepository, FeedRetentionPolicy,
+        FeedRuntime, FeedTransport, FeedUrlPolicy, FetchOutcome, FetchRequest, JitterSource,
         QueueRefreshRequest, QueueSubscriptionRefresh, RefreshStatus, RefreshTrigger,
     },
     setup::{SetupCompleteInput, SetupService},
@@ -219,6 +219,61 @@ async fn setup_required_runtime_makes_zero_transport_calls() {
         .expect("setup-required runtime should stop cleanly");
 
     assert_eq!(factory_calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn runtime_retention_deletes_old_orphan_without_refresh_work() {
+    let (data, database) = ready_runtime_database("runtime-retention").await;
+    subscription::Entity::delete_by_id(SUBSCRIPTION_A_ID)
+        .exec(&database)
+        .await
+        .expect("runtime retention subscription should delete");
+    let model = feed::Entity::find_by_id(FEED_ID)
+        .one(&database)
+        .await
+        .expect("runtime retention feed should query")
+        .expect("runtime retention feed should exist");
+    let mut active: feed::ActiveModel = model.into();
+    active.orphaned_at = Set(Some(OffsetDateTime::now_utc() - time::Duration::days(10)));
+    active
+        .update(&database)
+        .await
+        .expect("runtime retention feed should become an old orphan");
+    let setup = SetupService::ready(data.path(), None, database.clone());
+    let (runtime, handle) = FeedRuntime::new(setup, move |database| {
+        Ok(Arc::new(FeedExecutor::with_jitter(
+            FeedRepository::new(database),
+            FeedUrlPolicy::new(false),
+            NeverTransport,
+            ZeroJitter,
+        )))
+    });
+    let runtime = runtime.with_retention_policy(
+        FeedRetentionPolicy::new(Some(Duration::from_secs(86_400)))
+            .with_scan_interval(Duration::from_millis(10)),
+    );
+    let task = tokio::spawn(runtime.run());
+
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if feed::Entity::find_by_id(FEED_ID)
+                .one(&database)
+                .await
+                .expect("runtime retention feed should poll")
+                .is_none()
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("runtime retention should delete the old orphan");
+
+    handle.shutdown();
+    task.await
+        .expect("runtime retention task should join")
+        .expect("runtime retention should stop cleanly");
 }
 
 #[tokio::test]
