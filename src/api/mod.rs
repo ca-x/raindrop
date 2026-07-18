@@ -1,3 +1,4 @@
+mod categories;
 mod entries;
 mod error;
 mod json;

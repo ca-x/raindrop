@@ -152,29 +152,29 @@ git push origin feature/foundation-bootstrap
 - Produces real `GET/POST/PATCH/DELETE /api/v1/categories` routes.
 - Produces the committed organization artifact consumed by the frontend generator.
 
-- [ ] **Step 1: Write router RED tests**
+- [x] **Step 1: Write router RED tests**
 
 Test session/CSRF precedence, unknown fields, empty patch, title/position validation, create 201 plus Location, duplicate 409, quota 409, cross-user 404, DELETE 204, no-store headers, trailing slash fallback, and method fallback.
 
-- [ ] **Step 2: Run and confirm RED**
+- [x] **Step 2: Run and confirm RED**
 
 Run: `cargo test --locked --all-features --test category_api`
 
 Expected: category routes return the SPA fallback or 404.
 
-- [ ] **Step 3: Implement the category router**
+- [x] **Step 3: Implement the category router**
 
 Use `CurrentUser`, `CsrfGuard`, `ApiJson`, `ApiError`, and a dedicated `organization_mutation_limiter`. Map repository errors only to stable public codes; database details remain `INTERNAL_ERROR`.
 
-- [ ] **Step 4: Add the OpenAPI artifact and drift test**
+- [x] **Step 4: Add the OpenAPI artifact and drift test**
 
 The artifact declares exactly four category operations, camelCase DTOs, session/CSRF security, 200/201/204/401/403/404/409/422/429/500 responses, and no internal normalized title/timestamps/user ID.
 
-- [ ] **Step 5: Verify router and artifact together**
+- [x] **Step 5: Verify router and artifact together**
 
 Run: `cargo test --locked --all-features --test category_api --test organization_openapi_contract`
 
-- [ ] **Step 6: Commit and push**
+- [x] **Step 6: Commit and push**
 
 ```bash
 git add src/api/categories.rs src/api/mod.rs src/api/routes.rs src/app.rs docs/openapi/organization-v1.json tests/category_api.rs tests/organization_openapi_contract.rs

@@ -20,6 +20,7 @@ pub struct AppState {
     pub(crate) login_account_throttle: AccountThrottle,
     pub(crate) setup_limiter: RateLimiter,
     pub feed_runtime: FeedRuntimeHandle,
+    pub organization_mutation_limiter: UserMutationLimiter,
     pub subscription_mutation_limiter: UserMutationLimiter,
 }
 
@@ -47,6 +48,7 @@ impl AppState {
             ),
             setup_limiter: RateLimiter::new(30, std::time::Duration::from_secs(15 * 60)),
             feed_runtime,
+            organization_mutation_limiter: UserMutationLimiter::new(),
             subscription_mutation_limiter: UserMutationLimiter::new(),
         }
     }
@@ -125,8 +127,13 @@ mod tests {
                 .subscription_mutation_limiter
                 .check("user")
                 .expect("the exact production mutation budget should be admitted");
+            state
+                .organization_mutation_limiter
+                .check("user")
+                .expect("the exact organization mutation budget should be admitted");
         }
         assert!(state.subscription_mutation_limiter.check("user").is_err());
+        assert!(state.organization_mutation_limiter.check("user").is_err());
     }
 
     #[tokio::test]

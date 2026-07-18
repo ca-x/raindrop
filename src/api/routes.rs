@@ -46,6 +46,7 @@ pub fn router() -> Router<AppState> {
         .route_layer(middleware::map_response(sensitive_cache_headers))
         .nest("/api/v1/setup", setup)
         .nest("/api/v1/auth", auth)
+        .merge(super::categories::router())
         .merge(super::entries::router())
         .merge(super::subscriptions::router())
         .layer(DefaultBodyLimit::max(64 * 1024))
