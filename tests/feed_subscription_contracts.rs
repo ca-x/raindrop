@@ -136,7 +136,12 @@ async fn backend_projection_contract(url: SecretString, backend_name: &str) {
             },
         )
         .await
-        .unwrap_or_else(|_| panic!("{backend_name} subscription list should execute"));
+        .unwrap_or_else(|error| {
+            panic!(
+                "{backend_name} subscription list should execute: {}",
+                repository_error_detail(&error)
+            )
+        });
     assert_eq!(page.items.len(), 1);
     assert_eq!(page.items[0].subscription_id, SUBSCRIPTION_A_ID);
     assert_eq!(page.items[0].unread_count, 2);
@@ -219,9 +224,18 @@ async fn backend_queue_race_contract(url: &str, backend_name: &str) {
     })
     .await
     .unwrap_or_else(|_| panic!("{backend_name} queue race must not deadlock"));
-    let first = first.unwrap_or_else(|_| panic!("{backend_name} first subscribe should succeed"));
-    let second =
-        second.unwrap_or_else(|_| panic!("{backend_name} second subscribe should succeed"));
+    let first = first.unwrap_or_else(|error| {
+        panic!(
+            "{backend_name} first subscribe should succeed: {}",
+            refresh_error_detail(&error)
+        )
+    });
+    let second = second.unwrap_or_else(|error| {
+        panic!(
+            "{backend_name} second subscribe should succeed: {}",
+            refresh_error_detail(&error)
+        )
+    });
     assert_eq!(
         first
             .subscription
@@ -1898,6 +1912,22 @@ async fn seed_active_user_refresh_quota(database: &DatabaseConnection, count: u1
         .insert(database)
         .await
         .expect("active quota run should insert");
+    }
+}
+
+fn repository_error_detail(error: &RepositoryError) -> String {
+    match error {
+        RepositoryError::Database(error) => format!("RepositoryError::Database({error})"),
+        error => format!("{error:?}"),
+    }
+}
+
+fn refresh_error_detail(error: &RefreshRepositoryError) -> String {
+    match error {
+        RefreshRepositoryError::Database(error) => {
+            format!("RefreshRepositoryError::Database({error})")
+        }
+        error => format!("{error:?}"),
     }
 }
 
