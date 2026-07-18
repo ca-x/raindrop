@@ -79,6 +79,34 @@ async fn reader_openapi_matches_real_router_success_and_error_responses() {
             fixture
                 .request(
                     Method::GET,
+                    "/api/v1/entries?feedId=00000000-0000-4000-8000-000000000101&state=ALL&search=safe",
+                    None,
+                    true,
+                    true,
+                )
+                .await,
+            StatusCode::OK,
+        ),
+        (
+            "/api/v1/entries",
+            "get",
+            fixture
+                .request(
+                    Method::GET,
+                    "/api/v1/entries?state=ALL&search=safe",
+                    None,
+                    true,
+                    true,
+                )
+                .await,
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (
+            "/api/v1/entries",
+            "get",
+            fixture
+                .request(
+                    Method::GET,
                     "/api/v1/entries?feedId=00000000-0000-4000-8000-000000000101&categoryId=00000000-0000-4000-8000-000000000501",
                     None,
                     true,

@@ -185,6 +185,22 @@ async fn explain_contract(url: SecretString, backend_name: &str) {
             );
         }
     }
+    let search_plan = repository
+        .explain_list_for_user(
+            USER_A_ID,
+            ListEntriesQuery {
+                state: EntryListState::All,
+                feed_id: Some(FEED_ID.to_owned()),
+                search: Some("safe content".to_owned()),
+                ..ListEntriesQuery::default()
+            },
+        )
+        .await
+        .unwrap_or_else(|_| panic!("{backend_name} Feed search EXPLAIN should execute"));
+    assert!(
+        !search_plan.is_empty(),
+        "{backend_name} Feed search EXPLAIN should return a plan"
+    );
     database.close().await.expect("database should close");
 }
 

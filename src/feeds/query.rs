@@ -5,12 +5,14 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, DbBackend, QueryResult, Statemen
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::content::search::{NormalizedSearch, normalize_search_query};
+
 use super::{
     EnclosureDto, EntryContentDetail, EntryContentError, EntryDetailDto, EntryListItemDto,
     EntryPage, FeedRepository, InertImageDto,
 };
 
-const CURSOR_VERSION: u8 = 1;
+const CURSOR_VERSION: u8 = 2;
 const MAX_CURSOR_BYTES: usize = 1_024;
 const MAX_LIMIT: u16 = 100;
 
@@ -37,6 +39,7 @@ pub struct ListEntriesQuery {
     pub state: EntryListState,
     pub feed_id: Option<String>,
     pub category_id: Option<String>,
+    pub search: Option<String>,
     pub limit: u16,
     pub cursor: Option<String>,
 }
@@ -47,6 +50,7 @@ impl Default for ListEntriesQuery {
             state: EntryListState::Unread,
             feed_id: None,
             category_id: None,
+            search: None,
             limit: 50,
             cursor: None,
         }
@@ -65,6 +69,8 @@ pub enum RepositoryError {
     InvalidCategoryId,
     #[error("entry source filters cannot be combined")]
     InvalidSourceFilter,
+    #[error("entry search query is invalid")]
+    InvalidSearch,
     #[error("entry identifier is invalid")]
     InvalidEntryId,
     #[error("entry list limit is invalid")]
@@ -87,6 +93,7 @@ impl fmt::Debug for RepositoryError {
             Self::InvalidFeedId => "RepositoryError::InvalidFeedId",
             Self::InvalidCategoryId => "RepositoryError::InvalidCategoryId",
             Self::InvalidSourceFilter => "RepositoryError::InvalidSourceFilter",
+            Self::InvalidSearch => "RepositoryError::InvalidSearch",
             Self::InvalidEntryId => "RepositoryError::InvalidEntryId",
             Self::InvalidLimit => "RepositoryError::InvalidLimit",
             Self::InvalidCursor => "RepositoryError::InvalidCursor",
@@ -127,12 +134,13 @@ impl FeedRepository {
         query: ListEntriesQuery,
     ) -> Result<EntryPage, RepositoryError> {
         validate_uuid(user_id).map_err(|()| RepositoryError::InvalidUserId)?;
-        validate_query(&query)?;
+        let search = validate_query(&query)?;
         let filter_hash = filter_hash(
             user_id,
             query.state,
             query.feed_id.as_deref(),
             query.category_id.as_deref(),
+            search.as_ref(),
         );
         let cursor = query.cursor.as_deref().map(decode_cursor).transpose()?;
         if cursor
@@ -151,6 +159,7 @@ impl FeedRepository {
             backend,
             user_id,
             &query,
+            search.as_ref(),
             snapshot_generation,
             cursor.as_ref(),
         );
@@ -205,10 +214,17 @@ impl FeedRepository {
         query: ListEntriesQuery,
     ) -> Result<Vec<String>, RepositoryError> {
         validate_uuid(user_id).map_err(|()| RepositoryError::InvalidUserId)?;
-        validate_query(&query)?;
+        let search = validate_query(&query)?;
         let backend = self.connection().get_database_backend();
         let snapshot_generation = read_snapshot_generation(self.connection(), backend).await?;
-        let statement = list_statement(backend, user_id, &query, snapshot_generation, None);
+        let statement = list_statement(
+            backend,
+            user_id,
+            &query,
+            search.as_ref(),
+            snapshot_generation,
+            None,
+        );
         let explain = explain_statement(statement);
         self.connection()
             .query_all(explain)
@@ -219,7 +235,7 @@ impl FeedRepository {
     }
 }
 
-fn validate_query(query: &ListEntriesQuery) -> Result<(), RepositoryError> {
+fn validate_query(query: &ListEntriesQuery) -> Result<Option<NormalizedSearch>, RepositoryError> {
     if !(1..=MAX_LIMIT).contains(&query.limit) {
         return Err(RepositoryError::InvalidLimit);
     }
@@ -232,7 +248,14 @@ fn validate_query(query: &ListEntriesQuery) -> Result<(), RepositoryError> {
     if query.feed_id.is_some() && query.category_id.is_some() {
         return Err(RepositoryError::InvalidSourceFilter);
     }
-    Ok(())
+    query.search.as_deref().map_or(Ok(None), |raw| {
+        if query.feed_id.is_none() {
+            return Err(RepositoryError::InvalidSearch);
+        }
+        normalize_search_query(raw)
+            .map(Some)
+            .map_err(|_| RepositoryError::InvalidSearch)
+    })
 }
 
 pub(super) fn validate_uuid(value: &str) -> Result<(), ()> {
@@ -274,6 +297,7 @@ fn list_statement(
     backend: DbBackend,
     user_id: &str,
     query: &ListEntriesQuery,
+    search: Option<&NormalizedSearch>,
     snapshot_generation: i64,
     cursor: Option<&CursorPayload>,
 ) -> Statement {
@@ -314,6 +338,22 @@ fn list_statement(
     if let Some(category_id) = query.category_id.as_deref() {
         let category = sql.bind(category_id);
         text.push_str(&format!(" AND s.category_id = {category}"));
+    }
+    if let Some(search) = search {
+        for term in search.terms() {
+            let term = sql.bind(term.as_str());
+            match backend {
+                DatabaseBackend::Sqlite => {
+                    text.push_str(&format!(" AND instr(e.search_text, {term}) > 0"));
+                }
+                DatabaseBackend::Postgres => {
+                    text.push_str(&format!(" AND position({term} in e.search_text) > 0"));
+                }
+                DatabaseBackend::MySql => {
+                    text.push_str(&format!(" AND locate({term}, e.search_text) > 0"));
+                }
+            }
+        }
     }
     match query.state {
         EntryListState::All => {}
@@ -446,13 +486,18 @@ fn filter_hash(
     state: EntryListState,
     feed_id: Option<&str>,
     category_id: Option<&str>,
+    search: Option<&NormalizedSearch>,
 ) -> String {
     let mut hasher = blake3::Hasher::new();
-    hasher.update(b"raindrop-entry-filter\0v1");
+    hasher.update(b"raindrop-entry-filter\0v2");
     hash_frame(&mut hasher, user_id.as_bytes());
     hash_frame(&mut hasher, state.as_str().as_bytes());
     hash_frame(&mut hasher, feed_id.unwrap_or("").as_bytes());
     hash_frame(&mut hasher, category_id.unwrap_or("").as_bytes());
+    hash_frame(
+        &mut hasher,
+        search.map_or("", NormalizedSearch::canonical).as_bytes(),
+    );
     hash_frame(
         &mut hasher,
         b"order=sort_at_us-desc,entry_id-desc;snapshot=ingest_generation",
@@ -603,7 +648,7 @@ mod tests {
     #[test]
     fn cursor_rejects_noncanonical_and_unknown_fields() {
         let payload = CursorPayload {
-            v: 1,
+            v: 2,
             filter_hash: "a".repeat(64),
             snapshot_generation: 1,
             sort_at_us: 2,
@@ -613,7 +658,7 @@ mod tests {
         assert_eq!(decode_cursor(&canonical).unwrap(), payload);
 
         let unknown = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(
-            br#"{"v":1,"filterHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","snapshotGeneration":1,"sortAtUs":2,"entryId":"00000000-0000-4000-8000-000000000001","extra":true}"#,
+            br#"{"v":2,"filterHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","snapshotGeneration":1,"sortAtUs":2,"entryId":"00000000-0000-4000-8000-000000000001","extra":true}"#,
         );
         assert!(matches!(
             decode_cursor(&unknown),
@@ -621,6 +666,13 @@ mod tests {
         ));
         assert!(matches!(
             decode_cursor(&(canonical + "=")),
+            Err(RepositoryError::InvalidCursor)
+        ));
+        let legacy = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(
+            br#"{"v":1,"filterHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","snapshotGeneration":1,"sortAtUs":2,"entryId":"00000000-0000-4000-8000-000000000001"}"#,
+        );
+        assert!(matches!(
+            decode_cursor(&legacy),
             Err(RepositoryError::InvalidCursor)
         ));
     }

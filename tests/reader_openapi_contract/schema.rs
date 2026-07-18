@@ -33,6 +33,7 @@ pub(crate) fn validate_schema(
 
     validate_format(schema, value, path)?;
     validate_numeric_bounds(schema, value, path)?;
+    validate_string_bounds(schema, value, path)?;
     validate_object_keywords(document, schema, value, path)?;
     if let Some(items) = schema.get("items")
         && let Some(values) = value.as_array()
@@ -40,6 +41,23 @@ pub(crate) fn validate_schema(
         for (index, item) in values.iter().enumerate() {
             validate_schema(document, items, item, &format!("{path}[{index}]"))?;
         }
+    }
+    Ok(())
+}
+
+fn validate_string_bounds(schema: &Value, value: &Value, path: &str) -> Result<(), String> {
+    let Some(value) = value.as_str() else {
+        return Ok(());
+    };
+    if let Some(minimum) = schema.get("minLength").and_then(Value::as_u64)
+        && value.chars().count() < usize::try_from(minimum).unwrap_or(usize::MAX)
+    {
+        return Err(format!("{path} is shorter than minLength {minimum}"));
+    }
+    if let Some(maximum) = schema.get("maxLength").and_then(Value::as_u64)
+        && value.chars().count() > usize::try_from(maximum).unwrap_or(usize::MAX)
+    {
+        return Err(format!("{path} is longer than maxLength {maximum}"));
     }
     Ok(())
 }

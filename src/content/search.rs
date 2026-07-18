@@ -3,19 +3,15 @@ use std::{error::Error, fmt};
 use super::sanitize::extract_rendered_text;
 
 pub(crate) const MAX_ENTRY_SEARCH_TEXT_BYTES: usize = 60 * 1024;
-#[allow(dead_code)] // Used by the Reader query slice immediately after projection delivery.
 pub(crate) const MAX_SEARCH_QUERY_BYTES: usize = 128;
-#[allow(dead_code)] // Used by the Reader query slice immediately after projection delivery.
 pub(crate) const MAX_SEARCH_TERMS: usize = 8;
 
-#[allow(dead_code)] // Used by the Reader query slice immediately after projection delivery.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct NormalizedSearch {
     terms: Vec<String>,
     canonical: String,
 }
 
-#[allow(dead_code)] // Used by the Reader query slice immediately after projection delivery.
 impl NormalizedSearch {
     #[must_use]
     pub(crate) fn terms(&self) -> &[String] {
@@ -28,7 +24,6 @@ impl NormalizedSearch {
     }
 }
 
-#[allow(dead_code)] // Used by the Reader query slice immediately after projection delivery.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SearchQueryError {
     Empty,
@@ -62,7 +57,6 @@ pub(crate) fn build_entry_search_text(
     )
 }
 
-#[allow(dead_code)] // Used by the Reader query slice immediately after projection delivery.
 pub(crate) fn normalize_search_query(raw: &str) -> Result<NormalizedSearch, SearchQueryError> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {

@@ -454,6 +454,40 @@ impl ReaderFixture {
             .await
             .expect("entry storage should update");
     }
+
+    async fn seed_search_projection(&self) {
+        for (entry_id, title, author, summary, search_text) in [
+            (
+                ENTRY_A_ID,
+                "Rust Dispatch",
+                "Alice",
+                "Portable storage",
+                "rust dispatch alice portable storage rendered content 100% _ literal γεια common",
+            ),
+            (
+                ENTRY_B_ID,
+                "RSS Database",
+                "Bob",
+                "Second article",
+                "rss database bob second article feed parser common",
+            ),
+        ] {
+            let stored = entry::Entity::find_by_id(entry_id)
+                .one(&self.database)
+                .await
+                .expect("search entry should query")
+                .expect("search entry should exist");
+            let mut active = stored.into_active_model();
+            active.title = Set(Some(title.to_owned()));
+            active.author = Set(Some(author.to_owned()));
+            active.summary = Set(Some(summary.to_owned()));
+            active.search_text = Set(search_text.to_owned());
+            active
+                .update(&self.database)
+                .await
+                .expect("search projection should update");
+        }
+    }
 }
 
 fn session_cookie(session: &raindrop::auth::CreatedSession) -> String {
@@ -811,6 +845,94 @@ async fn reader_category_filter_is_user_scoped_and_cursor_bound() {
         )
         .await;
     assert_eq!(ambiguous.status(), StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
+async fn reader_feed_search_matches_portable_projection_and_binds_the_cursor() {
+    let fixture = ReaderFixture::new().await;
+    fixture.seed_search_projection().await;
+
+    for (query, expected_entry) in [
+        ("rust", ENTRY_A_ID),
+        ("alice%20storage", ENTRY_A_ID),
+        ("100%25%20_", ENTRY_A_ID),
+        ("%CE%93%CE%95%CE%99%CE%91", ENTRY_A_ID),
+        ("database%20bob", ENTRY_B_ID),
+    ] {
+        let response = fixture
+            .request(
+                Method::GET,
+                &format!("/api/v1/entries?state=ALL&feedId={FEED_ID}&search={query}"),
+                None,
+                UserKind::A,
+            )
+            .await;
+        assert_eq!(response.status(), StatusCode::OK, "search query {query}");
+        let body = response_json(response).await;
+        assert_eq!(body["items"].as_array().unwrap().len(), 1, "{query}");
+        assert_eq!(body["items"][0]["entryId"], expected_entry, "{query}");
+    }
+
+    let first = fixture
+        .request(
+            Method::GET,
+            &format!("/api/v1/entries?state=ALL&feedId={FEED_ID}&search=common&limit=1"),
+            None,
+            UserKind::A,
+        )
+        .await;
+    assert_eq!(first.status(), StatusCode::OK);
+    let first = response_json(first).await;
+    let cursor = first["nextCursor"]
+        .as_str()
+        .expect("common search should have another page");
+    let replay = fixture
+        .request(
+            Method::GET,
+            &format!(
+                "/api/v1/entries?state=ALL&feedId={FEED_ID}&search=rust&limit=1&cursor={cursor}"
+            ),
+            None,
+            UserKind::A,
+        )
+        .await;
+    assert_eq!(replay.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+    let cross_user = fixture
+        .request(
+            Method::GET,
+            &format!("/api/v1/entries?state=ALL&feedId={FEED_ID}&search=rust"),
+            None,
+            UserKind::B,
+        )
+        .await;
+    assert_eq!(cross_user.status(), StatusCode::OK);
+    assert_eq!(response_json(cross_user).await["items"], json!([]));
+}
+
+#[tokio::test]
+async fn reader_feed_search_rejects_unbounded_or_non_feed_queries() {
+    let fixture = ReaderFixture::new().await;
+    let too_long = "x".repeat(129);
+    for uri in [
+        "/api/v1/entries?state=ALL&search=rust".to_owned(),
+        format!("/api/v1/entries?state=ALL&categoryId={CATEGORY_A_ID}&search=rust"),
+        format!("/api/v1/entries?state=ALL&feedId={FEED_ID}&search=%20"),
+        format!(
+            "/api/v1/entries?state=ALL&feedId={FEED_ID}&search=one%20two%20three%20four%20five%20six%20seven%20eight%20nine"
+        ),
+        format!("/api/v1/entries?state=ALL&feedId={FEED_ID}&search={too_long}"),
+    ] {
+        let response = fixture.request(Method::GET, &uri, None, UserKind::A).await;
+        assert_eq!(
+            response.status(),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "unexpected status for {uri}"
+        );
+        let body = response_json(response).await;
+        assert_eq!(body["error"]["code"], "VALIDATION_ERROR");
+        assert!(body["error"]["fields"]["search"].is_string());
+    }
 }
 
 #[tokio::test]

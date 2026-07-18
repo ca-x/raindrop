@@ -473,6 +473,7 @@ fn map_repository_error(error: RepositoryError) -> ApiError {
         | RepositoryError::InvalidFeedId
         | RepositoryError::InvalidCategoryId
         | RepositoryError::InvalidSourceFilter
+        | RepositoryError::InvalidSearch
         | RepositoryError::InvalidEntryId
         | RepositoryError::InvalidStatePatch
         | RepositoryError::Database(_)

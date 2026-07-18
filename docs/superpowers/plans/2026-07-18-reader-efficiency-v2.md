@@ -81,10 +81,10 @@ git diff --check
 - Extends `GET /api/v1/entries` with strict Feed-only `search`.
 - Cursor filter hash includes the canonical search term sequence.
 
-- [ ] Write RED repository/API tests for title/author/summary/rendered content, multi-term AND, Unicode, literal wildcard characters, Feed requirement, user isolation, cursor mismatch, and invalid byte/term bounds.
-- [ ] Extend `ListEntriesParams`, repository validation, filter hash, and backend statement generation using `instr`/`position`/`locate`.
-- [ ] Update OpenAPI parameters and strict router/DTO/schema contracts without exposing `search_text`.
-- [ ] Regenerate committed Reader TypeScript DTOs and require drift checks to pass.
+- [x] Write RED repository/API tests for title/author/summary/rendered content, multi-term AND, Unicode, literal wildcard characters, Feed requirement, user isolation, cursor mismatch, and invalid byte/term bounds.
+- [x] Extend `ListEntriesParams`, repository validation, filter hash, and backend statement generation using `instr`/`position`/`locate`.
+- [x] Update OpenAPI parameters and strict router/DTO/schema contracts without exposing `search_text`.
+- [x] Regenerate committed Reader TypeScript DTOs and require drift checks to pass.
 - [ ] Verify:
 
 ```bash
@@ -99,7 +99,7 @@ cd ..
 git diff --check
 ```
 
-- [ ] Commit and push: `feat: search entries within a feed`.
+- [x] Commit and push: `feat: search entries within a feed`.
 
 ### Task 3: Stable-snapshot bulk mark-read transaction and endpoint
 

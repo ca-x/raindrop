@@ -35,6 +35,7 @@ fn reader_openapi_declares_exact_operations_and_security() {
             "cursor".to_owned(),
             "feedId".to_owned(),
             "limit".to_owned(),
+            "search".to_owned(),
             "state".to_owned(),
         ])
     );

@@ -66,6 +66,15 @@ fn reader_schema_validator_enforces_declared_numeric_bounds() {
 }
 
 #[test]
+fn reader_schema_validator_enforces_search_length_bounds() {
+    let document = load_openapi();
+    let search = &document["components"]["parameters"]["Search"]["schema"];
+    assert!(validate_schema(&document, search, &json!("rss"), "$search").is_ok());
+    assert!(validate_schema(&document, search, &json!(""), "$search").is_err());
+    assert!(validate_schema(&document, search, &json!("x".repeat(129)), "$search").is_err());
+}
+
+#[test]
 fn reader_schema_validator_enforces_typed_additional_properties() {
     let document = load_openapi();
     let fields_schema = &document["components"]["schemas"]["ApiError"]["properties"]["fields"];

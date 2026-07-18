@@ -63,6 +63,7 @@ struct ListEntriesParams {
     limit: Option<u16>,
     feed_id: Option<String>,
     category_id: Option<String>,
+    search: Option<String>,
     state: Option<EntryStateParam>,
 }
 
@@ -73,6 +74,7 @@ impl ListEntriesParams {
             state: self.state.map_or(defaults.state, EntryListState::from),
             feed_id: self.feed_id,
             category_id: self.category_id,
+            search: self.search,
             limit: self.limit.unwrap_or(defaults.limit),
             cursor: self.cursor,
         }
@@ -346,6 +348,10 @@ fn map_repository_error(error: RepositoryError) -> ApiError {
         RepositoryError::InvalidSourceFilter => ApiError::validation()
             .with_field("feedId", "Feed and category filters cannot be combined")
             .with_field("categoryId", "Feed and category filters cannot be combined"),
+        RepositoryError::InvalidSearch => ApiError::validation().with_field(
+            "search",
+            "Search requires one Feed and must contain 1 to 8 terms within 128 bytes",
+        ),
         RepositoryError::InvalidEntryId => {
             ApiError::validation().with_field("entryId", "Entry identifier is invalid")
         }

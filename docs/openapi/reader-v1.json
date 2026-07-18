@@ -3,7 +3,7 @@
   "info": {
     "title": "Raindrop Reader API",
     "version": "1.0.0",
-    "description": "User-scoped entry listing, detail reading, and read/star state updates. This committed fragment is the DTO source for Reader clients."
+    "description": "User-scoped entry listing, Feed-local search, detail reading, and read/star state updates. This committed fragment is the DTO source for Reader clients."
   },
   "servers": [
     {
@@ -43,6 +43,9 @@
           },
           {
             "$ref": "#/components/parameters/EntryListState"
+          },
+          {
+            "$ref": "#/components/parameters/Search"
           }
         ],
         "responses": {
@@ -206,6 +209,18 @@
         "schema": {
           "$ref": "#/components/schemas/EntryListState",
           "default": "UNREAD"
+        }
+      },
+      "Search": {
+        "name": "search",
+        "in": "query",
+        "required": false,
+        "description": "Feed-local title, author, summary, and rendered-content search. Requires feedId and permits at most eight terms.",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "x-raindrop-maxUtf8Bytes": 128
         }
       },
       "EntryId": {
