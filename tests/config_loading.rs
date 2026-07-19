@@ -213,13 +213,14 @@ fn provider_secret_key_environment_replaces_toml() {
     let env_entry = provider_key_entry("environment", 2);
     let env = MapEnv::from([("RAINDROP_PROVIDER_SECRET_KEYS", env_entry.as_str())]);
 
-    let loaded = load(&ConfigArgs::for_test(data.path()), &env)
+    let mut loaded = load(&ConfigArgs::for_test(data.path()), &env)
         .expect("environment provider key should replace the file list");
-    let entries = loaded.runtime.provider_secret_keys();
+    let entries = loaded.runtime.take_provider_secret_keys();
 
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].expose_secret(), env_entry);
     assert!(!format!("{loaded:?}").contains(entries[0].expose_secret()));
+    assert!(loaded.runtime.provider_secret_keys().is_empty());
 }
 
 #[test]

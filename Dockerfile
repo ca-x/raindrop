@@ -15,10 +15,29 @@ RUN npm run build
 FROM rust:1.94.0-bookworm AS rust-builder
 
 WORKDIR /src
+ARG RAINDROP_REQUIRE_OFFICIAL_PLUGIN_SIGNATURE=0
+ARG RAINDROP_OFFICIAL_PLUGIN_SIGNING_KEY_ID
+ARG RAINDROP_SIGNING_CACHE_EPOCH=development
+RUN rustup target add wasm32-unknown-unknown
 COPY . ./
 COPY --from=web-builder /src/web/dist /src/web/dist
-RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+RUN --mount=type=secret,id=raindrop_official_plugin_signing_seed \
+    --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/src/target,sharing=locked \
+    test -n "$RAINDROP_SIGNING_CACHE_EPOCH" && \
+    if [ "$RAINDROP_REQUIRE_OFFICIAL_PLUGIN_SIGNATURE" = "1" ]; then \
+      test "$RAINDROP_OFFICIAL_PLUGIN_SIGNING_KEY_ID" = "raindrop-release-2026" && \
+      test -s /run/secrets/raindrop_official_plugin_signing_seed && \
+      export RAINDROP_REQUIRE_OFFICIAL_PLUGIN_SIGNATURE=1 && \
+      export RAINDROP_OFFICIAL_PLUGIN_SIGNING_KEY_ID && \
+      export RAINDROP_OFFICIAL_PLUGIN_SIGNING_SEED="$(cat /run/secrets/raindrop_official_plugin_signing_seed)"; \
+    elif [ "$RAINDROP_REQUIRE_OFFICIAL_PLUGIN_SIGNATURE" = "0" ]; then \
+      unset RAINDROP_REQUIRE_OFFICIAL_PLUGIN_SIGNATURE \
+            RAINDROP_OFFICIAL_PLUGIN_SIGNING_KEY_ID \
+            RAINDROP_OFFICIAL_PLUGIN_SIGNING_SEED; \
+    else \
+      exit 1; \
+    fi && \
     cargo build --release --locked && \
     cp target/release/raindrop /tmp/raindrop
 

@@ -6,6 +6,7 @@ use tokio::sync::Semaphore;
 use crate::{
     api::{self, AccountThrottle, RateLimiter, UserMutationLimiter},
     auth::SessionService,
+    content::worker::ContentRuntimeHandle,
     feeds::{FeedRuntime, FeedRuntimeHandle, FeedServiceError, HttpFeedTransport},
     setup::SetupService,
     web,
@@ -20,6 +21,7 @@ pub struct AppState {
     pub(crate) login_account_throttle: AccountThrottle,
     pub(crate) setup_limiter: RateLimiter,
     pub feed_runtime: FeedRuntimeHandle,
+    pub content_runtime: ContentRuntimeHandle,
     pub organization_mutation_limiter: UserMutationLimiter,
     pub preferences_mutation_limiter: UserMutationLimiter,
     pub subscription_mutation_limiter: UserMutationLimiter,
@@ -36,6 +38,15 @@ impl AppState {
 
     #[must_use]
     pub fn with_feed_runtime(setup: SetupService, feed_runtime: FeedRuntimeHandle) -> Self {
+        Self::with_runtimes(setup, feed_runtime, ContentRuntimeHandle::inert())
+    }
+
+    #[must_use]
+    pub fn with_runtimes(
+        setup: SetupService,
+        feed_runtime: FeedRuntimeHandle,
+        content_runtime: ContentRuntimeHandle,
+    ) -> Self {
         Self {
             version: env!("CARGO_PKG_VERSION"),
             setup,
@@ -49,6 +60,7 @@ impl AppState {
             ),
             setup_limiter: RateLimiter::new(30, std::time::Duration::from_secs(15 * 60)),
             feed_runtime,
+            content_runtime,
             organization_mutation_limiter: UserMutationLimiter::new(),
             preferences_mutation_limiter: UserMutationLimiter::new(),
             subscription_mutation_limiter: UserMutationLimiter::new(),
@@ -124,6 +136,8 @@ mod tests {
 
         state.feed_runtime.notify();
         state.feed_runtime.shutdown();
+        state.content_runtime.notify();
+        state.content_runtime.shutdown();
         for _ in 0..30 {
             state
                 .subscription_mutation_limiter
@@ -157,6 +171,30 @@ mod tests {
             .run()
             .await
             .expect("pre-start shutdown should stop the production runtime cleanly");
+    }
+
+    #[tokio::test]
+    async fn app_state_with_runtimes_preserves_both_production_handles() {
+        let data = tempfile::tempdir().expect("temporary directory should be created");
+        let setup = SetupService::required(data.path(), SecretString::from("setup-token"), None);
+        let (feed, feed_handle) = FeedRuntime::<HttpFeedTransport>::new(setup.clone(), |_| {
+            Err(FeedServiceError::CorruptFeed)
+        });
+        let (content_handle, _, mut content_shutdown) =
+            crate::content::worker::ContentRuntimeHandle::control();
+        let state = AppState::with_runtimes(setup, feed_handle, content_handle);
+
+        state.feed_runtime.shutdown();
+        state.content_runtime.shutdown();
+
+        feed.run()
+            .await
+            .expect("pre-start Feed shutdown should stop cleanly");
+        content_shutdown
+            .changed()
+            .await
+            .expect("Content shutdown sender should remain available");
+        assert!(*content_shutdown.borrow());
     }
 
     #[tokio::test]

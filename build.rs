@@ -1,5 +1,8 @@
 use std::{env, path::Path};
 
+#[path = "build/official_ai.rs"]
+mod official_ai;
+
 fn main() {
     for path in [
         "web/index.html",
@@ -22,4 +25,6 @@ fn main() {
             );
         }
     }
+
+    official_ai::build().unwrap_or_else(|error| panic!("official AI bundle build failed: {error}"));
 }

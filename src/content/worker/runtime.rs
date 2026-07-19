@@ -231,6 +231,12 @@ pub struct ContentRuntimeHandle {
 }
 
 impl ContentRuntimeHandle {
+    #[must_use]
+    pub fn inert() -> Self {
+        let (handle, _, _) = Self::control();
+        handle
+    }
+
     pub fn notify(&self) {
         self.notify.notify_waiters();
     }
@@ -238,6 +244,19 @@ impl ContentRuntimeHandle {
     pub fn shutdown(&self) {
         let _ = self.shutdown_tx.send(true);
         self.notify.notify_waiters();
+    }
+
+    pub(crate) fn control() -> (Self, Arc<Notify>, watch::Receiver<bool>) {
+        let notify = Arc::new(Notify::new());
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        (
+            Self {
+                notify: Arc::clone(&notify),
+                shutdown_tx,
+            },
+            notify,
+            shutdown_rx,
+        )
     }
 }
 
@@ -253,19 +272,24 @@ impl ContentRuntime {
         repository: Arc<ContentRepository>,
         processor: Arc<dyn ContentProcessor>,
     ) -> (Self, ContentRuntimeHandle) {
-        let notify = Arc::new(Notify::new());
-        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let (handle, notify, shutdown_rx) = ContentRuntimeHandle::control();
         (
-            Self {
-                worker: ContentWorker::new(repository, processor),
-                notify: Arc::clone(&notify),
-                shutdown_rx,
-            },
-            ContentRuntimeHandle {
-                notify,
-                shutdown_tx,
-            },
+            Self::controlled(repository, processor, notify, shutdown_rx),
+            handle,
         )
+    }
+
+    pub(crate) fn controlled(
+        repository: Arc<ContentRepository>,
+        processor: Arc<dyn ContentProcessor>,
+        notify: Arc<Notify>,
+        shutdown_rx: watch::Receiver<bool>,
+    ) -> Self {
+        Self {
+            worker: ContentWorker::new(repository, processor),
+            notify,
+            shutdown_rx,
+        }
     }
 
     pub async fn run(mut self) -> Result<(), ContentWorkerError> {

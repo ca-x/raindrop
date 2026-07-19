@@ -1,4 +1,5 @@
 mod artifact;
+mod bundled;
 mod config;
 mod error;
 pub(crate) mod json;
@@ -10,6 +11,7 @@ pub mod runtime;
 pub(crate) mod tool_plan;
 
 pub use artifact::{SummaryArtifact, TranslationArtifact};
+pub use bundled::{EmbeddedOfficialAiPlugin, EmbeddedSignatureMode};
 pub use config::AiContentConfig;
 pub use error::{PluginRegistryError, PluginRegistryErrorKind};
 pub use lifecycle::{LifecycleEvent, LifecycleEventKind};

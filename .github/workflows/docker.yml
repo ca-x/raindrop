@@ -113,10 +113,15 @@ jobs:
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.version=${{ env.RELEASE_TAG }}
             org.opencontainers.image.revision=${{ steps.source.outputs.sha }}
+          secrets: |
+            raindrop_official_plugin_signing_seed=${{ secrets.RAINDROP_OFFICIAL_PLUGIN_SIGNING_SEED }}
           build-args: |
             VERSION=${{ env.RELEASE_TAG }}
             BUILD_TIME=${{ steps.buildmeta.outputs.build_time }}
             GIT_COMMIT=${{ steps.source.outputs.sha }}
+            RAINDROP_REQUIRE_OFFICIAL_PLUGIN_SIGNATURE=1
+            RAINDROP_OFFICIAL_PLUGIN_SIGNING_KEY_ID=raindrop-release-2026
+            RAINDROP_SIGNING_CACHE_EPOCH=${{ steps.buildmeta.outputs.build_time }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: true

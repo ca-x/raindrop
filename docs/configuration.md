@@ -1,6 +1,6 @@
 # Raindrop 配置
 
-本文记录当前已实现的配置合同。未列出的 `RAINDROP_*` 变量不会改变程序行为。AI provider 的独立加密 keyring 配置已经实现，但 provider 管理 API/UI、内容 job、插件和 MCP 配置尚未接通；OIDC 也仍未实现。
+本文记录当前已实现的运行时配置合同。未列出的运行时 `RAINDROP_*` 变量不会改变程序行为。AI provider 独立加密 keyring、官方内嵌插件同步和生产内容 worker 已接入启动生命周期；provider/content 管理 API/UI、自动入队、Reader sidecar、生命周期 dispatcher 和 MCP transport 尚未接通，OIDC 也仍未实现。
 
 ## 加载顺序
 
@@ -30,6 +30,22 @@
 | `RAINDROP_BOOTSTRAP_ADMIN_EMAIL` | `bootstrap_admin.email` | 未设置。可选；首尾空白会被移除，空值按未提供处理。非空值仅接受 ASCII，转为小写后最多 320 字节、只能有一个 `@`、local/domain 都不能为空且分别最多 64/255 字节，并拒绝空白与控制字符。该保守的未加引号地址子集不覆盖 RFC 的 quoted local-part 或国际化地址。 |
 
 `RUST_LOG` 由 `tracing` 读取，不属于 `RAINDROP_*` 配置。未设置时使用 `raindrop=info,tower_http=info`。
+
+## 构建期官方插件签名
+
+以下变量只由 Cargo build script、binary 发布 workflow 和 Docker builder 消费，不属于 `RuntimeConfig`，部署容器或 binary 时设置它们没有运行时效果：
+
+| 构建变量 | 合同 |
+| --- | --- |
+| `RAINDROP_REQUIRE_OFFICIAL_PLUGIN_SIGNATURE` | 正式构建固定为 `1`；缺失时允许 development 签名，其他值失败。 |
+| `RAINDROP_OFFICIAL_PLUGIN_SIGNING_KEY_ID` | 正式构建固定为 `raindrop-release-2026`，只有同时提供 seed 时才允许存在。 |
+| `RAINDROP_OFFICIAL_PLUGIN_SIGNING_SEED` | 无 padding URL-safe base64，解码后正好 32 字节。只从 GitHub secret 或 Docker BuildKit secret mount 进入构建进程。 |
+
+普通本地构建和非发布 CI 使用公开、确定性的 `raindrop-development-2026` trust root，并在 runtime 初始化时记录 development 模式。`v*` binary 与 Docker workflow 设置强制开关；seed 缺失、非规范 base64、长度错误或 key ID 不匹配都会在生成产物前失败，错误不包含 seed。
+
+构建会把官方 no-WASI Component、规范化 manifest、SHA-256 digest、Ed25519 signature 和 public key 编入 binary。seed 会在 build process 中清零，不写入 `OUT_DIR`、最终 binary、镜像层或发布 artifact。Docker workflow 禁止把 seed 作为 build argument，并使用非秘密 cache epoch 使同一 tag 的重新签名不会命中旧 builder layer。
+
+轮换时生成新的 32 字节 seed，通过 secret manager 原子更新 `RAINDROP_OFFICIAL_PLUGIN_SIGNING_SEED`，重新运行完整 tag 构建并验证所有平台的嵌入 bundle；旧 binary 自带其匹配 public key，不依赖运行时 key server。确认新产物发布后再撤销旧 secret 备份。不要把 seed 放入 `.env`、TOML、shell 历史、工单或日志采集。
 
 ## Docker 中的路径与变量
 

@@ -1190,6 +1190,7 @@ fn validate_http_status(http_status: i32) -> Result<(), RefreshRepositoryError> 
     }
 }
 
+#[cfg(debug_assertions)]
 fn validate_counts(counts: RefreshCounts) -> Result<(), RefreshRepositoryError> {
     if counts.new_count < 0 || counts.updated_count < 0 || counts.dropped_count < 0 {
         Err(RefreshRepositoryError::InvalidRequest)

@@ -1,19 +1,16 @@
 use std::{
+    error::Error,
     future::{Future, IntoFuture},
     path::PathBuf,
-    sync::Arc,
 };
 
 use anyhow::{Context, Result, anyhow};
 use raindrop::{
     app::{AppState, build_router},
     auth::{CreateAdminInput, PasswordService, create_admin},
-    config::{BootstrapMode, ConfigArgs, FeedRetentionConfig, SystemEnv, load, new_setup_token},
+    background::BackgroundRuntime,
+    config::{BootstrapMode, ConfigArgs, SystemEnv, load, new_setup_token},
     db::{DatabaseConfig, connect, migrate},
-    feeds::{
-        FeedExecutor, FeedRepository, FeedRetentionPolicy, FeedRuntime, FeedRuntimeHandle,
-        FeedServiceError, FeedUrlPolicy, HttpFeedTransport,
-    },
     setup::SetupService,
 };
 use secrecy::ExposeSecret;
@@ -36,7 +33,7 @@ async fn main() -> Result<()> {
 
     init_tracing();
 
-    let loaded = load(
+    let mut loaded = load(
         &ConfigArgs {
             data_dir: PathBuf::from("data"),
             config_path: None,
@@ -44,6 +41,7 @@ async fn main() -> Result<()> {
         &SystemEnv,
     )
     .context("failed to load Raindrop configuration")?;
+    let provider_secret_keys = loaded.runtime.take_provider_secret_keys();
     let address = loaded.runtime.bind;
     let data_dir = loaded.runtime.data_dir.clone();
     let public_url = loaded.runtime.public_url.clone();
@@ -107,58 +105,40 @@ async fn main() -> Result<()> {
     let listener = TcpListener::bind(address)
         .await
         .with_context(|| format!("failed to bind Raindrop to {address}"))?;
-    let (feed_runtime, feed_runtime_handle) =
-        production_feed_runtime(setup.clone(), feed_retention);
-    let feed_runtime_task = tokio::spawn(feed_runtime.run());
+    let (background_runtime, background_handle) =
+        BackgroundRuntime::production(setup.clone(), feed_retention, provider_secret_keys)
+            .context("failed to compose Raindrop background runtime")?;
+    let background_runtime_task = tokio::spawn(background_runtime.run());
 
     info!(%address, version = env!("CARGO_PKG_VERSION"), "Raindrop listening");
     let (server_shutdown_tx, server_shutdown_rx) = oneshot::channel();
     let server = axum::serve(
         listener,
-        build_router(AppState::with_feed_runtime(
+        build_router(AppState::with_runtimes(
             setup,
-            feed_runtime_handle.clone(),
+            background_handle.feed(),
+            background_handle.content(),
         ))
         .into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
     .with_graceful_shutdown(async move {
         let _ = server_shutdown_rx.await;
     });
-    let runtime_shutdown = feed_runtime_handle.clone();
-    coordinate_server_and_feed_runtime(
+    let runtime_shutdown = background_handle.clone();
+    coordinate_server_and_background_runtime(
         shutdown_signal(),
         move || runtime_shutdown.shutdown(),
-        feed_runtime_task,
+        background_runtime_task,
         server_shutdown_tx,
         server,
     )
     .await
 }
 
-fn production_feed_runtime(
-    setup: SetupService,
-    retention: FeedRetentionConfig,
-) -> (FeedRuntime<HttpFeedTransport>, FeedRuntimeHandle) {
-    let (runtime, handle) = FeedRuntime::new(setup, |database| {
-        let url_policy = FeedUrlPolicy::new(false);
-        let transport =
-            HttpFeedTransport::new(url_policy).map_err(FeedServiceError::ExecutorInitialization)?;
-        Ok(Arc::new(FeedExecutor::new(
-            FeedRepository::new(database),
-            url_policy,
-            transport,
-        )))
-    });
-    (
-        runtime.with_retention_policy(FeedRetentionPolicy::new(retention.orphan_grace)),
-        handle,
-    )
-}
-
-async fn coordinate_server_and_feed_runtime<Signal, Shutdown, Server>(
+async fn coordinate_server_and_background_runtime<Signal, Shutdown, Server, RuntimeError>(
     signal: Signal,
     mut request_runtime_shutdown: Shutdown,
-    runtime_task: JoinHandle<Result<(), FeedServiceError>>,
+    runtime_task: JoinHandle<Result<(), RuntimeError>>,
     server_shutdown_tx: oneshot::Sender<()>,
     server: Server,
 ) -> Result<()>
@@ -166,6 +146,7 @@ where
     Signal: Future<Output = ()>,
     Shutdown: FnMut(),
     Server: IntoFuture<Output = std::io::Result<()>>,
+    RuntimeError: Error + Send + Sync + 'static,
 {
     let server = server.into_future();
     let mut runtime_task = runtime_task;
@@ -173,10 +154,10 @@ where
     tokio::pin!(signal);
     tokio::pin!(server);
 
-    enum FirstCompletion {
+    enum FirstCompletion<E> {
         Server(std::io::Result<()>),
         Signal,
-        Runtime(Result<Result<(), FeedServiceError>, tokio::task::JoinError>),
+        Runtime(Result<Result<(), E>, tokio::task::JoinError>),
     }
 
     let first = tokio::select! {
@@ -216,21 +197,33 @@ where
     }
 }
 
-fn joined_runtime_result(
-    result: Result<Result<(), FeedServiceError>, tokio::task::JoinError>,
-) -> Result<()> {
-    result
-        .context("Raindrop feed runtime task failed")?
-        .context("Raindrop feed runtime failed")
+fn joined_runtime_result<RuntimeError>(
+    result: Result<Result<(), RuntimeError>, tokio::task::JoinError>,
+) -> Result<()>
+where
+    RuntimeError: Error + Send + Sync + 'static,
+{
+    match result {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(error)) => {
+            Err(anyhow::Error::new(error)).context("Raindrop background runtime failed")
+        }
+        Err(error) => Err(error).context("Raindrop background runtime task failed"),
+    }
 }
 
-fn unexpected_runtime_result(
-    result: Result<Result<(), FeedServiceError>, tokio::task::JoinError>,
-) -> Result<()> {
+fn unexpected_runtime_result<RuntimeError>(
+    result: Result<Result<(), RuntimeError>, tokio::task::JoinError>,
+) -> Result<()>
+where
+    RuntimeError: Error + Send + Sync + 'static,
+{
     match result {
-        Ok(Ok(())) => Err(anyhow!("Raindrop feed runtime stopped unexpectedly")),
-        Ok(Err(error)) => Err(error).context("Raindrop feed runtime failed"),
-        Err(error) => Err(error).context("Raindrop feed runtime task failed"),
+        Ok(Ok(())) => Err(anyhow!("Raindrop background runtime stopped unexpectedly")),
+        Ok(Err(error)) => {
+            Err(anyhow::Error::new(error)).context("Raindrop background runtime failed")
+        }
+        Err(error) => Err(error).context("Raindrop background runtime task failed"),
     }
 }
 
@@ -277,6 +270,7 @@ mod tests {
         time::Duration,
     };
 
+    use raindrop::{config::FeedRetentionConfig, feeds::FeedServiceError};
     use secrecy::SecretString;
     use tokio::sync::oneshot;
 
@@ -290,7 +284,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn coordinator_runtime_error_early_ok_and_panic_stop_server_first() {
+    async fn coordinator_background_error_early_ok_and_panic_stop_server_first() {
         for completion in [
             InjectedRuntimeCompletion::EarlyOk,
             InjectedRuntimeCompletion::Error,
@@ -326,7 +320,7 @@ mod tests {
 
         let error = tokio::time::timeout(
             Duration::from_secs(1),
-            coordinate_server_and_feed_runtime(
+            coordinate_server_and_background_runtime(
                 future::pending(),
                 request_runtime_shutdown,
                 runtime_task,
@@ -344,51 +338,55 @@ mod tests {
             InjectedRuntimeCompletion::EarlyOk => {
                 assert_eq!(
                     error.to_string(),
-                    "Raindrop feed runtime stopped unexpectedly"
+                    "Raindrop background runtime stopped unexpectedly"
                 );
             }
             InjectedRuntimeCompletion::Error => {
-                assert_eq!(error.to_string(), "Raindrop feed runtime failed");
+                assert_eq!(error.to_string(), "Raindrop background runtime failed");
                 assert!(error.downcast_ref::<FeedServiceError>().is_some());
             }
             InjectedRuntimeCompletion::Panic => {
-                assert_eq!(error.to_string(), "Raindrop feed runtime task failed");
+                assert_eq!(error.to_string(), "Raindrop background runtime task failed");
                 assert!(error.downcast_ref::<tokio::task::JoinError>().is_some());
             }
         }
     }
 
     #[tokio::test]
-    async fn production_feed_runtime_stays_inert_while_setup_is_required() {
+    async fn production_background_runtime_stays_inert_while_setup_is_required() {
         let data = tempfile::tempdir().expect("temporary directory should be created");
         let setup = SetupService::required(data.path(), SecretString::from("setup-token"), None);
-        let (runtime, handle) = production_feed_runtime(setup, FeedRetentionConfig::default());
+        let (runtime, handle) =
+            BackgroundRuntime::production(setup, FeedRetentionConfig::default(), Vec::new())
+                .expect("production background runtime should compose");
 
         handle.shutdown();
         runtime
             .run()
             .await
-            .expect("pre-start production runtime should stop without constructing transport");
+            .expect("pre-start production group should stop without constructing transport");
     }
 
     #[tokio::test]
     async fn coordinator_requests_runtime_shutdown_before_server_drain() {
-        let data = tempfile::tempdir().expect("temporary directory should be created");
-        let setup = SetupService::required(data.path(), SecretString::from("setup-token"), None);
-        let (runtime, handle) = production_feed_runtime(setup, FeedRetentionConfig::default());
         let runtime_stopped = Arc::new(AtomicBool::new(false));
         let observed_runtime_stopped = runtime_stopped.clone();
+        let (runtime_shutdown_tx, runtime_shutdown_rx) = oneshot::channel();
         let runtime_task = tokio::spawn(async move {
-            let result = runtime.run().await;
+            runtime_shutdown_rx
+                .await
+                .expect("runtime shutdown sender should remain open");
             observed_runtime_stopped.store(true, Ordering::SeqCst);
-            result
+            Ok::<_, FeedServiceError>(())
         });
         let shutdown_calls = Arc::new(AtomicUsize::new(0));
         let observed_shutdown_calls = shutdown_calls.clone();
-        let shutdown_handle = handle.clone();
+        let mut runtime_shutdown_tx = Some(runtime_shutdown_tx);
         let request_runtime_shutdown = move || {
             observed_shutdown_calls.fetch_add(1, Ordering::SeqCst);
-            shutdown_handle.shutdown();
+            if let Some(shutdown) = runtime_shutdown_tx.take() {
+                let _ = shutdown.send(());
+            }
         };
         let (signal_tx, signal_rx) = oneshot::channel();
         let (server_shutdown_tx, server_shutdown_rx) = oneshot::channel();
@@ -412,7 +410,7 @@ mod tests {
             Ok(())
         };
 
-        coordinate_server_and_feed_runtime(
+        coordinate_server_and_background_runtime(
             async {
                 signal_rx
                     .await
@@ -432,26 +430,29 @@ mod tests {
 
     #[tokio::test]
     async fn coordinator_server_error_still_shuts_down_and_joins_runtime() {
-        let data = tempfile::tempdir().expect("temporary directory should be created");
-        let setup = SetupService::required(data.path(), SecretString::from("setup-token"), None);
-        let (runtime, handle) = production_feed_runtime(setup, FeedRetentionConfig::default());
         let runtime_stopped = Arc::new(AtomicBool::new(false));
         let observed_runtime_stopped = runtime_stopped.clone();
+        let (runtime_shutdown_tx, runtime_shutdown_rx) = oneshot::channel();
         let runtime_task = tokio::spawn(async move {
-            let result = runtime.run().await;
+            runtime_shutdown_rx
+                .await
+                .expect("runtime shutdown sender should remain open");
             observed_runtime_stopped.store(true, Ordering::SeqCst);
-            result
+            Ok::<_, FeedServiceError>(())
         });
         let shutdown_calls = Arc::new(AtomicUsize::new(0));
         let observed_shutdown_calls = shutdown_calls.clone();
+        let mut runtime_shutdown_tx = Some(runtime_shutdown_tx);
         let request_runtime_shutdown = move || {
             observed_shutdown_calls.fetch_add(1, Ordering::SeqCst);
-            handle.shutdown();
+            if let Some(shutdown) = runtime_shutdown_tx.take() {
+                let _ = shutdown.send(());
+            }
         };
         let (server_shutdown_tx, _server_shutdown_rx) = oneshot::channel();
         let server = async { Err(io::Error::other("injected server failure")) };
 
-        let error = coordinate_server_and_feed_runtime(
+        let error = coordinate_server_and_background_runtime(
             future::pending(),
             request_runtime_shutdown,
             runtime_task,

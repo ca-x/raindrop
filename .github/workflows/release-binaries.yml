@@ -98,7 +98,7 @@ jobs:
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable snapshot
         with:
           toolchain: 1.94.0
-          targets: ${{ matrix.target }}
+          targets: ${{ matrix.target }},wasm32-unknown-unknown
 
       - name: Download embedded Web assets
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -115,6 +115,10 @@ jobs:
           test "${GITHUB_REF_NAME}" = "v${package_version}"
 
       - name: Build release binary
+        env:
+          RAINDROP_REQUIRE_OFFICIAL_PLUGIN_SIGNATURE: "1"
+          RAINDROP_OFFICIAL_PLUGIN_SIGNING_KEY_ID: raindrop-release-2026
+          RAINDROP_OFFICIAL_PLUGIN_SIGNING_SEED: ${{ secrets.RAINDROP_OFFICIAL_PLUGIN_SIGNING_SEED }}
         run: cargo build --release --locked --target "${{ matrix.target }}"
 
       - name: Package release archive

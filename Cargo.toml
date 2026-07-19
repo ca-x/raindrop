@@ -67,6 +67,14 @@ wat = "=1.253.0"
 wit-component = { version = "=0.253.0", default-features = false, features = ["dummy-module"] }
 wit-parser = { version = "0.253.0", default-features = false, features = ["std"] }
 
+[build-dependencies]
+base64 = "0.22.1"
+ring = "=0.17.14"
+serde_json = { version = "1.0.150", features = ["unbounded_depth"] }
+wasmprinter = { version = "=0.253.0", default-features = false, features = ["component-model", "validate"] }
+wit-component = { version = "=0.253.0", default-features = false, features = ["dummy-module"] }
+zeroize = "1.8.2"
+
 [profile.release]
 lto = "thin"
 strip = "symbols"

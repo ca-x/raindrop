@@ -274,6 +274,7 @@ jobs:
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable snapshot
         with:
           toolchain: stable
+          targets: wasm32-unknown-unknown
 
       - name: Check current stable compatibility
         run: cargo check --locked --all-targets --all-features
@@ -292,7 +293,7 @@ jobs:
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable snapshot
         with:
           toolchain: 1.94.0
-          targets: x86_64-pc-windows-msvc
+          targets: x86_64-pc-windows-msvc,wasm32-unknown-unknown
 
       - name: Compile Windows durable replacement path
         run: cargo check --locked --target x86_64-pc-windows-msvc
@@ -319,6 +320,7 @@ jobs:
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable snapshot
         with:
           toolchain: 1.94.0
+          targets: wasm32-unknown-unknown
 
       - name: Restore Cargo cache
         uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3

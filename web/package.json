@@ -13,7 +13,7 @@
     "typecheck": "tsc -b --pretty false",
     "test:ci": "vitest run",
     "test:embedded": "npm run build && npm run test:embedded:rust",
-    "test:embedded:rust": "cargo test --release --lib --manifest-path ../Cargo.toml && cargo test --release --test embedded_web --manifest-path ../Cargo.toml",
+    "test:embedded:rust": "cargo test --release --lib --manifest-path ../Cargo.toml && cargo test --release --test embedded_web --manifest-path ../Cargo.toml && cargo test --release --test embedded_official_ai_bundle --manifest-path ../Cargo.toml",
     "test:e2e": "npm run test:e2e:prepare && playwright test",
     "test:e2e:prepare": "npm run test:embedded && cargo build --release --locked --manifest-path ../Cargo.toml",
     "test:e2e:install-browser": "playwright install chromium",

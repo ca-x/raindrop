@@ -55,6 +55,10 @@ impl RuntimeConfig {
         &self.provider_secret_keys
     }
 
+    pub fn take_provider_secret_keys(&mut self) -> Vec<SecretString> {
+        std::mem::take(&mut self.provider_secret_keys)
+    }
+
     pub(crate) const fn new(
         bind: SocketAddr,
         public_url: Option<Url>,

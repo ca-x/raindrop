@@ -45,6 +45,36 @@ requireMatch(
   /^FROM debian:bookworm-slim AS runtime$/mu,
   "minimal runtime stage",
 )
+requireMatch(
+  dockerfile,
+  /rustup target add wasm32-unknown-unknown/u,
+  "Docker official guest target",
+)
+requireMatch(
+  dockerfile,
+  /--mount=type=secret,id=raindrop_official_plugin_signing_seed/u,
+  "Docker BuildKit signing secret mount",
+)
+requireMatch(
+  dockerfile,
+  /ARG RAINDROP_REQUIRE_OFFICIAL_PLUGIN_SIGNATURE=0/u,
+  "Docker development-signature default",
+)
+requireMatch(
+  dockerfile,
+  /RAINDROP_OFFICIAL_PLUGIN_SIGNING_KEY_ID/u,
+  "Docker official signing key ID",
+)
+requireMatch(
+  dockerfile,
+  /ARG RAINDROP_SIGNING_CACHE_EPOCH=development/u,
+  "Docker signing cache epoch",
+)
+requireNoMatch(
+  dockerfile,
+  /ARG RAINDROP_OFFICIAL_PLUGIN_SIGNING_SEED/u,
+  "Docker signing seed build argument",
+)
 requireCount(
   dockerfile,
   /npm install --global npm@12\.0\.1 --ignore-scripts/gu,
@@ -115,6 +145,27 @@ requireCount(
   1,
   "pinned binary workflow npm installation",
 )
+requireMatch(
+  binaryWorkflow,
+  /targets: \$\{\{ matrix\.target \}\},wasm32-unknown-unknown/u,
+  "binary workflow official guest target",
+)
+requireMatch(
+  binaryWorkflow,
+  /RAINDROP_REQUIRE_OFFICIAL_PLUGIN_SIGNATURE: ["']1["']/u,
+  "binary workflow official signature requirement",
+)
+requireMatch(
+  binaryWorkflow,
+  /RAINDROP_OFFICIAL_PLUGIN_SIGNING_KEY_ID: raindrop-release-2026/u,
+  "binary workflow official signing key ID",
+)
+requireCount(
+  binaryWorkflow,
+  /RAINDROP_OFFICIAL_PLUGIN_SIGNING_SEED: \$\{\{ secrets\.RAINDROP_OFFICIAL_PLUGIN_SIGNING_SEED \}\}/gu,
+  1,
+  "binary workflow protected signing seed",
+)
 requirePinnedActions(binaryWorkflow, "release-binaries.yml")
 
 const dockerWorkflow = read(".github/workflows/docker.yml")
@@ -144,6 +195,31 @@ requireMatch(dockerWorkflow, /cache-from: type=gha/u, "Docker GHA cache restore"
 requireMatch(dockerWorkflow, /cache-to: type=gha,mode=max/u, "Docker GHA cache save")
 requireMatch(dockerWorkflow, /^\s+provenance: true$/mu, "Docker provenance")
 requireMatch(dockerWorkflow, /^\s+sbom: true$/mu, "Docker SBOM")
+requireMatch(
+  dockerWorkflow,
+  /RAINDROP_REQUIRE_OFFICIAL_PLUGIN_SIGNATURE=1/u,
+  "Docker official signature requirement",
+)
+requireMatch(
+  dockerWorkflow,
+  /RAINDROP_OFFICIAL_PLUGIN_SIGNING_KEY_ID=raindrop-release-2026/u,
+  "Docker official signing key ID",
+)
+requireMatch(
+  dockerWorkflow,
+  /RAINDROP_SIGNING_CACHE_EPOCH=\$\{\{ steps\.buildmeta\.outputs\.build_time \}\}/u,
+  "Docker signing cache epoch",
+)
+requireMatch(
+  dockerWorkflow,
+  /raindrop_official_plugin_signing_seed=\$\{\{ secrets\.RAINDROP_OFFICIAL_PLUGIN_SIGNING_SEED \}\}/u,
+  "Docker protected BuildKit signing seed",
+)
+requireNoMatch(
+  dockerWorkflow,
+  /build-args:[\s\S]{0,600}RAINDROP_OFFICIAL_PLUGIN_SIGNING_SEED/u,
+  "Docker workflow signing seed build argument",
+)
 requirePinnedActions(dockerWorkflow, "docker.yml")
 
 const ciWorkflow = read(".github/workflows/ci.yml")
@@ -154,6 +230,17 @@ requireMatch(ciWorkflow, /^\s+load: true$/mu, "loaded CI image")
 requireMatch(ciWorkflow, /raindrop:ci/u, "CI image tag")
 requireMatch(ciWorkflow, /\.Config\.User/u, "non-root container assertion")
 requireMatch(ciWorkflow, /\/api\/v1\/health\/live/u, "container liveness smoke")
+requireCount(
+  ciWorkflow,
+  /wasm32-unknown-unknown/gu,
+  5,
+  "CI root-compilation official guest targets",
+)
+requireNoMatch(
+  ciWorkflow,
+  /RAINDROP_REQUIRE_OFFICIAL_PLUGIN_SIGNATURE/u,
+  "CI smoke must remain development-signed",
+)
 requireCount(
   ciWorkflow,
   /npm install --global npm@12\.0\.1 --ignore-scripts/gu,
