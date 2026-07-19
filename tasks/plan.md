@@ -2,9 +2,9 @@
 
 权威设计规格：`docs/superpowers/specs/2026-07-16-raindrop-design.md`。
 
-当前详细计划：`docs/superpowers/plans/2026-07-19-official-ai-component-v1.md`。
+当前详细计划：`docs/superpowers/plans/2026-07-19-content-worker-composition-v1.md`。
 
-当前进展：Refresh Observability v1 已由 CI run `29646491921` 验证，AI Provider Adapters v1 已由 CI run `29648253330` 验证，AI Provider Core v1 已由 CI run `29652502840` 验证，Content Jobs / Artifacts Core v1 已由 CI run `29655164960` 验证，Official AI Plugin Contract / Registry Core v1 已由 CI run `29657539274` 验证，Wasmtime Component Host Core v1 已由 CI run `29663971184` 验证，ProviderClient Broker Composition v1 已由 CI run `29668410474` 验证。Official AI Component Invocation Contract v1 已通过本地与 detached worktree 的 format、Clippy、定向测试和全量 Rust 测试。Official AI Component v1 已由 CI run `29671796776` 验证：Provider broker 支持受限动态 tool-plan schema family，capability session 从完整 host-issued binding 集合重构并授权 schema；no-WASI Rust guest 实现摘要、翻译、两阶段 MCP enrichment、FAIL_OPEN/FAIL_CLOSED 和 persisted lifecycle intents；相同 core Wasm 确定性 componentize，组件导入不含 `wasi:`，真实 hardened Wasmtime host 覆盖 direct/MCP/lifecycle。下一真实依赖是 content worker composition、artifact 终态提交、lifecycle dispatcher、MCP transport 和 Reader sidecar；在这些能力接通前，AI、插件生态和 MCP 总任务继续保持未完成。OIDC、OPML、排序/阅读游标和真实 `v*` Docker 发布 smoke 仍保留在后续任务。
+当前进展：Refresh Observability v1 已由 CI run `29646491921` 验证，AI Provider Adapters v1 已由 CI run `29648253330` 验证，AI Provider Core v1 已由 CI run `29652502840` 验证，Content Jobs / Artifacts Core v1 已由 CI run `29655164960` 验证，Official AI Plugin Contract / Registry Core v1 已由 CI run `29657539274` 验证，Wasmtime Component Host Core v1 已由 CI run `29663971184` 验证，ProviderClient Broker Composition v1 已由 CI run `29668410474` 验证，Official AI Component v1 已由 CI run `29671796776` 验证。Content Worker Composition v1 已通过本地 format、Clippy、定向测试、三数据库 contract、全量 Rust 测试，以及前端 typecheck、237 个 Vitest 和桌面/390×844/360×800 生产 E2E；设置向导的 ASTRYX `Card -> Section` 负边距裁切回归也已修复并加入几何守卫。下一依赖是生产签名组件嵌入与启动接线、生命周期 dispatcher、MCP transport、provider/content API 和 Reader AI UI。
 
 ## 依赖顺序
 

@@ -9,15 +9,17 @@ use uuid::Uuid;
 
 use crate::{
     content::provider::ProviderKind,
+    content::sanitize::extract_rendered_text,
     db::entities::{content_artifact, content_job, content_job_attempt, content_job_result},
+    feeds::EntryContentDetail,
 };
 
 use super::{
     model::{
         ArtifactCandidate, ArtifactIdentity, ArtifactIdentityInput, ArtifactSnapshot,
-        AttemptFailure, AttemptSnapshot, AttemptStatus, AttemptUsage, ContentJobClaim,
-        ContentRepositoryError, ContentRepositoryErrorKind, EnqueueContentJob, EnqueueResult,
-        JobSnapshot, JobStatus, LeaseDeadline, StoredArtifactResult,
+        AttemptFailure, AttemptSnapshot, AttemptStatus, AttemptUsage, ContentExecutionEntry,
+        ContentJobClaim, ContentRepositoryError, ContentRepositoryErrorKind, EnqueueContentJob,
+        EnqueueResult, JobSnapshot, JobStatus, LeaseDeadline, StoredArtifactResult,
     },
     sql,
 };
@@ -209,10 +211,46 @@ impl ContentRepository {
             Ok(LeaseDeadline {
                 lease_until,
                 attempt_deadline_at: deadline,
+                remaining_attempt: std::time::Duration::try_from(deadline - now)
+                    .map_err(|_| sql::corrupt_data())?,
             })
         }
         .await;
         finish_transaction(transaction, result).await
+    }
+
+    pub async fn load_execution_entry(
+        &self,
+        claim: &ContentJobClaim,
+    ) -> Result<ContentExecutionEntry, ContentRepositoryError> {
+        let backend = self.database.get_database_backend();
+        let stored =
+            sql::execution_entry(&self.database, backend, claim.user_id(), claim.entry_id())
+                .await?
+                .ok_or_else(not_found)?;
+        if stored.entry_id != claim.entry_id()
+            || stored.content_hash != claim.identity().entry_content_hash()
+        {
+            return Err(ContentRepositoryError::new(
+                ContentRepositoryErrorKind::EntryChanged,
+            ));
+        }
+        let detail = EntryContentDetail::decode(&stored.sanitized_content)
+            .map_err(|_| ContentRepositoryError::new(ContentRepositoryErrorKind::CorruptData))?;
+        let text = extract_rendered_text(detail.html()).trim().to_owned();
+        if text.len() > 512 * 1024 {
+            return Err(ContentRepositoryError::new(
+                ContentRepositoryErrorKind::ExecutionInputTooLarge,
+            ));
+        }
+        Ok(ContentExecutionEntry {
+            entry_id: stored.entry_id,
+            feed_id: stored.feed_id,
+            content_hash: stored.content_hash,
+            title: stored.title,
+            text,
+            canonical_url: stored.canonical_url,
+        })
     }
 
     pub async fn complete_failure(
@@ -544,11 +582,34 @@ impl ContentRepository {
         .insert(transaction)
         .await
         .map_err(sql::database_error)?;
-        let snapshot = job_snapshot(updated)?;
+        let snapshot = job_snapshot(updated.clone())?;
+        let remaining_depth =
+            u8::try_from(updated.remaining_depth).map_err(|_| sql::corrupt_data())?;
+        if updated.idempotency_key.is_empty()
+            || updated.idempotency_key.len() > 255
+            || !updated
+                .idempotency_key
+                .bytes()
+                .all(|byte| byte.is_ascii_graphic() || byte == b' ')
+            || updated.call_chain_id.is_empty()
+            || updated.call_chain_id.len() > 64
+            || !updated
+                .call_chain_id
+                .bytes()
+                .all(|byte| byte.is_ascii_graphic() || byte == b' ')
+            || remaining_depth > 4
+        {
+            return Err(sql::corrupt_data());
+        }
         Ok(Some(super::model::ClaimOutcome::Claimed(ContentJobClaim {
             job_id: snapshot.id().to_owned(),
             user_id: snapshot.identity().user_id().to_owned(),
             entry_id: snapshot.identity().entry_id().to_owned(),
+            operation: snapshot.operation(),
+            trigger: snapshot.trigger(),
+            idempotency_key: updated.idempotency_key,
+            call_chain_id: updated.call_chain_id,
+            remaining_depth,
             attempt,
             lease_owner: request.owner().to_owned(),
             lease_token,

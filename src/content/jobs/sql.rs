@@ -8,6 +8,15 @@ pub(super) struct CandidateJob {
     pub(super) user_id: String,
 }
 
+pub(super) struct ExecutionEntryRow {
+    pub(super) entry_id: String,
+    pub(super) feed_id: String,
+    pub(super) content_hash: String,
+    pub(super) title: Option<String>,
+    pub(super) sanitized_content: String,
+    pub(super) canonical_url: Option<String>,
+}
+
 pub(super) struct HeartbeatWrite<'a> {
     pub(super) job_id: &'a str,
     pub(super) user_id: &'a str,
@@ -127,6 +136,82 @@ where
         .map_err(database_error)?
         .map(|row| row.try_get("", "content_hash").map_err(|_| corrupt_data()))
         .transpose()
+}
+
+pub(super) async fn execution_entry<C>(
+    connection: &C,
+    backend: DatabaseBackend,
+    user_id: &str,
+    entry_id: &str,
+) -> Result<Option<ExecutionEntryRow>, ContentRepositoryError>
+where
+    C: ConnectionTrait,
+{
+    let sql = match backend {
+        DatabaseBackend::Sqlite => {
+            "SELECT e.id AS entry_id, e.feed_id AS feed_id, e.content_hash AS content_hash,
+                    e.title AS title, e.sanitized_content AS sanitized_content,
+                    e.canonical_url AS canonical_url
+             FROM entries e
+             JOIN users u ON u.id = ? AND u.is_disabled = 0
+             WHERE e.id = ?
+               AND EXISTS (
+                    SELECT 1 FROM subscriptions s
+                    WHERE s.user_id = u.id AND s.feed_id = e.feed_id
+               )"
+        }
+        DatabaseBackend::Postgres => {
+            "SELECT e.id AS entry_id, e.feed_id AS feed_id, e.content_hash AS content_hash,
+                    e.title AS title, e.sanitized_content AS sanitized_content,
+                    e.canonical_url AS canonical_url
+             FROM entries e
+             JOIN users u ON u.id = $1 AND u.is_disabled = FALSE
+             WHERE e.id = $2
+               AND EXISTS (
+                    SELECT 1 FROM subscriptions s
+                    WHERE s.user_id = u.id AND s.feed_id = e.feed_id
+               )"
+        }
+        DatabaseBackend::MySql => {
+            "SELECT e.id AS entry_id, e.feed_id AS feed_id, e.content_hash AS content_hash,
+                    e.title AS title, e.sanitized_content AS sanitized_content,
+                    e.canonical_url AS canonical_url
+             FROM entries e
+             JOIN users u ON u.id = ? AND u.is_disabled = FALSE
+             WHERE e.id = ?
+               AND EXISTS (
+                    SELECT 1 FROM subscriptions s
+                    WHERE s.user_id = u.id AND s.feed_id = e.feed_id
+               )"
+        }
+    };
+    connection
+        .query_one(Statement::from_sql_and_values(
+            backend,
+            sql,
+            [user_id.into(), entry_id.into()],
+        ))
+        .await
+        .map_err(database_error)?
+        .map(execution_entry_row)
+        .transpose()
+}
+
+fn execution_entry_row(row: QueryResult) -> Result<ExecutionEntryRow, ContentRepositoryError> {
+    Ok(ExecutionEntryRow {
+        entry_id: row.try_get("", "entry_id").map_err(|_| corrupt_data())?,
+        feed_id: row.try_get("", "feed_id").map_err(|_| corrupt_data())?,
+        content_hash: row
+            .try_get("", "content_hash")
+            .map_err(|_| corrupt_data())?,
+        title: row.try_get("", "title").map_err(|_| corrupt_data())?,
+        sanitized_content: row
+            .try_get("", "sanitized_content")
+            .map_err(|_| corrupt_data())?,
+        canonical_url: row
+            .try_get("", "canonical_url")
+            .map_err(|_| corrupt_data())?,
+    })
 }
 
 pub(super) async fn due_candidates<C>(

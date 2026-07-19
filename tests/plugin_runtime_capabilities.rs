@@ -54,6 +54,18 @@ async fn ai_session_enforces_identity_before_broker_and_returns_typed_response()
     assert_eq!(recorded[0].provider_request_ordinal, 1);
     assert_eq!(recorded[0].max_cost_micros, 250_000);
     assert_eq!(recorded[0].timeout, Duration::from_secs(90));
+
+    let usage = session.usage();
+    assert_eq!(usage.provider_request_count(), 1);
+    assert_eq!(usage.mcp_call_count(), 0);
+    assert_eq!(usage.input_tokens(), 12);
+    assert_eq!(usage.output_tokens(), 7);
+    assert_eq!(usage.estimated_cost_micros(), 42);
+    assert!(usage.input_tokens_complete());
+    assert!(usage.output_tokens_complete());
+    assert!(usage.estimated_cost_complete());
+    assert_eq!(usage.final_model_label(), Some("test-model"));
+    assert_eq!(session.failure_hint(), None);
 }
 
 #[tokio::test]
@@ -187,6 +199,39 @@ async fn ai_session_enforces_operation_ordinal_json_token_and_call_budgets() {
         .expect_err("fourth call should be rejected");
     assert_eq!(exhausted.code, host_ai::GenerateErrorCode::QuotaExceeded);
     assert_eq!(broker.requests().len(), 3);
+    let usage = session.usage();
+    assert_eq!(usage.provider_request_count(), 3);
+    assert_eq!(usage.input_tokens(), 36);
+    assert_eq!(usage.output_tokens(), 21);
+    assert_eq!(usage.estimated_cost_micros(), 126);
+    assert!(usage.input_tokens_complete());
+    assert!(usage.output_tokens_complete());
+    assert!(usage.estimated_cost_complete());
+}
+
+#[tokio::test]
+async fn ai_session_marks_partial_host_usage_incomplete_without_trusting_guest_metrics() {
+    let mut response = valid_ai_response();
+    response.input_tokens = None;
+    response.estimated_cost_micros = None;
+    response.model_label = "partial-model".to_owned();
+    let mut session = session(Arc::new(RecordingAiBroker::with_response(response)));
+
+    session
+        .generate_structured(ai_request(1))
+        .await
+        .expect("partial host usage should not trap")
+        .expect("partial host usage should still reach the guest");
+
+    let usage = session.usage();
+    assert_eq!(usage.provider_request_count(), 1);
+    assert_eq!(usage.input_tokens(), 0);
+    assert_eq!(usage.output_tokens(), 7);
+    assert_eq!(usage.estimated_cost_micros(), 0);
+    assert!(!usage.input_tokens_complete());
+    assert!(usage.output_tokens_complete());
+    assert!(!usage.estimated_cost_complete());
+    assert_eq!(usage.final_model_label(), Some("partial-model"));
 }
 
 #[tokio::test]
@@ -206,6 +251,14 @@ async fn ai_session_bounds_timeout_broker_errors_and_untrusted_outputs() {
         .expect("broker timeout should be a typed guest error")
         .expect_err("pending broker should time out");
     assert_eq!(timed_out.code, host_ai::GenerateErrorCode::Timeout);
+    assert_eq!(timeout_session.usage().provider_request_count(), 1);
+    assert!(!timeout_session.usage().input_tokens_complete());
+    let timeout_hint = timeout_session
+        .failure_hint()
+        .expect("provider timeout should preserve a host failure hint");
+    assert!(timeout_hint.retryable());
+    assert_eq!(timeout_hint.retry_at_unix_ms(), None);
+    assert!(timeout_hint.outcome_unknown());
 
     let broker_error = Arc::new(ErrorAiBroker(AiBrokerError::new(
         AiBrokerErrorKind::RateLimited,
@@ -221,6 +274,12 @@ async fn ai_session_bounds_timeout_broker_errors_and_untrusted_outputs() {
     assert_eq!(mapped.code, host_ai::GenerateErrorCode::RateLimited);
     assert!(mapped.retryable);
     assert_eq!(mapped.retry_at_unix_ms, Some(1234));
+    let rate_hint = broker_error_session
+        .failure_hint()
+        .expect("rate limit should preserve the broker hint");
+    assert!(rate_hint.retryable());
+    assert_eq!(rate_hint.retry_at_unix_ms(), Some(1234));
+    assert!(!rate_hint.outcome_unknown());
 
     let mut invalid_responses = Vec::new();
     let mut noncanonical = valid_ai_response();
@@ -248,6 +307,8 @@ async fn ai_session_bounds_timeout_broker_errors_and_untrusted_outputs() {
             .expect("invalid broker output should be typed")
             .expect_err("invalid broker output should fail closed");
         assert_eq!(error.code, expected);
+        assert_eq!(session.usage().provider_request_count(), 1);
+        assert!(!session.usage().input_tokens_complete());
         assert!(!format!("{error:?}").contains("secret"));
     }
 
@@ -261,6 +322,12 @@ async fn ai_session_bounds_timeout_broker_errors_and_untrusted_outputs() {
         .await
         .expect_err("unrepresented broker failure should trap");
     assert_eq!(failure.kind(), PluginRuntimeErrorKind::BrokerFailure);
+    assert_eq!(failure_session.usage().provider_request_count(), 1);
+    let failure_hint = failure_session
+        .failure_hint()
+        .expect("broker failure should retain a neutral host hint");
+    assert!(!failure_hint.retryable());
+    assert!(!failure_hint.outcome_unknown());
 }
 
 #[test]
@@ -447,6 +514,8 @@ async fn mcp_session_enforces_tool_identity_and_returns_bounded_typed_response()
     assert_eq!(recorded[0].tool_binding_id, "tool-binding-1");
     assert_eq!(recorded[0].remaining_depth, 1);
     assert_eq!(recorded[0].timeout, Duration::from_secs(15));
+    assert_eq!(session.usage().mcp_call_count(), 1);
+    assert_eq!(session.failure_hint(), None);
 }
 
 #[tokio::test]
@@ -533,6 +602,7 @@ async fn mcp_session_enforces_depth_call_timeout_json_and_result_limits() {
         .expect_err("fifth manual call should be rejected");
     assert_eq!(exhausted.code, host_mcp::CallErrorCode::BudgetExhausted);
     assert_eq!(broker.requests().len(), 4);
+    assert_eq!(call_session.usage().mcp_call_count(), 4);
 
     let mut auto_config = session_config();
     auto_config.invocation.trigger = types::Trigger::FeedRefreshPersisted;
@@ -567,6 +637,12 @@ async fn mcp_session_times_out_validates_results_and_defaults_to_denied() {
         .expect("timeout should be typed")
         .expect_err("pending MCP broker should time out");
     assert_eq!(timed_out.code, host_mcp::CallErrorCode::Timeout);
+    assert_eq!(timeout_session.usage().mcp_call_count(), 1);
+    let timeout_hint = timeout_session
+        .failure_hint()
+        .expect("MCP timeout should preserve a host failure hint");
+    assert!(timeout_hint.retryable());
+    assert!(timeout_hint.outcome_unknown());
 
     let invalid_responses = [
         McpBrokerResponse {
@@ -616,6 +692,11 @@ async fn mcp_session_times_out_validates_results_and_defaults_to_denied() {
         .expect_err("connection denial should return a guest error");
     assert_eq!(mapped.code, host_mcp::CallErrorCode::ConnectionDenied);
     assert!(mapped.retryable);
+    let mapped_hint = mapped_session
+        .failure_hint()
+        .expect("represented MCP failure should preserve retryability");
+    assert!(mapped_hint.retryable());
+    assert!(!mapped_hint.outcome_unknown());
 
     let mut failure_session = mcp_session(
         session_config(),
@@ -629,6 +710,7 @@ async fn mcp_session_times_out_validates_results_and_defaults_to_denied() {
         .await
         .expect_err("unrepresented MCP broker failure should trap");
     assert_eq!(failure.kind(), PluginRuntimeErrorKind::BrokerFailure);
+    assert_eq!(failure_session.usage().mcp_call_count(), 1);
 }
 
 #[tokio::test]
@@ -662,6 +744,9 @@ fn session_config() -> CapabilitySessionConfig {
             operation: types::Operation::Summarize,
             trigger: types::Trigger::ManualApi,
             remaining_depth: 2,
+            expected_provider_kind: "OPENAI_RESPONSES".to_owned(),
+            expected_provider_model: "gpt-5-mini".to_owned(),
+            expected_provider_revision: 0,
         },
         provider_binding_id: PROVIDER_BINDING_ID.to_owned(),
         tool_bindings: vec![tool_binding(1)],

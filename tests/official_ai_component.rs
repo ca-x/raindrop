@@ -40,10 +40,11 @@ async fn real_component_executes_direct_summary_and_translation() {
         summary_broker.clone(),
         Arc::new(DenyMcpBroker),
     );
-    let summary = runtime
-        .execute(&compiled, summary_session, summary_request)
+    let summary_execution = runtime
+        .execute_detailed(&compiled, summary_session, summary_request)
         .await
         .expect("real summary component should execute");
+    let summary = summary_execution.artifact();
     assert_eq!(
         summary.schema_id,
         "raindrop://schemas/artifacts/ai-summary/v1"
@@ -56,6 +57,14 @@ async fn real_component_executes_direct_summary_and_translation() {
     assert_eq!(requests[0].provider_request_ordinal, 1);
     assert!(!requests[0].system_instruction.contains("rd-secret-entry"));
     assert!(requests[0].untrusted_input_json.contains("rd-secret-entry"));
+    assert_eq!(summary_execution.usage().provider_request_count(), 1);
+    assert_eq!(summary_execution.usage().mcp_call_count(), 0);
+    assert!(!summary_execution.usage().input_tokens_complete());
+    assert!(!summary_execution.usage().output_tokens_complete());
+    assert_eq!(
+        summary_execution.usage().final_model_label(),
+        Some("fixture-model")
+    );
 
     let translation_broker = Arc::new(RecordingAiBroker::new([Ok(ai_response(
         translation_output(),
@@ -140,12 +149,19 @@ async fn real_component_executes_mcp_applied_fail_open_and_fail_closed() {
         fail_open_ai.clone(),
         fail_open_mcp,
     );
-    let fail_open = runtime
-        .execute(&compiled, fail_open_session, fail_open_request)
+    let fail_open_execution = runtime
+        .execute_detailed(&compiled, fail_open_session, fail_open_request)
         .await
         .expect("MCP fail-open should still generate");
+    let fail_open = fail_open_execution.artifact();
     assert!(fail_open.provenance_json.contains(r#""status":"DEGRADED""#));
     assert_eq!(fail_open_ai.requests().len(), 2);
+    assert_eq!(fail_open_execution.usage().provider_request_count(), 2);
+    assert_eq!(fail_open_execution.usage().mcp_call_count(), 1);
+    assert_eq!(
+        fail_open_execution.usage().final_model_label(),
+        Some("fixture-model")
+    );
     assert!(
         !fail_open_ai.requests()[1]
             .untrusted_input_json
@@ -166,12 +182,23 @@ async fn real_component_executes_mcp_applied_fail_open_and_fail_closed() {
         fail_closed_ai.clone(),
         fail_closed_mcp,
     );
-    let error = runtime
-        .execute(&compiled, fail_closed_session, fail_closed_request)
+    let failure = runtime
+        .execute_detailed(&compiled, fail_closed_session, fail_closed_request)
         .await
         .expect_err("MCP fail-closed should stop before final generation");
-    assert_eq!(error.kind(), PluginRuntimeErrorKind::GuestTrap);
-    assert_eq!(error.failure_code(), Some(PluginFailureCode::McpTimeout));
+    assert_eq!(failure.error().kind(), PluginRuntimeErrorKind::GuestTrap);
+    assert_eq!(
+        failure.error().failure_code(),
+        Some(PluginFailureCode::McpTimeout)
+    );
+    assert_eq!(failure.usage().provider_request_count(), 1);
+    assert_eq!(failure.usage().mcp_call_count(), 1);
+    let hint = failure
+        .failure_hint()
+        .expect("fail-closed MCP timeout should preserve its host hint");
+    assert!(hint.retryable());
+    assert!(hint.outcome_unknown());
+    assert!(!format!("{failure:?} {failure}").contains("rd-secret"));
     assert_eq!(fail_closed_ai.requests().len(), 1);
 }
 
@@ -294,6 +321,9 @@ fn session(
                 operation,
                 trigger,
                 remaining_depth: 2,
+                expected_provider_kind: "OPENAI_RESPONSES".to_owned(),
+                expected_provider_model: "gpt-5-mini".to_owned(),
+                expected_provider_revision: 0,
             },
             provider_binding_id: PROVIDER_ID.to_owned(),
             tool_bindings: bindings,

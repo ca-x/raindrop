@@ -7,9 +7,19 @@ use std::{
 
 use wit_component::ComponentEncoder;
 
+use raindrop::plugins::runtime::{CompiledPlugin, PluginRuntime};
+
+use super::plugin::signed_bundle;
+
 pub fn official_ai_component() -> &'static [u8] {
     static COMPONENT: OnceLock<Vec<u8>> = OnceLock::new();
     COMPONENT.get_or_init(build_component).as_slice()
+}
+
+pub fn compiled_official_ai_plugin(runtime: &PluginRuntime) -> CompiledPlugin {
+    let component = official_ai_component();
+    let bundle = signed_bundle("1.0.0", component);
+    CompiledPlugin::compile(runtime, &bundle, component).expect("official component should compile")
 }
 
 fn build_component() -> Vec<u8> {

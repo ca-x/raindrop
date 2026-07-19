@@ -131,11 +131,11 @@ async fn broker_executes_all_four_provider_protocols_and_derives_stable_idempote
         );
         let request = summary_request(provider.id(), 1);
         let first = broker
-            .generate_structured(&context(JOB_A_ID, USER_A_ID), request.clone())
+            .generate_structured(&context(&provider, JOB_A_ID, USER_A_ID), request.clone())
             .await
             .expect("provider broker should succeed");
         let replay = broker
-            .generate_structured(&context(JOB_A_ID, USER_A_ID), request)
+            .generate_structured(&context(&provider, JOB_A_ID, USER_A_ID), request)
             .await
             .expect("same job call should replay with stable idempotency");
 
@@ -155,7 +155,7 @@ async fn broker_executes_all_four_provider_protocols_and_derives_stable_idempote
         assert_eq!(keys[0].len(), 64);
         let different = summary_request(provider.id(), 2);
         broker
-            .generate_structured(&context(JOB_B_ID, USER_A_ID), different)
+            .generate_structured(&context(&provider, JOB_B_ID, USER_A_ID), different)
             .await
             .expect("different job and ordinal should execute");
         let keys = state
@@ -194,7 +194,7 @@ async fn broker_executes_dynamic_tool_plan_schema_and_rejects_invalid_plans() {
 
     let response = broker
         .generate_structured(
-            &context(JOB_A_ID, USER_A_ID),
+            &context(&provider, JOB_A_ID, USER_A_ID),
             tool_plan_request(provider.id(), schema.clone()),
         )
         .await
@@ -216,7 +216,7 @@ async fn broker_executes_dynamic_tool_plan_schema_and_rejects_invalid_plans() {
     );
     let error = drift_broker
         .generate_structured(
-            &context(JOB_A_ID, USER_A_ID),
+            &context(&provider, JOB_A_ID, USER_A_ID),
             tool_plan_request(provider.id(), canonical(drifted_schema)),
         )
         .await
@@ -244,7 +244,7 @@ async fn broker_executes_dynamic_tool_plan_schema_and_rejects_invalid_plans() {
         );
         let error = invalid_broker
             .generate_structured(
-                &context(JOB_A_ID, USER_A_ID),
+                &context(&provider, JOB_A_ID, USER_A_ID),
                 tool_plan_request(provider.id(), schema.clone()),
             )
             .await
@@ -271,9 +271,25 @@ async fn broker_rejects_scope_schema_token_and_cost_before_provider_io() {
         },
     );
 
+    for mutate in [0_u8, 1, 2] {
+        let mut drift = context(&provider, JOB_A_ID, USER_A_ID);
+        match mutate {
+            0 => drift.expected_provider_revision += 1,
+            1 => drift.expected_provider_kind = "GOOGLE_GEMINI".to_owned(),
+            2 => drift.expected_provider_model = "different-model".to_owned(),
+            _ => unreachable!(),
+        }
+        let error = broker
+            .generate_structured(&drift, summary_request(provider.id(), 1))
+            .await
+            .expect_err("provider snapshot drift must fail before transport");
+        assert_eq!(error.kind(), AiBrokerErrorKind::CapabilityDenied);
+    }
+    assert_eq!(state.calls.load(Ordering::SeqCst), 0);
+
     let wrong_user = broker
         .generate_structured(
-            &context(JOB_A_ID, USER_B_ID),
+            &context(&provider, JOB_A_ID, USER_B_ID),
             summary_request(provider.id(), 1),
         )
         .await
@@ -284,7 +300,7 @@ async fn broker_rejects_scope_schema_token_and_cost_before_provider_io() {
     schema.output_schema_json = "{}".to_owned();
     assert_eq!(
         broker
-            .generate_structured(&context(JOB_A_ID, USER_A_ID), schema)
+            .generate_structured(&context(&provider, JOB_A_ID, USER_A_ID), schema)
             .await
             .expect_err("alternative schema must fail")
             .kind(),
@@ -295,7 +311,7 @@ async fn broker_rejects_scope_schema_token_and_cost_before_provider_io() {
     tokens.max_input_tokens = 8_193;
     assert_eq!(
         broker
-            .generate_structured(&context(JOB_A_ID, USER_A_ID), tokens)
+            .generate_structured(&context(&provider, JOB_A_ID, USER_A_ID), tokens)
             .await
             .expect_err("provider input limit must fail")
             .kind(),
@@ -306,7 +322,7 @@ async fn broker_rejects_scope_schema_token_and_cost_before_provider_io() {
     cost.max_cost_micros = 4;
     assert_eq!(
         broker
-            .generate_structured(&context(JOB_A_ID, USER_A_ID), cost)
+            .generate_structured(&context(&provider, JOB_A_ID, USER_A_ID), cost)
             .await
             .expect_err("conservative request cost must fit before I/O")
             .kind(),
@@ -337,14 +353,14 @@ async fn broker_enforces_rate_limit_and_maps_provider_failures() {
     );
     broker
         .generate_structured(
-            &context(JOB_A_ID, USER_A_ID),
+            &context(&limited, JOB_A_ID, USER_A_ID),
             summary_request(limited.id(), 1),
         )
         .await
         .expect("first request should pass");
     let rate = broker
         .generate_structured(
-            &context(JOB_B_ID, USER_A_ID),
+            &context(&limited, JOB_B_ID, USER_A_ID),
             summary_request(limited.id(), 1),
         )
         .await
@@ -383,7 +399,7 @@ async fn broker_enforces_rate_limit_and_maps_provider_failures() {
         );
         let error = broker
             .generate_structured(
-                &context(JOB_A_ID, USER_A_ID),
+                &context(&provider, JOB_A_ID, USER_A_ID),
                 request_for_mode(provider.id(), mode),
             )
             .await
@@ -424,7 +440,7 @@ async fn broker_treats_provider_output_as_untrusted_and_requires_translation_loc
     );
     let error = broker
         .generate_structured(
-            &context_for(JOB_A_ID, USER_A_ID, types::Operation::Translate),
+            &context_for(&provider, JOB_A_ID, USER_A_ID, types::Operation::Translate),
             translation_request(provider.id()),
         )
         .await
@@ -445,7 +461,7 @@ async fn broker_treats_provider_output_as_untrusted_and_requires_translation_loc
     );
     let disabled = broker
         .generate_structured(
-            &context(JOB_A_ID, USER_A_ID),
+            &context(&provider, JOB_A_ID, USER_A_ID),
             summary_request(provider.id(), 1),
         )
         .await
@@ -469,11 +485,12 @@ fn make_broker(
     ProviderAiBroker::new(repository, Arc::new(ProviderClient::new(transport)))
 }
 
-fn context(job_id: &str, user_id: &str) -> BrokerInvocationContext {
-    context_for(job_id, user_id, types::Operation::Summarize)
+fn context(provider: &ProviderMetadata, job_id: &str, user_id: &str) -> BrokerInvocationContext {
+    context_for(provider, job_id, user_id, types::Operation::Summarize)
 }
 
 fn context_for(
+    provider: &ProviderMetadata,
     job_id: &str,
     user_id: &str,
     operation: types::Operation,
@@ -486,6 +503,9 @@ fn context_for(
         operation,
         trigger: types::Trigger::ManualApi,
         remaining_depth: 2,
+        expected_provider_kind: provider.kind().as_storage().to_owned(),
+        expected_provider_model: provider.model().to_owned(),
+        expected_provider_revision: provider.revision(),
     }
 }
 

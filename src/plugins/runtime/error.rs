@@ -1,5 +1,10 @@
 use std::{error::Error, fmt};
 
+use super::{
+    bindings::types,
+    capability::{CapabilityFailureHint, CapabilityUsage},
+};
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PluginRuntimeErrorKind {
     InvalidComponent,
@@ -120,3 +125,101 @@ impl fmt::Display for PluginRuntimeError {
 }
 
 impl Error for PluginRuntimeError {}
+
+pub struct PluginExecutionSuccess {
+    artifact: types::ArtifactCandidate,
+    usage: CapabilityUsage,
+}
+
+impl PluginExecutionSuccess {
+    pub(crate) const fn new(artifact: types::ArtifactCandidate, usage: CapabilityUsage) -> Self {
+        Self { artifact, usage }
+    }
+
+    #[must_use]
+    pub const fn artifact(&self) -> &types::ArtifactCandidate {
+        &self.artifact
+    }
+
+    #[must_use]
+    pub const fn usage(&self) -> &CapabilityUsage {
+        &self.usage
+    }
+
+    #[must_use]
+    pub fn into_artifact(self) -> types::ArtifactCandidate {
+        self.artifact
+    }
+}
+
+impl fmt::Debug for PluginExecutionSuccess {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("PluginExecutionSuccess")
+            .field("usage", &self.usage)
+            .finish_non_exhaustive()
+    }
+}
+
+pub struct PluginExecutionFailure {
+    error: PluginRuntimeError,
+    usage: CapabilityUsage,
+    failure_hint: Option<CapabilityFailureHint>,
+}
+
+impl PluginExecutionFailure {
+    pub(crate) const fn new(
+        error: PluginRuntimeError,
+        usage: CapabilityUsage,
+        failure_hint: Option<CapabilityFailureHint>,
+    ) -> Self {
+        Self {
+            error,
+            usage,
+            failure_hint,
+        }
+    }
+
+    #[must_use]
+    pub const fn error(&self) -> &PluginRuntimeError {
+        &self.error
+    }
+
+    #[must_use]
+    pub const fn usage(&self) -> &CapabilityUsage {
+        &self.usage
+    }
+
+    #[must_use]
+    pub const fn failure_hint(&self) -> Option<CapabilityFailureHint> {
+        self.failure_hint
+    }
+
+    #[must_use]
+    pub fn into_error(self) -> PluginRuntimeError {
+        self.error
+    }
+}
+
+impl fmt::Debug for PluginExecutionFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("PluginExecutionFailure")
+            .field("error", &self.error)
+            .field("usage", &self.usage)
+            .field("failure_hint", &self.failure_hint)
+            .finish()
+    }
+}
+
+impl fmt::Display for PluginExecutionFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.error.fmt(formatter)
+    }
+}
+
+impl Error for PluginExecutionFailure {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        Some(&self.error)
+    }
+}

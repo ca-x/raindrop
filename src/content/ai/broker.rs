@@ -74,6 +74,16 @@ where
             .await
             .map_err(map_repository_error)?;
         let metadata = binding.metadata();
+        if metadata.kind().as_storage() != context.expected_provider_kind
+            || metadata.model() != context.expected_provider_model
+            || metadata.revision() != context.expected_provider_revision
+        {
+            return Err(AiBrokerError::new(
+                AiBrokerErrorKind::CapabilityDenied,
+                false,
+                None,
+            ));
+        }
         let policy = metadata.policy();
         validate_token_policy(policy, &request)?;
         let maximum_cost = estimate_cost_micros(

@@ -702,11 +702,16 @@ impl ClaimContentJob {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct ContentJobClaim {
     pub(super) job_id: String,
     pub(super) user_id: String,
     pub(super) entry_id: String,
+    pub(super) operation: ContentJobOperation,
+    pub(super) trigger: ContentJobTrigger,
+    pub(super) idempotency_key: String,
+    pub(super) call_chain_id: String,
+    pub(super) remaining_depth: u8,
     pub(super) attempt: u8,
     pub(super) lease_owner: String,
     pub(super) lease_token: i64,
@@ -729,6 +734,31 @@ impl ContentJobClaim {
     #[must_use]
     pub fn entry_id(&self) -> &str {
         &self.entry_id
+    }
+
+    #[must_use]
+    pub const fn operation(&self) -> ContentJobOperation {
+        self.operation
+    }
+
+    #[must_use]
+    pub const fn trigger(&self) -> ContentJobTrigger {
+        self.trigger
+    }
+
+    #[must_use]
+    pub fn idempotency_key(&self) -> &str {
+        &self.idempotency_key
+    }
+
+    #[must_use]
+    pub fn call_chain_id(&self) -> &str {
+        &self.call_chain_id
+    }
+
+    #[must_use]
+    pub const fn remaining_depth(&self) -> u8 {
+        self.remaining_depth
     }
 
     #[must_use]
@@ -762,10 +792,77 @@ impl ContentJobClaim {
     }
 }
 
+impl fmt::Debug for ContentJobClaim {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ContentJobClaim")
+            .field("operation", &self.operation)
+            .field("trigger", &self.trigger)
+            .field("attempt", &self.attempt)
+            .field("lease_token", &self.lease_token)
+            .field("remaining_depth", &self.remaining_depth)
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Clone, Eq, PartialEq)]
+pub struct ContentExecutionEntry {
+    pub(super) entry_id: String,
+    pub(super) feed_id: String,
+    pub(super) content_hash: String,
+    pub(super) title: Option<String>,
+    pub(super) text: String,
+    pub(super) canonical_url: Option<String>,
+}
+
+impl ContentExecutionEntry {
+    #[must_use]
+    pub fn entry_id(&self) -> &str {
+        &self.entry_id
+    }
+
+    #[must_use]
+    pub fn feed_id(&self) -> &str {
+        &self.feed_id
+    }
+
+    #[must_use]
+    pub fn content_hash(&self) -> &str {
+        &self.content_hash
+    }
+
+    #[must_use]
+    pub fn title(&self) -> Option<&str> {
+        self.title.as_deref()
+    }
+
+    #[must_use]
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
+    #[must_use]
+    pub fn canonical_url(&self) -> Option<&str> {
+        self.canonical_url.as_deref()
+    }
+}
+
+impl fmt::Debug for ContentExecutionEntry {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ContentExecutionEntry")
+            .field("title_bytes", &self.title.as_ref().map(String::len))
+            .field("text_bytes", &self.text.len())
+            .field("canonical_url_present", &self.canonical_url.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LeaseDeadline {
     pub(super) lease_until: OffsetDateTime,
     pub(super) attempt_deadline_at: OffsetDateTime,
+    pub(super) remaining_attempt: Duration,
 }
 
 impl LeaseDeadline {
@@ -777,6 +874,11 @@ impl LeaseDeadline {
     #[must_use]
     pub const fn attempt_deadline_at(self) -> OffsetDateTime {
         self.attempt_deadline_at
+    }
+
+    #[must_use]
+    pub const fn remaining_attempt(self) -> Duration {
+        self.remaining_attempt
     }
 }
 
@@ -1020,6 +1122,7 @@ pub enum ContentRepositoryErrorKind {
     AlreadyCompleted,
     AttemptsExhausted,
     ArtifactTooLarge,
+    ExecutionInputTooLarge,
     NonCanonicalJson,
     CorruptData,
     Database,
@@ -1067,6 +1170,9 @@ impl fmt::Display for ContentRepositoryError {
             ContentRepositoryErrorKind::AlreadyCompleted => "content job is already complete",
             ContentRepositoryErrorKind::AttemptsExhausted => "content job attempts are exhausted",
             ContentRepositoryErrorKind::ArtifactTooLarge => "content artifact is too large",
+            ContentRepositoryErrorKind::ExecutionInputTooLarge => {
+                "content job execution input is too large"
+            }
             ContentRepositoryErrorKind::NonCanonicalJson => "content JSON is not canonical",
             ContentRepositoryErrorKind::CorruptData => "content job data is corrupt",
             ContentRepositoryErrorKind::Database => "content job database operation failed",

@@ -85,14 +85,7 @@ impl OfficialSchema {
                 .map(|artifact| artifact.canonical_json().to_owned())
                 .map_err(|_| output_invalid()),
             Self::Translation => {
-                let expected_locale = untrusted_input
-                    .get("targetLocale")
-                    .and_then(Value::as_str)
-                    .ok_or_else(invalid_request)
-                    .and_then(|locale| {
-                        normalize_locale(locale, PluginRegistryErrorKind::InvalidInput)
-                            .map_err(|_| invalid_request())
-                    })?;
+                let expected_locale = translation_target_locale(untrusted_input)?;
                 let artifact =
                     TranslationArtifact::parse(&encoded).map_err(|_| output_invalid())?;
                 if artifact.target_locale() != expected_locale {
@@ -111,6 +104,23 @@ impl OfficialSchema {
             Self::ToolPlan(_) => "",
         }
     }
+}
+
+fn translation_target_locale(untrusted_input: &Value) -> Result<String, AiBrokerError> {
+    let direct = optional_locale_field(untrusted_input.get("targetLocale"))?;
+    let nested = optional_locale_field(untrusted_input.pointer("/operation/targetLocale"))?;
+    let locale = match (direct, nested) {
+        (Some(direct), Some(nested)) if direct == nested => direct,
+        (Some(locale), None) | (None, Some(locale)) => locale,
+        (Some(_), Some(_)) | (None, None) => return Err(invalid_request()),
+    };
+    normalize_locale(locale, PluginRegistryErrorKind::InvalidInput).map_err(|_| invalid_request())
+}
+
+fn optional_locale_field(value: Option<&Value>) -> Result<Option<&str>, AiBrokerError> {
+    value
+        .map(|value| value.as_str().ok_or_else(invalid_request))
+        .transpose()
 }
 
 pub(super) fn canonical_input(input: &str) -> Result<Value, AiBrokerError> {
@@ -224,6 +234,41 @@ mod tests {
                 .expect_err("target locale drift"),
             output_invalid(),
         );
+
+        let nested = json!({
+            "schemaVersion": 1,
+            "detectedSourceLanguage": "en",
+            "targetLocale": "ja",
+            "title": "Title",
+            "bodyMarkdown": "Body",
+        });
+        assert_eq!(
+            OfficialSchema::Translation
+                .validate_output(
+                    nested,
+                    &json!({"operation":{"kind":"translate","targetLocale":"ja"}}),
+                )
+                .expect("official guest locale envelope"),
+            r#"{"bodyMarkdown":"Body","detectedSourceLanguage":"en","schemaVersion":1,"targetLocale":"ja","title":"Title"}"#,
+        );
+        assert_eq!(
+            translation_target_locale(&json!({
+                "targetLocale":"ja",
+                "operation":{"targetLocale":"zh-CN"}
+            }))
+            .expect_err("conflicting locale envelopes must fail"),
+            invalid_request(),
+        );
+        for invalid in [
+            json!({"targetLocale": 1}),
+            json!({"operation":{"targetLocale": 1}}),
+        ] {
+            assert_eq!(
+                translation_target_locale(&invalid)
+                    .expect_err("present non-string locale must fail"),
+                invalid_request(),
+            );
+        }
     }
 
     #[test]

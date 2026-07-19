@@ -124,6 +124,28 @@ body {
   }
 
   .raindrop-auth-card {
+    --container-padding-inline-start: var(--spacing-4);
+    --container-padding-inline-end: var(--spacing-4);
+    --container-padding-block-start: var(--spacing-4);
+    --container-padding-block-end: var(--spacing-4);
+    padding: calc(var(--spacing-4) - var(--border-width));
     box-shadow: none;
+  }
+}
+
+@media (max-width: 374px) {
+  .raindrop-auth-frame {
+    padding-block: max(var(--spacing-2), env(safe-area-inset-top))
+      max(var(--spacing-2), env(safe-area-inset-bottom));
+    padding-inline: max(var(--spacing-2), env(safe-area-inset-left))
+      max(var(--spacing-2), env(safe-area-inset-right));
+  }
+
+  .raindrop-auth-card {
+    --container-padding-inline-start: var(--spacing-2);
+    --container-padding-inline-end: var(--spacing-2);
+    --container-padding-block-start: var(--spacing-2);
+    --container-padding-block-end: var(--spacing-2);
+    padding: calc(var(--spacing-2) - var(--border-width));
   }
 }

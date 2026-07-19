@@ -16,8 +16,8 @@ use crate::plugins::{
 };
 
 use super::{
-    CapabilitySession, CompiledPlugin, PluginFailureCode, PluginRuntime, PluginRuntimeError,
-    PluginRuntimeErrorKind,
+    CapabilitySession, CompiledPlugin, PluginExecutionFailure, PluginExecutionSuccess,
+    PluginFailureCode, PluginRuntime, PluginRuntimeError, PluginRuntimeErrorKind,
     bindings::{ContentPluginV1, ContentPluginV1Pre, types},
 };
 
@@ -45,17 +45,62 @@ impl PluginRuntime {
         session: CapabilitySession,
         request: types::OperationRequest,
     ) -> Result<types::ArtifactCandidate, PluginRuntimeError> {
-        validate_operation_request(compiled, &session, &request)?;
-        let (mut store, guest) = self.instantiate(compiled, session, EXECUTE_FUEL).await?;
-        validate_descriptor(compiled, call_descriptor(&guest, &mut store).await?)?;
+        self.execute_detailed(compiled, session, request)
+            .await
+            .map(PluginExecutionSuccess::into_artifact)
+            .map_err(PluginExecutionFailure::into_error)
+    }
+
+    pub async fn execute_detailed(
+        &self,
+        compiled: &CompiledPlugin,
+        session: CapabilitySession,
+        request: types::OperationRequest,
+    ) -> Result<PluginExecutionSuccess, PluginExecutionFailure> {
+        let initial_usage = session.usage().clone();
+        let initial_hint = session.failure_hint();
+        if let Err(error) = validate_operation_request(compiled, &session, &request) {
+            return Err(PluginExecutionFailure::new(
+                error,
+                initial_usage,
+                initial_hint,
+            ));
+        }
+        let (mut store, guest) = match self.instantiate(compiled, session, EXECUTE_FUEL).await {
+            Ok(instantiated) => instantiated,
+            Err(error) => {
+                return Err(PluginExecutionFailure::new(
+                    error,
+                    initial_usage,
+                    initial_hint,
+                ));
+            }
+        };
+        let descriptor = match call_descriptor(&guest, &mut store).await {
+            Ok(descriptor) => descriptor,
+            Err(error) => return Err(execution_failure(&store, error)),
+        };
+        if let Err(error) = validate_descriptor(compiled, descriptor) {
+            return Err(execution_failure(&store, error));
+        }
         store.data_mut().capability.activate();
-        let result = guest
+        let result = match guest
             .raindrop_content_plugin_content_plugin()
             .call_execute(&mut store, &request)
             .await
-            .map_err(classify_guest_error)?
-            .map_err(map_plugin_error)?;
-        validate_artifact(&request, result)
+        {
+            Ok(Ok(result)) => result,
+            Ok(Err(error)) => return Err(execution_failure(&store, map_plugin_error(error))),
+            Err(error) => return Err(execution_failure(&store, classify_guest_error(error))),
+        };
+        let artifact = match validate_artifact(&request, result) {
+            Ok(artifact) => artifact,
+            Err(error) => return Err(execution_failure(&store, error)),
+        };
+        Ok(PluginExecutionSuccess::new(
+            artifact,
+            store.data().capability.usage().clone(),
+        ))
     }
 
     pub async fn on_event(
@@ -107,6 +152,17 @@ struct StoreState {
     capability: CapabilitySession,
     limits: RuntimeLimits,
     guest_cpu: GuestCpuBudget,
+}
+
+fn execution_failure(
+    store: &Store<StoreState>,
+    error: PluginRuntimeError,
+) -> PluginExecutionFailure {
+    PluginExecutionFailure::new(
+        error,
+        store.data().capability.usage().clone(),
+        store.data().capability.failure_hint(),
+    )
 }
 
 fn new_store(
@@ -336,12 +392,7 @@ fn validate_operation_request(
         )
         .is_ok()
     });
-    let content_valid = validate_text(
-        &request.entry.title,
-        64 * 1024,
-        crate::plugins::PluginRegistryErrorKind::InvalidInput,
-    )
-    .is_ok()
+    let content_valid = valid_optional_title(&request.entry.title)
         && validate_text(
             &request.entry.text,
             MAX_ENTRY_TEXT_BYTES,
@@ -373,6 +424,13 @@ fn validate_operation_request(
             PluginRuntimeErrorKind::InvalidInvocation,
         ))
     }
+}
+
+fn valid_optional_title(value: &str) -> bool {
+    value.len() <= 64 * 1024
+        && !value
+            .chars()
+            .any(|character| character.is_control() && !matches!(character, '\n' | '\r' | '\t'))
 }
 
 fn validate_lifecycle_request(
@@ -927,6 +985,9 @@ mod tests {
                     operation: types::Operation::Summarize,
                     trigger: types::Trigger::ManualApi,
                     remaining_depth: 2,
+                    expected_provider_kind: "OPENAI_RESPONSES".to_owned(),
+                    expected_provider_model: "gpt-5-mini".to_owned(),
+                    expected_provider_revision: 0,
                 },
                 provider_binding_id: "test-provider".to_owned(),
                 tool_bindings: Vec::new(),

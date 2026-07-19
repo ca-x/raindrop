@@ -86,6 +86,19 @@ async fn backend_content_job_contract(url: &str) {
         ClaimOutcome::Claimed(claim) => claim,
         other => panic!("expected backend claim, got {other:?}"),
     };
+    let execution_entry = repository
+        .load_execution_entry(&claim)
+        .await
+        .expect("backend execution entry should remain visible and decodable");
+    assert_eq!(execution_entry.entry_id(), ENTRY_A_ID);
+    assert_eq!(execution_entry.feed_id(), support::database::FEED_ID);
+    assert_eq!(execution_entry.content_hash(), HASH_D);
+    assert_eq!(execution_entry.title(), Some("Entry 1"));
+    assert_eq!(execution_entry.text(), "Safe content");
+    assert_eq!(
+        execution_entry.canonical_url(),
+        Some("https://example.com/articles/1")
+    );
     let completed = repository
         .complete_success(
             &claim,

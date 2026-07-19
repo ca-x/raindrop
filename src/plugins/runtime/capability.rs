@@ -51,6 +51,9 @@ pub struct BrokerInvocationContext {
     pub operation: types::Operation,
     pub trigger: types::Trigger,
     pub remaining_depth: u32,
+    pub expected_provider_kind: String,
+    pub expected_provider_model: String,
+    pub expected_provider_revision: u64,
 }
 
 impl fmt::Debug for BrokerInvocationContext {
@@ -395,6 +398,189 @@ impl fmt::Debug for McpBrokerError {
     }
 }
 
+#[derive(Clone, Default, Eq, PartialEq)]
+pub struct CapabilityUsage {
+    provider_request_count: u8,
+    mcp_call_count: u8,
+    input_tokens: u64,
+    output_tokens: u64,
+    estimated_cost_micros: u64,
+    input_token_reports: u8,
+    output_token_reports: u8,
+    estimated_cost_reports: u8,
+    final_model_label: Option<String>,
+}
+
+impl CapabilityUsage {
+    #[must_use]
+    pub const fn provider_request_count(&self) -> u8 {
+        self.provider_request_count
+    }
+
+    #[must_use]
+    pub const fn mcp_call_count(&self) -> u8 {
+        self.mcp_call_count
+    }
+
+    #[must_use]
+    pub const fn input_tokens(&self) -> u64 {
+        self.input_tokens
+    }
+
+    #[must_use]
+    pub const fn output_tokens(&self) -> u64 {
+        self.output_tokens
+    }
+
+    #[must_use]
+    pub const fn estimated_cost_micros(&self) -> u64 {
+        self.estimated_cost_micros
+    }
+
+    #[must_use]
+    pub const fn input_tokens_complete(&self) -> bool {
+        self.input_token_reports == self.provider_request_count
+    }
+
+    #[must_use]
+    pub const fn output_tokens_complete(&self) -> bool {
+        self.output_token_reports == self.provider_request_count
+    }
+
+    #[must_use]
+    pub const fn estimated_cost_complete(&self) -> bool {
+        self.estimated_cost_reports == self.provider_request_count
+    }
+
+    #[must_use]
+    pub fn final_model_label(&self) -> Option<&str> {
+        self.final_model_label.as_deref()
+    }
+
+    fn record_provider_attempt(&mut self) -> Result<(), PluginRuntimeError> {
+        self.provider_request_count = self
+            .provider_request_count
+            .checked_add(1)
+            .ok_or_else(accounting_error)?;
+        Ok(())
+    }
+
+    fn record_provider_success(
+        &mut self,
+        response: &host_ai::GenerateResponse,
+    ) -> Result<(), PluginRuntimeError> {
+        if let Some(value) = response.usage.input_tokens {
+            self.input_tokens = self
+                .input_tokens
+                .checked_add(value)
+                .ok_or_else(accounting_error)?;
+            self.input_token_reports = self
+                .input_token_reports
+                .checked_add(1)
+                .ok_or_else(accounting_error)?;
+        }
+        if let Some(value) = response.usage.output_tokens {
+            self.output_tokens = self
+                .output_tokens
+                .checked_add(value)
+                .ok_or_else(accounting_error)?;
+            self.output_token_reports = self
+                .output_token_reports
+                .checked_add(1)
+                .ok_or_else(accounting_error)?;
+        }
+        if let Some(value) = response.estimated_cost_micros {
+            self.estimated_cost_micros = self
+                .estimated_cost_micros
+                .checked_add(value)
+                .ok_or_else(accounting_error)?;
+            self.estimated_cost_reports = self
+                .estimated_cost_reports
+                .checked_add(1)
+                .ok_or_else(accounting_error)?;
+        }
+        self.final_model_label = Some(response.model_label.clone());
+        Ok(())
+    }
+
+    fn record_mcp_attempt(&mut self) -> Result<(), PluginRuntimeError> {
+        self.mcp_call_count = self
+            .mcp_call_count
+            .checked_add(1)
+            .ok_or_else(accounting_error)?;
+        Ok(())
+    }
+}
+
+impl fmt::Debug for CapabilityUsage {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CapabilityUsage")
+            .field("provider_request_count", &self.provider_request_count)
+            .field("mcp_call_count", &self.mcp_call_count)
+            .field("input_tokens", &self.input_tokens)
+            .field("output_tokens", &self.output_tokens)
+            .field("estimated_cost_micros", &self.estimated_cost_micros)
+            .field("input_tokens_complete", &self.input_tokens_complete())
+            .field("output_tokens_complete", &self.output_tokens_complete())
+            .field("estimated_cost_complete", &self.estimated_cost_complete())
+            .field("has_final_model_label", &self.final_model_label.is_some())
+            .finish()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CapabilityFailureHint {
+    retryable: bool,
+    retry_at_unix_ms: Option<u64>,
+    outcome_unknown: bool,
+}
+
+impl CapabilityFailureHint {
+    const fn from_ai(error: AiBrokerError) -> Self {
+        Self {
+            retryable: error.retryable,
+            retry_at_unix_ms: error.retry_at_unix_ms,
+            outcome_unknown: matches!(error.kind, AiBrokerErrorKind::Timeout),
+        }
+    }
+
+    const fn from_mcp(error: McpBrokerError) -> Self {
+        Self {
+            retryable: error.retryable,
+            retry_at_unix_ms: None,
+            outcome_unknown: matches!(error.kind, McpBrokerErrorKind::Timeout),
+        }
+    }
+
+    const fn timeout() -> Self {
+        Self {
+            retryable: true,
+            retry_at_unix_ms: None,
+            outcome_unknown: true,
+        }
+    }
+
+    #[must_use]
+    pub const fn retryable(&self) -> bool {
+        self.retryable
+    }
+
+    #[must_use]
+    pub const fn retry_at_unix_ms(&self) -> Option<u64> {
+        self.retry_at_unix_ms
+    }
+
+    #[must_use]
+    pub const fn outcome_unknown(&self) -> bool {
+        self.outcome_unknown
+    }
+}
+
+fn accounting_error() -> PluginRuntimeError {
+    PluginRuntimeError::new(PluginRuntimeErrorKind::RuntimeUnavailable)
+}
+
 #[async_trait]
 pub trait McpCapabilityBroker: Send + Sync {
     async fn call_tool(
@@ -447,6 +633,8 @@ pub struct CapabilitySession {
     deadline_unix_ms: u64,
     deadline: Instant,
     enabled: bool,
+    usage: CapabilityUsage,
+    failure_hint: Option<CapabilityFailureHint>,
     ai_broker: Arc<dyn AiCapabilityBroker>,
     mcp_broker: Arc<dyn McpCapabilityBroker>,
 }
@@ -475,6 +663,8 @@ impl CapabilitySession {
             deadline_unix_ms: config.deadline_unix_ms,
             deadline: config.deadline,
             enabled: true,
+            usage: CapabilityUsage::default(),
+            failure_hint: None,
             ai_broker,
             mcp_broker,
         })
@@ -488,6 +678,7 @@ impl CapabilitySession {
             Ok(request) => request,
             Err(error) => return Ok(Err(error)),
         };
+        self.usage.record_provider_attempt()?;
         self.remaining_provider_requests -= 1;
         self.remaining_input_tokens -= request.max_input_tokens;
         self.remaining_output_tokens -= request.max_output_tokens;
@@ -500,14 +691,22 @@ impl CapabilitySession {
         )
         .await;
         let response = match broker_result {
-            Err(_) => return Ok(Err(ai_error(host_ai::GenerateErrorCode::Timeout))),
-            Ok(Err(error)) => return map_ai_broker_error(error),
+            Err(_) => {
+                self.failure_hint = Some(CapabilityFailureHint::timeout());
+                return Ok(Err(ai_error(host_ai::GenerateErrorCode::Timeout)));
+            }
+            Ok(Err(error)) => {
+                self.failure_hint = Some(CapabilityFailureHint::from_ai(error));
+                return map_ai_broker_error(error);
+            }
             Ok(Ok(response)) => response,
         };
+        self.failure_hint = None;
         let response = match self.validate_ai_response(&request, response) {
             Ok(response) => response,
             Err(error) => return Ok(Err(error)),
         };
+        self.usage.record_provider_success(&response)?;
         Ok(Ok(response))
     }
 
@@ -519,6 +718,7 @@ impl CapabilitySession {
             Ok(request) => request,
             Err(error) => return Ok(Err(error)),
         };
+        self.usage.record_mcp_attempt()?;
         self.remaining_mcp_calls -= 1;
 
         let broker_result = timeout(
@@ -527,10 +727,17 @@ impl CapabilitySession {
         )
         .await;
         let response = match broker_result {
-            Err(_) => return Ok(Err(mcp_error(host_mcp::CallErrorCode::Timeout))),
-            Ok(Err(error)) => return map_mcp_broker_error(error),
+            Err(_) => {
+                self.failure_hint = Some(CapabilityFailureHint::timeout());
+                return Ok(Err(mcp_error(host_mcp::CallErrorCode::Timeout)));
+            }
+            Ok(Err(error)) => {
+                self.failure_hint = Some(CapabilityFailureHint::from_mcp(error));
+                return map_mcp_broker_error(error);
+            }
             Ok(Ok(response)) => response,
         };
+        self.failure_hint = None;
         let response = match validate_mcp_response(response) {
             Ok(response) => response,
             Err(error) => return Ok(Err(error)),
@@ -785,6 +992,16 @@ impl CapabilitySession {
     pub(crate) fn activate(&mut self) {
         self.enabled = true;
     }
+
+    #[must_use]
+    pub const fn usage(&self) -> &CapabilityUsage {
+        &self.usage
+    }
+
+    #[must_use]
+    pub const fn failure_hint(&self) -> Option<CapabilityFailureHint> {
+        self.failure_hint
+    }
 }
 
 fn validate_session_config(config: &CapabilitySessionConfig) -> Result<(), PluginRuntimeError> {
@@ -836,6 +1053,18 @@ fn validate_session_config(config: &CapabilitySessionConfig) -> Result<(), Plugi
         || validate_visible_ascii(
             &config.provider_binding_id,
             MAX_BINDING_ID_BYTES,
+            crate::plugins::PluginRegistryErrorKind::InvalidInput,
+        )
+        .is_err()
+        || validate_visible_ascii(
+            &config.invocation.expected_provider_kind,
+            40,
+            crate::plugins::PluginRegistryErrorKind::InvalidInput,
+        )
+        .is_err()
+        || validate_text(
+            &config.invocation.expected_provider_model,
+            200,
             crate::plugins::PluginRegistryErrorKind::InvalidInput,
         )
         .is_err()
@@ -1034,6 +1263,9 @@ mod tests {
                     operation: types::Operation::Summarize,
                     trigger: types::Trigger::ManualApi,
                     remaining_depth: 2,
+                    expected_provider_kind: "OPENAI_RESPONSES".to_owned(),
+                    expected_provider_model: "gpt-5-mini".to_owned(),
+                    expected_provider_revision: 0,
                 },
                 provider_binding_id: "provider-1".to_owned(),
                 tool_bindings: vec![test_tool_binding()],

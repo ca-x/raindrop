@@ -55,6 +55,46 @@ async fn sandbox_executes_valid_component_and_returns_validated_artifact() {
 }
 
 #[tokio::test]
+async fn sandbox_detailed_execution_preserves_usage_and_redacts_guest_failures() {
+    let runtime = PluginRuntime::new().expect("runtime should construct");
+
+    let success = compile_behavior(&runtime, ComponentBehavior::Success);
+    let (session, request) = execution_inputs(&success);
+    let success = runtime
+        .execute_detailed(&success, session, request)
+        .await
+        .expect("detailed success should execute");
+    assert_eq!(success.usage().provider_request_count(), 0);
+    assert_eq!(success.usage().mcp_call_count(), 0);
+
+    for (behavior, expected) in [
+        (
+            ComponentBehavior::ExecuteTrap,
+            PluginRuntimeErrorKind::GuestTrap,
+        ),
+        (
+            ComponentBehavior::InvalidArtifact,
+            PluginRuntimeErrorKind::InvalidInvocation,
+        ),
+        (
+            ComponentBehavior::UnknownPluginError,
+            PluginRuntimeErrorKind::InvalidInvocation,
+        ),
+    ] {
+        let compiled = compile_behavior(&runtime, behavior);
+        let (session, request) = execution_inputs(&compiled);
+        let failure = runtime
+            .execute_detailed(&compiled, session, request)
+            .await
+            .expect_err("detailed failure should retain accounting");
+        assert_eq!(failure.error().kind(), expected);
+        assert_eq!(failure.usage().provider_request_count(), 0);
+        assert_eq!(failure.usage().mcp_call_count(), 0);
+        assert!(!format!("{failure:?} {failure}").contains("rd-secret"));
+    }
+}
+
+#[tokio::test]
 async fn sandbox_requires_matching_descriptor_before_business_calls() {
     let runtime = PluginRuntime::new().expect("runtime should construct");
     let mismatch = compile_behavior(&runtime, ComponentBehavior::DescriptorMismatch);
@@ -363,6 +403,9 @@ fn session(
                 operation: types::Operation::Summarize,
                 trigger,
                 remaining_depth: 2,
+                expected_provider_kind: "OPENAI_RESPONSES".to_owned(),
+                expected_provider_model: "gpt-5-mini".to_owned(),
+                expected_provider_revision: 0,
             },
             provider_binding_id: PROVIDER_BINDING_ID.to_owned(),
             tool_bindings,

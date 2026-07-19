@@ -9,10 +9,14 @@ mod host;
 
 pub use capability::{
     AiBrokerError, AiBrokerErrorKind, AiBrokerRequest, AiBrokerResponse, AiCapabilityBroker,
-    AiFinishReason, BrokerInvocationContext, CapabilitySession, CapabilitySessionConfig,
-    CapabilityToolBinding, CapabilityToolBindingInput, DenyAiBroker, DenyMcpBroker, McpBrokerError,
-    McpBrokerErrorKind, McpBrokerRequest, McpBrokerResponse, McpCapabilityBroker,
+    AiFinishReason, BrokerInvocationContext, CapabilityFailureHint, CapabilitySession,
+    CapabilitySessionConfig, CapabilityToolBinding, CapabilityToolBindingInput, CapabilityUsage,
+    DenyAiBroker, DenyMcpBroker, McpBrokerError, McpBrokerErrorKind, McpBrokerRequest,
+    McpBrokerResponse, McpCapabilityBroker,
 };
 pub use component::CompiledPlugin;
 pub use engine::PluginRuntime;
-pub use error::{PluginFailureCode, PluginRuntimeError, PluginRuntimeErrorKind};
+pub use error::{
+    PluginExecutionFailure, PluginExecutionSuccess, PluginFailureCode, PluginRuntimeError,
+    PluginRuntimeErrorKind,
+};

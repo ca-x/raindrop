@@ -52,8 +52,44 @@ impl AiContentConfig {
     }
 
     #[must_use]
+    pub const fn summarize_enabled(&self) -> bool {
+        self.document.operations.summarize.enabled
+    }
+
+    #[must_use]
+    pub const fn summarize_max_output_tokens(&self) -> u32 {
+        self.document.operations.summarize.max_output_tokens
+    }
+
+    #[must_use]
+    pub const fn summarize_mcp_enabled(&self) -> bool {
+        matches!(
+            self.document.operations.summarize.mcp.mode,
+            McpMode::ContextEnrichment
+        )
+    }
+
+    #[must_use]
     pub fn translate_provider_id(&self) -> &str {
         &self.document.operations.translate.provider_id
+    }
+
+    #[must_use]
+    pub const fn translate_enabled(&self) -> bool {
+        self.document.operations.translate.enabled
+    }
+
+    #[must_use]
+    pub const fn translate_max_output_tokens(&self) -> u32 {
+        self.document.operations.translate.max_output_tokens
+    }
+
+    #[must_use]
+    pub const fn translate_mcp_enabled(&self) -> bool {
+        matches!(
+            self.document.operations.translate.mcp.mode,
+            McpMode::ContextEnrichment
+        )
     }
 
     #[must_use]

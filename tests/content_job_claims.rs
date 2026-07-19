@@ -42,12 +42,31 @@ async fn claim_allocates_attempt_token_lease_and_hard_deadline() {
             .unwrap(),
     );
     assert_eq!(claim.job_id(), job_id);
+    assert_eq!(claim.operation(), ContentJobOperation::Summarize);
+    assert_eq!(claim.trigger(), ContentJobTrigger::ManualApi);
+    assert_eq!(claim.idempotency_key(), "claim-key");
+    assert_eq!(claim.call_chain_id(), "chain-claim-key");
+    assert_eq!(claim.remaining_depth(), 4);
     assert_eq!(claim.attempt(), 1);
     assert_eq!(claim.lease_token(), 1);
     assert!(claim.lease_until() <= claim.attempt_deadline_at());
     assert_eq!(
         claim.attempt_deadline_at() - claim.lease_until(),
         time::Duration::seconds(150)
+    );
+    let entry = fixture
+        .repository
+        .load_execution_entry(&claim)
+        .await
+        .unwrap();
+    assert_eq!(entry.entry_id(), ENTRY_A_ID);
+    assert_eq!(entry.feed_id(), support::database::FEED_ID);
+    assert_eq!(entry.content_hash(), HASH_D);
+    assert_eq!(entry.title(), Some("Entry 1"));
+    assert_eq!(entry.text(), "Safe content");
+    assert_eq!(
+        entry.canonical_url(),
+        Some("https://example.com/articles/1")
     );
 
     let stored = content_job::Entity::find_by_id(&job_id)
@@ -180,6 +199,8 @@ async fn heartbeat_extends_only_to_attempt_deadline() {
     let extended = fixture.repository.heartbeat(&claim).await.unwrap();
     assert_eq!(extended.attempt_deadline_at(), deadline);
     assert_eq!(extended.lease_until(), deadline);
+    assert!(extended.remaining_attempt() > std::time::Duration::ZERO);
+    assert!(extended.remaining_attempt() <= std::time::Duration::from_secs(10));
 }
 
 #[tokio::test]

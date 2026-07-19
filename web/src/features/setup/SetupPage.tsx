@@ -105,71 +105,69 @@ export function SetupPage({ mode, onAuthenticated, onLoginRequired }: SetupPageP
         </Section>
         <Center minHeight="100%" width="100%" className="raindrop-auth-form">
           <Card maxWidth={620} width="100%" padding={8} className="raindrop-auth-card">
-            <Section variant="transparent" padding={0}>
-              <Stack gap={5}>
-                <Stack direction="horizontal" gap={3} justify="between" align="center" wrap="wrap">
-                  <Stack direction="horizontal" gap={3} align="center">
-                    <BrandMark size="sm" />
-                    <Stack gap={1}>
-                      <Text type="supporting" color="accent">
-                        {i18n._("setup.eyebrow")}
-                      </Text>
-                      <Heading level={1} textWrap="balance" className="raindrop-reading-heading">
-                        {i18n._("setup.title")}
-                      </Heading>
-                    </Stack>
+            <Stack gap={5}>
+              <Stack direction="horizontal" gap={3} justify="between" align="center" wrap="wrap">
+                <Stack direction="horizontal" gap={3} align="center">
+                  <BrandMark size="sm" />
+                  <Stack gap={1}>
+                    <Text type="supporting" color="accent">
+                      {i18n._("setup.eyebrow")}
+                    </Text>
+                    <Heading level={1} textWrap="balance" className="raindrop-reading-heading">
+                      {i18n._("setup.title")}
+                    </Heading>
                   </Stack>
-                  <LocaleSwitch isDisabled={isLoading} />
                 </Stack>
-                <ProgressBar
-                  label={i18n._("setup.progress")}
-                  value={mode === "ADMIN_ONLY" ? 1 : step === "database" ? 1 : 2}
-                  max={mode === "ADMIN_ONLY" ? 1 : 2}
-                  hasValueLabel
-                  formatValueLabel={(value, max) => `${value} / ${max}`}
-                />
-                {error ? (
-                  <Banner
-                    status="error"
-                    title={
-                      error === "database"
-                        ? i18n._("setup.databaseError")
-                        : i18n._("setup.completeError")
-                    }
-                  />
-                ) : null}
-                <MountTransition key={step} preset="fadeIn">
-                  {step === "database" ? (
-                    <DatabaseStep
-                      values={values}
-                      fields={fields}
-                      isLoading={isLoading}
-                      onChange={setValues}
-                      onSubmit={submitDatabase}
-                    />
-                  ) : (
-                    <AdminStep
-                      values={values}
-                      fields={fields}
-                      isLoading={isLoading}
-                      onChange={setValues}
-                      showToken={mode === "ADMIN_ONLY"}
-                      onBack={
-                        mode === "FULL"
-                          ? () => {
-                              if (isLoading) return
-                              setFields({})
-                              setError(null)
-                              setStep("database")
-                            }
-                          : undefined
-                      }
-                      onSubmit={submitAdmin}
-                    />
-                  )}
-                </MountTransition>
+                <LocaleSwitch isDisabled={isLoading} />
               </Stack>
-            </Section>
+              <ProgressBar
+                label={i18n._("setup.progress")}
+                value={mode === "ADMIN_ONLY" ? 1 : step === "database" ? 1 : 2}
+                max={mode === "ADMIN_ONLY" ? 1 : 2}
+                hasValueLabel
+                formatValueLabel={(value, max) => `${value} / ${max}`}
+              />
+              {error ? (
+                <Banner
+                  status="error"
+                  title={
+                    error === "database"
+                      ? i18n._("setup.databaseError")
+                      : i18n._("setup.completeError")
+                  }
+                />
+              ) : null}
+              <MountTransition key={step} preset="fadeIn">
+                {step === "database" ? (
+                  <DatabaseStep
+                    values={values}
+                    fields={fields}
+                    isLoading={isLoading}
+                    onChange={setValues}
+                    onSubmit={submitDatabase}
+                  />
+                ) : (
+                  <AdminStep
+                    values={values}
+                    fields={fields}
+                    isLoading={isLoading}
+                    onChange={setValues}
+                    showToken={mode === "ADMIN_ONLY"}
+                    onBack={
+                      mode === "FULL"
+                        ? () => {
+                            if (isLoading) return
+                            setFields({})
+                            setError(null)
+                            setStep("database")
+                          }
+                        : undefined
+                    }
+                    onSubmit={submitAdmin}
+                  />
+                )}
+              </MountTransition>
+            </Stack>
           </Card>
         </Center>
       </div>
