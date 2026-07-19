@@ -134,8 +134,8 @@
 - [x] Run guest/host source-confinement searches and `git diff --check`.
 - [x] Perform one bounded contract/security review and fix only confirmed findings.
 - [x] Stage exact files, inspect the staged diff, scan for real secret patterns.
-- [ ] Commit with `feat: build official AI content component` and push `main`.
-- [ ] Monitor the pushed CI run before starting content-worker composition.
+- [x] Commit with `feat: build official AI content component` and push `main`.
+- [x] Monitor the pushed CI run before starting content-worker composition.
 
 ## Self-review
 
