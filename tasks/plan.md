@@ -4,7 +4,7 @@
 
 当前详细计划：`docs/superpowers/plans/2026-07-19-production-ai-bundle-runtime-v1.md`。
 
-当前进展：Refresh Observability v1 已由 CI run `29646491921` 验证，AI Provider Adapters v1 已由 CI run `29648253330` 验证，AI Provider Core v1 已由 CI run `29652502840` 验证，Content Jobs / Artifacts Core v1 已由 CI run `29655164960` 验证，Official AI Plugin Contract / Registry Core v1 已由 CI run `29657539274` 验证，Wasmtime Component Host Core v1 已由 CI run `29663971184` 验证，ProviderClient Broker Composition v1 已由 CI run `29668410474` 验证，Official AI Component v1 已由 CI run `29671796776` 验证，Content Worker Composition v1 已由 CI run `29676464993` 验证。Production Bundle / Runtime v1 已完成本地 release E2E、缺失官方种子负向门禁、秘密扫描和一次有界内部评审，等待精确提交、推送及 CI 容器验证；生命周期 dispatcher、MCP transport、provider/content API 和 Reader AI UI 仍是后续依赖。
+当前进展：Refresh Observability v1 已由 CI run `29646491921` 验证，AI Provider Adapters v1 已由 CI run `29648253330` 验证，AI Provider Core v1 已由 CI run `29652502840` 验证，Content Jobs / Artifacts Core v1 已由 CI run `29655164960` 验证，Official AI Plugin Contract / Registry Core v1 已由 CI run `29657539274` 验证，Wasmtime Component Host Core v1 已由 CI run `29663971184` 验证，ProviderClient Broker Composition v1 已由 CI run `29668410474` 验证，Official AI Component v1 已由 CI run `29671796776` 验证，Content Worker Composition v1 已由 CI run `29676464993` 验证，Production Bundle / Runtime v1 已由 CI run `29681436183` 验证。下一依赖是 provider/content 管理 API 与 Reader AI sidecar；生命周期 dispatcher、MCP transport 和插件管理 UI 仍是后续工作。
 
 ## 依赖顺序
 

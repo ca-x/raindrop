@@ -145,7 +145,7 @@
 - [x] Perform one bounded DDIA/security/contract review and fix only confirmed findings.
 - [x] Run source confinement, real secret-pattern scan, `git diff --check`, and verify no seed is written anywhere.
 - [x] Provision or confirm the GitHub Actions signing secret through a non-echoing command before claiming tag workflows are usable.
-- [ ] Stage exact files, inspect the staged diff, commit, push `main`, and monitor the corresponding CI run.
+- [x] Stage exact files, inspect the staged diff, commit as `e69d78e`, push `main`, and verify CI run `29681436183` including Release E2E and non-root container smoke.
 
 ## Self-review
 

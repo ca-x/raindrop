@@ -46,7 +46,7 @@
   - [x] ProviderClient broker composition：用户作用域 binding、四协议 adapter、并发/RPM/token/cost admission、稳定幂等、官方 schema typed validation 与翻译 locale 合同。
   - [x] 官方 no-WASI 组件：Rust guest、摘要/翻译、两阶段 MCP、FAIL_OPEN/FAIL_CLOSED、lifecycle intents、固定 failure code、确定性 componentize 与真实 Wasmtime 测试。
   - [x] Content worker composition：claim/heartbeat、官方 Wasm + provider broker、usage/retry、artifact 原子终态和八 lane runtime。
-  - [ ] Production bundle/runtime：release/development 签名、二进制嵌入、installation 同步、真实 provider/Wasm ContentRuntime 和启动/关闭接线。
+  - [x] Production bundle/runtime：release/development 签名、二进制嵌入、installation 同步、真实 provider/Wasm ContentRuntime 和启动/关闭接线。
 - [ ] provider 管理 API/UI、content execution API 和重试入口。
 - [ ] AI artifact UI 与 prompt injection 安全测试。
 
