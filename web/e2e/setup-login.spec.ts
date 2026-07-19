@@ -18,6 +18,8 @@ test("production bundle completes setup, logs in, logs out, and keeps setup clos
 }) => {
   const credentials = createCredentials()
   await page.goto(server.baseURL, { waitUntil: "domcontentloaded" })
+  await expectSetupFitsTabletViewport(page)
+  await page.setViewportSize({ width: 1280, height: 800 })
   await expectSetupContentInset(page)
   await completeSetup(page, server, credentials)
 
@@ -34,6 +36,30 @@ test("production bundle completes setup, logs in, logs out, and keeps setup clos
   expect(bootstrap.status()).toBe(200)
   await expect(bootstrap.json()).resolves.toMatchObject({ status: "READY" })
 })
+
+async function expectSetupFitsTabletViewport(page: Page) {
+  await page.setViewportSize({ width: 768, height: 900 })
+  const card = page.locator(".raindrop-auth-card")
+  await expect(card).toBeVisible()
+  const viewport = page.viewportSize()
+
+  const [cardBox, viewportFits] = await Promise.all([
+    card.boundingBox(),
+    page.evaluate(() => {
+      const frame = document.querySelector(".raindrop-auth-frame")!
+      return (
+        document.documentElement.scrollWidth <= window.innerWidth &&
+        document.body.scrollWidth <= window.innerWidth &&
+        frame.scrollWidth <= frame.clientWidth
+      )
+    }),
+  ])
+  expect(cardBox).not.toBeNull()
+  expect(viewport).not.toBeNull()
+  expect(viewportFits).toBe(true)
+  expect(cardBox!.x).toBeGreaterThanOrEqual(16)
+  expect(cardBox!.x + cardBox!.width).toBeLessThanOrEqual(viewport!.width - 16)
+}
 
 async function expectSetupContentInset(page: Page) {
   const card = page.locator(".raindrop-auth-card")

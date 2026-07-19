@@ -104,7 +104,7 @@ body {
   }
 }
 
-@media (max-width: 719px) {
+@media (max-width: 899px) {
   .raindrop-auth-frame {
     grid-template-columns: minmax(0, 1fr);
     align-items: start;
