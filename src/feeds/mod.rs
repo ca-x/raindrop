@@ -9,6 +9,7 @@ mod fetch;
 mod identity;
 mod lifecycle;
 mod model;
+mod opml;
 mod parse;
 mod persistence;
 mod query;
@@ -45,6 +46,9 @@ pub use fetch::{
 };
 pub use identity::{EntryIdentity, IdentityKind, StableEntryFields};
 pub use model::{OpaqueValidator, ReusableValidators, ValidatorSet};
+pub use opml::{
+    MAX_OPML_BYTES, MAX_OPML_OUTLINES, OpmlDocument, OpmlError, OpmlImportResult, OpmlPreview,
+};
 pub use parse::{
     FeedParseError, FeedParseErrorKind, FeedParser, FetchedDocument, FetchedDocumentError,
     ParsedEnclosure, ParsedEntry, ParsedFeed, ParsedFeedVersion, ParsedSource,

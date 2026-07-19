@@ -14,13 +14,14 @@ interface CategoryListProps {
   state: ReaderState
   onSelect: (source: ReaderSource) => void
   density: TreeListDensity
+  query?: string
 }
 
-export function CategoryList({ state, onSelect, density }: CategoryListProps) {
+export function CategoryList({ state, onSelect, density, query = "" }: CategoryListProps) {
   const { i18n } = useLingui()
   const categories = state.categoryOrder.map((id) => state.categoriesById[id])
   const subscriptions = state.subscriptionOrder.map((id) => state.subscriptionsById[id])
-  const groups = groupSubscriptions(categories, subscriptions)
+  const groups = filterGroups(groupSubscriptions(categories, subscriptions), query)
   const smartItems: TreeListItemData[] = [
     ["UNREAD", "reader.unread"],
     ["ALL", "reader.all"],
@@ -61,7 +62,13 @@ export function CategoryList({ state, onSelect, density }: CategoryListProps) {
     <TreeList
       density={density}
       header={<span className="reader-pane-label">{i18n._("reader.sources")}</span>}
-      items={[...smartItems, ...categoryItems, uncategorized]}
+      items={[
+        ...smartItems,
+        ...categoryItems,
+        ...(groups.uncategorized.subscriptions.length > 0 || !query.trim()
+          ? [uncategorized]
+          : []),
+      ]}
     />
   )
 }
@@ -77,7 +84,6 @@ function feedItems(
     return {
       id: `feed:${subscription.feedId}`,
       label: subscription.title,
-      description: subscription.siteUrl ?? undefined,
       isSelected:
         state.selectedSource.kind === "feed" &&
         state.selectedSource.feedId === subscription.feedId,
@@ -94,6 +100,36 @@ function feedItems(
       ),
     }
   })
+}
+
+function filterGroups(
+  groups: ReturnType<typeof groupSubscriptions>,
+  query: string,
+): ReturnType<typeof groupSubscriptions> {
+  const normalized = query.trim().toLocaleLowerCase()
+  if (!normalized) return groups
+  const filter = (group: SubscriptionGroup): SubscriptionGroup => {
+    const categoryMatches = group.category?.title.toLocaleLowerCase().includes(normalized)
+    const subscriptions = categoryMatches
+      ? group.subscriptions
+      : group.subscriptions.filter((subscription) =>
+          [subscription.title, subscription.siteUrl]
+            .filter(Boolean)
+            .some((value) => value!.toLocaleLowerCase().includes(normalized)),
+        )
+    return {
+      category: group.category,
+      subscriptions,
+      unreadCount: subscriptions.reduce(
+        (total, subscription) => total + subscription.unreadCount,
+        0,
+      ),
+    }
+  }
+  return {
+    categorized: groups.categorized.map(filter).filter((group) => group.subscriptions.length > 0),
+    uncategorized: filter(groups.uncategorized),
+  }
 }
 
 function UnreadCount({ count }: { count: number }) {

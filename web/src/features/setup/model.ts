@@ -47,7 +47,7 @@ export function validateAdmin(
   ) {
     fields.username = "invalid"
   }
-  if (new TextEncoder().encode(values.password).byteLength < 12) {
+  if (!values.password) {
     fields.password = "invalid"
   }
   if (values.email && !/^\S+@\S+\.\S+$/.test(values.email)) fields.email = "invalid"

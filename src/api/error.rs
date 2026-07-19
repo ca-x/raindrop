@@ -188,7 +188,7 @@ impl ApiError {
             "VALIDATION_ERROR",
             "Request validation failed",
         )
-        .with_field("password", "Password must contain at least 12 bytes")
+        .with_field("password", "Password must not be empty")
     }
 
     #[must_use]

@@ -96,17 +96,16 @@ describe("Setup flow", () => {
     await screen.findByRole("heading", { name: "创建管理员" })
     await user.type(screen.getByLabelText(/用户名/), "ab c")
     await user.type(screen.getByLabelText(/邮箱/), "invalid")
-    await user.type(screen.getByLabelText(/密码/), "short")
     await user.click(screen.getByRole("button", { name: "完成设置" }))
 
     expect(screen.getByText("用户名需要包含 3 到 64 个非空白字符。")).toBeVisible()
     expect(screen.getByText("请输入有效的邮箱地址。")).toBeVisible()
-    expect(screen.getByText("密码至少需要 12 个字节。")).toBeVisible()
+    expect(screen.getByText("请输入密码。")).toBeVisible()
     expect(fetchMock).toHaveBeenCalledTimes(2)
 
     await replace(user, /用户名/, "Reader")
     await replace(user, /邮箱/, "reader@example.com")
-    await replace(user, /密码/, "correct horse battery staple")
+    await replace(user, /密码/, "a")
     await user.click(screen.getByRole("button", { name: "完成设置" }))
 
     expect(screen.getByLabelText(/用户名/)).toBeDisabled()
@@ -138,7 +137,7 @@ describe("Setup flow", () => {
       databaseUrl: "sqlite://data/raindrop.db?mode=rwc",
       username: "Reader",
       email: "reader@example.com",
-      password: "correct horse battery staple",
+      password: "a",
     })
     const [loginPath, loginInit] = fetchMock.mock.calls[3]
     expect(loginPath).toBe("/api/v1/auth/login")
@@ -148,7 +147,7 @@ describe("Setup flow", () => {
     expect(new Headers(loginInit?.headers).get("content-type")).toBe("application/json")
     expect(JSON.parse(String(loginInit?.body))).toEqual({
       login: "Reader",
-      password: "correct horse battery staple",
+      password: "a",
     })
   })
 

@@ -64,7 +64,7 @@ pub enum CreateAdminError {
     InvalidUsername(#[from] UsernameError),
     #[error(transparent)]
     InvalidEmail(#[from] EmailError),
-    #[error("password must contain at least 12 bytes")]
+    #[error("password must not be empty")]
     InvalidPassword,
     #[error("username is already taken")]
     UsernameTaken,

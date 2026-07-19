@@ -2,8 +2,9 @@ import { Banner } from "@astryxdesign/core/Banner"
 import { EmptyState } from "@astryxdesign/core/EmptyState"
 import { Skeleton } from "@astryxdesign/core/Skeleton"
 import type { TreeListDensity } from "@astryxdesign/core/TreeList"
+import { TextInput } from "@astryxdesign/core/TextInput"
 import { useLingui } from "@lingui/react"
-import type { Ref } from "react"
+import { useState, type Ref } from "react"
 
 import { CategoryList } from "../categories/CategoryList"
 import type { ReaderSource, ReaderState } from "../model/types"
@@ -17,6 +18,7 @@ interface SourceTreeProps {
   onAdd: () => void
   onManage: () => void
   onPreferences: () => void
+  onTransferSubscriptions: () => void
   onRefresh: (subscriptionId: string) => Promise<void>
   onLogout: () => Promise<void>
   manageButtonRef?: Ref<HTMLButtonElement>
@@ -30,6 +32,7 @@ export function SourceTree({
   onAdd,
   onManage,
   onPreferences,
+  onTransferSubscriptions,
   onRefresh,
   onLogout,
   manageButtonRef,
@@ -37,6 +40,7 @@ export function SourceTree({
   density,
 }: SourceTreeProps) {
   const { i18n } = useLingui()
+  const [sourceQuery, setSourceQuery] = useState("")
   const selectedFeedId = state.selectedSource.kind === "feed" ? state.selectedSource.feedId : null
   const selectedSubscription = selectedFeedId
     ? state.subscriptionOrder
@@ -52,6 +56,7 @@ export function SourceTree({
         onAdd={onAdd}
         onManage={onManage}
         onPreferences={onPreferences}
+        onTransferSubscriptions={onTransferSubscriptions}
         onLogout={onLogout}
         manageButtonRef={manageButtonRef}
         preferencesButtonRef={preferencesButtonRef}
@@ -64,7 +69,26 @@ export function SourceTree({
       {selectedSubscription ? (
         <RefreshStatusSummary refresh={selectedSubscription.refresh} />
       ) : null}
-      <CategoryList state={state} onSelect={onSelect} density={density} />
+      {state.subscriptionOrder.length > 6 ? (
+        <div className="reader-source-search">
+          <TextInput
+            label={i18n._("reader.searchSources")}
+            isLabelHidden
+            placeholder={i18n._("reader.searchSourcesPlaceholder")}
+            value={sourceQuery}
+            onChange={setSourceQuery}
+            hasClear
+            size="sm"
+            width="100%"
+          />
+        </div>
+      ) : null}
+      <CategoryList
+        state={state}
+        onSelect={onSelect}
+        density={density}
+        query={sourceQuery}
+      />
       {state.paneStatus.subscriptions === "error" ? (
         <Banner
           container="section"

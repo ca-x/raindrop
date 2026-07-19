@@ -7,6 +7,7 @@ import { useRef, useState } from "react"
 
 import type { ViewportMode } from "../../../shared/responsive/useViewportMode"
 import { PreferencesDialog } from "../../preferences/components/PreferencesDialog"
+import type { PreferencesTab } from "../../preferences/components/PreferencesDialog"
 import { toAstryxDensity } from "../../preferences/model/preferenceTypes"
 import type { PreferencesController } from "../../preferences/model/usePreferencesController"
 import { ArticleReader } from "../components/ArticleReader"
@@ -49,6 +50,8 @@ export function ReaderShell(props: ReaderShellProps) {
   const [isAddOpen, setIsAddOpen] = useState(false)
   const [isCategoryOpen, setIsCategoryOpen] = useState(false)
   const [isPreferencesOpen, setIsPreferencesOpen] = useState(false)
+  const [preferencesInitialTab, setPreferencesInitialTab] =
+    useState<PreferencesTab>("appearance")
   const [isMarkReadOpen, setIsMarkReadOpen] = useState(false)
   const mobileNavRef = useRef<HTMLDialogElement>(null)
   const categoryButtonRef = useRef<HTMLButtonElement>(null)
@@ -100,6 +103,16 @@ export function ReaderShell(props: ReaderShellProps) {
         setIsCategoryOpen(true)
       }}
       onPreferences={() => {
+        setPreferencesInitialTab("appearance")
+        reopenSourcesAfterPreferences.current = props.viewportMode !== "wide"
+        if (reopenSourcesAfterPreferences.current) {
+          mobileNavRef.current?.close()
+          setIsNavOpen(false)
+        }
+        setIsPreferencesOpen(true)
+      }}
+      onTransferSubscriptions={() => {
+        setPreferencesInitialTab("subscriptions")
         reopenSourcesAfterPreferences.current = props.viewportMode !== "wide"
         if (reopenSourcesAfterPreferences.current) {
           mobileNavRef.current?.close()
@@ -222,11 +235,14 @@ export function ReaderShell(props: ReaderShellProps) {
       />
       <PreferencesDialog
         isOpen={isPreferencesOpen}
+        initialTab={preferencesInitialTab}
         preferences={props.preferencesController.preferences}
         isSaving={props.preferencesController.isSaving}
         error={props.preferencesController.error}
+        csrfToken={props.preferencesController.csrfToken}
         onClearError={props.preferencesController.clearError}
         onSave={props.preferencesController.save}
+        onSubscriptionsChanged={props.controller.load}
         onOpenChange={(open) => {
           setIsPreferencesOpen(open)
           if (open) return

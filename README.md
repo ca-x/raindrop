@@ -2,9 +2,16 @@
 
 Raindrop 是使用 Rust、Axum、SeaORM 和 React 构建的自托管 RSS 阅读器。它提供安全的 Feed 抓取与正文清洗、分类管理、未读与收藏状态、Feed 内搜索、批量已读、键盘导航、响应式阅读界面，以及 SQLite、PostgreSQL、MySQL 三种数据库支持。生产 Web 界面会嵌入单个 Rust 可执行文件。
 
+## v0.2.0
+
+- 支持 OPML 预览、原子导入和导出，可保留订阅分类与自定义标题，并自动识别重复或无效订阅。
+- 阅读器来源树、文章队列、文章工具栏和移动端详情体验进一步对齐 CommaFeed 的高频阅读流程。
+- 设置界面拆分为外观与订阅分页，在桌面、短屏和移动端均保持操作可达。
+- 本地管理员密码只要求非空，不再限制至少 12 个字符。
+
 ## 界面预览
 
-桌面端同时呈现来源、文章队列和正文；移动端收敛为专注阅读视图。以下截图来自本地 `v0.1.0` 实例实际订阅并刷新 `https://www.ithome.com/rss/` 后的界面。
+桌面端同时呈现来源、文章队列和正文；移动端收敛为专注阅读视图。以下截图来自本地 `v0.2.0` 实例实际订阅并刷新 `https://www.ithome.com/rss/` 后的界面。
 
 ![Raindrop 桌面阅读器：来源、文章队列与正文三栏视图](docs/assets/screenshots/reader-desktop.png)
 
@@ -110,7 +117,7 @@ rootless Docker 或启用 user namespace remap 时，宿主机 UID 映射由 Doc
 RAINDROP_PUBLIC_URL=https://rss.example.com
 RAINDROP_DATABASE_URL=sqlite:///data/raindrop.db?mode=rwc
 RAINDROP_BOOTSTRAP_ADMIN_USERNAME=admin
-RAINDROP_BOOTSTRAP_ADMIN_PASSWORD=CHANGE_ME_WITH_AT_LEAST_12_RANDOM_BYTES
+RAINDROP_BOOTSTRAP_ADMIN_PASSWORD=CHANGE_ME_WITH_A_STRONG_PASSWORD
 ```
 
 也可以把数据库 URL 改为外部 PostgreSQL 或 MySQL。不要把 env 文件提交到仓库：

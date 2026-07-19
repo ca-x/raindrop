@@ -159,6 +159,7 @@ export function EntryQueue({
             {queue.map((entryId) => {
               const entry = state.entriesById[entryId]
               if (!entry) return null
+              const summary = entryPreview(entry.summary)
               const date = new Intl.DateTimeFormat(i18n.locale, {
                 month: "short",
                 day: "numeric",
@@ -167,7 +168,7 @@ export function EntryQueue({
                 <Item
                   as="li"
                   key={entryId}
-                  className="reader-entry-item"
+                  className={`reader-entry-item${entry.isRead ? "" : " is-unread"}`}
                   data-reader-entry-id={entryId}
                   density={density}
                   isDisabled={!isRouteReady}
@@ -184,9 +185,19 @@ export function EntryQueue({
                       {entry.isStarred ? <span aria-label={i18n._("reader.starredEntry")}>★</span> : null}
                     </span>
                   }
-                  description={[entry.feedTitle, entry.author, entry.summary].filter(Boolean).join(" · ")}
+                  description={
+                    <span className="reader-entry-description">
+                      <span className="reader-entry-meta">
+                        {[entry.feedTitle, entry.author].filter(Boolean).join(" · ")}
+                      </span>
+                      {summary ? (
+                        <span className="reader-entry-summary">{summary}</span>
+                      ) : null}
+                    </span>
+                  }
                   descriptionLines={2}
                   labelLines={2}
+                  align="start"
                   endContent={<time dateTime={new Date((entry.publishedAtUs ?? entry.sortAtUs) / 1000).toISOString()}>{date}</time>}
                 />
               )
@@ -200,4 +211,12 @@ export function EntryQueue({
 
 function clampOffset(element: HTMLElement, offset: number): number {
   return Math.max(0, Math.min(offset, Math.max(0, element.scrollHeight - element.clientHeight)))
+}
+
+export function entryPreview(value: string | null): string | null {
+  if (!value) return null
+  const compact = value.replace(/\s+/gu, " ").trim()
+  if (!compact) return null
+  const characters = [...compact]
+  return characters.length <= 180 ? compact : `${characters.slice(0, 179).join("")}…`
 }

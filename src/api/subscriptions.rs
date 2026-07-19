@@ -23,6 +23,8 @@ use uuid::Uuid;
 
 use super::{ApiError, ApiJson, RateLimitRejection, routes::sensitive_cache_headers};
 
+mod opml;
+
 const PUBLIC_TIME_FORMAT: &[time::format_description::FormatItem<'static>] =
     format_description!("[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:6]Z");
 
@@ -47,6 +49,7 @@ pub(super) fn router() -> Router<AppState> {
             axum::routing::any(subscription_not_found),
         )
         .nest("/api/v1/subscriptions", subscriptions)
+        .merge(opml::router())
         .layer(middleware::map_response(sensitive_cache_headers))
 }
 

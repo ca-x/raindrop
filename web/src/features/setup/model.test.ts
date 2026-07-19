@@ -2,12 +2,22 @@ import { expect, it } from "vitest"
 
 import { initialSetupValues, validateAdmin } from "./model"
 
-it("measures the password minimum in UTF-8 bytes", () => {
+it("accepts a short non-empty password", () => {
   expect(
     validateAdmin({
       ...initialSetupValues,
       username: "Reader",
-      password: "🔒🔒🔒",
+      password: "a",
     }),
   ).not.toHaveProperty("password")
+})
+
+it("rejects an empty password", () => {
+  expect(
+    validateAdmin({
+      ...initialSetupValues,
+      username: "Reader",
+      password: "",
+    }),
+  ).toHaveProperty("password", "invalid")
 })

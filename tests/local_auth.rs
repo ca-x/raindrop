@@ -10,6 +10,58 @@ use secrecy::SecretString;
 use tempfile::tempdir;
 
 #[tokio::test]
+async fn admin_password_only_needs_to_be_non_empty() {
+    let data = tempdir().expect("temporary directory should be created");
+    let url = format!(
+        "sqlite://{}?mode=rwc",
+        data.path().join("short-password.db").display()
+    );
+    let database = connect(&DatabaseConfig::new(SecretString::from(url)))
+        .await
+        .expect("database should connect");
+    migrate(&database).await.expect("database should migrate");
+    let passwords = PasswordService::default();
+
+    create_admin(
+        &database,
+        &passwords,
+        CreateAdminInput {
+            username: "Reader".to_owned(),
+            password: SecretString::from("a".to_owned()),
+            email: None,
+        },
+    )
+    .await
+    .expect("a short non-empty password should be accepted");
+}
+
+#[tokio::test]
+async fn empty_admin_password_is_rejected() {
+    let data = tempdir().expect("temporary directory should be created");
+    let url = format!(
+        "sqlite://{}?mode=rwc",
+        data.path().join("empty-password.db").display()
+    );
+    let database = connect(&DatabaseConfig::new(SecretString::from(url)))
+        .await
+        .expect("database should connect");
+    migrate(&database).await.expect("database should migrate");
+
+    let result = create_admin(
+        &database,
+        &PasswordService::default(),
+        CreateAdminInput {
+            username: "Reader".to_owned(),
+            password: SecretString::from(String::new()),
+            email: None,
+        },
+    )
+    .await;
+
+    assert!(matches!(result, Err(CreateAdminError::InvalidPassword)));
+}
+
+#[tokio::test]
 async fn admin_creation_and_authentication_are_secure() {
     let data = tempdir().expect("temporary directory should be created");
     let url = format!(

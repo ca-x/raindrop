@@ -119,7 +119,7 @@ export async function verifyCompactPreferences(
   await expectPresentation(page, desired)
   const reopened = await openCompactSettings(page, "zh-CN")
   await expect(reopened.dialog.getByText(
-    "调整 Raindrop 的显示方式，不打断当前阅读。",
+    "调整阅读体验并管理订阅数据，不打断当前阅读。",
   )).toBeVisible()
   await expectDialogContained(reopened.dialog, page)
   await expectNoHorizontalOverflow(page)

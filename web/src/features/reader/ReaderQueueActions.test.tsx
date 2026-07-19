@@ -4,12 +4,19 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { Providers } from "../../app/Providers"
 import { activateLocale } from "../../shared/i18n/i18n"
-import { EntryQueue } from "./components/EntryQueue"
+import { EntryQueue, entryPreview } from "./components/EntryQueue"
 import { MarkReadDialog } from "./components/MarkReadDialog"
 import { initialReaderState } from "./model/reducer"
 import type { ReaderState } from "./model/types"
 
 afterEach(() => vi.restoreAllMocks())
+
+it("bounds and normalizes publisher summaries for queue rows", () => {
+  expect(entryPreview("  first\n\nsecond  ")).toBe("first second")
+  const preview = entryPreview("界".repeat(200))
+  expect([...(preview ?? "")]).toHaveLength(180)
+  expect(preview?.endsWith("…")).toBe(true)
+})
 
 describe("Reader queue actions", () => {
   it("shows Feed search only for Feed sources and submits or clears it", async () => {

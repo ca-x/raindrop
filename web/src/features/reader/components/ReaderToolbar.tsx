@@ -15,6 +15,7 @@ interface SourceToolbarProps {
   onAdd: () => void
   onManage: () => void
   onPreferences: () => void
+  onTransferSubscriptions: () => void
   onLogout: () => Promise<void>
   manageButtonRef?: Ref<HTMLButtonElement>
   preferencesButtonRef?: Ref<HTMLButtonElement>
@@ -25,6 +26,7 @@ export function SourceToolbar({
   onAdd,
   onManage,
   onPreferences,
+  onTransferSubscriptions,
   onLogout,
   manageButtonRef,
   preferencesButtonRef,
@@ -73,6 +75,7 @@ export function SourceToolbar({
             size="lg"
             items={[
               { label: i18n._("preferences.open"), onClick: onPreferences },
+              { label: i18n._("opml.open"), onClick: onTransferSubscriptions },
               { type: "divider" },
               { label: i18n._("common.logout"), onClick: () => void onLogout() },
             ]}

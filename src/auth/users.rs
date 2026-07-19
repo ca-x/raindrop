@@ -37,7 +37,7 @@ pub async fn create_admin(
     input: CreateAdminInput,
 ) -> Result<User, CreateAdminError> {
     let normalized_username = normalize_username(&input.username)?;
-    if input.password.expose_secret().len() < 12 {
+    if input.password.expose_secret().is_empty() {
         return Err(CreateAdminError::InvalidPassword);
     }
     let email = normalize_optional_email(input.email)?;
@@ -119,7 +119,7 @@ pub(crate) fn validate_create_admin_input(
     input: &CreateAdminInput,
 ) -> Result<(), CreateAdminError> {
     normalize_username(&input.username)?;
-    if input.password.expose_secret().len() < 12 {
+    if input.password.expose_secret().is_empty() {
         return Err(CreateAdminError::InvalidPassword);
     }
     normalize_optional_email(input.email.clone())?;

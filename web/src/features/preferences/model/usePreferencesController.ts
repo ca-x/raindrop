@@ -24,6 +24,7 @@ export type PreferencesControllerError = "LOAD" | "SAVE"
 export type PreferencesLoadStatus = "idle" | "loading" | "ready" | "error"
 
 export interface PreferencesController {
+  csrfToken: string
   preferences: UserPreferences
   loadStatus: PreferencesLoadStatus
   error: PreferencesControllerError | null
@@ -128,6 +129,7 @@ export function usePreferencesController({
   )
 
   return {
+    csrfToken,
     preferences: runtime.preferences,
     loadStatus,
     error,

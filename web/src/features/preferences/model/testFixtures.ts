@@ -6,6 +6,7 @@ export function fakePreferencesController(
   overrides: Partial<PreferencesController> = {},
 ): PreferencesController {
   return {
+    csrfToken: "csrf-memory",
     preferences: {
       locale: "en",
       themeMode: "SYSTEM",

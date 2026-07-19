@@ -54,9 +54,11 @@ it("preserves the draft and inline error when saving fails", async () => {
         preferences={preferences}
         isSaving={false}
         error="SAVE"
+        csrfToken="csrf-memory"
         onOpenChange={vi.fn()}
         onClearError={vi.fn()}
         onSave={onSave}
+        onSubscriptionsChanged={vi.fn()}
       />
     </Providers>,
   )
@@ -90,10 +92,29 @@ it("renders the complete settings workflow in Chinese", () => {
   renderDialog()
 
   const dialog = screen.getByRole("dialog", { name: "设置" })
-  expect(within(dialog).getByText("调整 Raindrop 的显示方式，不打断当前阅读。")).toBeVisible()
+  expect(within(dialog).getByText("调整阅读体验并管理订阅数据，不打断当前阅读。")).toBeVisible()
   expect(within(dialog).getByRole("radio", { name: "跟随系统" })).toBeVisible()
   expect(within(dialog).getByRole("radio", { name: "均衡" })).toBeVisible()
   expect(within(dialog).getByRole("button", { name: "保存更改" })).toBeVisible()
+})
+
+it("keeps OPML transfer in a separate subscriptions tab", async () => {
+  activateLocale("en")
+  const user = userEvent.setup()
+  renderDialog()
+  const dialog = screen.getByRole("dialog", { name: "Settings" })
+
+  await user.click(within(dialog).getByRole("button", { name: "Subscriptions" }))
+
+  expect(
+    within(dialog)
+      .getAllByLabelText("OPML file")
+      .find((element) => element.tagName === "INPUT"),
+  ).toBeVisible()
+  expect(within(dialog).getByRole("button", { name: "Export OPML" })).toBeVisible()
+  expect(within(dialog).getByRole("button", { name: "Import subscriptions" })).toBeDisabled()
+  expect(within(dialog).queryByRole("button", { name: "Save changes" })).not.toBeInTheDocument()
+  expect(within(dialog).getByRole("button", { name: "Close" })).toBeVisible()
 })
 
 function renderDialog(
@@ -104,9 +125,11 @@ function renderDialog(
     preferences,
     isSaving: false,
     error: null,
+    csrfToken: "csrf-memory",
     onOpenChange: vi.fn(),
     onClearError: vi.fn(),
     onSave: vi.fn().mockResolvedValue(true),
+    onSubscriptionsChanged: vi.fn(),
     ...overrides,
   }
   return render(

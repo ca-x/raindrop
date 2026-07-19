@@ -98,3 +98,36 @@ it.each([
 
   expect(screen.getByLabelText(label)).toBeVisible()
 })
+
+it("filters subscriptions without hiding the smart views", () => {
+  activateLocale("en")
+  const secondSubscriptionId = "00000000-0000-4000-8000-000000000202"
+  render(
+    <Providers>
+      <CategoryList
+        state={{
+          ...initialReaderState,
+          categoriesById: { [categoryId]: makeCategory() },
+          categoryOrder: [categoryId],
+          subscriptionsById: {
+            [subscriptionId]: makeSubscription({ categoryId, title: "Rust Blog" }),
+            [secondSubscriptionId]: makeSubscription({
+              subscriptionId: secondSubscriptionId,
+              feedId: "00000000-0000-4000-8000-000000000102",
+              categoryId,
+              title: "Design Notes",
+            }),
+          },
+          subscriptionOrder: [subscriptionId, secondSubscriptionId],
+        }}
+        onSelect={vi.fn()}
+        density="balanced"
+        query="rust"
+      />
+    </Providers>,
+  )
+
+  expect(screen.getByText("Rust Blog")).toBeVisible()
+  expect(screen.queryByText("Design Notes")).not.toBeInTheDocument()
+  expect(screen.getByRole("button", { name: "Unread" })).toBeVisible()
+})

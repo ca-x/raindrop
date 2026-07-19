@@ -48,6 +48,29 @@ export async function apiRequest(
   }
 }
 
+export interface ApiBlobResponse {
+  blob: Blob
+  filename: string | null
+}
+
+export async function apiBlobRequest(
+  path: string,
+  init: RequestInit = {},
+): Promise<ApiBlobResponse> {
+  const response = await fetch(path, {
+    ...init,
+    headers: new Headers(init.headers),
+    credentials: "same-origin",
+  })
+  if (!response.ok) {
+    throw new ApiClientError(response.status, await readApiError(response))
+  }
+  return {
+    blob: await response.blob(),
+    filename: attachmentFilename(response.headers.get("content-disposition")),
+  }
+}
+
 async function readApiError(response: Response): Promise<ApiErrorPayload> {
   try {
     const body: unknown = await response.json()
@@ -75,4 +98,10 @@ function isStringRecord(value: unknown): value is Record<string, string> {
   return (
     isRecord(value) && Object.values(value).every((entry) => typeof entry === "string")
   )
+}
+
+function attachmentFilename(contentDisposition: string | null): string | null {
+  if (!contentDisposition) return null
+  const match = /(?:^|;)\s*filename="([^"]+)"(?:;|$)/iu.exec(contentDisposition)
+  return match?.[1] ?? null
 }

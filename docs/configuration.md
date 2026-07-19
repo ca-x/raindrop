@@ -26,7 +26,7 @@
 | `RAINDROP_SESSION_SECRET` | `session_secret` | 未设置。设置后至少 32 字节，否则启动失败。当前 foundation 会加载并脱敏该值，但浏览器会话令牌仍由系统随机源独立生成，因此交互式设置不要求提供此变量。 |
 | `RAINDROP_PROVIDER_SECRET_KEYS` | `provider_secret_keys` | 未设置。逗号分隔的 `key-id:base64url` 列表；环境变量替换完整 TOML 列表。第一项用于新 credential 加密，后续项只用于轮换期解密。每份 key 解码后必须为 32 字节，且不得重复 ID 或 key material。详见 [AI Provider Core 运维合同](ai-providers.md)。 |
 | `RAINDROP_BOOTSTRAP_ADMIN_USERNAME` | `bootstrap_admin.username` | 未设置。与管理员密码成组使用；空数据库初始化时不能为空，最终用户名必须为 3 到 64 个非空白、非控制字符。 |
-| `RAINDROP_BOOTSTRAP_ADMIN_PASSWORD` | `bootstrap_admin.password` | 未设置。与管理员用户名成组使用，至少 12 字节。 |
+| `RAINDROP_BOOTSTRAP_ADMIN_PASSWORD` | `bootstrap_admin.password` | 未设置。与管理员用户名成组使用，不能为空；生产环境仍建议使用密码管理器生成强密码。 |
 | `RAINDROP_BOOTSTRAP_ADMIN_EMAIL` | `bootstrap_admin.email` | 未设置。可选；首尾空白会被移除，空值按未提供处理。非空值仅接受 ASCII，转为小写后最多 320 字节、只能有一个 `@`、local/domain 都不能为空且分别最多 64/255 字节，并拒绝空白与控制字符。该保守的未加引号地址子集不覆盖 RFC 的 quoted local-part 或国际化地址。 |
 
 `RUST_LOG` 由 `tracing` 读取，不属于 `RAINDROP_*` 配置。未设置时使用 `raindrop=info,tower_http=info`。
@@ -92,7 +92,7 @@ feed_orphan_retention_days = 30
 
 [bootstrap_admin]
 username = "admin"
-password = "REPLACE_WITH_AT_LEAST_12_RANDOM_BYTES"
+password = "REPLACE_WITH_A_STRONG_PASSWORD"
 email = "admin@example.com"
 ```
 
