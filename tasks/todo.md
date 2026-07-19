@@ -44,6 +44,7 @@
 - [x] Content Jobs / Artifacts Core：幂等入队、租约/fencing、崩溃恢复、有界 retry、immutable artifact identity 和三数据库原子终态。
 - [ ] 官方 `raindrop.ai-content` Wasm 组件、ProviderClient broker composition、摘要/翻译 prompt/schema 执行、额度预留与 artifact 生成。
   - [x] ProviderClient broker composition：用户作用域 binding、四协议 adapter、并发/RPM/token/cost admission、稳定幂等、官方 schema typed validation 与翻译 locale 合同。
+  - [x] 官方 no-WASI 组件：Rust guest、摘要/翻译、两阶段 MCP、FAIL_OPEN/FAIL_CLOSED、lifecycle intents、固定 failure code、确定性 componentize 与真实 Wasmtime 测试。
 - [ ] provider 管理 API/UI、content execution API 和重试入口。
 - [ ] AI artifact UI 与 prompt injection 安全测试。
 
@@ -53,6 +54,7 @@
 - [x] Registry Core：官方 bundle SHA-256/Ed25519 验证、installation/config/capability grant/KV 三数据库记录、CAS 和配额合同。
 - [x] Wasmtime Component Host：无 ambient WASI、fuel/memory/epoch/output 限制、guest bindings 和 host capability broker。
 - [x] Official invocation contract repair：完整 MCP tool descriptor、schema digest、config-bearing lifecycle request、逐字段漂移拒绝和 lifecycle capability suspension。
+- [x] Official AI component：no-WASI Rust guest、动态 tool-plan 授权、摘要/翻译/MCP/lifecycle 执行和 CI 真实组件门禁。
 - [ ] `before/fetched/entry.process/persisted/completed` runtime dispatcher、delivery、outbox 重投与熔断。
 - [ ] 插件管理 API/UI、官方组件打包发现、后续 SDK 和第三方 additive 扩展文档。
 

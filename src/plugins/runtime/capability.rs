@@ -8,9 +8,12 @@ use std::{
 use async_trait::async_trait;
 use tokio::time::{Instant, timeout};
 
-use crate::plugins::json::{
-    canonical_json, contextual_hash, parse_unique_json, validate_text, validate_uuid,
-    validate_visible_ascii,
+use crate::plugins::{
+    json::{
+        canonical_json, contextual_hash, parse_unique_json, validate_text, validate_uuid,
+        validate_visible_ascii,
+    },
+    tool_plan::{TOOL_PLAN_SCHEMA_ID, ToolPlanBinding, ToolPlanSchema},
 };
 
 use super::{
@@ -572,6 +575,7 @@ impl CapabilitySession {
         let output_schema_json =
             canonical_object_json(&request.output_schema_json, MAX_AI_SCHEMA_BYTES)
                 .ok_or_else(|| ai_error(host_ai::GenerateErrorCode::InvalidRequest))?;
+        self.validate_tool_plan_schema(&request.output_schema_id, &output_schema_json)?;
         let operation_output_limit = max_output_tokens(self.invocation.operation);
         if request.max_input_tokens == 0
             || request.max_input_tokens > self.remaining_input_tokens
@@ -599,6 +603,38 @@ impl CapabilitySession {
             max_cost_micros: self.remaining_cost_micros,
             timeout: remaining.min(MAX_AI_TIMEOUT),
         })
+    }
+
+    fn validate_tool_plan_schema(
+        &self,
+        schema_id: &str,
+        schema_json: &str,
+    ) -> Result<(), host_ai::GenerateError> {
+        if schema_id != TOOL_PLAN_SCHEMA_ID {
+            return Ok(());
+        }
+        let invalid = || ai_error(host_ai::GenerateErrorCode::InvalidRequest);
+        let schema = ToolPlanSchema::parse(schema_json).map_err(|_| invalid())?;
+        if schema.max_calls() > self.remaining_mcp_calls as usize
+            || !schema.binding_schemas().eq(self.tool_bindings.iter().map(
+                |(binding_id, binding)| (binding_id.as_str(), binding.input_schema_json.as_str()),
+            ))
+        {
+            return Err(invalid());
+        }
+        let expected = ToolPlanSchema::build(
+            self.tool_bindings.values().map(|binding| ToolPlanBinding {
+                binding_id: &binding.binding_id,
+                input_schema_json: &binding.input_schema_json,
+            }),
+            schema.max_calls(),
+        )
+        .map_err(|_| invalid())?;
+        if expected.canonical_json() == schema_json {
+            Ok(())
+        } else {
+            Err(invalid())
+        }
     }
 
     fn validate_ai_response(

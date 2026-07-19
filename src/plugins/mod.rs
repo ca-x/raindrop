@@ -7,6 +7,7 @@ mod manifest;
 mod model;
 mod repository;
 pub mod runtime;
+pub(crate) mod tool_plan;
 
 pub use artifact::{SummaryArtifact, TranslationArtifact};
 pub use config::AiContentConfig;

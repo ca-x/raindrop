@@ -12,9 +12,11 @@ use raindrop::plugins::runtime::{
     McpBrokerRequest, McpBrokerResponse, McpCapabilityBroker, PluginRuntimeErrorKind,
     bindings::{host_ai, host_mcp, types},
 };
+use serde_json::{Value, json};
 use tokio::time::{Duration, Instant};
 
 const PROVIDER_BINDING_ID: &str = "provider-binding-1";
+const TOOL_PLAN_SCHEMA_ID: &str = "raindrop://schemas/plugins/raindrop.ai-content/tool-plan/v1";
 
 #[tokio::test]
 async fn ai_session_enforces_identity_before_broker_and_returns_typed_response() {
@@ -52,6 +54,55 @@ async fn ai_session_enforces_identity_before_broker_and_returns_typed_response()
     assert_eq!(recorded[0].provider_request_ordinal, 1);
     assert_eq!(recorded[0].max_cost_micros, 250_000);
     assert_eq!(recorded[0].timeout, Duration::from_secs(90));
+}
+
+#[tokio::test]
+async fn ai_session_authorizes_tool_plan_schema_from_current_host_bindings() {
+    let mut config = session_config();
+    config.tool_bindings = vec![tool_binding(2), tool_binding(1)];
+    config.remaining_mcp_calls = 2;
+    let valid_schema = tool_plan_schema(&config.tool_bindings, 2);
+    let broker = Arc::new(RecordingAiBroker::success());
+    let mut session = CapabilitySession::new(config, broker.clone(), Arc::new(DenyMcpBroker))
+        .expect("tool-plan session should construct");
+    session
+        .generate_structured(tool_plan_request(valid_schema.clone()))
+        .await
+        .expect("tool-plan validation should not trap")
+        .expect("exact host-derived schema should reach the broker");
+    assert_eq!(broker.requests().len(), 1);
+    assert_eq!(broker.requests()[0].output_schema_json, valid_schema);
+
+    let exact_bindings = vec![tool_binding(1), tool_binding(2)];
+    let mut binding_drift: Value =
+        serde_json::from_str(&tool_plan_schema(&exact_bindings, 2)).expect("tool-plan schema JSON");
+    binding_drift["properties"]["calls"]["items"]["oneOf"][1]["properties"]["toolBindingId"]["const"] =
+        json!("tool-binding-9");
+
+    let mut schema_drift: Value =
+        serde_json::from_str(&tool_plan_schema(&exact_bindings, 2)).expect("tool-plan schema JSON");
+    schema_drift["properties"]["calls"]["items"]["oneOf"][0]["properties"]["arguments"]["properties"]
+        ["query"]["type"] = json!("integer");
+
+    for (remaining_mcp_calls, invalid_schema) in [
+        (2, canonical(binding_drift)),
+        (2, canonical(schema_drift)),
+        (1, tool_plan_schema(&exact_bindings, 2)),
+    ] {
+        let mut config = session_config();
+        config.tool_bindings = exact_bindings.clone();
+        config.remaining_mcp_calls = remaining_mcp_calls;
+        let broker = Arc::new(RecordingAiBroker::success());
+        let mut session = CapabilitySession::new(config, broker.clone(), Arc::new(DenyMcpBroker))
+            .expect("drift test session should construct");
+        let error = session
+            .generate_structured(tool_plan_request(invalid_schema))
+            .await
+            .expect("schema denial should not trap")
+            .expect_err("tool-plan authority drift must fail closed");
+        assert_eq!(error.code, host_ai::GenerateErrorCode::InvalidRequest);
+        assert!(broker.requests().is_empty());
+    }
 }
 
 #[tokio::test]
@@ -673,6 +724,63 @@ fn ai_request(ordinal: u32) -> host_ai::GenerateRequest {
         max_input_tokens: 1_024,
         max_output_tokens: 512,
     }
+}
+
+fn tool_plan_request(output_schema_json: String) -> host_ai::GenerateRequest {
+    host_ai::GenerateRequest {
+        provider_binding_id: PROVIDER_BINDING_ID.to_owned(),
+        operation: types::Operation::Summarize,
+        system_instruction: "Select bounded tools from untrusted input.".to_owned(),
+        untrusted_input_json: r#"{"entry":{"text":"untrusted"}}"#.to_owned(),
+        output_schema_id: TOOL_PLAN_SCHEMA_ID.to_owned(),
+        output_schema_json,
+        provider_request_ordinal: 1,
+        max_input_tokens: 1_024,
+        max_output_tokens: 1_024,
+    }
+}
+
+fn tool_plan_schema(bindings: &[CapabilityToolBinding], max_calls: usize) -> String {
+    let mut bindings = bindings
+        .iter()
+        .map(CapabilityToolBinding::to_wit)
+        .collect::<Vec<_>>();
+    bindings.sort_by(|left, right| left.binding_id.cmp(&right.binding_id));
+    let branches = bindings
+        .into_iter()
+        .map(|binding| {
+            let input_schema: Value =
+                serde_json::from_str(&binding.input_schema_json).expect("tool input schema JSON");
+            json!({
+                "additionalProperties": false,
+                "properties": {
+                    "arguments": input_schema,
+                    "toolBindingId": {"const": binding.binding_id},
+                },
+                "required": ["toolBindingId", "arguments"],
+                "type": "object",
+            })
+        })
+        .collect::<Vec<_>>();
+    canonical(json!({
+        "$id": TOOL_PLAN_SCHEMA_ID,
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+            "calls": {
+                "items": {"oneOf": branches},
+                "maxItems": max_calls,
+                "type": "array",
+            },
+            "schemaVersion": {"const": 1},
+        },
+        "required": ["schemaVersion", "calls"],
+        "type": "object",
+    }))
+}
+
+fn canonical(value: Value) -> String {
+    serde_json::to_string(&value).expect("canonical JSON")
 }
 
 fn mcp_request() -> host_mcp::CallRequest {

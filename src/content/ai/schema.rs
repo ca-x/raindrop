@@ -4,6 +4,7 @@ use crate::plugins::{
     PluginRegistryErrorKind, SummaryArtifact, TranslationArtifact,
     json::{canonical_json, normalize_locale, parse_unique_json},
     runtime::{AiBrokerError, AiBrokerErrorKind, bindings::types},
+    tool_plan::{TOOL_PLAN_SCHEMA_ID, TOOL_PLAN_SCHEMA_NAME, ToolPlanSchema},
 };
 
 const MAX_SCHEMA_BYTES: usize = 64 * 1024;
@@ -17,10 +18,11 @@ const SUMMARY_SCHEMA_DOCUMENT: &str =
 const TRANSLATION_SCHEMA_DOCUMENT: &str =
     include_str!("../../../contracts/artifacts/ai-translation.v1.schema.json");
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) enum OfficialSchema {
     Summary,
     Translation,
+    ToolPlan(ToolPlanSchema),
 }
 
 impl OfficialSchema {
@@ -29,39 +31,51 @@ impl OfficialSchema {
         schema_id: &str,
         schema_json: &str,
     ) -> Result<Self, AiBrokerError> {
+        if schema_id == TOOL_PLAN_SCHEMA_ID {
+            return ToolPlanSchema::parse(schema_json)
+                .map(Self::ToolPlan)
+                .map_err(|_| invalid_request());
+        }
         let schema = match operation {
             types::Operation::Summarize => Self::Summary,
             types::Operation::Translate => Self::Translation,
         };
         let request_schema =
             canonical_object_exact(schema_json, MAX_SCHEMA_BYTES).ok_or_else(invalid_request)?;
-        if schema_id != schema.schema_id() || Ok(request_schema) != canonical_contract(schema) {
+        if schema_id != schema.schema_id() || Ok(request_schema) != canonical_contract(&schema) {
             return Err(invalid_request());
         }
         Ok(schema)
     }
 
-    pub(super) const fn schema_id(self) -> &'static str {
+    pub(super) const fn schema_id(&self) -> &'static str {
         match self {
             Self::Summary => SUMMARY_SCHEMA_ID,
             Self::Translation => TRANSLATION_SCHEMA_ID,
+            Self::ToolPlan(_) => TOOL_PLAN_SCHEMA_ID,
         }
     }
 
-    pub(super) const fn schema_name(self) -> &'static str {
+    pub(super) const fn schema_name(&self) -> &'static str {
         match self {
             Self::Summary => SUMMARY_SCHEMA_NAME,
             Self::Translation => TRANSLATION_SCHEMA_NAME,
+            Self::ToolPlan(_) => TOOL_PLAN_SCHEMA_NAME,
         }
     }
 
-    pub(super) fn schema_value(self) -> Result<Value, AiBrokerError> {
-        parse_unique_json(self.schema_document().as_bytes(), MAX_SCHEMA_BYTES)
-            .map_err(|_| invalid_request())
+    pub(super) fn schema_value(&self) -> Result<Value, AiBrokerError> {
+        match self {
+            Self::Summary | Self::Translation => {
+                parse_unique_json(self.schema_document().as_bytes(), MAX_SCHEMA_BYTES)
+                    .map_err(|_| invalid_request())
+            }
+            Self::ToolPlan(schema) => Ok(schema.value()),
+        }
     }
 
     pub(super) fn validate_output(
-        self,
+        &self,
         output: Value,
         untrusted_input: &Value,
     ) -> Result<String, AiBrokerError> {
@@ -86,13 +100,15 @@ impl OfficialSchema {
                 }
                 Ok(artifact.canonical_json().to_owned())
             }
+            Self::ToolPlan(schema) => schema.validate_output(output).map_err(|_| output_invalid()),
         }
     }
 
-    const fn schema_document(self) -> &'static str {
+    const fn schema_document(&self) -> &'static str {
         match self {
             Self::Summary => SUMMARY_SCHEMA_DOCUMENT,
             Self::Translation => TRANSLATION_SCHEMA_DOCUMENT,
+            Self::ToolPlan(_) => "",
         }
     }
 }
@@ -108,7 +124,7 @@ pub(super) fn canonical_input(input: &str) -> Result<Value, AiBrokerError> {
     Ok(value)
 }
 
-fn canonical_contract(schema: OfficialSchema) -> Result<String, AiBrokerError> {
+fn canonical_contract(schema: &OfficialSchema) -> Result<String, AiBrokerError> {
     canonical_object(schema.schema_document(), MAX_SCHEMA_BYTES).ok_or_else(invalid_request)
 }
 
@@ -136,10 +152,11 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+    use crate::plugins::tool_plan::{TOOL_PLAN_SCHEMA_ID, ToolPlanBinding, ToolPlanSchema};
 
     #[test]
     fn schema_registry_accepts_only_exact_operation_contracts() {
-        let summary = canonical_contract(OfficialSchema::Summary).expect("summary schema");
+        let summary = canonical_contract(&OfficialSchema::Summary).expect("summary schema");
         assert_eq!(
             OfficialSchema::validate_request(
                 types::Operation::Summarize,
@@ -207,5 +224,72 @@ mod tests {
                 .expect_err("target locale drift"),
             output_invalid(),
         );
+    }
+
+    #[test]
+    fn schema_registry_accepts_bounded_tool_plan_family_and_validates_output() {
+        let contract = ToolPlanSchema::build(
+            [
+                ToolPlanBinding {
+                    binding_id: "binding-a",
+                    input_schema_json: r#"{"additionalProperties":false,"properties":{"query":{"type":"string"}},"required":["query"],"type":"object"}"#,
+                },
+                ToolPlanBinding {
+                    binding_id: "binding-b",
+                    input_schema_json: r#"{"additionalProperties":false,"properties":{"limit":{"maximum":10,"minimum":1,"type":"integer"}},"required":["limit"],"type":"object"}"#,
+                },
+            ],
+            2,
+        )
+        .expect("tool plan schema");
+        let schema = OfficialSchema::validate_request(
+            types::Operation::Summarize,
+            TOOL_PLAN_SCHEMA_ID,
+            contract.canonical_json(),
+        )
+        .expect("tool plan schema family");
+        assert_eq!(schema.schema_id(), TOOL_PLAN_SCHEMA_ID);
+        assert_eq!(schema.schema_name(), "raindrop_ai_tool_plan_v1");
+        assert_eq!(
+            schema.schema_value().expect("schema value"),
+            contract.value()
+        );
+        assert_eq!(
+            schema
+                .validate_output(
+                    json!({
+                        "schemaVersion": 1,
+                        "calls": [
+                            {"toolBindingId": "binding-b", "arguments": {"limit": 3}},
+                            {"toolBindingId": "binding-a", "arguments": {"query": "rust"}},
+                        ]
+                    }),
+                    &json!({"text":"untrusted"}),
+                )
+                .expect("valid tool plan"),
+            r#"{"calls":[{"arguments":{"limit":3},"toolBindingId":"binding-b"},{"arguments":{"query":"rust"},"toolBindingId":"binding-a"}],"schemaVersion":1}"#,
+        );
+
+        let mut drifted = contract.value().clone();
+        drifted["properties"]["calls"]["maxItems"] = json!(5);
+        assert!(
+            OfficialSchema::validate_request(
+                types::Operation::Summarize,
+                TOOL_PLAN_SCHEMA_ID,
+                &canonical_json(drifted, MAX_SCHEMA_BYTES).expect("drifted schema"),
+            )
+            .is_err()
+        );
+
+        for output in [
+            json!({"schemaVersion":1,"calls":[{"toolBindingId":"unknown","arguments":{}}]}),
+            json!({"schemaVersion":1,"calls":[
+                {"toolBindingId":"binding-a","arguments":{}},
+                {"toolBindingId":"binding-a","arguments":{}}
+            ]}),
+            json!({"schemaVersion":1,"calls":[{"toolBindingId":"binding-a","arguments":[]}]}),
+        ] {
+            assert!(schema.validate_output(output, &json!({})).is_err());
+        }
     }
 }

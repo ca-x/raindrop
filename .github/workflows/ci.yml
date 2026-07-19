@@ -132,6 +132,7 @@ jobs:
         with:
           toolchain: 1.94.0
           components: clippy, rustfmt
+          targets: wasm32-unknown-unknown
 
       - name: Restore Cargo cache
         uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
@@ -163,7 +164,13 @@ jobs:
         run: cargo fmt --check
 
       - name: Run Clippy
-        run: cargo clippy --locked --all-targets --all-features -- -D warnings
+        run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+
+      - name: Verify official AI guest target
+        run: cargo check --locked --manifest-path plugins/official/raindrop-ai-content/Cargo.toml --target wasm32-unknown-unknown --release
+
+      - name: Execute real official AI component
+        run: cargo test --locked --test official_ai_component -- --nocapture --test-threads=1
 
       - name: Verify RSS schema on SQLite
         run: cargo test --locked --test rss_migrations sqlite -- --nocapture --test-threads=1
@@ -250,7 +257,7 @@ jobs:
         run: cargo test --locked --test feed_state_contracts mysql -- --nocapture --test-threads=1
 
       - name: Run Rust tests
-        run: env -u RAINDROP_TEST_POSTGRES_URL -u RAINDROP_TEST_MYSQL_URL cargo test --locked --all-features
+        run: env -u RAINDROP_TEST_POSTGRES_URL -u RAINDROP_TEST_MYSQL_URL cargo test --locked --workspace --all-features
 
   rust-current-stable:
     name: Rust current-stable compatibility

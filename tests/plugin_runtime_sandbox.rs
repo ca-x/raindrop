@@ -12,8 +12,8 @@ use raindrop::plugins::{
     AiContentConfig,
     runtime::{
         BrokerInvocationContext, CapabilitySession, CapabilitySessionConfig, CapabilityToolBinding,
-        CapabilityToolBindingInput, CompiledPlugin, DenyAiBroker, DenyMcpBroker, PluginRuntime,
-        PluginRuntimeError, PluginRuntimeErrorKind, bindings::types,
+        CapabilityToolBindingInput, CompiledPlugin, DenyAiBroker, DenyMcpBroker, PluginFailureCode,
+        PluginRuntime, PluginRuntimeError, PluginRuntimeErrorKind, bindings::types,
     },
 };
 use serde_json::json;
@@ -77,6 +77,33 @@ async fn sandbox_requires_matching_descriptor_before_business_calls() {
         runtime.execute(&execute_trap, session, request).await,
         PluginRuntimeErrorKind::GuestTrap,
     );
+}
+
+#[tokio::test]
+async fn sandbox_preserves_only_allowlisted_guest_failure_codes() {
+    let runtime = PluginRuntime::new().expect("runtime should construct");
+    let known = compile_behavior(&runtime, ComponentBehavior::KnownPluginError);
+    let (session, request) = execution_inputs(&known);
+    let known = runtime
+        .execute(&known, session, request)
+        .await
+        .expect_err("known guest failure should return a runtime error");
+    assert_eq!(known.kind(), PluginRuntimeErrorKind::InvalidInvocation);
+    assert_eq!(known.failure_code(), Some(PluginFailureCode::ConfigInvalid));
+    assert!(
+        !format!("{known:?} {known}").contains("raindrop.ai-content.config-invalid"),
+        "fixed message keys should not be rendered directly",
+    );
+
+    let unknown = compile_behavior(&runtime, ComponentBehavior::UnknownPluginError);
+    let (session, request) = execution_inputs(&unknown);
+    let unknown = runtime
+        .execute(&unknown, session, request)
+        .await
+        .expect_err("unknown guest failure should return a runtime error");
+    assert_eq!(unknown.kind(), PluginRuntimeErrorKind::InvalidInvocation);
+    assert_eq!(unknown.failure_code(), None);
+    assert!(!format!("{unknown:?} {unknown}").contains("rd-secret"));
 }
 
 #[tokio::test]

@@ -16,7 +16,8 @@ use crate::plugins::{
 };
 
 use super::{
-    CapabilitySession, CompiledPlugin, PluginRuntime, PluginRuntimeError, PluginRuntimeErrorKind,
+    CapabilitySession, CompiledPlugin, PluginFailureCode, PluginRuntime, PluginRuntimeError,
+    PluginRuntimeErrorKind,
     bindings::{ContentPluginV1, ContentPluginV1Pre, types},
 };
 
@@ -640,6 +641,7 @@ fn classify_error(error: wasmtime::Error, instantiation: bool) -> PluginRuntimeE
 }
 
 fn map_plugin_error(error: types::PluginError) -> PluginRuntimeError {
+    let failure_code = PluginFailureCode::from_message_key(&error.message_key);
     PluginRuntimeError::new(match error.code {
         types::PluginErrorCode::Disabled | types::PluginErrorCode::CapabilityDenied => {
             PluginRuntimeErrorKind::CapabilityDenied
@@ -653,6 +655,7 @@ fn map_plugin_error(error: types::PluginError) -> PluginRuntimeError {
             PluginRuntimeErrorKind::GuestTrap
         }
     })
+    .with_failure_code(failure_code)
 }
 
 #[cfg(test)]

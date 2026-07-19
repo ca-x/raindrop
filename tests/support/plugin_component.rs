@@ -17,6 +17,8 @@ pub enum ComponentBehavior {
     DescriptorTrap,
     ExecuteTrap,
     FuelSplit,
+    KnownPluginError,
+    UnknownPluginError,
     InvalidArtifact,
     MemoryLimit,
     OutputTooLarge,
@@ -204,6 +206,12 @@ fn write_descriptor(image: &mut MemoryImage, version: &str) -> u32 {
 }
 
 fn write_artifact(image: &mut MemoryImage, behavior: ComponentBehavior) -> u32 {
+    if matches!(
+        behavior,
+        ComponentBehavior::KnownPluginError | ComponentBehavior::UnknownPluginError
+    ) {
+        return write_plugin_error(image, behavior);
+    }
     let result = image.reserve(40, 4);
     let artifact = result + 4;
     let schema = image.string("raindrop://schemas/artifacts/ai-summary/v1");
@@ -219,6 +227,21 @@ fn write_artifact(image: &mut MemoryImage, behavior: ComponentBehavior) -> u32 {
     image.write_u32(artifact + 8, 0);
     image.write_pair(artifact + 20, payload);
     image.write_pair(artifact + 28, provenance);
+    result
+}
+
+fn write_plugin_error(image: &mut MemoryImage, behavior: ComponentBehavior) -> u32 {
+    let result = image.reserve(40, 4);
+    let message_key = match behavior {
+        ComponentBehavior::KnownPluginError => "raindrop.ai-content.config-invalid",
+        ComponentBehavior::UnknownPluginError => "rd-secret-attacker-message-key",
+        _ => unreachable!("plugin error helper requires an error behavior"),
+    };
+    let message_key = image.string(message_key);
+    image.write_u8(result, 1);
+    image.write_u8(result + 4, 3);
+    image.write_u8(result + 5, 0);
+    image.write_pair(result + 8, message_key);
     result
 }
 
@@ -305,6 +328,11 @@ impl MemoryImage {
     fn write_u32(&mut self, address: u32, value: u32) {
         let offset = self.offset(address);
         self.bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+    }
+
+    fn write_u8(&mut self, address: u32, value: u8) {
+        let offset = self.offset(address);
+        self.bytes[offset] = value;
     }
 
     fn offset(&self, address: u32) -> usize {

@@ -7,6 +7,10 @@ license = "MIT"
 description = "A self-hosted, multi-user RSS reader"
 repository = "https://github.com/ca-x/raindrop"
 
+[workspace]
+members = ["plugins/official/raindrop-ai-content"]
+resolver = "3"
+
 [dependencies]
 ammonia = "=4.1.3"
 anyhow = "1.0.103"

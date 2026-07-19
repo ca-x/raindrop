@@ -15,4 +15,4 @@ pub use capability::{
 };
 pub use component::CompiledPlugin;
 pub use engine::PluginRuntime;
-pub use error::{PluginRuntimeError, PluginRuntimeErrorKind};
+pub use error::{PluginFailureCode, PluginRuntimeError, PluginRuntimeErrorKind};

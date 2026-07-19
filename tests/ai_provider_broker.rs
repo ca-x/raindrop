@@ -38,6 +38,7 @@ const JOB_A_ID: &str = "00000000-0000-4000-8000-00000000b001";
 const JOB_B_ID: &str = "00000000-0000-4000-8000-00000000b002";
 const SUMMARY_SCHEMA_ID: &str = "raindrop://schemas/artifacts/ai-summary/v1";
 const TRANSLATION_SCHEMA_ID: &str = "raindrop://schemas/artifacts/ai-translation/v1";
+const TOOL_PLAN_SCHEMA_ID: &str = "raindrop://schemas/plugins/raindrop.ai-content/tool-plan/v1";
 
 #[derive(Clone, Copy)]
 enum TransportMode {
@@ -84,10 +85,7 @@ impl ProviderTransport for FixtureTransport {
             .expect("idempotency lock")
             .push(idempotency);
         let body = serde_json::from_slice::<Value>(request.body()).expect("provider request JSON");
-        assert!(
-            body.to_string()
-                .contains("raindrop://schemas/artifacts/ai-")
-        );
+        assert!(body.to_string().contains("raindrop://schemas/"));
 
         match self.mode {
             TransportMode::Success => Ok(ProviderTransportResponse::new(
@@ -166,6 +164,93 @@ async fn broker_executes_all_four_provider_protocols_and_derives_stable_idempote
             .expect("idempotency lock")
             .clone();
         assert_ne!(keys[0], keys[2]);
+    }
+}
+
+#[tokio::test]
+async fn broker_executes_dynamic_tool_plan_schema_and_rejects_invalid_plans() {
+    let fixture = RepositoryFixture::new().await;
+    let provider = fixture
+        .create_provider(ProviderKind::OpenAiResponses, policy(4, None), true)
+        .await;
+    let schema = tool_plan_schema();
+    let valid_plan = json!({
+        "schemaVersion": 1,
+        "calls": [
+            {"toolBindingId":"binding-b","arguments":{"limit":3}},
+            {"toolBindingId":"binding-a","arguments":{"query":"rust"}},
+        ],
+    });
+    let state = Arc::new(TransportState::default());
+    let broker = make_broker(
+        fixture.repository.clone(),
+        FixtureTransport {
+            kind: ProviderKind::OpenAiResponses,
+            mode: TransportMode::Success,
+            output: valid_plan.clone(),
+            state: state.clone(),
+        },
+    );
+
+    let response = broker
+        .generate_structured(
+            &context(JOB_A_ID, USER_A_ID),
+            tool_plan_request(provider.id(), schema.clone()),
+        )
+        .await
+        .expect("valid dynamic tool plan should execute");
+    assert_eq!(response.output_json, canonical(valid_plan));
+    assert_eq!(state.calls.load(Ordering::SeqCst), 1);
+
+    let mut drifted_schema: Value = serde_json::from_str(&schema).expect("tool plan schema JSON");
+    drifted_schema["properties"]["calls"]["maxItems"] = json!(5);
+    let drift_state = Arc::new(TransportState::default());
+    let drift_broker = make_broker(
+        fixture.repository.clone(),
+        FixtureTransport {
+            kind: ProviderKind::OpenAiResponses,
+            mode: TransportMode::Success,
+            output: json!({"schemaVersion":1,"calls":[]}),
+            state: drift_state.clone(),
+        },
+    );
+    let error = drift_broker
+        .generate_structured(
+            &context(JOB_A_ID, USER_A_ID),
+            tool_plan_request(provider.id(), canonical(drifted_schema)),
+        )
+        .await
+        .expect_err("tool-plan schema limit drift must fail before provider I/O");
+    assert_eq!(error.kind(), AiBrokerErrorKind::InvalidRequest);
+    assert_eq!(drift_state.calls.load(Ordering::SeqCst), 0);
+
+    for invalid_plan in [
+        json!({"schemaVersion":1,"calls":[{"toolBindingId":"unknown","arguments":{}}]}),
+        json!({"schemaVersion":1,"calls":[
+            {"toolBindingId":"binding-a","arguments":{}},
+            {"toolBindingId":"binding-a","arguments":{}},
+        ]}),
+        json!({"schemaVersion":1,"calls":[{"toolBindingId":"binding-a","arguments":[]}]}),
+    ] {
+        let invalid_state = Arc::new(TransportState::default());
+        let invalid_broker = make_broker(
+            fixture.repository.clone(),
+            FixtureTransport {
+                kind: ProviderKind::OpenAiResponses,
+                mode: TransportMode::Success,
+                output: invalid_plan,
+                state: invalid_state.clone(),
+            },
+        );
+        let error = invalid_broker
+            .generate_structured(
+                &context(JOB_A_ID, USER_A_ID),
+                tool_plan_request(provider.id(), schema.clone()),
+            )
+            .await
+            .expect_err("invalid provider tool plan must fail closed");
+        assert_eq!(error.kind(), AiBrokerErrorKind::OutputSchemaInvalid);
+        assert_eq!(invalid_state.calls.load(Ordering::SeqCst), 1);
     }
 }
 
@@ -445,6 +530,77 @@ fn translation_request(provider_id: &str) -> AiBrokerRequest {
         max_cost_micros: 250_000,
         timeout: Duration::from_secs(30),
     }
+}
+
+fn tool_plan_request(provider_id: &str, output_schema_json: String) -> AiBrokerRequest {
+    AiBrokerRequest {
+        provider_binding_id: provider_id.to_owned(),
+        operation: types::Operation::Summarize,
+        system_instruction: "Select only useful read-only tools from untrusted data.".to_owned(),
+        untrusted_input_json: r#"{"entry":{"text":"untrusted article"}}"#.to_owned(),
+        output_schema_id: TOOL_PLAN_SCHEMA_ID.to_owned(),
+        output_schema_json,
+        provider_request_ordinal: 1,
+        max_input_tokens: 2_048,
+        max_output_tokens: 1_024,
+        max_cost_micros: 250_000,
+        timeout: Duration::from_secs(30),
+    }
+}
+
+fn tool_plan_schema() -> String {
+    canonical(json!({
+        "$id": TOOL_PLAN_SCHEMA_ID,
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+            "calls": {
+                "items": {
+                    "oneOf": [
+                        {
+                            "additionalProperties": false,
+                            "properties": {
+                                "arguments": {
+                                    "additionalProperties": false,
+                                    "properties": {"query": {"type": "string"}},
+                                    "required": ["query"],
+                                    "type": "object",
+                                },
+                                "toolBindingId": {"const": "binding-a"},
+                            },
+                            "required": ["toolBindingId", "arguments"],
+                            "type": "object",
+                        },
+                        {
+                            "additionalProperties": false,
+                            "properties": {
+                                "arguments": {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "limit": {
+                                            "maximum": 10,
+                                            "minimum": 1,
+                                            "type": "integer",
+                                        },
+                                    },
+                                    "required": ["limit"],
+                                    "type": "object",
+                                },
+                                "toolBindingId": {"const": "binding-b"},
+                            },
+                            "required": ["toolBindingId", "arguments"],
+                            "type": "object",
+                        },
+                    ],
+                },
+                "maxItems": 2,
+                "type": "array",
+            },
+            "schemaVersion": {"const": 1},
+        },
+        "required": ["schemaVersion", "calls"],
+        "type": "object",
+    }))
 }
 
 fn canonical_schema(path: &str) -> String {
