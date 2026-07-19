@@ -58,7 +58,12 @@ interface types {
 
   record tool-binding {
     binding-id: string,
+    connection-id: string,
+    tool-name: string,
     display-label: string,
+    description: string,
+    input-schema-json: canonical-json,
+    input-schema-digest: string,
   }
 
   record invocation-budget {
@@ -108,6 +113,16 @@ interface types {
     idempotency-key: string,
     user-scope: user-scope,
     context-json: canonical-json,
+  }
+
+  record lifecycle-request {
+    invocation-id: string,
+    plugin-key: string,
+    plugin-version: string,
+    component-digest: string,
+    config-json: canonical-json,
+    config-hash: string,
+    event: lifecycle-event,
   }
 
   record content-job-intent {

@@ -8,8 +8,8 @@ use async_trait::async_trait;
 use raindrop::plugins::runtime::{
     AiBrokerError, AiBrokerErrorKind, AiBrokerRequest, AiBrokerResponse, AiCapabilityBroker,
     AiFinishReason, BrokerInvocationContext, CapabilitySession, CapabilitySessionConfig,
-    DenyAiBroker, DenyMcpBroker, McpBrokerError, McpBrokerRequest, McpBrokerResponse,
-    McpCapabilityBroker, PluginRuntimeErrorKind,
+    CapabilityToolBinding, CapabilityToolBindingInput, DenyAiBroker, DenyMcpBroker, McpBrokerError,
+    McpBrokerRequest, McpBrokerResponse, McpCapabilityBroker, PluginRuntimeErrorKind,
     bindings::{host_ai, host_mcp, types},
 };
 use tokio::time::{Duration, Instant};
@@ -266,8 +266,105 @@ fn capability_session_rejects_expired_overlong_and_oversized_contexts() {
     assert_invalid_session(overlong_automatic);
 
     let mut too_many_tools = session_config();
-    too_many_tools.tool_binding_ids = (0..17).map(|index| format!("tool-{index}")).collect();
+    too_many_tools.tool_bindings = (0..17).map(tool_binding).collect();
     assert_invalid_session(too_many_tools);
+
+    let mut duplicate_id = session_config();
+    duplicate_id.tool_bindings.push(tool_binding(1));
+    assert_invalid_session(duplicate_id);
+
+    let mut duplicate_tool = session_config();
+    let mut duplicate_tool_input = tool_binding_input(2);
+    duplicate_tool_input.connection_id = "00000000-0000-4000-8000-000000000001".to_owned();
+    duplicate_tool_input.tool_name = "search.read.1".to_owned();
+    duplicate_tool_input.input_schema_digest =
+        tool_schema_digest(&duplicate_tool_input.input_schema_json);
+    duplicate_tool
+        .tool_bindings
+        .push(CapabilityToolBinding::new(duplicate_tool_input).expect("duplicate tool input"));
+    assert_invalid_session(duplicate_tool);
+}
+
+#[test]
+fn capability_tool_binding_validates_schema_identity_and_redacts_untrusted_metadata() {
+    let binding = tool_binding(1);
+    let wit = binding.to_wit();
+    assert_eq!(wit.binding_id, "tool-binding-1");
+    assert_eq!(wit.tool_name, "search.read.1");
+
+    let invalid_inputs = [
+        {
+            let mut input = tool_binding_input(1);
+            input.connection_id = "not-a-uuid".to_owned();
+            input
+        },
+        {
+            let mut input = tool_binding_input(1);
+            input.tool_name = "unsafe tool".to_owned();
+            input
+        },
+        {
+            let mut input = tool_binding_input(1);
+            input.display_label = "unsafe\nlabel".to_owned();
+            input
+        },
+        {
+            let mut input = tool_binding_input(1);
+            input.description = "unsafe\u{0}description".to_owned();
+            input
+        },
+        {
+            let mut input = tool_binding_input(1);
+            input.description = "x".repeat(8 * 1024 + 1);
+            input
+        },
+        {
+            let mut input = tool_binding_input(1);
+            input.display_label = "x".repeat(129);
+            input
+        },
+        {
+            let mut input = tool_binding_input(1);
+            input.input_schema_json = r#"{"type": "object"}"#.to_owned();
+            input.input_schema_digest = tool_schema_digest(&input.input_schema_json);
+            input
+        },
+        {
+            let mut input = tool_binding_input(1);
+            input.input_schema_json = r#"{"type":"object","type":"array"}"#.to_owned();
+            input.input_schema_digest = tool_schema_digest(&input.input_schema_json);
+            input
+        },
+        {
+            let mut input = tool_binding_input(1);
+            input.input_schema_json = format!(r#"{{"value":"{}"}}"#, "x".repeat(64 * 1024));
+            input.input_schema_digest = tool_schema_digest(&input.input_schema_json);
+            input
+        },
+        {
+            let mut input = tool_binding_input(1);
+            input.input_schema_digest = "a".repeat(64);
+            input
+        },
+    ];
+    for input in invalid_inputs {
+        assert_eq!(
+            CapabilityToolBinding::new(input)
+                .expect_err("invalid tool binding must fail")
+                .kind(),
+            PluginRuntimeErrorKind::InvalidInvocation,
+        );
+    }
+
+    let mut redacted = tool_binding_input(9);
+    redacted.description = "rd-secret-description".to_owned();
+    redacted.input_schema_json = r#"{"description":"rd-secret-schema","type":"object"}"#.to_owned();
+    redacted.input_schema_digest = tool_schema_digest(&redacted.input_schema_json);
+    let rendered = format!(
+        "{:?}",
+        CapabilityToolBinding::new(redacted).expect("redaction binding"),
+    );
+    assert!(!rendered.contains("rd-secret"));
 }
 
 #[tokio::test]
@@ -516,7 +613,7 @@ fn session_config() -> CapabilitySessionConfig {
             remaining_depth: 2,
         },
         provider_binding_id: PROVIDER_BINDING_ID.to_owned(),
-        tool_binding_ids: vec!["tool-binding-1".to_owned()],
+        tool_bindings: vec![tool_binding(1)],
         remaining_provider_requests: 3,
         remaining_mcp_calls: 4,
         remaining_input_tokens: 8_192,
@@ -525,6 +622,31 @@ fn session_config() -> CapabilitySessionConfig {
         deadline_unix_ms: deadline_unix_ms_after(Duration::from_secs(170)),
         deadline: Instant::now() + Duration::from_secs(170),
     }
+}
+
+fn tool_binding(index: usize) -> CapabilityToolBinding {
+    CapabilityToolBinding::new(tool_binding_input(index)).expect("test tool binding")
+}
+
+fn tool_binding_input(index: usize) -> CapabilityToolBindingInput {
+    let input_schema_json = r#"{"additionalProperties":false,"properties":{"query":{"type":"string"}},"type":"object"}"#.to_owned();
+    let input_schema_digest = tool_schema_digest(&input_schema_json);
+    CapabilityToolBindingInput {
+        binding_id: format!("tool-binding-{index}"),
+        connection_id: format!("00000000-0000-4000-8000-{index:012}"),
+        tool_name: format!("search.read.{index}"),
+        display_label: format!("Search {index}"),
+        description: "Untrusted search description".to_owned(),
+        input_schema_json,
+        input_schema_digest,
+    }
+}
+
+fn tool_schema_digest(input_schema_json: &str) -> String {
+    let mut hasher = blake3::Hasher::new_derive_key("raindrop.mcp-tool-input-schema.v1");
+    hasher.update(&(input_schema_json.len() as u64).to_be_bytes());
+    hasher.update(input_schema_json.as_bytes());
+    hasher.finalize().to_hex().to_string()
 }
 
 fn deadline_unix_ms_after(duration: Duration) -> u64 {

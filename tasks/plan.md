@@ -2,9 +2,9 @@
 
 权威设计规格：`docs/superpowers/specs/2026-07-16-raindrop-design.md`。
 
-当前详细计划：`docs/superpowers/plans/2026-07-19-ai-provider-broker-composition-v1.md`。
+当前详细计划：`docs/superpowers/plans/2026-07-19-official-ai-component-invocation-contract-v1.md`。
 
-当前进展：Refresh Observability v1 已由 CI run `29646491921` 验证，AI Provider Adapters v1 已由 CI run `29648253330` 验证，AI Provider Core v1 已由 CI run `29652502840` 验证，Content Jobs / Artifacts Core v1 已由 CI run `29655164960` 验证，Official AI Plugin Contract / Registry Core v1 已由 CI run `29657539274` 验证，Wasmtime Component Host Core v1 已由 CI run `29663971184` 验证。ProviderClient Broker Composition v1 已通过本地 format、Clippy、定向测试和全量 Rust 测试：宿主 capability 现可在 WIT 外部经用户作用域加载加密 provider binding，执行四类 adapter，并强制非阻塞并发、滑动分钟请求、token/cost 预检、host-derived 幂等、官方 schema typed validation 和翻译 locale 一致性。下一真实依赖是官方 `raindrop.ai-content` Wasm 组件；在实现 MCP enrichment 前必须先解决当前 `tool-binding` 未携带已验证输入 schema 的合同缺口，再接入 content worker、artifact 终态、lifecycle dispatcher、MCP transport 和 Reader sidecar。在这些能力真正接通前，AI、插件生态和 MCP 总任务继续保持未完成。OIDC、OPML、排序/阅读游标和真实 `v*` Docker 发布 smoke 仍保留在后续任务。
+当前进展：Refresh Observability v1 已由 CI run `29646491921` 验证，AI Provider Adapters v1 已由 CI run `29648253330` 验证，AI Provider Core v1 已由 CI run `29652502840` 验证，Content Jobs / Artifacts Core v1 已由 CI run `29655164960` 验证，Official AI Plugin Contract / Registry Core v1 已由 CI run `29657539274` 验证，Wasmtime Component Host Core v1 已由 CI run `29663971184` 验证，ProviderClient Broker Composition v1 已由 CI run `29668410474` 验证。Official AI Component Invocation Contract v1 已通过本地与 detached worktree 的 format、Clippy、定向测试和全量 Rust 测试：WIT 现向 guest 提供完整且非秘密的 MCP tool descriptor，lifecycle request 携带验证后的用户配置快照，宿主逐字段拒绝 descriptor 漂移，lifecycle 全程保持 AI/MCP capability suspended。下一真实依赖是实现并确定性构建官方 `raindrop.ai-content` Wasm 组件，再接入 content worker、artifact 终态、lifecycle dispatcher、MCP transport 和 Reader sidecar。在这些能力真正接通前，AI、插件生态和 MCP 总任务继续保持未完成。OIDC、OPML、排序/阅读游标和真实 `v*` Docker 发布 smoke 仍保留在后续任务。
 
 ## 依赖顺序
 

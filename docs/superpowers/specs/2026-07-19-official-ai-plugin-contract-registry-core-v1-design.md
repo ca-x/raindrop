@@ -132,9 +132,11 @@ The v1 WIT package uses kebab-case field/function names and contains no resource
 
 - `content-plugin.descriptor` returns identity, supported operations, lifecycle subscriptions, and requested capabilities.
 - `content-plugin.execute` consumes a host-built operation request and returns an artifact candidate or stable plugin error.
-- `content-plugin.on-event` consumes one versioned lifecycle event and returns declarative intents only.
+- `content-plugin.on-event` consumes a `lifecycle-request` containing verified plugin identity, canonical per-user config snapshot/hash, and one versioned lifecycle event, then returns declarative intents only.
 - `host-ai.generate-structured` accepts a host-issued provider binding ID, bounded untrusted JSON, output schema, and token ceilings.
-- `host-mcp.call-tool` accepts a host-issued tool binding ID, canonical JSON arguments, and a bounded timeout.
+- Operation requests carry complete non-secret host-issued tool descriptors: binding ID, configured connection/tool identity, bounded untrusted description, canonical input schema, and schema digest. `host-mcp.call-tool` still accepts only the binding ID, canonical JSON arguments, and a bounded timeout; the descriptor grants no authority.
+
+The corrected invocation record shapes are bound by `docs/superpowers/specs/2026-07-19-official-ai-component-invocation-contract-v1-design.md`. They replace the earlier pre-release ID-only tool binding and event-only `on-event` shape before any executable plugin release consumed the ABI.
 
 The WIT contract does not grant capabilities. The future host rechecks current invocation grants for every import call.
 

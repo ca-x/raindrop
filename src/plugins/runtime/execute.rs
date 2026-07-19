@@ -61,15 +61,14 @@ impl PluginRuntime {
         &self,
         compiled: &CompiledPlugin,
         session: CapabilitySession,
-        event: types::LifecycleEvent,
+        request: types::LifecycleRequest,
     ) -> Result<types::EventOutcome, PluginRuntimeError> {
-        validate_lifecycle_event(&session, &event)?;
+        validate_lifecycle_request(compiled, &session, &request)?;
         let (mut store, guest) = self.instantiate(compiled, session, LIFECYCLE_FUEL).await?;
         validate_descriptor(compiled, call_descriptor(&guest, &mut store).await?)?;
-        store.data_mut().capability.activate();
         let result = guest
             .raindrop_content_plugin_content_plugin()
-            .call_on_event(&mut store, &event)
+            .call_on_event(&mut store, &request)
             .await
             .map_err(classify_guest_error)?
             .map_err(map_plugin_error)?;
@@ -375,11 +374,30 @@ fn validate_operation_request(
     }
 }
 
-fn validate_lifecycle_event(
+fn validate_lifecycle_request(
+    compiled: &CompiledPlugin,
     session: &CapabilitySession,
-    event: &types::LifecycleEvent,
+    request: &types::LifecycleRequest,
 ) -> Result<(), PluginRuntimeError> {
-    session.validate_lifecycle_context(&event.user_scope.subject)?;
+    let event = &request.event;
+    session.validate_lifecycle_context(&request.invocation_id, &event.user_scope.subject)?;
+    let config = AiContentConfig::parse(request.config_json.as_bytes())
+        .map_err(|_| PluginRuntimeError::new(PluginRuntimeErrorKind::InvalidInvocation))?;
+    let identity_valid = request.plugin_key == compiled.plugin_key()
+        && request.plugin_version == compiled.version()
+        && request.component_digest == compiled.component_digest()
+        && request.config_json == config.canonical_json()
+        && request.config_hash == config.config_hash();
+    if !identity_valid
+        || request.config_json.len() > MAX_CONFIG_BYTES
+        || lifecycle_request_size(request) > MAX_REQUEST_BYTES
+        || event.event_type != "feed.refresh.persisted"
+        || event.schema_version != 1
+    {
+        return Err(PluginRuntimeError::new(
+            PluginRuntimeErrorKind::InvalidInvocation,
+        ));
+    }
     if event.context_json.len() > MAX_EVENT_CONTEXT_BYTES {
         return Err(PluginRuntimeError::new(
             PluginRuntimeErrorKind::InvalidInvocation,
@@ -412,6 +430,22 @@ fn validate_lifecycle_event(
         ));
     }
     Ok(())
+}
+
+fn lifecycle_request_size(request: &types::LifecycleRequest) -> usize {
+    128 + request.invocation_id.len()
+        + request.plugin_key.len()
+        + request.plugin_version.len()
+        + request.component_digest.len()
+        + request.config_json.len()
+        + request.config_hash.len()
+        + request.event.event_id.len()
+        + request.event.event_type.len()
+        + request.event.refresh_id.len()
+        + request.event.occurred_at.len()
+        + request.event.idempotency_key.len()
+        + request.event.user_scope.subject.len()
+        + request.event.context_json.len()
 }
 
 fn validate_artifact(
@@ -542,7 +576,16 @@ fn operation_request_size(request: &types::OperationRequest) -> usize {
         + request
             .tool_bindings
             .iter()
-            .map(|binding| binding.binding_id.len() + binding.display_label.len() + 16)
+            .map(|binding| {
+                binding.binding_id.len()
+                    + binding.connection_id.len()
+                    + binding.tool_name.len()
+                    + binding.display_label.len()
+                    + binding.description.len()
+                    + binding.input_schema_json.len()
+                    + binding.input_schema_digest.len()
+                    + 48
+            })
             .sum::<usize>()
 }
 
@@ -682,6 +725,94 @@ mod tests {
     }
 
     #[test]
+    fn operation_request_size_counts_complete_tool_descriptors_at_the_exact_limit() {
+        let mut request = operation_request_fixture();
+        request.tool_bindings.push(types::ToolBinding {
+            binding_id: "binding-1".to_owned(),
+            connection_id: "00000000-0000-4000-8000-000000000001".to_owned(),
+            tool_name: "search.read".to_owned(),
+            display_label: "Search".to_owned(),
+            description: "Untrusted description".to_owned(),
+            input_schema_json: r#"{"type":"object"}"#.to_owned(),
+            input_schema_digest: "d".repeat(64),
+        });
+
+        let descriptor_bytes = request.tool_bindings[0].binding_id.len()
+            + request.tool_bindings[0].connection_id.len()
+            + request.tool_bindings[0].tool_name.len()
+            + request.tool_bindings[0].display_label.len()
+            + request.tool_bindings[0].description.len()
+            + request.tool_bindings[0].input_schema_json.len()
+            + request.tool_bindings[0].input_schema_digest.len()
+            + 48;
+        let with_descriptor = operation_request_size(&request);
+        request.tool_bindings.clear();
+        assert_eq!(
+            with_descriptor - operation_request_size(&request),
+            descriptor_bytes
+        );
+
+        let current = operation_request_size(&request);
+        assert!(current < MAX_REQUEST_BYTES);
+        request
+            .entry
+            .text
+            .push_str(&"x".repeat(MAX_REQUEST_BYTES - current));
+        assert_eq!(operation_request_size(&request), MAX_REQUEST_BYTES);
+        request.entry.text.push('x');
+        assert_eq!(operation_request_size(&request), MAX_REQUEST_BYTES + 1);
+    }
+
+    #[test]
+    fn lifecycle_request_size_counts_the_wrapper_at_the_exact_limit() {
+        let mut request = types::LifecycleRequest {
+            invocation_id: "invocation-1".to_owned(),
+            plugin_key: "raindrop.ai-content".to_owned(),
+            plugin_version: "1.0.0".to_owned(),
+            component_digest: "a".repeat(64),
+            config_json: "{}".to_owned(),
+            config_hash: "b".repeat(64),
+            event: types::LifecycleEvent {
+                event_id: "event-1".to_owned(),
+                event_type: "feed.refresh.persisted".to_owned(),
+                schema_version: 1,
+                refresh_id: "refresh-1".to_owned(),
+                sequence: 1,
+                occurred_at: "2026-07-19T00:00:00Z".to_owned(),
+                idempotency_key: "refresh:refresh-1:persisted:v1".to_owned(),
+                user_scope: types::UserScope {
+                    subject: "user-1".to_owned(),
+                },
+                context_json: "{}".to_owned(),
+            },
+        };
+        let wrapper_bytes = 128
+            + request.invocation_id.len()
+            + request.plugin_key.len()
+            + request.plugin_version.len()
+            + request.component_digest.len()
+            + request.config_json.len()
+            + request.config_hash.len()
+            + request.event.event_id.len()
+            + request.event.event_type.len()
+            + request.event.refresh_id.len()
+            + request.event.occurred_at.len()
+            + request.event.idempotency_key.len()
+            + request.event.user_scope.subject.len()
+            + request.event.context_json.len();
+        assert_eq!(lifecycle_request_size(&request), wrapper_bytes);
+
+        assert!(wrapper_bytes < MAX_REQUEST_BYTES);
+        request
+            .event
+            .context_json
+            .push_str(&"x".repeat(MAX_REQUEST_BYTES - wrapper_bytes));
+        assert_eq!(lifecycle_request_size(&request), MAX_REQUEST_BYTES);
+        request.event.context_json.push('x');
+        assert_eq!(lifecycle_request_size(&request), MAX_REQUEST_BYTES + 1);
+    }
+
+    #[test]
     fn guest_cpu_budget_excludes_time_spent_in_host_code() {
         let start = Instant::now();
         let mut budget = GuestCpuBudget::new(MAX_GUEST_CPU);
@@ -736,6 +867,46 @@ mod tests {
         );
     }
 
+    fn operation_request_fixture() -> types::OperationRequest {
+        types::OperationRequest {
+            invocation_id: "invocation-1".to_owned(),
+            job_id: "job-1".to_owned(),
+            idempotency_key: "idempotency-1".to_owned(),
+            plugin_key: "raindrop.ai-content".to_owned(),
+            plugin_version: "1.0.0".to_owned(),
+            component_digest: "a".repeat(64),
+            user_scope: types::UserScope {
+                subject: "user-1".to_owned(),
+            },
+            trigger: types::Trigger::ManualApi,
+            operation: types::Operation::Summarize,
+            target_locale: None,
+            entry: types::EntryReference {
+                entry_id: "entry-1".to_owned(),
+                feed_id: "feed-1".to_owned(),
+                content_hash: "b".repeat(64),
+                title: "Title".to_owned(),
+                text: "Text".to_owned(),
+                canonical_url: None,
+                source_locale: Some("en".to_owned()),
+            },
+            config_json: "{}".to_owned(),
+            config_hash: "c".repeat(64),
+            provider_binding_id: "provider-1".to_owned(),
+            tool_bindings: Vec::new(),
+            call_chain_id: "chain-1".to_owned(),
+            budget: types::InvocationBudget {
+                remaining_depth: 0,
+                deadline_unix_ms: 1,
+                remaining_provider_requests: 1,
+                remaining_mcp_calls: 0,
+                remaining_input_tokens: 1,
+                remaining_output_tokens: 1,
+                remaining_cost_micros: 1,
+            },
+        }
+    }
+
     fn capability_session() -> CapabilitySession {
         let duration = Duration::from_secs(30);
         let unix_now = SystemTime::now()
@@ -755,7 +926,7 @@ mod tests {
                     remaining_depth: 2,
                 },
                 provider_binding_id: "test-provider".to_owned(),
-                tool_binding_ids: Vec::new(),
+                tool_bindings: Vec::new(),
                 remaining_provider_requests: 3,
                 remaining_mcp_calls: 0,
                 remaining_input_tokens: 1024,

@@ -11,9 +11,9 @@ use std::{
 use raindrop::plugins::{
     AiContentConfig,
     runtime::{
-        BrokerInvocationContext, CapabilitySession, CapabilitySessionConfig, CompiledPlugin,
-        DenyAiBroker, DenyMcpBroker, PluginRuntime, PluginRuntimeError, PluginRuntimeErrorKind,
-        bindings::types,
+        BrokerInvocationContext, CapabilitySession, CapabilitySessionConfig, CapabilityToolBinding,
+        CapabilityToolBindingInput, CompiledPlugin, DenyAiBroker, DenyMcpBroker, PluginRuntime,
+        PluginRuntimeError, PluginRuntimeErrorKind, bindings::types,
     },
 };
 use serde_json::json;
@@ -97,7 +97,7 @@ async fn sandbox_enforces_memory_and_distinct_execute_lifecycle_fuel() {
         .expect("execute should have enough 50M fuel for the fixed workload");
     assert_error(
         runtime
-            .on_event(&fuel, lifecycle_session(), lifecycle_event())
+            .on_event(&fuel, lifecycle_session(), lifecycle_request(&fuel))
             .await,
         PluginRuntimeErrorKind::FuelExhausted,
     );
@@ -154,6 +154,71 @@ async fn sandbox_denies_unknown_imports_and_untrusted_request_or_output_shapes()
         runtime.execute(&invalid, session, request).await,
         PluginRuntimeErrorKind::InvalidInvocation,
     );
+
+    let (session, request) = execution_inputs_with_tool(&success);
+    runtime
+        .execute(&success, session, request)
+        .await
+        .expect("exact host-issued tool descriptor should execute");
+    assert_tool_drift(&runtime, &success, |binding| {
+        binding.connection_id = "00000000-0000-4000-8000-000000000099".to_owned();
+    })
+    .await;
+    assert_tool_drift(&runtime, &success, |binding| {
+        binding.tool_name = "other.read".to_owned();
+    })
+    .await;
+    assert_tool_drift(&runtime, &success, |binding| {
+        binding.description = "substituted description".to_owned();
+    })
+    .await;
+    assert_tool_drift(&runtime, &success, |binding| {
+        binding.input_schema_json = r#"{"type":"array"}"#.to_owned();
+    })
+    .await;
+    assert_tool_drift(&runtime, &success, |binding| {
+        binding.input_schema_digest = "f".repeat(64);
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn sandbox_lifecycle_requires_verified_config_and_identity() {
+    let runtime = PluginRuntime::new().expect("runtime should construct");
+    let compiled = compile_behavior(&runtime, ComponentBehavior::Success);
+    let outcome = runtime
+        .on_event(&compiled, lifecycle_session(), lifecycle_request(&compiled))
+        .await
+        .expect("valid lifecycle request should execute");
+    assert!(outcome.job_intents.is_empty());
+    assert!(outcome.diagnostics.is_empty());
+
+    for mutate in [
+        (|request: &mut types::LifecycleRequest| {
+            request.invocation_id = "other-invocation".to_owned();
+        }) as fn(&mut types::LifecycleRequest),
+        |request| request.plugin_key = "attacker.plugin".to_owned(),
+        |request| request.component_digest = "f".repeat(64),
+        |request| request.config_hash = "f".repeat(64),
+        |request| {
+            request.config_json = serde_json::to_string_pretty(
+                &serde_json::from_str::<serde_json::Value>(&request.config_json)
+                    .expect("config value"),
+            )
+            .expect("pretty config");
+        },
+        |request| request.event.user_scope.subject = "other-user".to_owned(),
+        |request| request.event.event_type = "feed.refresh.completed".to_owned(),
+    ] {
+        let mut request = lifecycle_request(&compiled);
+        mutate(&mut request);
+        assert_error(
+            runtime
+                .on_event(&compiled, lifecycle_session(), request)
+                .await,
+            PluginRuntimeErrorKind::InvalidInvocation,
+        );
+    }
 }
 
 #[test]
@@ -192,6 +257,15 @@ fn runtime_source_has_no_ambient_capability_or_persistence_shortcut() {
     assert!(component.contains("Component::from_binary"));
     assert!(!component.contains("Component::new"));
     assert!(!component.contains("deserialize"));
+    let execute = fs::read_to_string(root.join("execute.rs")).expect("execute source");
+    let lifecycle_start = execute
+        .find("pub async fn on_event")
+        .expect("lifecycle method");
+    let lifecycle_end = execute[lifecycle_start..]
+        .find("async fn instantiate")
+        .map(|offset| lifecycle_start + offset)
+        .expect("lifecycle method end");
+    assert!(!execute[lifecycle_start..lifecycle_end].contains("activate()"));
 }
 
 fn compile_behavior(runtime: &PluginRuntime, behavior: ComponentBehavior) -> CompiledPlugin {
@@ -203,8 +277,34 @@ fn compile_behavior(runtime: &PluginRuntime, behavior: ComponentBehavior) -> Com
 fn execution_inputs(compiled: &CompiledPlugin) -> (CapabilitySession, types::OperationRequest) {
     let (deadline_unix_ms, deadline) = invocation_deadline(Duration::from_secs(30));
     (
-        session(types::Trigger::ManualApi, 0, deadline_unix_ms, deadline),
+        session(
+            types::Trigger::ManualApi,
+            0,
+            deadline_unix_ms,
+            deadline,
+            Vec::new(),
+        ),
         operation_request(compiled, deadline_unix_ms),
+    )
+}
+
+fn execution_inputs_with_tool(
+    compiled: &CompiledPlugin,
+) -> (CapabilitySession, types::OperationRequest) {
+    let (deadline_unix_ms, deadline) = invocation_deadline(Duration::from_secs(30));
+    let binding = tool_binding();
+    let mut request = operation_request(compiled, deadline_unix_ms);
+    request.tool_bindings = vec![binding.to_wit()];
+    request.budget.remaining_mcp_calls = 1;
+    (
+        session(
+            types::Trigger::ManualApi,
+            1,
+            deadline_unix_ms,
+            deadline,
+            vec![binding],
+        ),
+        request,
     )
 }
 
@@ -215,6 +315,7 @@ fn lifecycle_session() -> CapabilitySession {
         0,
         deadline_unix_ms,
         deadline,
+        Vec::new(),
     )
 }
 
@@ -223,6 +324,7 @@ fn session(
     remaining_mcp_calls: u32,
     deadline_unix_ms: u64,
     deadline: Instant,
+    tool_bindings: Vec<CapabilityToolBinding>,
 ) -> CapabilitySession {
     CapabilitySession::new(
         CapabilitySessionConfig {
@@ -236,7 +338,7 @@ fn session(
                 remaining_depth: 2,
             },
             provider_binding_id: PROVIDER_BINDING_ID.to_owned(),
-            tool_binding_ids: Vec::new(),
+            tool_bindings,
             remaining_provider_requests: 3,
             remaining_mcp_calls,
             remaining_input_tokens: 8_192,
@@ -249,6 +351,39 @@ fn session(
         Arc::new(DenyMcpBroker),
     )
     .expect("sandbox session should construct")
+}
+
+fn tool_binding() -> CapabilityToolBinding {
+    let input_schema_json = r#"{"additionalProperties":false,"properties":{"query":{"type":"string"}},"type":"object"}"#.to_owned();
+    let input_schema_digest = {
+        let mut hasher = blake3::Hasher::new_derive_key("raindrop.mcp-tool-input-schema.v1");
+        hasher.update(&(input_schema_json.len() as u64).to_be_bytes());
+        hasher.update(input_schema_json.as_bytes());
+        hasher.finalize().to_hex().to_string()
+    };
+    CapabilityToolBinding::new(CapabilityToolBindingInput {
+        binding_id: "tool-binding-1".to_owned(),
+        connection_id: "00000000-0000-4000-8000-000000000001".to_owned(),
+        tool_name: "search.read".to_owned(),
+        display_label: "Search".to_owned(),
+        description: "Untrusted search tool description".to_owned(),
+        input_schema_json,
+        input_schema_digest,
+    })
+    .expect("sandbox tool binding")
+}
+
+async fn assert_tool_drift(
+    runtime: &PluginRuntime,
+    compiled: &CompiledPlugin,
+    mutate: fn(&mut types::ToolBinding),
+) {
+    let (session, mut request) = execution_inputs_with_tool(compiled);
+    mutate(&mut request.tool_bindings[0]);
+    assert_error(
+        runtime.execute(compiled, session, request).await,
+        PluginRuntimeErrorKind::InvalidInvocation,
+    );
 }
 
 fn operation_request(compiled: &CompiledPlugin, deadline_unix_ms: u64) -> types::OperationRequest {
@@ -315,6 +450,19 @@ fn lifecycle_event() -> types::LifecycleEvent {
             subject: "user-1".to_owned(),
         },
         context_json: r#"{"commitGeneration":42,"droppedCount":0,"feedId":"00000000-0000-4000-8000-000000030001","newCount":1,"newEntries":[{"contentHash":"b3788c7661d79a104f4dfa15f2c284f5f7ee35f9b3dfbd520c4e1ef3d068cf65","entryId":"00000000-0000-4000-8000-000000040001"}],"updatedCount":0,"updatedEntries":[]}"#.to_owned(),
+    }
+}
+
+fn lifecycle_request(compiled: &CompiledPlugin) -> types::LifecycleRequest {
+    let config = ai_config();
+    types::LifecycleRequest {
+        invocation_id: "invocation-1".to_owned(),
+        plugin_key: compiled.plugin_key().to_owned(),
+        plugin_version: compiled.version().to_owned(),
+        component_digest: compiled.component_digest().to_owned(),
+        config_json: config.canonical_json().to_owned(),
+        config_hash: config.config_hash().to_owned(),
+        event: lifecycle_event(),
     }
 }
 

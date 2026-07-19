@@ -102,7 +102,7 @@ Each Store contains:
 
 The linker is newly created per invocation and receives only generated `host-ai` and `host-mcp` bindings. Any additional import causes link failure. No ambient import is stubbed or silently ignored.
 
-The capability session is suspended during instantiation and `descriptor`. Host AI and MCP imports return capability denial until the descriptor exactly matches the verified bundle. The runtime activates the session only before `execute` or `on-event`, so an unverified descriptor cannot spend provider or MCP budget.
+The capability session is suspended during instantiation and `descriptor`. Host AI and MCP imports return capability denial until the descriptor exactly matches the verified bundle. The runtime activates the session only before `execute`. Lifecycle `on-event` stays suspended for the full invocation because it may only return declarative job intents.
 
 ## 7. Pure guest CPU deadline
 
@@ -152,10 +152,10 @@ The descriptor phase cannot call a capability broker. This is enforced in host s
 - verified plugin key/version/digest equal the compiled component;
 - operation/target locale/artifact schema consistency;
 - config JSON is canonical and its hash matches;
-- provider/tool binding IDs and call-chain/depth/budget values are bounded;
+- provider binding ID, complete host-issued tool descriptors, and call-chain/depth/budget values are bounded;
 - invocation deadline does not exceed the enclosing job attempt deadline.
 
-`on-event` accepts the already validated `LifecycleEvent` contract and gets lifecycle fuel, not execute fuel.
+`on-event` accepts a `LifecycleRequest` containing verified component identity, canonical per-user config snapshot/hash, and the validated `LifecycleEvent`; it gets lifecycle fuel, not execute fuel, and never activates AI/MCP capability imports.
 
 The host validates returned artifact/event JSON and size. It returns data only; it never writes the artifact or enqueues jobs in this slice.
 
@@ -182,7 +182,7 @@ The broker returns validated object JSON, normalized finish reason, optional usa
 
 ### 10.2 MCP
 
-The session requires an exact host-issued tool binding ID, remaining depth, trigger-specific call count, canonical object arguments at most 64 KiB, and timeout at most 15 seconds. `FEED_REFRESH_PERSISTED` permits at most 2 calls; `MANUAL_API`, `READER_SIDECAR`, and `MCP_SERVER` permit at most 4. Results are canonical JSON at most 256 KiB.
+The session owns each complete host-issued tool descriptor: binding ID, canonical connection UUID, exact tool name, bounded label, untrusted description, canonical input schema, and schema digest. The operation request must match those descriptors exactly. A call then requires the exact binding ID, remaining depth, trigger-specific call count, canonical object arguments at most 64 KiB, and timeout at most 15 seconds. `FEED_REFRESH_PERSISTED` execute invocations permit at most 2 calls; `MANUAL_API`, `READER_SIDECAR`, and `MCP_SERVER` permit at most 4. Lifecycle callbacks remain capability-suspended. Results are canonical JSON at most 256 KiB.
 
 The default runtime is constructed with `DenyMcpBroker`; real MCP remains impossible until an explicit later broker is injected.
 

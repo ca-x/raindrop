@@ -186,7 +186,7 @@ guest export 只有三个稳定入口：
 ```text
 content-plugin.descriptor() -> plugin-descriptor
 content-plugin.execute(operation-request) -> result<artifact-candidate, plugin-error>
-content-plugin.on-event(lifecycle-event) -> result<event-outcome, plugin-error>
+content-plugin.on-event(lifecycle-request) -> result<event-outcome, plugin-error>
 ```
 
 `descriptor` 必须与 signed manifest 的 key/version/operations/hooks 一致，否则 host 拒绝实例化。guest 不导出网络、CLI 或数据库入口。
@@ -202,7 +202,7 @@ host 构造且 guest 不得选择的上下文：
 - `entryRef`、`contentHash`、sanitized title/text、canonical URL 的无 credential 形式、source locale；
 - operation-specific config snapshot 和 `configHash`；
 - host-issued provider binding；
-- 当前 invocation 可见的 MCP tool bindings；
+- 当前 invocation 可见的 MCP tool bindings；每个 binding 只含 host-issued ID、配置中的 connection/tool identity、非秘密 label、按不可信数据处理的 description、canonical input schema 与 schema digest，不含 credential/endpoint/transport；
 - `callChainId`、`remainingDepth`、deadline 和各项剩余预算。
 
 组件可返回的 `artifact-candidate` 只含 schema ID、locale、canonical JSON payload 和非敏感 provenance hints。host 在落库前重新做 schema、大小、URL/Markdown 安全和 user/job/input hash 校验。
