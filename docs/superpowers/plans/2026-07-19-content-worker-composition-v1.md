@@ -152,7 +152,7 @@
 - [x] Perform one bounded DDIA/contract/security review and fix only confirmed findings.
 - [x] Run source confinement, real secret pattern scan, and `git diff --check`.
 - [x] Stage exact files and inspect the staged diff.
-- [ ] Commit and push `main`, then monitor the corresponding GitHub Actions run.
+- [x] Commit and push `main`, then monitor the corresponding GitHub Actions run.
 
 ## Self-review
 

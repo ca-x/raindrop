@@ -4,7 +4,7 @@
 
 当前详细计划：`docs/superpowers/plans/2026-07-19-content-worker-composition-v1.md`。
 
-当前进展：Refresh Observability v1 已由 CI run `29646491921` 验证，AI Provider Adapters v1 已由 CI run `29648253330` 验证，AI Provider Core v1 已由 CI run `29652502840` 验证，Content Jobs / Artifacts Core v1 已由 CI run `29655164960` 验证，Official AI Plugin Contract / Registry Core v1 已由 CI run `29657539274` 验证，Wasmtime Component Host Core v1 已由 CI run `29663971184` 验证，ProviderClient Broker Composition v1 已由 CI run `29668410474` 验证，Official AI Component v1 已由 CI run `29671796776` 验证。Content Worker Composition v1 已通过本地 format、Clippy、定向测试、三数据库 contract、全量 Rust 测试，以及前端 typecheck、237 个 Vitest 和桌面/390×844/360×800 生产 E2E；设置向导的 ASTRYX `Card -> Section` 负边距裁切回归也已修复并加入几何守卫。下一依赖是生产签名组件嵌入与启动接线、生命周期 dispatcher、MCP transport、provider/content API 和 Reader AI UI。
+当前进展：Refresh Observability v1 已由 CI run `29646491921` 验证，AI Provider Adapters v1 已由 CI run `29648253330` 验证，AI Provider Core v1 已由 CI run `29652502840` 验证，Content Jobs / Artifacts Core v1 已由 CI run `29655164960` 验证，Official AI Plugin Contract / Registry Core v1 已由 CI run `29657539274` 验证，Wasmtime Component Host Core v1 已由 CI run `29663971184` 验证，ProviderClient Broker Composition v1 已由 CI run `29668410474` 验证，Official AI Component v1 已由 CI run `29671796776` 验证，Content Worker Composition v1 已由 CI run `29676464993` 验证。设置向导的 ASTRYX `Card -> Section` 负边距裁切回归已修复，桌面/390×844/360×800 生产 E2E、几何守卫和本地 `agent-browser` 均已验证。下一依赖是生产签名组件嵌入与启动接线、生命周期 dispatcher、MCP transport、provider/content API 和 Reader AI UI。
 
 ## 依赖顺序
 
