@@ -176,7 +176,7 @@ chmod 700 data
 
 每个归档包含 Raindrop 可执行文件、`README.md`、`LICENSE` 和 `.env.example`。GitHub Release 额外提供排序后的 `SHA256SUMS`。手工运行 binary workflow 只保留 GitHub Actions artifacts，不创建 GitHub Release。
 
-Docker workflow 为 `linux/amd64` 和 `linux/arm64` 发布 GHCR 镜像，并附带 provenance 与 SBOM。配置 `DOCKERHUB_USERNAME` 和 `DOCKERHUB_TOKEN` 后，同一组标签也会发布到 `czyt/raindrop`。tag 发布包含原始 `v*`、完整 semver、`major.minor`、`latest` 和 `sha-<commit>` 标签；手工 workflow 不会产生 `latest`。
+Docker workflow 为 `linux/amd64` 和 `linux/arm64` 发布 GHCR 镜像，并附带 provenance 与 SBOM。配置 `DOCKERHUB_USERNAME` 和 `DOCKERHUB_TOKEN` 后，同一组标签也会发布到 `czyt/raindrop`。tag 发布包含原始 `v*`、完整 semver、`major.minor`、`latest` 和 `sha-<commit>` 标签。手工补发必须提供已经存在且与 `Cargo.toml` 版本一致的 `release_tag`，workflow 会从该 tag 的提交重新生成同一组标签。
 
 ## 测试
 

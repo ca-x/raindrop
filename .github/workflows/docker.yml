@@ -5,6 +5,11 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing v* tag to rebuild and publish
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -15,22 +20,36 @@ defaults:
     shell: bash
 
 concurrency:
-  group: docker-${{ github.ref }}
+  group: docker-${{ inputs.release_tag || github.ref }}
   cancel-in-progress: false
 
 jobs:
   docker:
     name: Build and push Raindrop image
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 120
     env:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+      RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
     steps:
       - name: Check out source
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           persist-credentials: false
+          ref: ${{ inputs.release_tag || github.ref }}
+
+      - name: Verify release source
+        id: source
+        run: |
+          set -euo pipefail
+          package_version="$(sed -n '/^\[package\]/,/^\[/ s/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
+          test -n "$package_version"
+          test "$RELEASE_TAG" = "v${package_version}"
+          source_sha="$(git rev-parse HEAD)"
+          test "$(git rev-list -n 1 "$RELEASE_TAG")" = "$source_sha"
+          printf 'sha=%s\n' "$source_sha" >> "$GITHUB_OUTPUT"
+          printf 'short_sha=%s\n' "${source_sha:0:7}" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
@@ -70,10 +89,12 @@ jobs:
           images: ${{ steps.images.outputs.images }}
           tags: |
             type=ref,event=tag
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
-            type=sha,prefix=sha-
+            type=raw,value=${{ env.RELEASE_TAG }},enable=${{ github.event_name == 'workflow_dispatch' }}
+            type=semver,pattern={{version}},value=${{ env.RELEASE_TAG }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ env.RELEASE_TAG }}
+            type=raw,value=latest
+            type=sha,prefix=sha-,enable=${{ github.event_name == 'push' }}
+            type=raw,value=sha-${{ steps.source.outputs.short_sha }},enable=${{ github.event_name == 'workflow_dispatch' }}
 
       - name: Compute build metadata
         id: buildmeta
@@ -87,11 +108,15 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          labels: |
+            ${{ steps.meta.outputs.labels }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ env.RELEASE_TAG }}
+            org.opencontainers.image.revision=${{ steps.source.outputs.sha }}
           build-args: |
-            VERSION=${{ github.ref_name }}
+            VERSION=${{ env.RELEASE_TAG }}
             BUILD_TIME=${{ steps.buildmeta.outputs.build_time }}
-            GIT_COMMIT=${{ github.sha }}
+            GIT_COMMIT=${{ steps.source.outputs.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: true
