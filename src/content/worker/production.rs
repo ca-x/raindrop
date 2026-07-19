@@ -1,6 +1,5 @@
 use std::{sync::Arc, time::Duration};
 
-use secrecy::SecretString;
 use tokio::sync::{Notify, watch};
 
 use crate::{
@@ -26,7 +25,7 @@ use super::{
 
 pub struct ProductionContentRuntime {
     setup: SetupService,
-    provider_keyring: Option<ProviderSecretKeyring>,
+    provider_keyring: Option<Arc<ProviderSecretKeyring>>,
     bundle: EmbeddedOfficialAiPlugin,
     plugin_runtime: PluginRuntime,
     compiled: Arc<CompiledPlugin>,
@@ -37,16 +36,8 @@ pub struct ProductionContentRuntime {
 impl ProductionContentRuntime {
     pub fn new(
         setup: SetupService,
-        provider_secret_keys: Vec<SecretString>,
+        provider_keyring: Option<Arc<ProviderSecretKeyring>>,
     ) -> Result<(Self, ContentRuntimeHandle), ContentWorkerError> {
-        let provider_keyring = if provider_secret_keys.is_empty() {
-            None
-        } else {
-            Some(
-                ProviderSecretKeyring::from_entries(&provider_secret_keys)
-                    .map_err(|_| invalid_configuration())?,
-            )
-        };
         let plugin_runtime = PluginRuntime::new()
             .map_err(|_| ContentWorkerError::new(ContentWorkerErrorKind::RuntimeUnavailable))?;
         let bundle = EmbeddedOfficialAiPlugin::load().map_err(|_| invalid_configuration())?;
@@ -127,7 +118,8 @@ impl ProductionContentRuntime {
             }
             return Ok(());
         };
-        let provider_repository = Arc::new(ProviderRepository::new(database.clone(), keyring));
+        let provider_repository =
+            Arc::new(ProviderRepository::new(database.clone(), Some(keyring)));
         let transport = HttpsProviderTransport::new().map_err(|_| runtime_unavailable())?;
         let client = Arc::new(ProviderClient::new(transport));
         let ai_broker: Arc<dyn AiCapabilityBroker> = Arc::new(ProviderAiBroker::new(

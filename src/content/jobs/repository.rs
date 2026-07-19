@@ -139,6 +139,37 @@ impl ContentRepository {
         job_snapshot(stored)
     }
 
+    pub async fn find_latest_job_by_identity(
+        &self,
+        user_id: &str,
+        identity: &ArtifactIdentity,
+    ) -> Result<Option<JobSnapshot>, ContentRepositoryError> {
+        validate_lookup_id(user_id)?;
+        if user_id != identity.user_id() {
+            return Err(ContentRepositoryError::new(
+                ContentRepositoryErrorKind::InvalidInput,
+            ));
+        }
+        let Some(stored) = content_job::Entity::find()
+            .filter(content_job::Column::UserId.eq(user_id))
+            .filter(content_job::Column::ArtifactIdentityHash.eq(identity.hash()))
+            .order_by_desc(content_job::Column::CreatedAt)
+            .order_by_desc(content_job::Column::Id)
+            .one(&self.database)
+            .await
+            .map_err(sql::database_error)?
+        else {
+            return Ok(None);
+        };
+        let snapshot = job_snapshot(stored)?;
+        if snapshot.identity() != identity {
+            return Err(ContentRepositoryError::new(
+                ContentRepositoryErrorKind::HashCollision,
+            ));
+        }
+        Ok(Some(snapshot))
+    }
+
     pub async fn claim_next(
         &self,
         request: super::model::ClaimContentJob,
@@ -223,34 +254,31 @@ impl ContentRepository {
         &self,
         claim: &ContentJobClaim,
     ) -> Result<ContentExecutionEntry, ContentRepositoryError> {
-        let backend = self.database.get_database_backend();
-        let stored =
-            sql::execution_entry(&self.database, backend, claim.user_id(), claim.entry_id())
-                .await?
-                .ok_or_else(not_found)?;
-        if stored.entry_id != claim.entry_id()
-            || stored.content_hash != claim.identity().entry_content_hash()
+        let entry = self
+            .get_execution_entry_for_user(claim.user_id(), claim.entry_id())
+            .await?;
+        if entry.entry_id() != claim.entry_id()
+            || entry.content_hash() != claim.identity().entry_content_hash()
         {
             return Err(ContentRepositoryError::new(
                 ContentRepositoryErrorKind::EntryChanged,
             ));
         }
-        let detail = EntryContentDetail::decode(&stored.sanitized_content)
-            .map_err(|_| ContentRepositoryError::new(ContentRepositoryErrorKind::CorruptData))?;
-        let text = extract_rendered_text(detail.html()).trim().to_owned();
-        if text.len() > 512 * 1024 {
-            return Err(ContentRepositoryError::new(
-                ContentRepositoryErrorKind::ExecutionInputTooLarge,
-            ));
-        }
-        Ok(ContentExecutionEntry {
-            entry_id: stored.entry_id,
-            feed_id: stored.feed_id,
-            content_hash: stored.content_hash,
-            title: stored.title,
-            text,
-            canonical_url: stored.canonical_url,
-        })
+        Ok(entry)
+    }
+
+    pub async fn get_execution_entry_for_user(
+        &self,
+        user_id: &str,
+        entry_id: &str,
+    ) -> Result<ContentExecutionEntry, ContentRepositoryError> {
+        validate_lookup_id(user_id)?;
+        validate_lookup_id(entry_id)?;
+        let backend = self.database.get_database_backend();
+        let stored = sql::execution_entry(&self.database, backend, user_id, entry_id)
+            .await?
+            .ok_or_else(not_found)?;
+        decode_execution_entry(stored)
     }
 
     pub async fn complete_failure(
@@ -1092,6 +1120,27 @@ fn artifact_matching(
         payload_json: model.payload_json,
         provenance_json: model.provenance_json,
         created_at: model.created_at,
+    })
+}
+
+fn decode_execution_entry(
+    stored: sql::ExecutionEntryRow,
+) -> Result<ContentExecutionEntry, ContentRepositoryError> {
+    let detail = EntryContentDetail::decode(&stored.sanitized_content)
+        .map_err(|_| ContentRepositoryError::new(ContentRepositoryErrorKind::CorruptData))?;
+    let text = extract_rendered_text(detail.html()).trim().to_owned();
+    if text.len() > 512 * 1024 {
+        return Err(ContentRepositoryError::new(
+            ContentRepositoryErrorKind::ExecutionInputTooLarge,
+        ));
+    }
+    Ok(ContentExecutionEntry {
+        entry_id: stored.entry_id,
+        feed_id: stored.feed_id,
+        content_hash: stored.content_hash,
+        title: stored.title,
+        text,
+        canonical_url: stored.canonical_url,
     })
 }
 

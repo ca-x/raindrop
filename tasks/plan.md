@@ -2,9 +2,9 @@
 
 权威设计规格：`docs/superpowers/specs/2026-07-16-raindrop-design.md`。
 
-当前详细计划：`docs/superpowers/plans/2026-07-19-production-ai-bundle-runtime-v1.md`。
+当前详细计划：`docs/superpowers/plans/2026-07-19-ai-reader-api-sidecar-v1.md`。
 
-当前进展：Refresh Observability v1 已由 CI run `29646491921` 验证，AI Provider Adapters v1 已由 CI run `29648253330` 验证，AI Provider Core v1 已由 CI run `29652502840` 验证，Content Jobs / Artifacts Core v1 已由 CI run `29655164960` 验证，Official AI Plugin Contract / Registry Core v1 已由 CI run `29657539274` 验证，Wasmtime Component Host Core v1 已由 CI run `29663971184` 验证，ProviderClient Broker Composition v1 已由 CI run `29668410474` 验证，Official AI Component v1 已由 CI run `29671796776` 验证，Content Worker Composition v1 已由 CI run `29676464993` 验证，Production Bundle / Runtime v1 已由 CI run `29681436183` 验证。下一依赖是 provider/content 管理 API 与 Reader AI sidecar；生命周期 dispatcher、MCP transport 和插件管理 UI 仍是后续工作。
+当前进展：Refresh Observability v1 已由 CI run `29646491921` 验证，AI Provider Adapters v1 已由 CI run `29648253330` 验证，AI Provider Core v1 已由 CI run `29652502840` 验证，Content Jobs / Artifacts Core v1 已由 CI run `29655164960` 验证，Official AI Plugin Contract / Registry Core v1 已由 CI run `29657539274` 验证，Wasmtime Component Host Core v1 已由 CI run `29663971184` 验证，ProviderClient Broker Composition v1 已由 CI run `29668410474` 验证，Official AI Component v1 已由 CI run `29671796776` 验证，Content Worker Composition v1 已由 CI run `29676464993` 验证，Production Bundle / Runtime v1 已由 CI run `29681436183` 验证，设置向导响应式修复已由 CI run `29683201079` 验证。当前执行 AI Reader API / Sidecar v1；生命周期 dispatcher、MCP transport 和插件管理 UI 仍是后续工作。
 
 ## 依赖顺序
 

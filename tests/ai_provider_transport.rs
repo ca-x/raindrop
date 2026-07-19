@@ -591,7 +591,7 @@ async fn repository_fixture() -> (TempDir, DatabaseConnection, ProviderRepositor
     let database = connect_for_contract(SecretString::from(database_url)).await;
     migrate(&database).await.expect("database should migrate");
     insert_user(&database, USER_A_ID, "provider-client-user").await;
-    let repository = ProviderRepository::new(database.clone(), provider_keyring());
+    let repository = ProviderRepository::new(database.clone(), Some(Arc::new(provider_keyring())));
     (data, database, repository)
 }
 

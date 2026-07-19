@@ -12,7 +12,7 @@ pub(crate) mod tool_plan;
 
 pub use artifact::{SummaryArtifact, TranslationArtifact};
 pub use bundled::{EmbeddedOfficialAiPlugin, EmbeddedSignatureMode};
-pub use config::AiContentConfig;
+pub use config::{AiContentConfig, AiSummaryStyle};
 pub use error::{PluginRegistryError, PluginRegistryErrorKind};
 pub use lifecycle::{LifecycleEvent, LifecycleEventKind};
 pub use manifest::{BundledOfficialPlugin, OfficialSigningKey};

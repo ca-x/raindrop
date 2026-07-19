@@ -1,7 +1,7 @@
 #[allow(dead_code)]
 mod support;
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use raindrop::{
@@ -37,7 +37,7 @@ async fn setup_required_runtime_shuts_down_without_starting_work() {
         None,
     );
     let (runtime, handle) =
-        ProductionContentRuntime::new(setup, Vec::new()).expect("production runtime composition");
+        ProductionContentRuntime::new(setup, None).expect("production runtime composition");
 
     let task = tokio::spawn(runtime.run());
     handle.shutdown();
@@ -54,8 +54,8 @@ async fn setup_completion_synchronizes_official_installation_without_restart() {
     let data = tempfile::tempdir().expect("temporary production runtime directory");
     let token = "rd_setup_content_transition";
     let setup = SetupService::required(data.path().join("state"), SecretString::from(token), None);
-    let (runtime, handle) = ProductionContentRuntime::new(setup.clone(), Vec::new())
-        .expect("production runtime composition");
+    let (runtime, handle) =
+        ProductionContentRuntime::new(setup.clone(), None).expect("production runtime composition");
     let task = tokio::spawn(runtime.run());
 
     let database_url = format!(
@@ -111,8 +111,11 @@ async fn valid_keyring_starts_and_stops_production_lanes() {
     let fixture = ProductionFixture::new("valid-keyring").await;
     let job_id = fixture.enqueue("valid-keyring").await;
     let key = SecretString::from(format!("primary:{}", URL_SAFE_NO_PAD.encode([0x41_u8; 32])));
-    let (runtime, handle) = ProductionContentRuntime::new(fixture.setup.clone(), vec![key])
-        .expect("production runtime composition");
+    let keyring = raindrop::content::provider::ProviderSecretKeyring::from_entries(&[key])
+        .expect("production provider keyring");
+    let (runtime, handle) =
+        ProductionContentRuntime::new(fixture.setup.clone(), Some(Arc::new(keyring)))
+            .expect("production runtime composition");
     let task = tokio::spawn(runtime.run());
     handle.notify();
 
@@ -132,7 +135,7 @@ async fn valid_keyring_starts_and_stops_production_lanes() {
 async fn empty_keyring_synchronizes_installation_without_claiming_jobs() {
     let fixture = ProductionFixture::new("empty-keyring").await;
     let job_id = fixture.enqueue("empty-keyring").await;
-    let (runtime, handle) = ProductionContentRuntime::new(fixture.setup.clone(), Vec::new())
+    let (runtime, handle) = ProductionContentRuntime::new(fixture.setup.clone(), None)
         .expect("production runtime composition");
     let task = tokio::spawn(runtime.run());
     handle.notify();
@@ -189,7 +192,7 @@ async fn corrupt_installation_fails_closed_with_redacted_configuration_error() {
     .await
     .expect("corrupt installation fixture should insert");
 
-    let (runtime, _) = ProductionContentRuntime::new(fixture.setup, Vec::new())
+    let (runtime, _) = ProductionContentRuntime::new(fixture.setup, None)
         .expect("embedded production runtime should compose before database synchronization");
     let error = tokio::time::timeout(Duration::from_secs(2), runtime.run())
         .await

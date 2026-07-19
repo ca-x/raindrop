@@ -2,6 +2,7 @@ use std::{
     error::Error,
     future::{Future, IntoFuture},
     path::PathBuf,
+    sync::Arc,
 };
 
 use anyhow::{Context, Result, anyhow};
@@ -10,6 +11,7 @@ use raindrop::{
     auth::{CreateAdminInput, PasswordService, create_admin},
     background::BackgroundRuntime,
     config::{BootstrapMode, ConfigArgs, SystemEnv, load, new_setup_token},
+    content::provider::ProviderSecretKeyring,
     db::{DatabaseConfig, connect, migrate},
     setup::SetupService,
 };
@@ -42,6 +44,15 @@ async fn main() -> Result<()> {
     )
     .context("failed to load Raindrop configuration")?;
     let provider_secret_keys = loaded.runtime.take_provider_secret_keys();
+    let provider_keyring = if provider_secret_keys.is_empty() {
+        None
+    } else {
+        Some(Arc::new(
+            ProviderSecretKeyring::from_entries(&provider_secret_keys)
+                .context("failed to initialize the configured provider secret keyring")?,
+        ))
+    };
+    drop(provider_secret_keys);
     let address = loaded.runtime.bind;
     let data_dir = loaded.runtime.data_dir.clone();
     let public_url = loaded.runtime.public_url.clone();
@@ -106,7 +117,7 @@ async fn main() -> Result<()> {
         .await
         .with_context(|| format!("failed to bind Raindrop to {address}"))?;
     let (background_runtime, background_handle) =
-        BackgroundRuntime::production(setup.clone(), feed_retention, provider_secret_keys)
+        BackgroundRuntime::production(setup.clone(), feed_retention, provider_keyring.clone())
             .context("failed to compose Raindrop background runtime")?;
     let background_runtime_task = tokio::spawn(background_runtime.run());
 
@@ -114,10 +125,11 @@ async fn main() -> Result<()> {
     let (server_shutdown_tx, server_shutdown_rx) = oneshot::channel();
     let server = axum::serve(
         listener,
-        build_router(AppState::with_runtimes(
+        build_router(AppState::with_runtime_services(
             setup,
             background_handle.feed(),
             background_handle.content(),
+            provider_keyring,
         ))
         .into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
@@ -357,7 +369,7 @@ mod tests {
         let data = tempfile::tempdir().expect("temporary directory should be created");
         let setup = SetupService::required(data.path(), SecretString::from("setup-token"), None);
         let (runtime, handle) =
-            BackgroundRuntime::production(setup, FeedRetentionConfig::default(), Vec::new())
+            BackgroundRuntime::production(setup, FeedRetentionConfig::default(), None)
                 .expect("production background runtime should compose");
 
         handle.shutdown();

@@ -446,7 +446,10 @@ impl Fixture {
 
         let key = SecretString::from(format!("primary:{}", URL_SAFE_NO_PAD.encode([0x41_u8; 32])));
         let keyring = ProviderSecretKeyring::from_entries(&[key]).expect("provider keyring");
-        let provider_repository = Arc::new(ProviderRepository::new(database.clone(), keyring));
+        let provider_repository = Arc::new(ProviderRepository::new(
+            database.clone(),
+            Some(Arc::new(keyring)),
+        ));
         let provider = provider_repository
             .create(CreateProvider {
                 scope: ProviderScope::Instance,

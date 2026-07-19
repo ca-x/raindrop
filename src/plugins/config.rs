@@ -57,6 +57,11 @@ impl AiContentConfig {
     }
 
     #[must_use]
+    pub const fn summarize_style(&self) -> AiSummaryStyle {
+        self.document.operations.summarize.style
+    }
+
+    #[must_use]
     pub const fn summarize_max_output_tokens(&self) -> u32 {
         self.document.operations.summarize.max_output_tokens
     }
@@ -139,7 +144,7 @@ struct Operations {
 struct SummarizeConfig {
     enabled: bool,
     provider_id: String,
-    style: SummaryStyle,
+    style: AiSummaryStyle,
     max_output_tokens: u32,
     mcp: McpConfig,
 }
@@ -156,7 +161,7 @@ impl SummarizeConfig {
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum SummaryStyle {
+pub enum AiSummaryStyle {
     Concise,
     Balanced,
     Detailed,
@@ -331,4 +336,94 @@ fn invalid<T>() -> Result<T, PluginRegistryError> {
     Err(PluginRegistryError::new(
         PluginRegistryErrorKind::InvalidConfig,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    const SUMMARY_PROVIDER_ID: &str = "00000000-0000-4000-8000-000000000901";
+    const TRANSLATION_PROVIDER_ID: &str = "00000000-0000-4000-8000-000000000902";
+
+    #[test]
+    fn public_ai_config_view_is_typed_and_round_trips_canonically() {
+        let config = AiContentConfig::parse(&config_json("DETAILED"))
+            .expect("AI content config should parse");
+
+        assert_eq!(config.schema_version(), 1);
+        assert!(config.summarize_enabled());
+        assert_eq!(config.summarize_provider_id(), SUMMARY_PROVIDER_ID);
+        assert_eq!(config.summarize_style(), AiSummaryStyle::Detailed);
+        assert_eq!(config.summarize_max_output_tokens(), 1024);
+        assert!(!config.summarize_mcp_enabled());
+        assert!(config.translate_enabled());
+        assert_eq!(config.translate_provider_id(), TRANSLATION_PROVIDER_ID);
+        assert_eq!(config.default_target_locale(), "zh-CN");
+        assert_eq!(config.translate_max_output_tokens(), 4096);
+        assert!(!config.translate_mcp_enabled());
+
+        let reparsed = AiContentConfig::parse(config.canonical_json().as_bytes())
+            .expect("canonical AI content config should parse");
+        assert_eq!(reparsed, config);
+    }
+
+    #[test]
+    fn public_summary_style_accepts_only_the_three_wire_values() {
+        for (wire, expected) in [
+            ("CONCISE", AiSummaryStyle::Concise),
+            ("BALANCED", AiSummaryStyle::Balanced),
+            ("DETAILED", AiSummaryStyle::Detailed),
+        ] {
+            let config = AiContentConfig::parse(&config_json(wire))
+                .expect("public summary style should parse");
+            assert_eq!(config.summarize_style(), expected);
+        }
+        assert_eq!(
+            AiContentConfig::parse(&config_json("EXPANSIVE"))
+                .expect_err("unknown summary style should fail")
+                .kind(),
+            PluginRegistryErrorKind::InvalidConfig
+        );
+    }
+
+    fn config_json(style: &str) -> Vec<u8> {
+        serde_json::to_vec(&json!({
+            "schemaVersion": 1,
+            "operations": {
+                "summarize": {
+                    "enabled": true,
+                    "providerId": SUMMARY_PROVIDER_ID,
+                    "style": style,
+                    "maxOutputTokens": 1024,
+                    "mcp": {
+                        "mode": "DISABLED",
+                        "failurePolicy": "FAIL_OPEN",
+                        "maxToolCalls": 0,
+                        "tools": []
+                    }
+                },
+                "translate": {
+                    "enabled": true,
+                    "providerId": TRANSLATION_PROVIDER_ID,
+                    "defaultTargetLocale": "zh-CN",
+                    "maxOutputTokens": 4096,
+                    "mcp": {
+                        "mode": "DISABLED",
+                        "failurePolicy": "FAIL_OPEN",
+                        "maxToolCalls": 0,
+                        "tools": []
+                    }
+                }
+            },
+            "automatic": {
+                "enabled": false,
+                "operations": ["SUMMARIZE", "TRANSLATE"],
+                "allSubscribedFeeds": false,
+                "feedIds": [],
+                "categoryIds": []
+            }
+        }))
+        .expect("AI config fixture should serialize")
+    }
 }

@@ -1,0 +1,1096 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Raindrop AI Content API",
+    "version": "1.0.0",
+    "description": "User-scoped official AI content configuration and Reader execution resources. Internal canonical config, artifact payload, and provenance JSON are never public."
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
+  "paths": {
+    "/api/v1/entries/{entryId}/ai": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/EntryId"
+        }
+      ],
+      "get": {
+        "tags": [
+          "AI Content"
+        ],
+        "operationId": "getEntryAiOverview",
+        "summary": "Get current summary and translation state for one visible Reader entry",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TranslationLocale"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/AiOverview"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/entries/{entryId}/ai/jobs": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/EntryId"
+        }
+      ],
+      "post": {
+        "tags": [
+          "AI Content"
+        ],
+        "operationId": "enqueueEntryAiJob",
+        "summary": "Enqueue or reuse a current summary or translation job",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnqueueAiJobRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/AiJob"
+          },
+          "201": {
+            "$ref": "#/components/responses/CreatedAiJob"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/ai/jobs/{jobId}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/JobId"
+        }
+      ],
+      "get": {
+        "tags": [
+          "AI Content"
+        ],
+        "operationId": "getAiJob",
+        "summary": "Get one current-user AI job",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/AiJob"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/ai/jobs/{jobId}/result": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/JobId"
+        }
+      ],
+      "get": {
+        "tags": [
+          "AI Content"
+        ],
+        "operationId": "getAiJobResult",
+        "summary": "Get the typed artifact for a succeeded current-user AI job",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/AiArtifact"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/ai/jobs/{jobId}/retry": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/JobId"
+        }
+      ],
+      "post": {
+        "tags": [
+          "AI Content"
+        ],
+        "operationId": "retryAiJob",
+        "summary": "Create a new AI job from the current snapshot of a failed job",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetryAiJobRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/AiJob"
+          },
+          "201": {
+            "$ref": "#/components/responses/CreatedAiJob"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/ai/config": {
+      "get": {
+        "tags": [
+          "AI Content"
+        ],
+        "operationId": "getAiContentConfig",
+        "summary": "Get the current user's official AI content configuration",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/AiConfig"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "AI Content"
+        ],
+        "operationId": "putAiContentConfig",
+        "summary": "Create or completely replace the current user's official AI content configuration",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutAiConfigRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/AiConfig"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "AI Content"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "sessionCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "raindrop_session"
+      }
+    },
+    "parameters": {
+      "CsrfToken": {
+        "name": "x-csrf-token",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "EntryId": {
+        "name": "entryId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "JobId": {
+        "name": "jobId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "TranslationLocale": {
+        "name": "translationLocale",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 64
+        }
+      }
+    },
+    "headers": {
+      "CacheControl": {
+        "description": "AI content responses are never stored.",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "no-store"
+          ]
+        }
+      },
+      "Pragma": {
+        "description": "Compatibility cache directive.",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "no-cache"
+          ]
+        }
+      },
+      "RetryAfter": {
+        "description": "Seconds until the AI content mutation may be retried.",
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "Location": {
+        "description": "Canonical URL of the AI job.",
+        "schema": {
+          "type": "string",
+          "pattern": "^/api/v1/ai/jobs/[0-9a-f-]{36}$"
+        }
+      }
+    },
+    "schemas": {
+      "PluginState": {
+        "type": "string",
+        "enum": [
+          "READY",
+          "UNAVAILABLE",
+          "DISABLED",
+          "QUARANTINED"
+        ]
+      },
+      "McpState": {
+        "type": "string",
+        "enum": [
+          "CONTRACT_READY_TRANSPORT_UNAVAILABLE"
+        ]
+      },
+      "AiSummaryStyle": {
+        "type": "string",
+        "enum": [
+          "CONCISE",
+          "BALANCED",
+          "DETAILED"
+        ]
+      },
+      "AiSummaryConfig": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "enabled",
+          "providerId",
+          "style",
+          "maxOutputTokens"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "providerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "style": {
+            "$ref": "#/components/schemas/AiSummaryStyle"
+          },
+          "maxOutputTokens": {
+            "type": "integer",
+            "minimum": 128,
+            "maximum": 4096
+          }
+        }
+      },
+      "AiTranslationConfig": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "enabled",
+          "providerId",
+          "defaultTargetLocale",
+          "maxOutputTokens"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "providerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "defaultTargetLocale": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 64
+          },
+          "maxOutputTokens": {
+            "type": "integer",
+            "minimum": 256,
+            "maximum": 16384
+          }
+        }
+      },
+      "AiConfig": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "revision",
+          "isEnabled",
+          "summary",
+          "translation"
+        ],
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "isEnabled": {
+            "type": "boolean"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/AiSummaryConfig"
+          },
+          "translation": {
+            "$ref": "#/components/schemas/AiTranslationConfig"
+          }
+        }
+      },
+      "AiConfigEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "pluginState",
+          "mcpState",
+          "config"
+        ],
+        "properties": {
+          "pluginState": {
+            "$ref": "#/components/schemas/PluginState"
+          },
+          "mcpState": {
+            "$ref": "#/components/schemas/McpState"
+          },
+          "config": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AiConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "PutAiConfigRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expectedRevision",
+          "isEnabled",
+          "summary",
+          "translation"
+        ],
+        "properties": {
+          "expectedRevision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "isEnabled": {
+            "type": "boolean",
+            "description": "Must equal summary.enabled OR translation.enabled."
+          },
+          "summary": {
+            "$ref": "#/components/schemas/AiSummaryConfig"
+          },
+          "translation": {
+            "$ref": "#/components/schemas/AiTranslationConfig"
+          }
+        }
+      },
+      "AiAvailability": {
+        "type": "string",
+        "enum": [
+          "READY",
+          "NOT_CONFIGURED",
+          "DISABLED",
+          "PROVIDER_UNAVAILABLE",
+          "PLUGIN_UNAVAILABLE"
+        ]
+      },
+      "AiOperationState": {
+        "type": "string",
+        "enum": [
+          "UNAVAILABLE",
+          "DISABLED",
+          "IDLE",
+          "QUEUED",
+          "RUNNING",
+          "RETRY_WAIT",
+          "SUCCEEDED",
+          "FAILED"
+        ]
+      },
+      "AiJob": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "jobId",
+          "status",
+          "attempts",
+          "maxAttempts",
+          "nextAttemptAt",
+          "lastErrorCode",
+          "createdAt",
+          "startedAt",
+          "completedAt"
+        ],
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "QUEUED",
+              "RUNNING",
+              "RETRY_WAIT",
+              "SUCCEEDED",
+              "FAILED"
+            ]
+          },
+          "attempts": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 3
+          },
+          "maxAttempts": {
+            "type": "integer",
+            "enum": [
+              3
+            ]
+          },
+          "nextAttemptAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lastErrorCode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 64
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "startedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "completedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "AiSummaryArtifact": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "artifactId",
+          "kind",
+          "providerLabel",
+          "createdAt",
+          "sourceLanguage",
+          "summary",
+          "bullets",
+          "conclusion"
+        ],
+        "properties": {
+          "artifactId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "AI_SUMMARY"
+            ]
+          },
+          "providerLabel": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "sourceLanguage": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 64
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 65536
+          },
+          "bullets": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+              "type": "string",
+              "maxLength": 8192
+            }
+          },
+          "conclusion": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 16384
+          }
+        }
+      },
+      "AiTranslationArtifact": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "artifactId",
+          "kind",
+          "providerLabel",
+          "createdAt",
+          "detectedSourceLanguage",
+          "targetLocale",
+          "title",
+          "bodyMarkdown"
+        ],
+        "properties": {
+          "artifactId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "AI_TRANSLATION"
+            ]
+          },
+          "providerLabel": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "detectedSourceLanguage": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 64
+          },
+          "targetLocale": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 64
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 16384
+          },
+          "bodyMarkdown": {
+            "type": "string",
+            "maxLength": 262144
+          }
+        }
+      },
+      "AiArtifact": {
+        "anyOf": [
+          {
+            "$ref": "#/components/schemas/AiSummaryArtifact"
+          },
+          {
+            "$ref": "#/components/schemas/AiTranslationArtifact"
+          }
+        ]
+      },
+      "AiOperationOverview": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operation",
+          "state",
+          "job",
+          "artifact"
+        ],
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": [
+              "SUMMARIZE",
+              "TRANSLATE"
+            ]
+          },
+          "targetLocale": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 64
+          },
+          "state": {
+            "$ref": "#/components/schemas/AiOperationState"
+          },
+          "job": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AiJob"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "artifact": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AiArtifact"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "EntryAiOverview": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "availability",
+          "mcpState",
+          "summary",
+          "translation"
+        ],
+        "properties": {
+          "availability": {
+            "$ref": "#/components/schemas/AiAvailability"
+          },
+          "mcpState": {
+            "$ref": "#/components/schemas/McpState"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/AiOperationOverview"
+          },
+          "translation": {
+            "$ref": "#/components/schemas/AiOperationOverview"
+          }
+        }
+      },
+      "EnqueueAiJobRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operation",
+          "targetLocale",
+          "idempotencyKey"
+        ],
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": [
+              "SUMMARIZE",
+              "TRANSLATE"
+            ]
+          },
+          "targetLocale": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 2,
+            "maxLength": 64
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255,
+            "pattern": "^[!-~]+$"
+          }
+        }
+      },
+      "RetryAiJobRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "idempotencyKey"
+        ],
+        "properties": {
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255,
+            "pattern": "^[!-~]+$"
+          }
+        }
+      },
+      "ApiError": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "message",
+          "requestId"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "fields": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "ApiErrorEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ApiError"
+          }
+        }
+      }
+    },
+    "responses": {
+      "AiConfig": {
+        "description": "Official AI plugin state and the current user's typed configuration.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/CacheControl"
+          },
+          "Pragma": {
+            "$ref": "#/components/headers/Pragma"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/AiConfigEnvelope"
+            }
+          }
+        }
+      },
+      "AiOverview": {
+        "description": "Current official AI summary and translation state for one Reader entry.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/CacheControl"
+          },
+          "Pragma": {
+            "$ref": "#/components/headers/Pragma"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/EntryAiOverview"
+            }
+          }
+        }
+      },
+      "AiJob": {
+        "description": "Safe current-user AI job status.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/CacheControl"
+          },
+          "Pragma": {
+            "$ref": "#/components/headers/Pragma"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/AiJob"
+            }
+          }
+        }
+      },
+      "CreatedAiJob": {
+        "description": "A newly created queued or artifact-reuse AI job.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/CacheControl"
+          },
+          "Pragma": {
+            "$ref": "#/components/headers/Pragma"
+          },
+          "Location": {
+            "$ref": "#/components/headers/Location"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/AiJob"
+            }
+          }
+        }
+      },
+      "AiArtifact": {
+        "description": "Strictly reparsed summary or translation artifact.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/CacheControl"
+          },
+          "Pragma": {
+            "$ref": "#/components/headers/Pragma"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/AiArtifact"
+            }
+          }
+        }
+      },
+      "Error": {
+        "description": "Stable public error envelope.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/CacheControl"
+          },
+          "Pragma": {
+            "$ref": "#/components/headers/Pragma"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiErrorEnvelope"
+            }
+          }
+        }
+      },
+      "RateLimited": {
+        "description": "The per-user AI content mutation budget is exhausted.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/CacheControl"
+          },
+          "Pragma": {
+            "$ref": "#/components/headers/Pragma"
+          },
+          "Retry-After": {
+            "$ref": "#/components/headers/RetryAfter"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiErrorEnvelope"
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,11 +1,13 @@
 use std::{error::Error, fmt, future::Future, pin::Pin, sync::Arc};
 
-use secrecy::SecretString;
 use tokio::{sync::watch, task::JoinError};
 
 use crate::{
     config::FeedRetentionConfig,
-    content::worker::{ContentRuntimeHandle, ContentWorkerError, ProductionContentRuntime},
+    content::{
+        provider::ProviderSecretKeyring,
+        worker::{ContentRuntimeHandle, ContentWorkerError, ProductionContentRuntime},
+    },
     feeds::{
         FeedExecutor, FeedRepository, FeedRetentionPolicy, FeedRuntime, FeedRuntimeHandle,
         FeedServiceError, FeedUrlPolicy, HttpFeedTransport,
@@ -52,7 +54,7 @@ impl BackgroundRuntime {
     pub fn production(
         setup: SetupService,
         retention: FeedRetentionConfig,
-        provider_secret_keys: Vec<SecretString>,
+        provider_keyring: Option<Arc<ProviderSecretKeyring>>,
     ) -> Result<(Self, BackgroundRuntimeHandle), BackgroundRuntimeError> {
         let (feed, feed_handle) = FeedRuntime::new(setup.clone(), |database| {
             let url_policy = FeedUrlPolicy::new(false);
@@ -65,7 +67,7 @@ impl BackgroundRuntime {
             )))
         });
         let feed = feed.with_retention_policy(FeedRetentionPolicy::new(retention.orphan_grace));
-        let (content, content_handle) = ProductionContentRuntime::new(setup, provider_secret_keys)
+        let (content, content_handle) = ProductionContentRuntime::new(setup, provider_keyring)
             .map_err(BackgroundRuntimeError::content)?;
         Ok(Self::from_futures(
             feed.run(),
@@ -347,7 +349,7 @@ mod tests {
             None,
         );
         let (runtime, handle) =
-            BackgroundRuntime::production(setup, FeedRetentionConfig::default(), Vec::new())
+            BackgroundRuntime::production(setup, FeedRetentionConfig::default(), None)
                 .expect("production background composition");
 
         handle.shutdown();

@@ -1,6 +1,8 @@
 #[allow(dead_code)]
 mod support;
 
+use std::sync::Arc;
+
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use raindrop::{
     content::provider::{
@@ -487,7 +489,10 @@ async fn assert_repository_contract(database: &DatabaseConnection) {
     disabled.is_disabled = Set(true);
     disabled.update(database).await.unwrap();
 
-    let repository = ProviderRepository::new(database.clone(), provider_keyring("primary", 31));
+    let repository = ProviderRepository::new(
+        database.clone(),
+        Some(Arc::new(provider_keyring("primary", 31))),
+    );
     let instance = repository
         .create(CreateProvider {
             display_name: "Zulu instance".to_owned(),
@@ -674,6 +679,72 @@ async fn assert_repository_contract(database: &DatabaseConnection) {
         .await
         .expect("replacement credential should decrypt");
 
+    let metadata_only = ProviderRepository::new(database.clone(), None);
+    assert_eq!(
+        metadata_only
+            .get(user_provider.id(), user_provider.scope())
+            .await
+            .expect("metadata-only repository should read providers")
+            .id(),
+        user_provider.id()
+    );
+    assert!(
+        metadata_only
+            .list_for_user(USER_A_ID)
+            .await
+            .expect("metadata-only repository should list providers")
+            .iter()
+            .any(|provider| provider.id() == user_provider.id())
+    );
+    let metadata_updated = metadata_only
+        .update(
+            user_provider.id(),
+            user_provider.scope(),
+            UpdateProvider {
+                expected_revision: rotated.revision(),
+                display_name: Some("Metadata only".to_owned()),
+                ..UpdateProvider::default()
+            },
+        )
+        .await
+        .expect("metadata-only update should preserve encrypted credential");
+    assert_eq!(metadata_updated.revision(), 3);
+    assert_eq!(
+        metadata_only
+            .update(
+                user_provider.id(),
+                user_provider.scope(),
+                UpdateProvider {
+                    expected_revision: metadata_updated.revision(),
+                    credential: Some(SecretString::from("unavailable-rotation")),
+                    ..UpdateProvider::default()
+                },
+            )
+            .await
+            .expect_err("credential rotation should require a keyring")
+            .kind(),
+        ProviderCoreErrorKind::SecretUnavailable
+    );
+    assert_eq!(
+        metadata_only
+            .create(CreateProvider {
+                scope: ProviderScope::user(USER_A_ID).unwrap(),
+                ..valid_create()
+            })
+            .await
+            .expect_err("provider creation should require a keyring")
+            .kind(),
+        ProviderCoreErrorKind::SecretUnavailable
+    );
+    assert_eq!(
+        metadata_only
+            .load_enabled_binding(user_provider.id(), USER_A_ID)
+            .await
+            .expect_err("binding load should require a keyring")
+            .kind(),
+        ProviderCoreErrorKind::SecretUnavailable
+    );
+
     assert_eq!(
         repository
             .update(
@@ -691,8 +762,10 @@ async fn assert_repository_contract(database: &DatabaseConnection) {
         ProviderCoreErrorKind::RevisionConflict
     );
 
-    let unknown_key_repository =
-        ProviderRepository::new(database.clone(), provider_keyring("replacement", 32));
+    let unknown_key_repository = ProviderRepository::new(
+        database.clone(),
+        Some(Arc::new(provider_keyring("replacement", 32))),
+    );
     assert_eq!(
         unknown_key_repository
             .load_enabled_binding(user_provider.id(), USER_A_ID)

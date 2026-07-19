@@ -732,7 +732,7 @@ impl RepositoryFixture {
         let keyring = ProviderSecretKeyring::from_entries(&[key]).expect("provider keyring");
         Self {
             _data: data,
-            repository: Arc::new(ProviderRepository::new(database, keyring)),
+            repository: Arc::new(ProviderRepository::new(database, Some(Arc::new(keyring)))),
         }
     }
 

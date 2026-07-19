@@ -48,6 +48,9 @@
   - [x] Content worker composition：claim/heartbeat、官方 Wasm + provider broker、usage/retry、artifact 原子终态和八 lane runtime。
   - [x] Production bundle/runtime：release/development 签名、二进制嵌入、installation 同步、真实 provider/Wasm ContentRuntime 和启动/关闭接线。
 - [ ] provider 管理 API/UI、content execution API 和重试入口。
+  - [ ] 共享 optional Provider keyring，完成 user-scoped Provider list/create/get/patch 与 OpenAPI。
+  - [ ] 完成官方 AI config GET/PUT、current identity、enqueue/status/result/manual retry API。
+  - [ ] 完成 ASTRYX AI 设置和原文优先的摘要/翻译 Reader sidecar。
 - [ ] AI artifact UI 与 prompt injection 安全测试。
 
 ## 6. Plugin ecosystem

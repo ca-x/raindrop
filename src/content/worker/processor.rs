@@ -29,15 +29,10 @@ use crate::{
 
 use super::{
     ContentInvocationInput, ContentProcessFailure, ContentProcessSuccess, ContentWorkerError,
-    ContentWorkerErrorKind, disabled_mcp_provenance_hash,
+    ContentWorkerErrorKind, OFFICIAL_AI_ABI_VERSION, OFFICIAL_AI_PLUGIN_KEY,
+    disabled_mcp_provenance_hash, official_ai_contract,
 };
 
-const OFFICIAL_PLUGIN_KEY: &str = "raindrop.ai-content";
-const OFFICIAL_ABI: &str = "raindrop:content-plugin@1.0.0";
-const SUMMARY_PROMPT_VERSION: &str = "raindrop-summary-v1";
-const TRANSLATION_PROMPT_VERSION: &str = "raindrop-translation-v1";
-const SUMMARY_SCHEMA_ID: &str = "raindrop://schemas/artifacts/ai-summary/v1";
-const TRANSLATION_SCHEMA_ID: &str = "raindrop://schemas/artifacts/ai-translation/v1";
 const MAX_PROVIDER_REQUESTS: u32 = 2;
 const MAX_COST_MICROS: u64 = 250_000;
 const MAX_ARTIFACT_BYTES: usize = 512 * 1024;
@@ -72,7 +67,9 @@ impl OfficialAiProcessor {
         compiled: Arc<CompiledPlugin>,
         ai_broker: Arc<dyn AiCapabilityBroker>,
     ) -> Result<Self, ContentWorkerError> {
-        if compiled.plugin_key() != OFFICIAL_PLUGIN_KEY || compiled.abi_version() != OFFICIAL_ABI {
+        if compiled.plugin_key() != OFFICIAL_AI_PLUGIN_KEY
+            || compiled.abi_version() != OFFICIAL_AI_ABI_VERSION
+        {
             return Err(ContentWorkerError::new(
                 ContentWorkerErrorKind::InvalidConfiguration,
             ));
@@ -121,7 +118,7 @@ impl OfficialAiProcessor {
             .get_installation(identity.plugin_key())
             .await
             .map_err(|error| map_plugin_repository_error(error.kind()))?;
-        let installation_matches = installation.plugin_key() == OFFICIAL_PLUGIN_KEY
+        let installation_matches = installation.plugin_key() == OFFICIAL_AI_PLUGIN_KEY
             && installation.plugin_key() == self.compiled.plugin_key()
             && installation.version() == identity.plugin_version()
             && installation.version() == self.compiled.version()
@@ -135,7 +132,7 @@ impl OfficialAiProcessor {
 
         let stored_config = self
             .plugin_repository
-            .get_ai_config(OFFICIAL_PLUGIN_KEY, claim.user_id())
+            .get_ai_config(OFFICIAL_AI_PLUGIN_KEY, claim.user_id())
             .await
             .map_err(|error| map_plugin_repository_error(error.kind()))?
             .ok_or_else(snapshot_stale)?;
@@ -165,7 +162,7 @@ impl OfficialAiProcessor {
         if identity.mcp_provenance_hash() != disabled_mcp_provenance_hash() {
             return Err(snapshot_stale());
         }
-        let contract = OperationContract::for_operation(claim.operation());
+        let contract = official_ai_contract(claim.operation());
         if identity.prompt_version() != contract.prompt_version
             || identity.schema_id() != contract.schema_id
         {
@@ -307,26 +304,6 @@ impl<'a> OperationConfig<'a> {
                 provider_id: config.translate_provider_id(),
                 max_output_tokens: config.translate_max_output_tokens(),
                 mcp_enabled: config.translate_mcp_enabled(),
-            },
-        }
-    }
-}
-
-struct OperationContract {
-    prompt_version: &'static str,
-    schema_id: &'static str,
-}
-
-impl OperationContract {
-    const fn for_operation(operation: ContentJobOperation) -> Self {
-        match operation {
-            ContentJobOperation::Summarize => Self {
-                prompt_version: SUMMARY_PROMPT_VERSION,
-                schema_id: SUMMARY_SCHEMA_ID,
-            },
-            ContentJobOperation::Translate => Self {
-                prompt_version: TRANSLATION_PROMPT_VERSION,
-                schema_id: TRANSLATION_SCHEMA_ID,
             },
         }
     }

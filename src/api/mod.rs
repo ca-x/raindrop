@@ -1,3 +1,4 @@
+mod ai;
 mod categories;
 mod entries;
 mod error;

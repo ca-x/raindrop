@@ -1,6 +1,9 @@
+use std::sync::Arc;
+
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, Condition, ConnectionTrait,
-    DatabaseConnection, DbErr, EntityTrait, QueryFilter, TransactionTrait, sea_query::Expr,
+    DatabaseConnection, DbErr, EntityTrait, PaginatorTrait, QueryFilter, TransactionTrait,
+    sea_query::Expr,
 };
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -16,12 +19,12 @@ use super::{
 
 pub struct ProviderRepository {
     database: DatabaseConnection,
-    keyring: ProviderSecretKeyring,
+    keyring: Option<Arc<ProviderSecretKeyring>>,
 }
 
 impl ProviderRepository {
     #[must_use]
-    pub fn new(database: DatabaseConnection, keyring: ProviderSecretKeyring) -> Self {
+    pub fn new(database: DatabaseConnection, keyring: Option<Arc<ProviderSecretKeyring>>) -> Self {
         Self { database, keyring }
     }
 
@@ -34,7 +37,7 @@ impl ProviderRepository {
         let display_name = normalize_display_name(&input.display_name)?;
         let endpoint = ProviderEndpoint::new(input.kind, input.endpoint.as_deref())?;
         let encrypted_secret = self
-            .keyring
+            .require_keyring()?
             .encrypt(&id, input.kind, &input.credential)
             .map_err(secret_error)?;
         let owner_user_id = input.scope.owner_user_id().map(str::to_owned);
@@ -132,6 +135,40 @@ impl ProviderRepository {
         Ok(providers)
     }
 
+    pub async fn get_visible_for_user(
+        &self,
+        id: &str,
+        user_id: &str,
+    ) -> Result<ProviderMetadata, ProviderCoreError> {
+        validate_provider_id(id)?;
+        let scope = ProviderScope::user(user_id)?;
+        let user_id = scope.owner_user_id().ok_or_else(not_found)?;
+        ensure_active_user(&self.database, user_id).await?;
+        let model = ai_provider::Entity::find()
+            .filter(ai_provider::Column::Id.eq(id))
+            .filter(
+                Condition::any()
+                    .add(ai_provider::Column::OwnerUserId.is_null())
+                    .add(ai_provider::Column::OwnerUserId.eq(user_id)),
+            )
+            .one(&self.database)
+            .await
+            .map_err(database_error)?
+            .ok_or_else(not_found)?;
+        metadata_from_model(&model)
+    }
+
+    pub async fn count_user_owned(&self, user_id: &str) -> Result<u64, ProviderCoreError> {
+        let scope = ProviderScope::user(user_id)?;
+        let user_id = scope.owner_user_id().ok_or_else(not_found)?;
+        ensure_active_user(&self.database, user_id).await?;
+        ai_provider::Entity::find()
+            .filter(ai_provider::Column::OwnerUserId.eq(user_id))
+            .count(&self.database)
+            .await
+            .map_err(database_error)
+    }
+
     pub async fn update(
         &self,
         id: &str,
@@ -195,7 +232,7 @@ impl ProviderRepository {
             let encrypted_secret = patch.credential.as_ref().map_or_else(
                 || Ok(stored.encrypted_secret.clone()),
                 |credential| {
-                    self.keyring
+                    self.require_keyring()?
                         .encrypt(id, current.kind(), credential)
                         .map_err(secret_error)
                 },
@@ -316,13 +353,19 @@ impl ProviderRepository {
             ));
         }
         let credential = self
-            .keyring
+            .require_keyring()?
             .decrypt(id, metadata.kind(), &stored.encrypted_secret)
             .map_err(secret_error)?;
         Ok(ProviderBinding {
             metadata,
             credential,
         })
+    }
+
+    fn require_keyring(&self) -> Result<&ProviderSecretKeyring, ProviderCoreError> {
+        self.keyring
+            .as_deref()
+            .ok_or_else(|| ProviderCoreError::new(ProviderCoreErrorKind::SecretUnavailable))
     }
 }
 

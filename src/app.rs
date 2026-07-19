@@ -6,7 +6,7 @@ use tokio::sync::Semaphore;
 use crate::{
     api::{self, AccountThrottle, RateLimiter, UserMutationLimiter},
     auth::SessionService,
-    content::worker::ContentRuntimeHandle,
+    content::{provider::ProviderSecretKeyring, worker::ContentRuntimeHandle},
     feeds::{FeedRuntime, FeedRuntimeHandle, FeedServiceError, HttpFeedTransport},
     setup::SetupService,
     web,
@@ -22,9 +22,12 @@ pub struct AppState {
     pub(crate) setup_limiter: RateLimiter,
     pub feed_runtime: FeedRuntimeHandle,
     pub content_runtime: ContentRuntimeHandle,
+    pub(crate) provider_keyring: Option<Arc<ProviderSecretKeyring>>,
     pub organization_mutation_limiter: UserMutationLimiter,
     pub preferences_mutation_limiter: UserMutationLimiter,
     pub subscription_mutation_limiter: UserMutationLimiter,
+    pub provider_mutation_limiter: UserMutationLimiter,
+    pub content_mutation_limiter: UserMutationLimiter,
 }
 
 impl AppState {
@@ -47,6 +50,16 @@ impl AppState {
         feed_runtime: FeedRuntimeHandle,
         content_runtime: ContentRuntimeHandle,
     ) -> Self {
+        Self::with_runtime_services(setup, feed_runtime, content_runtime, None)
+    }
+
+    #[must_use]
+    pub fn with_runtime_services(
+        setup: SetupService,
+        feed_runtime: FeedRuntimeHandle,
+        content_runtime: ContentRuntimeHandle,
+        provider_keyring: Option<Arc<ProviderSecretKeyring>>,
+    ) -> Self {
         Self {
             version: env!("CARGO_PKG_VERSION"),
             setup,
@@ -61,10 +74,22 @@ impl AppState {
             setup_limiter: RateLimiter::new(30, std::time::Duration::from_secs(15 * 60)),
             feed_runtime,
             content_runtime,
+            provider_keyring,
             organization_mutation_limiter: UserMutationLimiter::new(),
             preferences_mutation_limiter: UserMutationLimiter::new(),
             subscription_mutation_limiter: UserMutationLimiter::new(),
+            provider_mutation_limiter: UserMutationLimiter::new(),
+            content_mutation_limiter: UserMutationLimiter::new(),
         }
+    }
+
+    #[must_use]
+    pub fn with_provider_keyring(
+        mut self,
+        provider_keyring: Option<Arc<ProviderSecretKeyring>>,
+    ) -> Self {
+        self.provider_keyring = provider_keyring;
+        self
     }
 
     pub async fn commit_and_notify_feed_runtime<F, T, E>(&self, command: F) -> Result<T, E>
@@ -72,6 +97,11 @@ impl AppState {
         F: Future<Output = Result<T, E>>,
     {
         notify_after_commit(command, || self.feed_runtime.notify()).await
+    }
+
+    #[must_use]
+    pub(crate) fn provider_keyring(&self) -> Option<Arc<ProviderSecretKeyring>> {
+        self.provider_keyring.clone()
     }
 
     #[must_use]
@@ -151,10 +181,20 @@ mod tests {
                 .preferences_mutation_limiter
                 .check("user")
                 .expect("the exact preference mutation budget should be admitted");
+            state
+                .provider_mutation_limiter
+                .check("user")
+                .expect("the exact provider mutation budget should be admitted");
+            state
+                .content_mutation_limiter
+                .check("user")
+                .expect("the exact content mutation budget should be admitted");
         }
         assert!(state.subscription_mutation_limiter.check("user").is_err());
         assert!(state.organization_mutation_limiter.check("user").is_err());
         assert!(state.preferences_mutation_limiter.check("user").is_err());
+        assert!(state.provider_mutation_limiter.check("user").is_err());
+        assert!(state.content_mutation_limiter.check("user").is_err());
     }
 
     #[tokio::test]
@@ -195,6 +235,34 @@ mod tests {
             .await
             .expect("Content shutdown sender should remain available");
         assert!(*content_shutdown.borrow());
+    }
+
+    #[tokio::test]
+    async fn app_state_with_runtime_services_preserves_shared_provider_keyring() {
+        use crate::content::provider::ProviderSecretKeyring;
+        use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+
+        let data = tempfile::tempdir().expect("temporary directory should be created");
+        let setup = SetupService::required(data.path(), SecretString::from("setup-token"), None);
+        let (feed, feed_handle) = FeedRuntime::<HttpFeedTransport>::new(setup.clone(), |_| {
+            Err(FeedServiceError::CorruptFeed)
+        });
+        let key = SecretString::from(format!("primary:{}", URL_SAFE_NO_PAD.encode([0x41_u8; 32])));
+        let keyring = Arc::new(
+            ProviderSecretKeyring::from_entries(&[key])
+                .expect("shared provider keyring should construct"),
+        );
+        let state = AppState::with_runtime_services(
+            setup,
+            feed_handle,
+            ContentRuntimeHandle::inert(),
+            Some(Arc::clone(&keyring)),
+        );
+
+        let stored_keyring = state.provider_keyring().expect("keyring should be present");
+        assert!(Arc::ptr_eq(&stored_keyring, &keyring,));
+        state.feed_runtime.shutdown();
+        feed.run().await.expect("feed runtime should stop cleanly");
     }
 
     #[tokio::test]
