@@ -62,6 +62,7 @@ body {
 }
 
 .raindrop-auth-form {
+  align-self: start;
   min-inline-size: 0;
 }
 

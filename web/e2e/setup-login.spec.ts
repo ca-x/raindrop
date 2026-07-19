@@ -44,6 +44,7 @@ async function expectSetupContentInset(page: Page) {
   const [cardBox, contentBox] = await Promise.all([card.boundingBox(), content.boundingBox()])
   expect(cardBox).not.toBeNull()
   expect(contentBox).not.toBeNull()
+  expect(cardBox!.y).toBeGreaterThanOrEqual(23)
   expect(contentBox!.x - cardBox!.x).toBeGreaterThanOrEqual(24)
   expect(cardBox!.x + cardBox!.width - (contentBox!.x + contentBox!.width)).toBeGreaterThanOrEqual(
     24,
