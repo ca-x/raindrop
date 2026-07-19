@@ -123,6 +123,12 @@ async fn sandbox_denies_unknown_imports_and_untrusted_request_or_output_shapes()
         runtime.execute(&success, session, digest_mismatch).await,
         PluginRuntimeErrorKind::InvalidInvocation,
     );
+    let (session, mut job_mismatch) = execution_inputs(&success);
+    job_mismatch.job_id = "attacker-job".to_owned();
+    assert_error(
+        runtime.execute(&success, session, job_mismatch).await,
+        PluginRuntimeErrorKind::InvalidInvocation,
+    );
     let (session, mut oversized_text) = execution_inputs(&success);
     oversized_text.entry.text = "x".repeat(512 * 1024 + 1);
     assert_error(
@@ -222,6 +228,7 @@ fn session(
         CapabilitySessionConfig {
             invocation: BrokerInvocationContext {
                 invocation_id: "invocation-1".to_owned(),
+                job_id: "job-1".to_owned(),
                 user_subject: "user-1".to_owned(),
                 call_chain_id: "call-chain-1".to_owned(),
                 operation: types::Operation::Summarize,

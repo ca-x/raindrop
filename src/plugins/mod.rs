@@ -1,7 +1,7 @@
 mod artifact;
 mod config;
 mod error;
-mod json;
+pub(crate) mod json;
 mod lifecycle;
 mod manifest;
 mod model;

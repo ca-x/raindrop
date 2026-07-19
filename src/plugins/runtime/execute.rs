@@ -443,9 +443,15 @@ fn validate_artifact(
                 && SummaryArtifact::parse(artifact.payload_json.as_bytes()).is_ok()
         }
         types::Operation::Translate => {
+            let Ok(translation) = TranslationArtifact::parse(artifact.payload_json.as_bytes())
+            else {
+                return Err(PluginRuntimeError::new(
+                    PluginRuntimeErrorKind::InvalidInvocation,
+                ));
+            };
             artifact.schema_id == TRANSLATION_SCHEMA
                 && artifact.locale == request.target_locale
-                && TranslationArtifact::parse(artifact.payload_json.as_bytes()).is_ok()
+                && translation.target_locale() == request.target_locale.as_deref().unwrap_or("")
         }
     };
     if valid {
@@ -622,6 +628,60 @@ mod tests {
     };
 
     #[test]
+    fn translation_artifact_target_locale_must_match_the_request() {
+        let request = types::OperationRequest {
+            invocation_id: "invocation-1".to_owned(),
+            job_id: "job-1".to_owned(),
+            idempotency_key: "idempotency-1".to_owned(),
+            plugin_key: "raindrop.ai-content".to_owned(),
+            plugin_version: "1.0.0".to_owned(),
+            component_digest: "a".repeat(64),
+            user_scope: types::UserScope {
+                subject: "user-1".to_owned(),
+            },
+            trigger: types::Trigger::ManualApi,
+            operation: types::Operation::Translate,
+            target_locale: Some("zh-CN".to_owned()),
+            entry: types::EntryReference {
+                entry_id: "entry-1".to_owned(),
+                feed_id: "feed-1".to_owned(),
+                content_hash: "b".repeat(64),
+                title: "Title".to_owned(),
+                text: "Text".to_owned(),
+                canonical_url: None,
+                source_locale: Some("en".to_owned()),
+            },
+            config_json: "{}".to_owned(),
+            config_hash: "c".repeat(64),
+            provider_binding_id: "provider-1".to_owned(),
+            tool_bindings: Vec::new(),
+            call_chain_id: "chain-1".to_owned(),
+            budget: types::InvocationBudget {
+                remaining_depth: 0,
+                deadline_unix_ms: 1,
+                remaining_provider_requests: 1,
+                remaining_mcp_calls: 0,
+                remaining_input_tokens: 1,
+                remaining_output_tokens: 1,
+                remaining_cost_micros: 1,
+            },
+        };
+        let artifact = types::ArtifactCandidate {
+            schema_id: TRANSLATION_SCHEMA.to_owned(),
+            locale: Some("zh-CN".to_owned()),
+            payload_json: r#"{"bodyMarkdown":"正文","detectedSourceLanguage":"en","schemaVersion":1,"targetLocale":"ja","title":"标题"}"#.to_owned(),
+            provenance_json: "{}".to_owned(),
+        };
+
+        assert_eq!(
+            validate_artifact(&request, artifact)
+                .expect_err("payload locale drift must fail")
+                .kind(),
+            PluginRuntimeErrorKind::InvalidInvocation,
+        );
+    }
+
+    #[test]
     fn guest_cpu_budget_excludes_time_spent_in_host_code() {
         let start = Instant::now();
         let mut budget = GuestCpuBudget::new(MAX_GUEST_CPU);
@@ -687,6 +747,7 @@ mod tests {
             CapabilitySessionConfig {
                 invocation: BrokerInvocationContext {
                     invocation_id: "test-invocation".to_owned(),
+                    job_id: "test-job".to_owned(),
                     user_subject: "test-user".to_owned(),
                     call_chain_id: "test-chain".to_owned(),
                     operation: types::Operation::Summarize,

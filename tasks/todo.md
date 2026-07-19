@@ -43,6 +43,7 @@
 - [x] Provider Core：Anthropic Messages-compatible、OpenAI Responses、OpenAI Chat Completions-compatible、Google Gemini 四类 adapter，独立加密 keyring、SSRF-safe transport 和统一 `ProviderClient`。
 - [x] Content Jobs / Artifacts Core：幂等入队、租约/fencing、崩溃恢复、有界 retry、immutable artifact identity 和三数据库原子终态。
 - [ ] 官方 `raindrop.ai-content` Wasm 组件、ProviderClient broker composition、摘要/翻译 prompt/schema 执行、额度预留与 artifact 生成。
+  - [x] ProviderClient broker composition：用户作用域 binding、四协议 adapter、并发/RPM/token/cost admission、稳定幂等、官方 schema typed validation 与翻译 locale 合同。
 - [ ] provider 管理 API/UI、content execution API 和重试入口。
 - [ ] AI artifact UI 与 prompt injection 安全测试。
 

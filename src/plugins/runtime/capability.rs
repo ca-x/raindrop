@@ -23,7 +23,7 @@ const MAX_AI_SCHEMA_BYTES: usize = 64 * 1024;
 const MAX_AI_SYSTEM_INSTRUCTION_BYTES: usize = 64 * 1024;
 const MAX_AI_OUTPUT_BYTES: usize = 512 * 1024;
 const MAX_AI_TIMEOUT: Duration = Duration::from_secs(90);
-const MAX_MODEL_LABEL_BYTES: usize = 128;
+const MAX_MODEL_LABEL_BYTES: usize = 200;
 const MAX_BINDING_ID_BYTES: usize = 128;
 const MAX_SCHEMA_ID_BYTES: usize = 256;
 const MAX_REMAINING_DEPTH: u32 = 2;
@@ -38,6 +38,7 @@ const MAX_DEADLINE_SKEW: Duration = Duration::from_secs(2);
 #[derive(Clone)]
 pub struct BrokerInvocationContext {
     pub invocation_id: String,
+    pub job_id: String,
     pub user_subject: String,
     pub call_chain_id: String,
     pub operation: types::Operation,
@@ -106,6 +107,7 @@ pub struct AiBrokerRequest {
     pub provider_request_ordinal: u32,
     pub max_input_tokens: u32,
     pub max_output_tokens: u32,
+    pub max_cost_micros: u64,
     pub timeout: Duration,
 }
 
@@ -117,6 +119,7 @@ impl fmt::Debug for AiBrokerRequest {
             .field("provider_request_ordinal", &self.provider_request_ordinal)
             .field("max_input_tokens", &self.max_input_tokens)
             .field("max_output_tokens", &self.max_output_tokens)
+            .field("max_cost_micros", &self.max_cost_micros)
             .field("timeout", &self.timeout)
             .finish_non_exhaustive()
     }
@@ -181,6 +184,16 @@ impl AiBrokerError {
     #[must_use]
     pub const fn kind(&self) -> AiBrokerErrorKind {
         self.kind
+    }
+
+    #[must_use]
+    pub const fn retryable(&self) -> bool {
+        self.retryable
+    }
+
+    #[must_use]
+    pub const fn retry_at_unix_ms(&self) -> Option<u64> {
+        self.retry_at_unix_ms
     }
 }
 
@@ -480,6 +493,7 @@ impl CapabilitySession {
             provider_request_ordinal: request.provider_request_ordinal,
             max_input_tokens: request.max_input_tokens,
             max_output_tokens: request.max_output_tokens,
+            max_cost_micros: self.remaining_cost_micros,
             timeout: remaining.min(MAX_AI_TIMEOUT),
         })
     }
@@ -574,6 +588,7 @@ impl CapabilitySession {
             .map(|binding| binding.binding_id.as_str())
             .collect::<BTreeSet<_>>();
         let valid = request.invocation_id == self.invocation.invocation_id
+            && request.job_id == self.invocation.job_id
             && request.user_scope.subject == self.invocation.user_subject
             && request.call_chain_id == self.invocation.call_chain_id
             && request.operation == self.invocation.operation
@@ -658,6 +673,12 @@ fn validate_session_config(config: &CapabilitySessionConfig) -> Result<(), Plugi
         crate::plugins::PluginRegistryErrorKind::InvalidInput,
     )
     .is_err()
+        || validate_visible_ascii(
+            &config.invocation.job_id,
+            MAX_BINDING_ID_BYTES,
+            crate::plugins::PluginRegistryErrorKind::InvalidInput,
+        )
+        .is_err()
         || validate_visible_ascii(
             &config.invocation.user_subject,
             MAX_BINDING_ID_BYTES,
@@ -847,6 +868,7 @@ mod tests {
             CapabilitySessionConfig {
                 invocation: BrokerInvocationContext {
                     invocation_id: "invocation-1".to_owned(),
+                    job_id: "job-1".to_owned(),
                     user_subject: "user-1".to_owned(),
                     call_chain_id: "call-chain-1".to_owned(),
                     operation: types::Operation::Summarize,

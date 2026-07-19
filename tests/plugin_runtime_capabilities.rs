@@ -50,6 +50,7 @@ async fn ai_session_enforces_identity_before_broker_and_returns_typed_response()
     assert_eq!(recorded[0].provider_binding_id, PROVIDER_BINDING_ID);
     assert_eq!(recorded[0].operation, types::Operation::Summarize);
     assert_eq!(recorded[0].provider_request_ordinal, 1);
+    assert_eq!(recorded[0].max_cost_micros, 250_000);
     assert_eq!(recorded[0].timeout, Duration::from_secs(90));
 }
 
@@ -224,6 +225,7 @@ fn capability_debug_output_redacts_identity_prompts_and_payloads() {
         provider_request_ordinal: 1,
         max_input_tokens: 1,
         max_output_tokens: 1,
+        max_cost_micros: 1,
         timeout: Duration::from_secs(1),
     };
     let response = AiBrokerResponse {
@@ -506,6 +508,7 @@ fn session_config() -> CapabilitySessionConfig {
     CapabilitySessionConfig {
         invocation: BrokerInvocationContext {
             invocation_id: "invocation-1".to_owned(),
+            job_id: "job-1".to_owned(),
             user_subject: "user-1".to_owned(),
             call_chain_id: "call-chain-1".to_owned(),
             operation: types::Operation::Summarize,
@@ -612,9 +615,10 @@ fn valid_ai_response() -> AiBrokerResponse {
 impl AiCapabilityBroker for RecordingAiBroker {
     async fn generate_structured(
         &self,
-        _context: &BrokerInvocationContext,
+        context: &BrokerInvocationContext,
         request: AiBrokerRequest,
     ) -> Result<AiBrokerResponse, AiBrokerError> {
+        assert_eq!(context.job_id, "job-1");
         self.requests.lock().expect("request lock").push(request);
         Ok(self.response.clone())
     }
