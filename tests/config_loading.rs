@@ -147,6 +147,52 @@ fn partial_bootstrap_admin_is_rejected_without_password_value() {
 }
 
 #[test]
+fn bootstrap_admin_accepts_a_short_non_empty_password() {
+    let data = tempdir().expect("temporary directory should be created");
+    let env = MapEnv::from([
+        (
+            "RAINDROP_DATABASE_URL",
+            "sqlite://data/raindrop.db?mode=rwc",
+        ),
+        ("RAINDROP_BOOTSTRAP_ADMIN_USERNAME", "Reader"),
+        ("RAINDROP_BOOTSTRAP_ADMIN_PASSWORD", "a"),
+    ]);
+
+    let loaded = load(&ConfigArgs::for_test(data.path()), &env)
+        .expect("a short non-empty bootstrap password should load");
+    assert_eq!(
+        loaded
+            .runtime
+            .bootstrap_admin
+            .expect("bootstrap administrator should be present")
+            .password
+            .expose_secret(),
+        "a"
+    );
+}
+
+#[test]
+fn bootstrap_admin_rejects_an_empty_password() {
+    let data = tempdir().expect("temporary directory should be created");
+    let env = MapEnv::from([
+        (
+            "RAINDROP_DATABASE_URL",
+            "sqlite://data/raindrop.db?mode=rwc",
+        ),
+        ("RAINDROP_BOOTSTRAP_ADMIN_USERNAME", "Reader"),
+        ("RAINDROP_BOOTSTRAP_ADMIN_PASSWORD", ""),
+    ]);
+
+    let error = load(&ConfigArgs::for_test(data.path()), &env)
+        .expect_err("an empty bootstrap password should fail");
+    assert!(
+        error
+            .to_string()
+            .contains("RAINDROP_BOOTSTRAP_ADMIN_PASSWORD")
+    );
+}
+
+#[test]
 fn bootstrap_admin_merges_each_environment_field_over_toml() {
     let data = tempdir().expect("temporary directory should be created");
     fs::write(

@@ -234,10 +234,10 @@ fn load_bootstrap_admin(
             reason: "expected a non-empty username",
         });
     }
-    if password.len() < 12 {
+    if password.is_empty() {
         return Err(ConfigError::InvalidValue {
             name: "RAINDROP_BOOTSTRAP_ADMIN_PASSWORD",
-            reason: "expected at least 12 bytes",
+            reason: "expected a non-empty password",
         });
     }
 
