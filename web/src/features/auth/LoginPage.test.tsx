@@ -88,7 +88,6 @@ describe("Local authentication", () => {
       .mockResolvedValueOnce(jsonResponse({ status: "READY", version: "0.1.0" }))
       .mockResolvedValueOnce(jsonResponse(sessionResponse))
     mockReaderWorkspace()
-    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }))
     renderApp()
 
     expect(await screen.findByRole("heading", { name: "No entries here" })).toBeVisible()
@@ -132,8 +131,7 @@ describe("Local authentication", () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ status: "READY", version: "0.1.0" }))
       .mockResolvedValueOnce(jsonResponse(sessionResponse))
-    mockReaderWorkspace()
-    fetchMock.mockReturnValueOnce(logoutRequest.promise)
+    mockReaderWorkspace(logoutRequest.promise)
     renderApp()
 
     expect(await screen.findByRole("heading", { name: "No entries here" })).toBeVisible()
@@ -165,17 +163,47 @@ function mockLoginBootstrap(resetViewport = true) {
     .mockResolvedValueOnce(jsonResponse({ error: { code: "AUTHENTICATION_REQUIRED" } }, 401))
 }
 
-function mockReaderWorkspace() {
-  fetchMock
-    .mockResolvedValueOnce(jsonResponse({ items: [] }))
-    .mockResolvedValueOnce(jsonResponse({ items: [], nextCursor: null }))
-    .mockResolvedValueOnce(jsonResponse({ items: [], nextCursor: null, snapshotGeneration: 1 }))
-    .mockResolvedValueOnce(jsonResponse({
-      locale: "en",
-      themeMode: "SYSTEM",
-      layoutDensity: "BALANCED",
-      readingFontScale: 100,
-    }))
+function mockReaderWorkspace(
+  logoutResponse: Response | Promise<Response> = new Response(null, { status: 204 }),
+) {
+  fetchMock.mockImplementation((input) => {
+    const path = String(input)
+    if (path === "/api/v1/categories") return Promise.resolve(jsonResponse({ items: [] }))
+    if (path.startsWith("/api/v1/subscriptions")) {
+      return Promise.resolve(jsonResponse({ items: [], nextCursor: null }))
+    }
+    if (path.startsWith("/api/v1/entries")) {
+      return Promise.resolve(
+        jsonResponse({ items: [], nextCursor: null, snapshotGeneration: 1 }),
+      )
+    }
+    if (path === "/api/v1/preferences") {
+      return Promise.resolve(
+        jsonResponse({
+          locale: "en",
+          themeMode: "SYSTEM",
+          layoutDensity: "BALANCED",
+          readingFontScale: 100,
+        }),
+      )
+    }
+    if (path === "/api/v1/ai/providers") {
+      return Promise.resolve(
+        jsonResponse({ keyringStatus: "AVAILABLE", items: [] }),
+      )
+    }
+    if (path === "/api/v1/ai/config") {
+      return Promise.resolve(
+        jsonResponse({
+          pluginState: "READY",
+          mcpState: "CONTRACT_READY_TRANSPORT_UNAVAILABLE",
+          config: null,
+        }),
+      )
+    }
+    if (path === "/api/v1/auth/logout") return Promise.resolve(logoutResponse)
+    return Promise.reject(new Error(`Unexpected Reader request: ${path}`))
+  })
 }
 
 async function fillLogin(user: ReturnType<typeof userEvent.setup>) {

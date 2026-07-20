@@ -2,6 +2,7 @@ import { Navigate, useLocation, useNavigate } from "react-router-dom"
 import { useCallback, useEffect, useRef, useState } from "react"
 
 import type { ViewportMode } from "../../../shared/responsive/useViewportMode"
+import type { AiSettingsController } from "../../ai/model/useAiSettingsController"
 import type { PreferencesController } from "../../preferences/model/usePreferencesController"
 import { adjacentUnreadSource, type UnreadSourceDirection } from "../model/unreadSourceNavigation"
 import { sourceKey } from "../model/types"
@@ -17,8 +18,10 @@ import {
 interface ReaderRoutesProps {
   controller: ReaderController
   preferencesController: PreferencesController
+  aiSettingsController?: AiSettingsController
   username: string
   onLogout: () => Promise<void>
+  onUnauthenticated?: () => void
   sessionError?: string | null
   viewportMode: ViewportMode
 }

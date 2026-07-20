@@ -6,6 +6,7 @@ import { useLingui } from "@lingui/react"
 import { useRef, useState } from "react"
 
 import type { ViewportMode } from "../../../shared/responsive/useViewportMode"
+import type { AiSettingsController } from "../../ai/model/useAiSettingsController"
 import { PreferencesDialog } from "../../preferences/components/PreferencesDialog"
 import type { PreferencesTab } from "../../preferences/components/PreferencesDialog"
 import { toAstryxDensity } from "../../preferences/model/preferenceTypes"
@@ -27,11 +28,13 @@ import { ReaderWorkspacePanels } from "./ReaderWorkspacePanels"
 interface ReaderShellProps {
   controller: ReaderController
   preferencesController: PreferencesController
+  aiSettingsController?: AiSettingsController
   route: ReaderRouteMatch
   isSourceReady: boolean
   username: string
   viewportMode: ViewportMode
   onLogout: () => Promise<void>
+  onUnauthenticated?: () => void
   sessionError?: string | null
   onSelectSource: (source: ReaderSource) => void
   onSelectEntry: (entryId: string) => void
@@ -169,6 +172,13 @@ export function ReaderShell(props: ReaderShellProps) {
       onRecordScroll={props.controller.recordScrollAnchor}
       onToggleRead={props.controller.toggleRead}
       onToggleStar={props.controller.toggleStar}
+      csrfToken={props.aiSettingsController?.csrfToken}
+      onUnauthenticated={props.onUnauthenticated}
+      onOpenAiSettings={() => {
+        reopenSourcesAfterPreferences.current = false
+        setPreferencesInitialTab("ai")
+        setIsPreferencesOpen(true)
+      }}
     />
   )
 
@@ -239,6 +249,7 @@ export function ReaderShell(props: ReaderShellProps) {
         preferences={props.preferencesController.preferences}
         isSaving={props.preferencesController.isSaving}
         error={props.preferencesController.error}
+        aiController={props.aiSettingsController}
         csrfToken={props.preferencesController.csrfToken}
         onClearError={props.preferencesController.clearError}
         onSave={props.preferencesController.save}

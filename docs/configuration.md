@@ -1,6 +1,6 @@
 # Raindrop 配置
 
-本文记录当前已实现的运行时配置合同。未列出的运行时 `RAINDROP_*` 变量不会改变程序行为。AI provider 独立加密 keyring、官方内嵌插件同步和生产内容 worker 已接入启动生命周期；provider/content 管理 API/UI、自动入队、Reader sidecar、生命周期 dispatcher 和 MCP transport 尚未接通，OIDC 也仍未实现。
+本文记录当前已实现的运行时配置合同。未列出的运行时 `RAINDROP_*` 变量不会改变程序行为。AI Provider 独立加密 keyring、官方内嵌插件同步、生产内容 worker、用户设置 API/UI、手动内容任务和 Reader sidecar 已接通。自动入队、生命周期 dispatcher、MCP transport、插件管理 UI 和 OIDC 仍未实现。
 
 ## 加载顺序
 
@@ -102,6 +102,14 @@ email = "admin@example.com"
 chmod 600 /var/lib/raindrop/config.toml
 chmod 700 /var/lib/raindrop
 ```
+
+## AI Provider 与 Reader 执行
+
+`RAINDROP_PROVIDER_SECRET_KEYS` 是 AI credential 的运行时根密钥。没有 keyring 时，Raindrop 仍可启动、读取 Provider 元数据并使用 RSS；创建 Provider、轮换 credential 或为没有 current artifact 的文章创建新 AI 任务会返回 keyring unavailable。Raindrop 不会生成临时密钥，也不会把 credential 降级为明文。
+
+配置 keyring 后，登录用户可以在“设置 > AI”中创建和编辑自己的 Provider，并选择摘要或翻译使用的 Provider。Provider API 和 UI 永远不回读 credential；编辑表单中的 credential 默认留空，留空表示保留已有秘密。Endpoint 必须是通过安全校验的 HTTPS URL。四种协议、轮换步骤和 transport 边界见 [AI Provider 运维合同](ai-providers.md)。
+
+Reader 只在用户点击摘要或翻译时创建任务。自动执行保持关闭，MCP 状态固定显示为 transport unavailable。任务运行、失败或等待重试时，原文仍是默认阅读面；sidecar 有独立滚动区，关闭后恢复触发按钮焦点。worker 的瞬时错误可以在同一任务内进行有界重试；用户点击“重试”会按当前文章、配置、插件和 Provider 快照创建新的任务历史，不会修改旧失败记录。
 
 ## 两种设置模式与自动初始化
 

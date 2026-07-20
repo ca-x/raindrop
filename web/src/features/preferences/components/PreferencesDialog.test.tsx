@@ -4,6 +4,7 @@ import { expect, it, vi } from "vitest"
 
 import { Providers } from "../../../app/Providers"
 import { activateLocale } from "../../../shared/i18n/i18n"
+import { fakeAiSettingsController } from "../../ai/model/testFixtures"
 import type { UserPreferences } from "../api/preferences.generated"
 import { PreferencesDialog } from "./PreferencesDialog"
 
@@ -114,6 +115,30 @@ it("keeps OPML transfer in a separate subscriptions tab", async () => {
   expect(within(dialog).getByRole("button", { name: "Export OPML" })).toBeVisible()
   expect(within(dialog).getByRole("button", { name: "Import subscriptions" })).toBeDisabled()
   expect(within(dialog).queryByRole("button", { name: "Save changes" })).not.toBeInTheDocument()
+  expect(within(dialog).getByRole("button", { name: "Close" })).toBeVisible()
+})
+
+it("keeps AI saves separate from the appearance controller", async () => {
+  activateLocale("en")
+  const user = userEvent.setup()
+  const onSave = vi.fn().mockResolvedValue(true)
+  const saveConfig = vi.fn().mockResolvedValue(true)
+  renderDialog({
+    onSave,
+    aiController: fakeAiSettingsController({ saveConfig }),
+  })
+  const dialog = screen.getByRole("dialog", { name: "Settings" })
+
+  await user.click(within(dialog).getByRole("button", { name: "AI" }))
+  await user.click(
+    within(dialog).getByRole("checkbox", { name: "Enable summary" }),
+  )
+  await user.click(
+    within(dialog).getByRole("button", { name: "Save AI settings" }),
+  )
+
+  expect(saveConfig).toHaveBeenCalledOnce()
+  expect(onSave).not.toHaveBeenCalled()
   expect(within(dialog).getByRole("button", { name: "Close" })).toBeVisible()
 })
 

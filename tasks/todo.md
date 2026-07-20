@@ -47,11 +47,11 @@
   - [x] 官方 no-WASI 组件：Rust guest、摘要/翻译、两阶段 MCP、FAIL_OPEN/FAIL_CLOSED、lifecycle intents、固定 failure code、确定性 componentize 与真实 Wasmtime 测试。
   - [x] Content worker composition：claim/heartbeat、官方 Wasm + provider broker、usage/retry、artifact 原子终态和八 lane runtime。
   - [x] Production bundle/runtime：release/development 签名、二进制嵌入、installation 同步、真实 provider/Wasm ContentRuntime 和启动/关闭接线。
-- [ ] provider 管理 API/UI、content execution API 和重试入口。
-  - [ ] 共享 optional Provider keyring，完成 user-scoped Provider list/create/get/patch 与 OpenAPI。
-  - [ ] 完成官方 AI config GET/PUT、current identity、enqueue/status/result/manual retry API。
-  - [ ] 完成 ASTRYX AI 设置和原文优先的摘要/翻译 Reader sidecar。
-- [ ] AI artifact UI 与 prompt injection 安全测试。
+- [x] provider 管理 API/UI v1、content execution API 和重试入口。
+  - [x] 共享 optional Provider keyring，完成 user-scoped Provider list/create/get/patch 与 OpenAPI。
+  - [x] 完成官方 AI config GET/PUT、current identity、enqueue/status/result/manual retry API。
+  - [x] 完成 ASTRYX AI 设置和原文优先的摘要/翻译 Reader sidecar。
+- [x] AI artifact UI 与 prompt injection 安全测试。
 
 ## 6. Plugin ecosystem
 
@@ -80,7 +80,7 @@
 - [x] ASTRYX `AppShell + Layout + TreeList + List/Item` 响应式三栏。
 - [x] `>=1100px` 三栏、`720–1099px` 两区、`<720px` 单任务深链接路由，并恢复列表/正文滚动锚点与返回焦点。
 - [x] Reader 规范化实体状态保证树、列表、正文的已读/收藏/计数一致；新条目不自动重排当前队列。
-- [ ] 摘要/翻译/plugin artifact 作为非阻塞 sidecar，原文默认且始终可读。
+- [x] 摘要/翻译 artifact 作为非阻塞 sidecar，原文默认且始终可读；第三方 plugin artifact UI 仍未开放。
 - [ ] light/dark/system、Kami 排版、中文/英文完整覆盖。
 - [x] 键盘、screen-reader 语义、reduced-motion 和 390×844/360×800 移动端验证。
 - [x] Reader 前端完成后执行 motion 机会审计，并只加入 setup 步骤切换与 pending 新文章提示两处克制动效；`kill-ai-slop` 复扫无确认问题。

@@ -405,7 +405,7 @@ env -u RUSTUP_TOOLCHAIN cargo +1.94.0 test --locked --all-features --test ai_con
 
 Expected: generated files are stable and all contract tests pass.
 
-- [ ] **Step 6: Commit and push the backend vertical slice**
+- [x] **Step 6: Commit and push the backend vertical slice**
 
 Stage only backend, OpenAPI, generated DTO, tests, spec, plan, and task files. Inspect staged secret patterns and diff, then commit:
 
@@ -439,19 +439,19 @@ Monitor the resulting CI while continuing frontend work only if the local focuse
 - PreferencesDialog optional initialTab and AI panel controller props
 - no credential value in Provider response or persisted frontend cache
 
-- [ ] **Step 1: Write generated-boundary API tests**
+- [x] **Step 1: Write generated-boundary API tests**
 
 Validate list/create/get/patch/config requests, CSRF headers, AbortSignal, 201/200 handling, generated response validators, and invalid response rejection. Assert request errors never include the credential string.
 
-- [ ] **Step 2: Write provider draft tests**
+- [x] **Step 2: Write provider draft tests**
 
 Define kind defaults for endpoint, capabilities, and bounded policy. Validate display name, model, required credential on create, optional credential on edit, numeric ranges, and unchanged-secret semantics.
 
-- [ ] **Step 3: Write AI settings controller tests**
+- [x] **Step 3: Write AI settings controller tests**
 
 Cover parallel Provider/config load, abort on logout/unmount, provider revision replacement, conflict preservation, config create/update, plugin/keyring unavailable state, and no mutation of the appearance controller.
 
-- [ ] **Step 4: Split the existing appearance form**
+- [x] **Step 4: Split the existing appearance form**
 
 Move only the current appearance controls into AppearancePreferencesForm. PreferencesDialog retains one ASTRYX Dialog and introduces:
 
@@ -464,19 +464,19 @@ Move only the current appearance controls into AppearancePreferencesForm. Prefer
 
 No nested dialog and no local generic control wrapper.
 
-- [ ] **Step 5: Implement Provider list and inline editor**
+- [x] **Step 5: Implement Provider list and inline editor**
 
 Use List/Item for providers, Badge or StatusDot for state, Button for Edit/Add, and one Collapsible for the editor. Base fields use TextInput/Selector/CheckboxInput. Advanced policy uses NumberInput inside a second Collapsible. Save and Cancel are explicit.
 
-- [ ] **Step 6: Implement AI content form**
+- [x] **Step 6: Implement AI content form**
 
 Use CheckboxInput for enabled operations, Selector for Provider and target locale, SegmentedControl for summary style, NumberInput for token limits, Banner for MCP unavailable, and one Save AI settings action.
 
-- [ ] **Step 7: Add zh-CN and en messages**
+- [x] **Step 7: Add zh-CN and en messages**
 
 Add concise copy for Provider kinds, secret retention, keyring/plugin state, summary style, target locale, errors, revision conflict, MCP contract status, and save actions. Avoid marketing language and exclamation marks.
 
-- [ ] **Step 8: Run settings tests**
+- [x] **Step 8: Run settings tests**
 
 ~~~bash
 npm --prefix web run typecheck
@@ -507,19 +507,19 @@ Expected: focused tests and typecheck pass.
 - ArticleToolbar onOpenSummary/onOpenTranslation
 - AiReaderSidecar openTab, close, enqueue, retry, polling
 
-- [ ] **Step 1: Write controller race and polling tests**
+- [x] **Step 1: Write controller race and polling tests**
 
 Cover lazy overview load, one request per selected entry, abort on entry change, late-response suppression, polling only for QUEUED/RUNNING/RETRY_WAIT, result fetch on success, stop on close/unmount, unauthenticated propagation, and retry with a new idempotency key.
 
-- [ ] **Step 2: Write original-content persistence tests**
+- [x] **Step 2: Write original-content persistence tests**
 
 Render an article, set article scrollTop, open and switch sidecar tabs, complete a summary, close sidecar, and assert the same article DOM node, title focus target, content HTML, read/star state, and scroll offset remain.
 
-- [ ] **Step 3: Implement toolbar actions and lazy sidecar**
+- [x] **Step 3: Implement toolbar actions and lazy sidecar**
 
 Summary and Translate are secondary ASTRYX buttons or labeled IconButtons with 44px hit targets. Sidecar is closed by default and mounted between toolbar and article scroll plane without creating a fourth Reader column.
 
-- [ ] **Step 4: Implement operation states**
+- [x] **Step 4: Implement operation states**
 
 - UNAVAILABLE/DISABLED: Banner and Open AI settings action.
 - IDLE: explicit Run action.
@@ -529,7 +529,7 @@ Summary and Translate are secondary ASTRYX buttons or labeled IconButtons with 4
 
 Use aria-live polite for status and preserve trigger focus on close.
 
-- [ ] **Step 5: Render validated artifacts**
+- [x] **Step 5: Render validated artifacts**
 
 Summary uses Heading, Text, and List. Translation uses:
 
@@ -545,11 +545,11 @@ Summary uses Heading, Text, and List. Translation uses:
 
 safeExternalMarkdownLink permits only http/https and returns false otherwise. Do not use dangerouslySetInnerHTML for AI output.
 
-- [ ] **Step 6: Implement responsive geometry**
+- [x] **Step 6: Implement responsive geometry**
 
 Desktop max sidecar height is 320px. Compact max height is 45dvh. Use one named sidecar gap/padding token, independent overflow-y auto, overscroll containment, safe-area-aware compact padding, and 44px targets. Reduced motion removes spatial transition.
 
-- [ ] **Step 7: Run Reader and web regressions**
+- [x] **Step 7: Run Reader and web regressions**
 
 ~~~bash
 npm --prefix web run typecheck
@@ -571,7 +571,7 @@ Expected: all pass with no generated type drift.
 - Modify: tasks/todo.md
 - Modify: this plan
 
-- [ ] **Step 1: Run focused Rust API/service gates**
+- [x] **Step 1: Run focused Rust API/service gates**
 
 ~~~bash
 env -u RUSTUP_TOOLCHAIN cargo +1.94.0 fmt --all -- --check
@@ -581,7 +581,7 @@ env -u RUSTUP_TOOLCHAIN cargo +1.94.0 test --locked --all-features --test ai_con
 env -u RUSTUP_TOOLCHAIN cargo +1.94.0 test --locked --all-features --test content_worker_processor --test content_runtime_production -- --test-threads=1
 ~~~
 
-- [ ] **Step 2: Run full web and Rust gates**
+- [x] **Step 2: Run full web and Rust gates**
 
 ~~~bash
 npm --prefix web run check:reader-types
@@ -593,7 +593,7 @@ env -u RUSTUP_TOOLCHAIN cargo +1.94.0 test --locked --all-features
 git diff --check
 ~~~
 
-- [ ] **Step 3: Verify with local agent-browser**
+- [x] **Step 3: Verify with local agent-browser**
 
 Run a production binary with a temporary SQLite data directory and configured test keyring. Use a deterministic local provider fixture through the existing test transport seam, import or subscribe to https://www.ithome.com/rss/ if network is available, then verify:
 
@@ -608,15 +608,15 @@ Run a production binary with a temporary SQLite data directory and configured te
 
 If live network is unavailable, keep the real RSS smoke separate and use the committed deterministic Reader fixture for the release gate.
 
-- [ ] **Step 4: Update documentation and task truth**
+- [x] **Step 4: Update documentation and task truth**
 
 Document keyring requirement, four Provider kinds, endpoint safety, no credential readback, explicit manual execution, internal/manual retry distinction, current artifact identity, MCP unavailable state, and original-content guarantee. Mark only implemented checklist items complete.
 
-- [ ] **Step 5: Perform one bounded final self-review**
+- [x] **Step 5: Perform one bounded final self-review**
 
 Review only confirmed Critical/Important findings across DDIA, API, security, UI, and scope. Fix once inline. Do not start a repeated review loop.
 
-- [ ] **Step 6: Stage exact frontend/doc files and inspect**
+- [x] **Step 6: Stage exact frontend/doc files and inspect**
 
 Run a staged diff secret scan for credential/token/key material, verify generated files match committed OpenAPI, and inspect git diff --cached --stat plus git diff --cached.
 

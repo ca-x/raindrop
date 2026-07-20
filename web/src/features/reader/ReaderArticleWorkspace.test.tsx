@@ -1,10 +1,11 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import type { ComponentProps } from "react"
 
 import { Providers } from "../../app/Providers"
 import { activateLocale } from "../../shared/i18n/i18n"
+import { fakeAiSettingsController } from "../ai/model/testFixtures"
 import { fakePreferencesController } from "../preferences/model/testFixtures"
 import { initialReaderState } from "./model/reducer"
 import type { ReaderController } from "./model/useReaderController"
@@ -12,6 +13,8 @@ import { ReaderRoutes as ProductionReaderRoutes } from "./routes/ReaderRoutes"
 import "./reader.css"
 
 describe("Reader article workspace", () => {
+  afterEach(() => vi.unstubAllGlobals())
+
   it("renders compact detail actions and keeps inert publisher image URLs disabled", async () => {
     activateLocale("en")
     const user = userEvent.setup()
@@ -150,6 +153,98 @@ describe("Reader article workspace", () => {
     act(() => window.history.back())
     await waitFor(() => expect(window.location.pathname).toBe("/reader/all"))
   })
+
+  it("keeps the original article node and scroll position while using the AI sidecar", async () => {
+    activateLocale("en")
+    const user = userEvent.setup()
+    const controller = articleController()
+    const aiSettingsController = fakeAiSettingsController()
+    window.history.replaceState(null, "", "/reader/unread/entry/entry")
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          availability: "READY",
+          mcpState: "CONTRACT_READY_TRANSPORT_UNAVAILABLE",
+          summary: {
+            operation: "SUMMARIZE",
+            state: "SUCCEEDED",
+            job: null,
+            artifact: {
+              artifactId: "00000000-0000-4000-8000-000000000501",
+              kind: "AI_SUMMARY",
+              providerLabel: "Primary model",
+              createdAt: "2026-07-20T10:00:00Z",
+              sourceLanguage: "en",
+              summary: "A stable summary.",
+              bullets: ["Original content stays present."],
+              conclusion: null,
+            },
+          },
+          translation: {
+            operation: "TRANSLATE",
+            targetLocale: "zh-CN",
+            state: "SUCCEEDED",
+            job: null,
+            artifact: {
+              artifactId: "00000000-0000-4000-8000-000000000502",
+              kind: "AI_TRANSLATION",
+              providerLabel: "Primary model",
+              createdAt: "2026-07-20T10:00:00Z",
+              detectedSourceLanguage: "en",
+              targetLocale: "zh-CN",
+              title: "不受追踪地阅读",
+              bodyMarkdown: "原文仍然保留。",
+            },
+          },
+        }),
+      ),
+    )
+
+    render(
+      <Providers>
+        <ReaderRoutes
+          controller={controller}
+          aiSettingsController={aiSettingsController}
+          username="reader"
+          onLogout={vi.fn()}
+          viewportMode="medium"
+        />
+      </Providers>,
+    )
+
+    const article = document.querySelector<HTMLElement>(".reader-article")!
+    const title = screen.getByRole("heading", { name: "Reading without trackers" })
+    const body = document.querySelector(".reader-article-body")!
+    article.scrollTop = 180
+
+    const summaryTrigger = screen.getByRole("button", { name: "Summary" })
+    await user.click(summaryTrigger)
+    expect(await screen.findByText("A stable summary.")).toBeVisible()
+    expect(document.querySelector(".reader-article")).toBe(article)
+    expect(screen.getByRole("heading", { name: "Reading without trackers" })).toBe(title)
+    expect(document.querySelector(".reader-article-body")).toBe(body)
+    expect(body).toHaveTextContent("Safe original article.")
+    expect(article.scrollTop).toBe(180)
+    expect(screen.getByRole("button", { name: "Mark as read" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    )
+
+    const sidecar = screen
+      .getByRole("heading", { name: "AI reading tools" })
+      .closest("section")!
+    await user.click(within(sidecar).getByRole("button", { name: "Translation" }))
+    expect(await screen.findByText("原文仍然保留。")).toBeVisible()
+    expect(document.querySelector(".reader-article")).toBe(article)
+    expect(article.scrollTop).toBe(180)
+
+    await user.click(screen.getByRole("button", { name: "Close AI sidecar" }))
+    expect(screen.queryByText("A stable summary.")).not.toBeInTheDocument()
+    expect(document.querySelector(".reader-article")).toBe(article)
+    expect(article.scrollTop).toBe(180)
+    await waitFor(() => expect(summaryTrigger).toHaveFocus())
+  })
 })
 
 function ReaderRoutes(
@@ -252,4 +347,10 @@ function articleController(): ReaderController {
     recordScrollAnchor: vi.fn(),
     clearMutationError: vi.fn(),
   }
+}
+
+function jsonResponse(body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    headers: { "content-type": "application/json" },
+  })
 }

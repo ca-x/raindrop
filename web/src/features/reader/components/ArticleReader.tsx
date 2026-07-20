@@ -4,6 +4,8 @@ import { Skeleton } from "@astryxdesign/core/Skeleton"
 import { useLingui } from "@lingui/react"
 import { useEffect, useLayoutEffect, useRef } from "react"
 
+import { AiReaderSidecar } from "../../ai/reader/AiReaderSidecar"
+import { useEntryAiController } from "../../ai/model/useEntryAiController"
 import type { ReaderState } from "../model/types"
 import { ArticleToolbar } from "./ReaderToolbar"
 
@@ -16,15 +18,28 @@ interface ArticleReaderProps {
   onRecordScroll: (route: string, offset: number) => void
   onToggleRead: (entryId: string) => Promise<void>
   onToggleStar: (entryId: string) => Promise<void>
+  csrfToken?: string
+  onUnauthenticated?: () => void
+  onOpenAiSettings?: () => void
 }
+
+const ignoreUnauthenticated = () => {}
 
 export function ArticleReader(props: ArticleReaderProps) {
   const { i18n } = useLingui()
   const articleRef = useRef<HTMLElement>(null)
   const headingRef = useRef<HTMLHeadingElement>(null)
+  const summaryButtonRef = useRef<HTMLButtonElement>(null)
+  const translationButtonRef = useRef<HTMLButtonElement>(null)
+  const activeAiTrigger = useRef<HTMLButtonElement | null>(null)
   const detail = props.state.selectedEntryId ? props.state.detailsById[props.state.selectedEntryId] : undefined
   const detailMatchesRoute = Boolean(detail && detail.entryId === props.routeEntryId)
   const canBindArticle = detailMatchesRoute && props.state.paneStatus.detail === "ready"
+  const aiController = useEntryAiController(
+    detailMatchesRoute ? detail?.entryId ?? null : null,
+    props.csrfToken ?? "",
+    props.onUnauthenticated ?? ignoreUnauthenticated,
+  )
   useLayoutEffect(() => {
     const node = articleRef.current
     const entryRoute = props.entryRoute
@@ -72,7 +87,35 @@ export function ArticleReader(props: ArticleReaderProps) {
         canonicalUrl={detail.canonicalUrl}
         onToggleRead={() => props.onToggleRead(detail.entryId)}
         onToggleStar={() => props.onToggleStar(detail.entryId)}
+        onOpenSummary={
+          props.csrfToken
+            ? () => {
+                activeAiTrigger.current = summaryButtonRef.current
+                aiController.open("summary")
+              }
+            : undefined
+        }
+        onOpenTranslation={
+          props.csrfToken
+            ? () => {
+                activeAiTrigger.current = translationButtonRef.current
+                aiController.open("translation")
+              }
+            : undefined
+        }
+        summaryButtonRef={summaryButtonRef}
+        translationButtonRef={translationButtonRef}
       />
+      {aiController.openTab ? (
+        <AiReaderSidecar
+          controller={aiController}
+          onOpenSettings={props.onOpenAiSettings}
+          onClose={() => {
+            aiController.close()
+            requestAnimationFrame(() => activeAiTrigger.current?.focus())
+          }}
+        />
+      ) : null}
       <article
         ref={articleRef}
         className="reader-article"
