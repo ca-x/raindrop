@@ -2,6 +2,11 @@
 
 Raindrop 是使用 Rust、Axum、SeaORM 和 React 构建的自托管 RSS 阅读器。它提供安全的 Feed 抓取与正文清洗、分类管理、未读与收藏状态、Feed 内搜索、批量已读、键盘导航、响应式阅读界面，以及 SQLite、PostgreSQL、MySQL 三种数据库支持。生产 Web 界面会嵌入单个 Rust 可执行文件。
 
+## v0.3.2
+
+- Docker 多架构发布改为 amd64 与 arm64 原生 runner 并行构建，移除耗时超过两小时的 QEMU Rust release 编译，再合并并校验多架构 manifest。
+- Docker builder 固定使用镜像自带的 Rust 1.94.0 toolchain，避免生产构建额外安装 Clippy 等无关组件。
+
 ## v0.3.1
 
 - 阅读器恢复经过清洗的远程图片，优化长内容与滚动条，并在正文末尾提供“打开原文”。

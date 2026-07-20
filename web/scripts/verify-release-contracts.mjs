@@ -47,7 +47,12 @@ requireMatch(
 )
 requireMatch(
   dockerfile,
-  /rustup target add wasm32-unknown-unknown/u,
+  /^ENV RUSTUP_TOOLCHAIN=1\.94\.0$/mu,
+  "Docker build toolchain override",
+)
+requireMatch(
+  dockerfile,
+  /rustup target add --toolchain "\$RUSTUP_TOOLCHAIN" wasm32-unknown-unknown/u,
   "Docker official guest target",
 )
 requireMatch(
@@ -171,11 +176,27 @@ requirePinnedActions(binaryWorkflow, "release-binaries.yml")
 const dockerWorkflow = read(".github/workflows/docker.yml")
 requireMatch(dockerWorkflow, /^\s+packages: write$/mu, "Docker package permission")
 requireMatch(dockerWorkflow, /^\s+release_tag:\s*$/mu, "manual Docker release tag input")
-requireMatch(dockerWorkflow, /^\s+timeout-minutes: 120$/mu, "bounded QEMU release timeout")
+requireMatch(
+  dockerWorkflow,
+  /group: docker-\$\{\{ inputs\.release_tag \|\| github\.ref_name \}\}/u,
+  "normalized Docker release concurrency",
+)
+requireMatch(dockerWorkflow, /^\s+timeout-minutes: 45$/mu, "bounded native image build timeout")
 requireMatch(dockerWorkflow, /ref: \$\{\{ inputs\.release_tag \|\| github\.ref \}\}/u, "tag source checkout")
 requireMatch(dockerWorkflow, /test "\$RELEASE_TAG" = "v\$\{package_version\}"/u, "Docker package version gate")
 requireMatch(dockerWorkflow, /git rev-list -n 1 "\$RELEASE_TAG"/u, "Docker tag commit gate")
-requireMatch(dockerWorkflow, /docker\/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130/u, "pinned QEMU action")
+requireNoMatch(dockerWorkflow, /docker\/setup-qemu-action@/u, "Docker release must not emulate CPU architectures")
+requireMatch(dockerWorkflow, /runs-on: \$\{\{ matrix\.runner \}\}/u, "native image runner matrix")
+requireMatch(
+  dockerWorkflow,
+  /runner: ubuntu-24\.04[\s\S]{0,160}platform: linux\/amd64/u,
+  "native amd64 image build",
+)
+requireMatch(
+  dockerWorkflow,
+  /runner: ubuntu-24\.04-arm[\s\S]{0,160}platform: linux\/arm64/u,
+  "native arm64 image build",
+)
 requireMatch(dockerWorkflow, /docker\/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435/u, "pinned Buildx action")
 requireMatch(dockerWorkflow, /docker\/login-action@5e57cd118135c172c3672efd75eb46360885c0ef/u, "pinned Docker login action")
 requireMatch(dockerWorkflow, /docker\/metadata-action@c1e51972afc2121e065aed6d45c65596fe445f3f/u, "pinned Docker metadata action")
@@ -184,15 +205,34 @@ requireMatch(dockerWorkflow, /ghcr\.io\/%s/u, "GHCR image selection")
 requireMatch(dockerWorkflow, /czyt\/raindrop/u, "optional Docker Hub image")
 requireMatch(dockerWorkflow, /DOCKERHUB_USERNAME/u, "Docker Hub username secret")
 requireMatch(dockerWorkflow, /DOCKERHUB_TOKEN/u, "Docker Hub token secret")
-requireMatch(dockerWorkflow, /linux\/amd64,linux\/arm64/u, "multi-architecture image platforms")
+requireMatch(dockerWorkflow, /platforms: \$\{\{ matrix\.platform \}\}/u, "single native image platform per build")
+requireMatch(dockerWorkflow, /docker buildx imagetools create/u, "multi-platform manifest publication")
+requireMatch(dockerWorkflow, /index\("amd64"\)/u, "published amd64 manifest verification")
+requireMatch(dockerWorkflow, /index\("arm64"\)/u, "published arm64 manifest verification")
+requireMatch(dockerWorkflow, /vnd\.docker\.reference\.type/u, "published attestation verification")
 for (const tagRule of ["type=ref,event=tag", "type=semver,pattern={{version}}", "type=semver,pattern={{major}}.{{minor}}", "type=sha,prefix=sha-"]) {
   requireMatch(dockerWorkflow, new RegExp(escapeRegExp(tagRule), "u"), `Docker metadata rule ${tagRule}`)
 }
 requireMatch(dockerWorkflow, /type=raw,value=latest/u, "latest Docker metadata rule")
-requireMatch(dockerWorkflow, /type=raw,value=sha-\$\{\{ steps\.source\.outputs\.short_sha \}\}/u, "manual Docker source SHA tag")
-requireMatch(dockerWorkflow, /GIT_COMMIT=\$\{\{ steps\.source\.outputs\.sha \}\}/u, "Docker source revision build argument")
-requireMatch(dockerWorkflow, /cache-from: type=gha/u, "Docker GHA cache restore")
-requireMatch(dockerWorkflow, /cache-to: type=gha,mode=max/u, "Docker GHA cache save")
+requireMatch(
+  dockerWorkflow,
+  /type=raw,value=latest,enable=\$\{\{ github\.event_name == 'push' \}\}/u,
+  "manual rebuild cannot roll back latest",
+)
+requireMatch(
+  dockerWorkflow,
+  /type=semver,pattern=\{\{major\}\}\.\{\{minor\}\},value=\$\{\{ env\.RELEASE_TAG \}\},enable=\$\{\{ github\.event_name == 'push' \}\}/u,
+  "manual rebuild cannot roll back minor alias",
+)
+requireMatch(dockerWorkflow, /type=raw,value=sha-\$\{\{ needs\.source\.outputs\.short_sha \}\}/u, "manual Docker source SHA tag")
+requireMatch(
+  dockerWorkflow,
+  /printf '%s:build-%s-%s-%s\\n'/u,
+  "run-unique native image handoff",
+)
+requireMatch(dockerWorkflow, /GIT_COMMIT=\$\{\{ env\.SOURCE_SHA \}\}/u, "Docker source revision build argument")
+requireMatch(dockerWorkflow, /cache-from: type=gha,scope=raindrop-\$\{\{ matrix\.cache_scope \}\}/u, "architecture-scoped Docker GHA cache restore")
+requireMatch(dockerWorkflow, /cache-to: type=gha,mode=max,scope=raindrop-\$\{\{ matrix\.cache_scope \}\}/u, "architecture-scoped Docker GHA cache save")
 requireMatch(dockerWorkflow, /^\s+provenance: true$/mu, "Docker provenance")
 requireMatch(dockerWorkflow, /^\s+sbom: true$/mu, "Docker SBOM")
 requireMatch(
@@ -207,7 +247,7 @@ requireMatch(
 )
 requireMatch(
   dockerWorkflow,
-  /RAINDROP_SIGNING_CACHE_EPOCH=\$\{\{ steps\.buildmeta\.outputs\.build_time \}\}/u,
+  /RAINDROP_SIGNING_CACHE_EPOCH=\$\{\{ needs\.source\.outputs\.build_time \}\}/u,
   "Docker signing cache epoch",
 )
 requireMatch(
