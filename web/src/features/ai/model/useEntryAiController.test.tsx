@@ -183,7 +183,7 @@ it("enqueues and retries with a fresh idempotency key", async () => {
     enqueueAiJob: vi.fn().mockResolvedValue(queuedJob),
     retryAiJob: vi.fn().mockResolvedValue(retryJob),
   })
-  const { result } = renderController(firstEntryId, api)
+  const { result } = renderController(firstEntryId, api, vi.fn(), 60_000)
   act(() => result.current.open("summary"))
   await waitFor(() => expect(result.current.loadStatus).toBe("ready"))
 
@@ -290,11 +290,12 @@ function renderController(
   entryId: string,
   api: EntryAiApi,
   onUnauthenticated = vi.fn(),
+  pollIntervalMs = 5,
 ) {
   return renderHook(() =>
     useEntryAiController(entryId, "csrf-memory", onUnauthenticated, {
       api,
-      pollIntervalMs: 5,
+      pollIntervalMs,
       idempotencyKey: sequenceKeys(),
     }),
   )
