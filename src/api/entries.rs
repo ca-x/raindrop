@@ -3,6 +3,7 @@ use axum::{
     extract::{FromRequestParts, Path, State},
     http::{StatusCode, request::Parts},
     middleware,
+    response::Response,
     routing::{get, patch, post},
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -17,7 +18,14 @@ use crate::{
     },
 };
 
-use super::{ApiError, ApiJson, routes::sensitive_cache_headers};
+use super::{
+    ApiError, ApiJson,
+    media::{fetch_raster_image, media_cache_headers},
+    routes::sensitive_cache_headers,
+};
+
+const MAX_ARTICLE_IMAGE_BYTES: usize = 10 * 1024 * 1024;
+const ARTICLE_IMAGE_CACHE_CONTROL: &str = "private, no-cache, max-age=0, must-revalidate";
 
 pub(super) fn router() -> Router<AppState> {
     let reader = Router::new()
@@ -31,6 +39,15 @@ pub(super) fn router() -> Router<AppState> {
         .route("/api/v1/entries/", axum::routing::any(reader_not_found))
         .nest("/api/v1/entries", reader)
         .layer(middleware::map_response(sensitive_cache_headers))
+}
+
+pub(super) fn media_router() -> Router<AppState> {
+    Router::new()
+        .route(
+            "/reader-assets/entries/{entry_id}/images/{image_index}",
+            get(get_entry_image),
+        )
+        .layer(middleware::map_response(media_cache_headers))
 }
 
 async fn reader_not_found() -> ApiError {
@@ -334,7 +351,59 @@ async fn get_entry(
         .await
         .map_err(map_repository_error)?
         .ok_or_else(ApiError::not_found)?;
+    state.cache_entry_images(&user.id, &detail.entry_id, detail.inert_images.clone());
     Ok(Json(detail.into()))
+}
+
+async fn get_entry_image(
+    State(state): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    Path((entry_id, image_index)): Path<(String, String)>,
+) -> Result<Response, ApiError> {
+    let image_index = image_index
+        .parse::<u32>()
+        .ok()
+        .filter(|index| index.to_string() == image_index)
+        .ok_or_else(ApiError::not_found)?;
+    let repository = repository(&state)?;
+    let source_url =
+        if let Some(source) = state.cached_entry_image_source(&user.id, &entry_id, image_index) {
+            if !repository
+                .entry_is_visible_to_user(&user.id, &entry_id)
+                .await
+                .map_err(map_entry_image_repository_error)?
+            {
+                return Err(ApiError::not_found());
+            }
+            source
+        } else {
+            let images = repository
+                .get_inert_images_for_user(&user.id, &entry_id)
+                .await
+                .map_err(map_entry_image_repository_error)?
+                .ok_or_else(ApiError::not_found)?;
+            let source = images
+                .iter()
+                .find(|image| image.image_index == image_index)
+                .map(|image| image.source_url.clone())
+                .ok_or_else(ApiError::not_found)?;
+            state.cache_entry_images(&user.id, &entry_id, images);
+            source
+        };
+    fetch_raster_image(
+        &state,
+        &source_url,
+        MAX_ARTICLE_IMAGE_BYTES,
+        ARTICLE_IMAGE_CACHE_CONTROL,
+    )
+    .await
+}
+
+fn map_entry_image_repository_error(error: RepositoryError) -> ApiError {
+    match error {
+        RepositoryError::InvalidEntryId => ApiError::not_found(),
+        other => map_repository_error(other),
+    }
 }
 
 async fn patch_entry_state(

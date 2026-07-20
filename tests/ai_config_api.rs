@@ -409,14 +409,14 @@ async fn config_put_creates_replaces_and_writes_fixed_internal_subtrees() {
 async fn config_put_rejects_invalid_shape_state_and_enabled_provider_selection() {
     let fixture = AiConfigFixture::new(true).await;
 
-    let mismatch = fixture
+    let independent_toggle = fixture
         .request(
             Method::PUT,
             Some({
                 let mut body = config_body(
                     Value::Null,
                     true,
-                    &fixture.user_a_provider_id,
+                    &fixture.user_a_disabled_provider_id,
                     false,
                     &fixture.user_a_provider_id,
                 );
@@ -427,10 +427,11 @@ async fn config_put_rejects_invalid_shape_state_and_enabled_provider_selection()
             true,
         )
         .await;
-    assert_error(
-        &mismatch,
-        StatusCode::UNPROCESSABLE_ENTITY,
-        "VALIDATION_ERROR",
+    assert_eq!(independent_toggle.status, StatusCode::OK);
+    assert_public_config(&independent_toggle.json(), 0, false);
+    assert_eq!(
+        independent_toggle.json()["config"]["summary"]["enabled"],
+        true
     );
 
     for provider_id in [

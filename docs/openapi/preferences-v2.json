@@ -1,0 +1,379 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Raindrop User Preferences API",
+    "version": "2.0.0",
+    "description": "Authenticated user-scoped personal and reading preferences. This committed v2 contract is the frontend wire DTO source."
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Preferences"
+    }
+  ],
+  "paths": {
+    "/api/v2/preferences": {
+      "get": {
+        "tags": [
+          "Preferences"
+        ],
+        "operationId": "getUserPreferences",
+        "summary": "Get the current user's effective appearance preferences",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AcceptLanguage"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Preferences"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Preferences"
+        ],
+        "operationId": "patchUserPreferences",
+        "summary": "Partially update the current user's appearance preferences",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AcceptLanguage"
+          },
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchUserPreferencesRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Preferences"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "sessionCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "raindrop_session"
+      }
+    },
+    "parameters": {
+      "AcceptLanguage": {
+        "name": "Accept-Language",
+        "in": "header",
+        "required": false,
+        "description": "When no row exists, a leading zh language range selects zh-CN; all other values select en.",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "CsrfToken": {
+        "name": "x-csrf-token",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      }
+    },
+    "headers": {
+      "CacheControl": {
+        "description": "Preference responses are never stored.",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "no-store"
+          ]
+        }
+      },
+      "Pragma": {
+        "description": "Compatibility cache directive.",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "no-cache"
+          ]
+        }
+      },
+      "RetryAfter": {
+        "description": "Seconds until the preference mutation may be retried.",
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "schemas": {
+      "UserPreferences": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "locale",
+          "themeMode",
+          "layoutDensity",
+          "readingFontScale",
+          "readingFontFamily",
+          "readingColorScheme",
+          "linkOpenMode"
+        ],
+        "properties": {
+          "locale": {
+            "type": "string",
+            "enum": [
+              "zh-CN",
+              "en"
+            ]
+          },
+          "themeMode": {
+            "type": "string",
+            "enum": [
+              "SYSTEM",
+              "LIGHT",
+              "DARK"
+            ]
+          },
+          "layoutDensity": {
+            "type": "string",
+            "enum": [
+              "COMPACT",
+              "BALANCED",
+              "SPACIOUS"
+            ]
+          },
+          "readingFontScale": {
+            "type": "integer",
+            "minimum": 85,
+            "maximum": 130
+          },
+          "readingFontFamily": {
+            "type": "string",
+            "enum": [
+              "SERIF",
+              "SANS"
+            ]
+          },
+          "readingColorScheme": {
+            "type": "string",
+            "enum": [
+              "AUTO",
+              "PAPER",
+              "SEPIA",
+              "GRAY"
+            ]
+          },
+          "linkOpenMode": {
+            "type": "string",
+            "enum": [
+              "CURRENT_TAB",
+              "NEW_TAB"
+            ]
+          }
+        }
+      },
+      "PatchUserPreferencesRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "properties": {
+          "locale": {
+            "type": "string",
+            "enum": [
+              "zh-CN",
+              "en"
+            ]
+          },
+          "themeMode": {
+            "type": "string",
+            "enum": [
+              "SYSTEM",
+              "LIGHT",
+              "DARK"
+            ]
+          },
+          "layoutDensity": {
+            "type": "string",
+            "enum": [
+              "COMPACT",
+              "BALANCED",
+              "SPACIOUS"
+            ]
+          },
+          "readingFontScale": {
+            "type": "integer",
+            "minimum": 85,
+            "maximum": 130
+          },
+          "readingFontFamily": {
+            "type": "string",
+            "enum": [
+              "SERIF",
+              "SANS"
+            ]
+          },
+          "readingColorScheme": {
+            "type": "string",
+            "enum": [
+              "AUTO",
+              "PAPER",
+              "SEPIA",
+              "GRAY"
+            ]
+          },
+          "linkOpenMode": {
+            "type": "string",
+            "enum": [
+              "CURRENT_TAB",
+              "NEW_TAB"
+            ]
+          }
+        }
+      },
+      "ApiError": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "message",
+          "requestId"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "fields": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "ApiErrorEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ApiError"
+          }
+        }
+      }
+    },
+    "responses": {
+      "Preferences": {
+        "description": "Complete effective preferences for the current user.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/CacheControl"
+          },
+          "Pragma": {
+            "$ref": "#/components/headers/Pragma"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/UserPreferences"
+            }
+          }
+        }
+      },
+      "Error": {
+        "description": "Stable public error envelope.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/CacheControl"
+          },
+          "Pragma": {
+            "$ref": "#/components/headers/Pragma"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiErrorEnvelope"
+            }
+          }
+        }
+      },
+      "RateLimited": {
+        "description": "The per-user preference mutation budget is exhausted.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/CacheControl"
+          },
+          "Pragma": {
+            "$ref": "#/components/headers/Pragma"
+          },
+          "Retry-After": {
+            "$ref": "#/components/headers/RetryAfter"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiErrorEnvelope"
+            }
+          }
+        }
+      }
+    }
+  }
+}

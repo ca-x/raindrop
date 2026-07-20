@@ -4,8 +4,8 @@ mod support;
 use raindrop::{
     db::{DatabaseConfig, connect, entities::user_preference, migrate},
     preferences::{
-        LayoutDensity, Locale, PreferenceError, PreferenceRepository, ThemeMode,
-        UpdateUserPreferences,
+        LayoutDensity, LinkOpenMode, Locale, PreferenceError, PreferenceRepository,
+        ReadingColorScheme, ReadingFontFamily, ThemeMode, UpdateUserPreferences,
     },
 };
 use sea_orm::{
@@ -30,6 +30,9 @@ async fn missing_rows_use_the_requested_locale_and_stable_defaults() {
     assert_eq!(zh.theme_mode, ThemeMode::System);
     assert_eq!(zh.layout_density, LayoutDensity::Balanced);
     assert_eq!(zh.reading_font_scale, 100);
+    assert_eq!(zh.reading_font_family, ReadingFontFamily::Serif);
+    assert_eq!(zh.reading_color_scheme, ReadingColorScheme::Auto);
+    assert_eq!(zh.link_open_mode, LinkOpenMode::NewTab);
     assert!(
         user_preference::Entity::find_by_id(USER_A_ID)
             .one(&fixture.database)
@@ -93,6 +96,9 @@ async fn partial_updates_preserve_every_untouched_field() {
                 theme_mode: Some(ThemeMode::Light),
                 layout_density: Some(LayoutDensity::Spacious),
                 reading_font_scale: Some(120),
+                reading_font_family: Some(ReadingFontFamily::Sans),
+                reading_color_scheme: Some(ReadingColorScheme::Sepia),
+                link_open_mode: Some(LinkOpenMode::CurrentTab),
             },
         )
         .await
@@ -101,6 +107,9 @@ async fn partial_updates_preserve_every_untouched_field() {
     assert_eq!(complete.theme_mode, ThemeMode::Light);
     assert_eq!(complete.layout_density, LayoutDensity::Spacious);
     assert_eq!(complete.reading_font_scale, 120);
+    assert_eq!(complete.reading_font_family, ReadingFontFamily::Sans);
+    assert_eq!(complete.reading_color_scheme, ReadingColorScheme::Sepia);
+    assert_eq!(complete.link_open_mode, LinkOpenMode::CurrentTab);
 }
 
 #[tokio::test]
@@ -241,6 +250,9 @@ async fn corrupt_storage_is_redacted_and_fails_closed() {
         theme_mode: Set("SECRET-BROKEN-THEME".to_owned()),
         layout_density: Set("BALANCED".to_owned()),
         reading_font_scale: Set(100),
+        reading_font_family: Set("SERIF".to_owned()),
+        reading_color_scheme: Set("AUTO".to_owned()),
+        link_open_mode: Set("NEW_TAB".to_owned()),
         created_at: Set(OffsetDateTime::now_utc()),
         updated_at: Set(OffsetDateTime::now_utc()),
     }

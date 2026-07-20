@@ -65,6 +65,84 @@ pub enum LayoutDensity {
     Spacious,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReadingFontFamily {
+    Serif,
+    Sans,
+}
+
+impl ReadingFontFamily {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Serif => "SERIF",
+            Self::Sans => "SANS",
+        }
+    }
+
+    fn from_storage(value: &str) -> Result<Self, PreferenceError> {
+        match value {
+            "SERIF" => Ok(Self::Serif),
+            "SANS" => Ok(Self::Sans),
+            _ => Err(PreferenceError::CorruptData),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReadingColorScheme {
+    Auto,
+    Paper,
+    Sepia,
+    Gray,
+}
+
+impl ReadingColorScheme {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "AUTO",
+            Self::Paper => "PAPER",
+            Self::Sepia => "SEPIA",
+            Self::Gray => "GRAY",
+        }
+    }
+
+    fn from_storage(value: &str) -> Result<Self, PreferenceError> {
+        match value {
+            "AUTO" => Ok(Self::Auto),
+            "PAPER" => Ok(Self::Paper),
+            "SEPIA" => Ok(Self::Sepia),
+            "GRAY" => Ok(Self::Gray),
+            _ => Err(PreferenceError::CorruptData),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LinkOpenMode {
+    CurrentTab,
+    NewTab,
+}
+
+impl LinkOpenMode {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::CurrentTab => "CURRENT_TAB",
+            Self::NewTab => "NEW_TAB",
+        }
+    }
+
+    fn from_storage(value: &str) -> Result<Self, PreferenceError> {
+        match value {
+            "CURRENT_TAB" => Ok(Self::CurrentTab),
+            "NEW_TAB" => Ok(Self::NewTab),
+            _ => Err(PreferenceError::CorruptData),
+        }
+    }
+}
+
 impl LayoutDensity {
     #[must_use]
     pub const fn as_str(self) -> &'static str {
@@ -91,6 +169,9 @@ pub struct UserPreferences {
     pub theme_mode: ThemeMode,
     pub layout_density: LayoutDensity,
     pub reading_font_scale: i32,
+    pub reading_font_family: ReadingFontFamily,
+    pub reading_color_scheme: ReadingColorScheme,
+    pub link_open_mode: LinkOpenMode,
 }
 
 impl UserPreferences {
@@ -101,6 +182,9 @@ impl UserPreferences {
             theme_mode: ThemeMode::System,
             layout_density: LayoutDensity::Balanced,
             reading_font_scale: 100,
+            reading_font_family: ReadingFontFamily::Serif,
+            reading_color_scheme: ReadingColorScheme::Auto,
+            link_open_mode: LinkOpenMode::NewTab,
         }
     }
 
@@ -113,6 +197,9 @@ impl UserPreferences {
             theme_mode: ThemeMode::from_storage(&model.theme_mode)?,
             layout_density: LayoutDensity::from_storage(&model.layout_density)?,
             reading_font_scale: model.reading_font_scale,
+            reading_font_family: ReadingFontFamily::from_storage(&model.reading_font_family)?,
+            reading_color_scheme: ReadingColorScheme::from_storage(&model.reading_color_scheme)?,
+            link_open_mode: LinkOpenMode::from_storage(&model.link_open_mode)?,
         })
     }
 
@@ -122,6 +209,13 @@ impl UserPreferences {
             theme_mode: patch.theme_mode.unwrap_or(self.theme_mode),
             layout_density: patch.layout_density.unwrap_or(self.layout_density),
             reading_font_scale: patch.reading_font_scale.unwrap_or(self.reading_font_scale),
+            reading_font_family: patch
+                .reading_font_family
+                .unwrap_or(self.reading_font_family),
+            reading_color_scheme: patch
+                .reading_color_scheme
+                .unwrap_or(self.reading_color_scheme),
+            link_open_mode: patch.link_open_mode.unwrap_or(self.link_open_mode),
         }
     }
 }
@@ -132,6 +226,9 @@ pub struct UpdateUserPreferences {
     pub theme_mode: Option<ThemeMode>,
     pub layout_density: Option<LayoutDensity>,
     pub reading_font_scale: Option<i32>,
+    pub reading_font_family: Option<ReadingFontFamily>,
+    pub reading_color_scheme: Option<ReadingColorScheme>,
+    pub link_open_mode: Option<LinkOpenMode>,
 }
 
 impl UpdateUserPreferences {
@@ -140,6 +237,9 @@ impl UpdateUserPreferences {
             && self.theme_mode.is_none()
             && self.layout_density.is_none()
             && self.reading_font_scale.is_none()
+            && self.reading_font_family.is_none()
+            && self.reading_color_scheme.is_none()
+            && self.link_open_mode.is_none()
         {
             return Err(PreferenceError::InvalidPatch);
         }

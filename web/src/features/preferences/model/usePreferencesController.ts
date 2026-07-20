@@ -155,6 +155,15 @@ function preferencePatch(
   if (current.readingFontScale !== draft.readingFontScale) {
     patch.readingFontScale = draft.readingFontScale
   }
+  if (current.readingFontFamily !== draft.readingFontFamily) {
+    patch.readingFontFamily = draft.readingFontFamily
+  }
+  if (current.readingColorScheme !== draft.readingColorScheme) {
+    patch.readingColorScheme = draft.readingColorScheme
+  }
+  if (current.linkOpenMode !== draft.linkOpenMode) {
+    patch.linkOpenMode = draft.linkOpenMode
+  }
   return Object.keys(patch).length > 0
     ? (patch as PatchUserPreferencesRequest)
     : null

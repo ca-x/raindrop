@@ -38,13 +38,15 @@ provider_secret_keys = [
 openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n'
 ```
 
-配置是可选的，因此不使用 AI 的现有安装仍可启动。未配置 keyring 时进程仍会验证官方组件并同步 installation，但 content runtime 不领取任务；RSS、Reader 和其他现有功能不受影响，也不会生成临时密钥或退化为明文。Provider 元数据的 list/get 和不含 credential 的更新仍可工作；创建 Provider、轮换 credential 或为没有 current artifact 的文章创建新任务会返回 `AI_PROVIDER_KEYRING_UNAVAILABLE`。如果 current artifact 已存在，Reader 可以先返回该结果，不要求再次解密 credential。
+SQLite 和交互式设置默认在数据目录创建一次 `provider-secret.key`，内容为 `local-primary:<BASE64URL_32_BYTES>`，Unix 权限为 `0600`；后续启动稳定复用，不会生成临时密钥。交互式设置若选择 PostgreSQL/MySQL，也会继续使用这份本地 key，因此迁移或备份时必须连同数据目录一起保留。显式 `RAINDROP_PROVIDER_SECRET_KEYS` 或 TOML keyring 始终优先，适合多实例共享、环境托管数据库和轮换。
+
+纯环境托管的 PostgreSQL/MySQL 部署未配置 keyring、且数据目录没有交互式设置留下的本地 key 时，进程仍会验证官方组件并同步 installation，但 content runtime 不领取任务；RSS、Reader 和其他现有功能不受影响，也不会退化为明文。Provider 元数据的 list/get 和不含 credential 的更新仍可工作；创建 Provider、轮换 credential 或为没有 current artifact 的文章创建新任务会返回 `AI_PROVIDER_KEYRING_UNAVAILABLE`。如果 current artifact 已存在，Reader 可以先返回该结果，不要求再次解密 credential。
 
 配置有效 keyring 后，生产进程组合 repository、HTTPS transport、Provider client、broker、官方 Wasm processor 和八条领取 lane。任务仍由用户从 Reader 显式发起，不会因订阅刷新、文章打开、Provider 保存或进程启动而自动创建。
 
 ## 用户设置与 credential 边界
 
-登录用户可以在“设置 > AI”中管理自己的 Provider。当前 UI 支持 list、create 和 edit，不提供物理删除；instance scope Provider 对普通用户可见但只读。Provider kind 创建后不可修改，用户可以更新显示名、HTTPS endpoint、model、capability、policy、启用状态和 credential。
+登录用户可以在“设置 > 插件”中管理自己的 Provider，并通过 AI 阅读插件总开关控制 Reader 是否出现摘要和翻译操作。当前 UI 支持 list、create 和 edit，不提供物理删除；instance scope Provider 对普通用户可见但只读。Provider kind 创建后不可修改，用户可以更新显示名、HTTPS endpoint、model、capability、policy、启用状态和 credential。
 
 Credential 是 write-only 字段。创建或轮换时，它只存在于请求边界和表单草稿中；Provider 响应、前端缓存、错误对象和编辑初始值都不包含 credential。编辑表单默认留空，空白表示保留现有 envelope。API 也不会返回 `encrypted_secret`、key ID、原始 policy JSON 或 owner user ID。
 
@@ -77,7 +79,7 @@ Credential 是 write-only 字段。创建或轮换时，它只存在于请求边
 
 ## 备份与恢复
 
-数据库备份只包含 `rdsec1.<key-id>.<nonce>.<ciphertext+tag>`，不包含 key material。可恢复备份必须同时满足：
+数据库备份只包含 `rdsec1.<key-id>.<nonce>.<ciphertext+tag>`，不包含 key material。SQLite/交互式安装的 `provider-secret.key` 与显式配置的 keyring 同样属于秘密备份。可恢复备份必须同时满足：
 
 - 数据库、provider keyring 和配置版本属于同一恢复点；
 - keyring 单独存放在受控 secret backup 中，不与公开数据库快照打包；

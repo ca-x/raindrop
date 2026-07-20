@@ -18,6 +18,9 @@ export function defaultPreferences(locale: PreferenceLocale): UserPreferences {
     themeMode: "SYSTEM",
     layoutDensity: "BALANCED",
     readingFontScale: 100,
+    readingFontFamily: "SERIF",
+    readingColorScheme: "AUTO",
+    linkOpenMode: "NEW_TAB",
   }
 }
 
@@ -42,4 +45,8 @@ export function toAstryxDensity(density: PreferenceLayoutDensity): ListDensity {
 
 export function toReadingScaleCss(scale: number): string {
   return `${scale}%`
+}
+
+export function toReadingDataValue(value: string): string {
+  return value.toLowerCase().replace("_", "-")
 }

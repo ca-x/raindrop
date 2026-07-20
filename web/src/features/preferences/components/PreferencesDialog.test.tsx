@@ -13,9 +13,12 @@ const preferences: UserPreferences = {
   themeMode: "SYSTEM",
   layoutDensity: "BALANCED",
   readingFontScale: 100,
+  readingFontFamily: "SERIF",
+  readingColorScheme: "AUTO",
+  linkOpenMode: "NEW_TAB",
 }
 
-it("edits all four values through ASTRYX controls and saves once", async () => {
+it("edits personal and reading preferences through ASTRYX controls and saves once", async () => {
   activateLocale("en")
   const user = userEvent.setup()
   const onSave = vi.fn().mockResolvedValue(true)
@@ -26,7 +29,13 @@ it("edits all four values through ASTRYX controls and saves once", async () => {
   await user.click(within(dialog).getByRole("radio", { name: "Dark" }))
   await user.click(within(dialog).getByRole("radio", { name: "中文" }))
   await user.click(within(dialog).getByRole("radio", { name: "Compact" }))
-  await user.click(within(dialog).getByRole("radio", { name: "120%" }))
+  await user.click(within(dialog).getByRole("button", { name: "Reading" }))
+  await user.click(within(dialog).getByRole("radio", { name: "Sans serif" }))
+  await user.click(within(dialog).getByRole("radio", { name: "Sepia" }))
+  await user.click(within(dialog).getByRole("radio", { name: "Current page" }))
+  const readingSize = within(dialog).getByRole("slider", { name: "Reading size" })
+  readingSize.focus()
+  await user.keyboard("{ArrowRight}{ArrowRight}{ArrowRight}{ArrowRight}")
   await user.click(within(dialog).getByRole("button", { name: "Save changes" }))
 
   expect(onSave).toHaveBeenCalledOnce()
@@ -35,6 +44,9 @@ it("edits all four values through ASTRYX controls and saves once", async () => {
     themeMode: "DARK",
     layoutDensity: "COMPACT",
     readingFontScale: 120,
+    readingFontFamily: "SANS",
+    readingColorScheme: "SEPIA",
+    linkOpenMode: "CURRENT_TAB",
   })
   await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
 })
@@ -118,7 +130,7 @@ it("keeps OPML transfer in a separate subscriptions tab", async () => {
   expect(within(dialog).getByRole("button", { name: "Close" })).toBeVisible()
 })
 
-it("keeps AI saves separate from the appearance controller", async () => {
+it("keeps plugin saves separate from the preference controller", async () => {
   activateLocale("en")
   const user = userEvent.setup()
   const onSave = vi.fn().mockResolvedValue(true)
@@ -129,9 +141,9 @@ it("keeps AI saves separate from the appearance controller", async () => {
   })
   const dialog = screen.getByRole("dialog", { name: "Settings" })
 
-  await user.click(within(dialog).getByRole("button", { name: "AI" }))
+  await user.click(within(dialog).getByRole("button", { name: "Plugins" }))
   await user.click(
-    within(dialog).getByRole("checkbox", { name: "Enable summary" }),
+    within(dialog).getByRole("switch", { name: "Enable AI reading plugin" }),
   )
   await user.click(
     within(dialog).getByRole("button", { name: "Save AI settings" }),

@@ -28,7 +28,7 @@ export interface ReaderController {
   toggleRead: (entryId: string) => Promise<void>
   toggleStar: (entryId: string) => Promise<void>
   addSubscription: (url: string) => Promise<void>
-  deleteSubscription: (subscriptionId: string) => Promise<void>
+  deleteSubscription: (subscriptionId: string) => Promise<boolean>
   refreshSubscription: (subscriptionId: string) => Promise<void>
   createCategory: (title: string) => Promise<boolean>
   updateCategory: (

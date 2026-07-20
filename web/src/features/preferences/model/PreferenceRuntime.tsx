@@ -26,6 +26,7 @@ import {
 import {
   defaultPreferences,
   toDensityAttribute,
+  toReadingDataValue,
   toReadingScaleCss,
 } from "./preferenceTypes"
 
@@ -48,6 +49,12 @@ export function PreferenceRuntimeProvider({ children }: { children: ReactNode })
     document.documentElement.style.setProperty(
       "--raindrop-reading-scale",
       toReadingScaleCss(preferences.readingFontScale),
+    )
+    document.documentElement.dataset.raindropReadingFont = toReadingDataValue(
+      preferences.readingFontFamily,
+    )
+    document.documentElement.dataset.raindropReadingColor = toReadingDataValue(
+      preferences.readingColorScheme,
     )
   }, [preferences])
 

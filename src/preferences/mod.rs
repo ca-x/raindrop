@@ -3,5 +3,6 @@ mod types;
 
 pub use repository::PreferenceRepository;
 pub use types::{
-    LayoutDensity, Locale, PreferenceError, ThemeMode, UpdateUserPreferences, UserPreferences,
+    LayoutDensity, LinkOpenMode, Locale, PreferenceError, ReadingColorScheme, ReadingFontFamily,
+    ThemeMode, UpdateUserPreferences, UserPreferences,
 };

@@ -60,24 +60,54 @@ async fn preference_schema_contract(database_url: SecretString) {
     insert_user(&database, USER_A_ID, "preference-a").await;
     insert_user(&database, USER_B_ID, "preference-b").await;
 
-    preference_model(USER_A_ID, "zh-CN", "SYSTEM", "BALANCED", 100)
+    preference_model(
+        USER_A_ID, "zh-CN", "SYSTEM", "BALANCED", 100, "SERIF", "AUTO", "NEW_TAB",
+    )
+    .insert(&database)
+    .await
+    .expect("valid preferences should insert");
+    assert!(
+        preference_model(
+            USER_A_ID,
+            "en",
+            "DARK",
+            "COMPACT",
+            90,
+            "SANS",
+            "SEPIA",
+            "CURRENT_TAB",
+        )
         .insert(&database)
         .await
-        .expect("valid preferences should insert");
-    assert!(
-        preference_model(USER_A_ID, "en", "DARK", "COMPACT", 90)
-            .insert(&database)
-            .await
-            .is_err(),
+        .is_err(),
         "one preference row must exist per user"
     );
 
     for invalid in [
-        preference_model(USER_A_ID, "fr", "SYSTEM", "BALANCED", 100),
-        preference_model(USER_A_ID, "en", "AUTO", "BALANCED", 100),
-        preference_model(USER_A_ID, "en", "SYSTEM", "DENSE", 100),
-        preference_model(USER_A_ID, "en", "SYSTEM", "BALANCED", 84),
-        preference_model(USER_A_ID, "en", "SYSTEM", "BALANCED", 131),
+        preference_model(
+            USER_A_ID, "fr", "SYSTEM", "BALANCED", 100, "SERIF", "AUTO", "NEW_TAB",
+        ),
+        preference_model(
+            USER_A_ID, "en", "AUTO", "BALANCED", 100, "SERIF", "AUTO", "NEW_TAB",
+        ),
+        preference_model(
+            USER_A_ID, "en", "SYSTEM", "DENSE", 100, "SERIF", "AUTO", "NEW_TAB",
+        ),
+        preference_model(
+            USER_A_ID, "en", "SYSTEM", "BALANCED", 84, "SERIF", "AUTO", "NEW_TAB",
+        ),
+        preference_model(
+            USER_A_ID, "en", "SYSTEM", "BALANCED", 131, "SERIF", "AUTO", "NEW_TAB",
+        ),
+        preference_model(
+            USER_A_ID, "en", "SYSTEM", "BALANCED", 100, "MONO", "AUTO", "NEW_TAB",
+        ),
+        preference_model(
+            USER_A_ID, "en", "SYSTEM", "BALANCED", 100, "SERIF", "BLUE", "NEW_TAB",
+        ),
+        preference_model(
+            USER_A_ID, "en", "SYSTEM", "BALANCED", 100, "SERIF", "AUTO", "POPUP",
+        ),
     ] {
         assert!(
             invalid.update(&database).await.is_err(),
@@ -128,6 +158,9 @@ async fn assert_schema(database: &DatabaseConnection) {
         "theme_mode",
         "layout_density",
         "reading_font_scale",
+        "reading_font_family",
+        "reading_color_scheme",
+        "link_open_mode",
         "created_at",
         "updated_at",
     ] {
@@ -141,12 +174,16 @@ async fn assert_schema(database: &DatabaseConnection) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn preference_model(
     user_id: &str,
     locale: &str,
     theme_mode: &str,
     layout_density: &str,
     reading_font_scale: i32,
+    reading_font_family: &str,
+    reading_color_scheme: &str,
+    link_open_mode: &str,
 ) -> user_preference::ActiveModel {
     user_preference::ActiveModel {
         user_id: Set(user_id.to_owned()),
@@ -154,6 +191,9 @@ fn preference_model(
         theme_mode: Set(theme_mode.to_owned()),
         layout_density: Set(layout_density.to_owned()),
         reading_font_scale: Set(reading_font_scale),
+        reading_font_family: Set(reading_font_family.to_owned()),
+        reading_color_scheme: Set(reading_color_scheme.to_owned()),
+        link_open_mode: Set(link_open_mode.to_owned()),
         created_at: Set(CONTRACT_AT),
         updated_at: Set(CONTRACT_AT),
     }

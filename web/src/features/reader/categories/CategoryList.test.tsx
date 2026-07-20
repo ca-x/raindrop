@@ -46,6 +46,13 @@ it("renders empty categories, categorized feeds, and Uncategorized in one TreeLi
   expect(screen.getByText("Empty category")).toBeVisible()
   expect(screen.getByText("Uncategorized")).toBeVisible()
   expect(screen.getByText("Example Feed")).toBeVisible()
+  const favicon = document.querySelector<HTMLImageElement>(".reader-source-favicon")!
+  expect(favicon).toHaveAttribute(
+    "src",
+    `/reader-assets/subscriptions/${subscriptionId}/favicon`,
+  )
+  expect(favicon).toHaveAttribute("loading", "lazy")
+  expect(favicon).toHaveAttribute("referrerpolicy", "no-referrer")
   expect(screen.getByRole("tree").parentElement).toHaveAttribute(
     "data-density",
     "balanced",

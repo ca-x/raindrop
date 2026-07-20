@@ -237,11 +237,14 @@ async function installPreferenceFixture(page: Page): Promise<ReaderPreferenceFix
     themeMode: "SYSTEM",
     layoutDensity: "BALANCED",
     readingFontScale: 100,
+    readingFontFamily: "SERIF",
+    readingColorScheme: "AUTO",
+    linkOpenMode: "NEW_TAB",
   }
   let shouldFailNextPatch = false
   const patches: PreferencePatchCall[] = []
 
-  await page.route("**/api/v1/preferences", async (route) => {
+  await page.route("**/api/v2/preferences", async (route) => {
     const request = route.request()
     const method = request.method()
     if (method === "GET") {

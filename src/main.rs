@@ -10,12 +10,18 @@ use raindrop::{
     app::{AppState, build_router},
     auth::{CreateAdminInput, PasswordService, create_admin},
     background::BackgroundRuntime,
-    config::{BootstrapMode, ConfigArgs, SystemEnv, load, new_setup_token},
+    config::{
+        BootstrapMode, ConfigArgs, DatabaseKind, SystemEnv, load,
+        load_existing_local_provider_secret_keys, load_or_create_local_provider_secret_keys,
+        new_setup_token,
+    },
     content::provider::ProviderSecretKeyring,
-    db::{DatabaseConfig, connect, migrate},
+    db::{DatabaseConfig, connect, entities::ai_provider, migrate},
+    feeds::{FeedTransport, FeedUrlPolicy, HttpFeedTransport},
     setup::SetupService,
 };
-use secrecy::ExposeSecret;
+use sea_orm::{EntityTrait, PaginatorTrait};
+use secrecy::{ExposeSecret, SecretString};
 use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
@@ -43,18 +49,10 @@ async fn main() -> Result<()> {
         &SystemEnv,
     )
     .context("failed to load Raindrop configuration")?;
-    let provider_secret_keys = loaded.runtime.take_provider_secret_keys();
-    let provider_keyring = if provider_secret_keys.is_empty() {
-        None
-    } else {
-        Some(Arc::new(
-            ProviderSecretKeyring::from_entries(&provider_secret_keys)
-                .context("failed to initialize the configured provider secret keyring")?,
-        ))
-    };
-    drop(provider_secret_keys);
-    let address = loaded.runtime.bind;
     let data_dir = loaded.runtime.data_dir.clone();
+    let database_kind = loaded.runtime.database_kind();
+    let configured_provider_secret_keys = loaded.runtime.take_provider_secret_keys();
+    let address = loaded.runtime.bind;
     let public_url = loaded.runtime.public_url.clone();
     let feed_retention = loaded.runtime.feed_retention();
     let database_url = loaded.runtime.database_url;
@@ -62,7 +60,7 @@ async fn main() -> Result<()> {
     let setup = match loaded.mode {
         BootstrapMode::SetupRequired { token } => {
             eprintln!("Raindrop setup token: {}", token.expose_secret());
-            SetupService::required(data_dir, token, public_url)
+            SetupService::required(data_dir.clone(), token, public_url)
         }
         BootstrapMode::Ready => {
             let database_url =
@@ -97,7 +95,7 @@ async fn main() -> Result<()> {
                 .await
                 .context("failed to create the bootstrap administrator")?;
                 setup = SetupService::from_configured_database(
-                    data_dir,
+                    data_dir.clone(),
                     token.clone(),
                     public_url,
                     database,
@@ -113,6 +111,22 @@ async fn main() -> Result<()> {
             setup
         }
     };
+    let provider_secret_keys = resolve_provider_secret_keys(
+        configured_provider_secret_keys,
+        &data_dir,
+        database_kind,
+        &setup,
+    )
+    .await?;
+    let provider_keyring = if provider_secret_keys.is_empty() {
+        None
+    } else {
+        Some(Arc::new(
+            ProviderSecretKeyring::from_entries(&provider_secret_keys)
+                .context("failed to initialize the configured provider secret keyring")?,
+        ))
+    };
+    drop(provider_secret_keys);
     let listener = TcpListener::bind(address)
         .await
         .with_context(|| format!("failed to bind Raindrop to {address}"))?;
@@ -120,17 +134,24 @@ async fn main() -> Result<()> {
         BackgroundRuntime::production(setup.clone(), feed_retention, provider_keyring.clone())
             .context("failed to compose Raindrop background runtime")?;
     let background_runtime_task = tokio::spawn(background_runtime.run());
+    let media_transport: Arc<dyn FeedTransport> = Arc::new(
+        HttpFeedTransport::new(FeedUrlPolicy::new(false))
+            .context("failed to compose Raindrop media transport")?,
+    );
 
     info!(%address, version = env!("CARGO_PKG_VERSION"), "Raindrop listening");
     let (server_shutdown_tx, server_shutdown_rx) = oneshot::channel();
     let server = axum::serve(
         listener,
-        build_router(AppState::with_runtime_services(
-            setup,
-            background_handle.feed(),
-            background_handle.content(),
-            provider_keyring,
-        ))
+        build_router(
+            AppState::with_runtime_services(
+                setup,
+                background_handle.feed(),
+                background_handle.content(),
+                provider_keyring,
+            )
+            .with_media_transport(media_transport),
+        )
         .into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
     .with_graceful_shutdown(async move {
@@ -145,6 +166,44 @@ async fn main() -> Result<()> {
         server,
     )
     .await
+}
+
+async fn resolve_provider_secret_keys(
+    configured: Vec<SecretString>,
+    data_dir: &std::path::Path,
+    database_kind: Option<DatabaseKind>,
+    setup: &SetupService,
+) -> Result<Vec<SecretString>> {
+    if !configured.is_empty() {
+        return Ok(configured);
+    }
+    if let Some(existing) = load_existing_local_provider_secret_keys(data_dir)
+        .context("failed to load local provider secret storage")?
+    {
+        return Ok(existing);
+    }
+
+    match database_kind {
+        None => load_or_create_local_provider_secret_keys(data_dir)
+            .context("failed to initialize local provider secret storage"),
+        Some(DatabaseKind::Sqlite) => {
+            let database = setup
+                .database()
+                .context("failed to inspect local Provider credential storage")?;
+            let provider_count = ai_provider::Entity::find()
+                .count(&database)
+                .await
+                .context("failed to inspect local Provider credential storage")?;
+            if provider_count > 0 {
+                return Err(anyhow!(
+                    "provider-secret.key is missing while encrypted Provider credentials exist; restore the key file or configure RAINDROP_PROVIDER_SECRET_KEYS"
+                ));
+            }
+            load_or_create_local_provider_secret_keys(data_dir)
+                .context("failed to initialize local provider secret storage")
+        }
+        Some(DatabaseKind::Postgres | DatabaseKind::MySql) => Ok(Vec::new()),
+    }
 }
 
 async fn coordinate_server_and_background_runtime<Signal, Shutdown, Server, RuntimeError>(
@@ -282,7 +341,12 @@ mod tests {
         time::Duration,
     };
 
-    use raindrop::{config::FeedRetentionConfig, feeds::FeedServiceError};
+    use raindrop::{
+        config::FeedRetentionConfig,
+        db::{DatabaseConfig, connect, migrate},
+        feeds::FeedServiceError,
+    };
+    use sea_orm::{ActiveModelTrait, ActiveValue::Set};
     use secrecy::SecretString;
     use tokio::sync::oneshot;
 
@@ -377,6 +441,73 @@ mod tests {
             .run()
             .await
             .expect("pre-start production group should stop without constructing transport");
+    }
+
+    #[tokio::test]
+    async fn missing_local_provider_key_is_created_only_before_credentials_exist() {
+        let data = tempfile::tempdir().expect("temporary provider key directory");
+        let database_url = format!(
+            "sqlite://{}?mode=rwc",
+            data.path().join("provider-key.db").display()
+        );
+        let database = connect(&DatabaseConfig::new(SecretString::from(database_url)))
+            .await
+            .expect("provider key test database should connect");
+        migrate(&database)
+            .await
+            .expect("provider key test database should migrate");
+        let setup = SetupService::ready(data.path(), None, database.clone());
+
+        let created = resolve_provider_secret_keys(
+            Vec::new(),
+            data.path(),
+            Some(DatabaseKind::Sqlite),
+            &setup,
+        )
+        .await
+        .expect("empty Provider storage should create a local key");
+        assert_eq!(created.len(), 1);
+        std::fs::remove_file(data.path().join("provider-secret.key"))
+            .expect("test key should be removable");
+
+        let now = time::OffsetDateTime::now_utc();
+        ai_provider::ActiveModel {
+            id: Set("00000000-0000-4000-8000-000000000901".to_owned()),
+            owner_user_id: Set(None),
+            display_name: Set("Existing Provider".to_owned()),
+            kind: Set("OPENAI_RESPONSES".to_owned()),
+            endpoint: Set("https://api.openai.com/".to_owned()),
+            model: Set("gpt-test".to_owned()),
+            encrypted_secret: Set("rdsec1.existing.envelope".to_owned()),
+            supports_usage: Set(true),
+            supports_idempotency: Set(true),
+            supports_streaming: Set(false),
+            max_concurrency: Set(1),
+            requests_per_minute: Set(None),
+            max_input_tokens_per_request: Set(4096),
+            max_output_tokens_per_request: Set(1024),
+            input_cost_micros_per_million_tokens: Set(None),
+            output_cost_micros_per_million_tokens: Set(None),
+            max_cost_micros_per_request: Set(None),
+            is_enabled: Set(true),
+            revision: Set(0),
+            created_at: Set(now),
+            updated_at: Set(now),
+        }
+        .insert(&database)
+        .await
+        .expect("existing Provider should insert");
+
+        let error = resolve_provider_secret_keys(
+            Vec::new(),
+            data.path(),
+            Some(DatabaseKind::Sqlite),
+            &setup,
+        )
+        .await
+        .expect_err("missing key with encrypted credentials must fail closed");
+        assert!(error.to_string().contains("provider-secret.key is missing"));
+        assert!(!data.path().join("provider-secret.key").exists());
     }
 
     #[tokio::test]

@@ -55,7 +55,7 @@ it("offers AI settings for unavailable operations and closes explicitly", async 
     { onClose, onOpenSettings },
   )
 
-  await user.click(screen.getByRole("button", { name: "Open AI settings" }))
+  await user.click(screen.getByRole("button", { name: "Open plugin settings" }))
   expect(onOpenSettings).toHaveBeenCalledOnce()
   await user.click(screen.getByRole("button", { name: "Close AI sidecar" }))
   expect(onClose).toHaveBeenCalledOnce()

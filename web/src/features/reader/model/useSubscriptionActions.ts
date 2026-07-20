@@ -82,21 +82,26 @@ export function useSubscriptionActions({
       request: (signal: AbortSignal) => Promise<T>,
       success: (value: T) => ReaderAction,
       followUp?: (value: T) => void,
-    ) => {
+    ): Promise<boolean> => {
       const task = session.begin()
-      if (!task) return
+      if (!task) return false
       dispatch({ type: "mutationErrorCleared" })
       try {
         const value = await request(task.controller.signal)
         if (session.isCurrent(task)) {
           dispatch(success(value))
           followUp?.(value)
+          return true
         }
+        return false
       } catch (error) {
-        if (isAbortError(error)) return
-        if (!session.isCurrent(task)) return
-        if (isUnauthenticatedError(error)) return session.expire(task)
+        if (isAbortError(error) || !session.isCurrent(task)) return false
+        if (isUnauthenticatedError(error)) {
+          session.expire(task)
+          return false
+        }
         dispatch({ type: "mutationErrorSet", error: readerErrorMessage(error) })
+        return false
       } finally {
         session.finish(task)
       }
@@ -105,8 +110,8 @@ export function useSubscriptionActions({
   )
 
   const addSubscription = useCallback(
-    (url: string) =>
-      runAction(
+    async (url: string) => {
+      await runAction(
         (signal) => api.createSubscription({ url }, csrfToken, signal),
         (response) => ({
           type: "subscriptionUpserted",
@@ -117,7 +122,8 @@ export function useSubscriptionActions({
             pollSubscription(response.subscription.subscriptionId)
           }
         },
-      ),
+      )
+    },
     [api, csrfToken, pollSubscription, runAction],
   )
 
@@ -132,8 +138,8 @@ export function useSubscriptionActions({
   )
 
   const refreshSubscription = useCallback(
-    (subscriptionId: string) =>
-      runAction(
+    async (subscriptionId: string) => {
+      await runAction(
         (signal) =>
           api.refreshSubscription(
             subscriptionId,
@@ -145,7 +151,8 @@ export function useSubscriptionActions({
         (refresh) => {
           if (refresh.state === "PENDING") pollSubscription(subscriptionId)
         },
-      ),
+      )
+    },
     [api, createRequestId, csrfToken, pollSubscription, runAction],
   )
 

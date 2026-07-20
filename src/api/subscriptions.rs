@@ -19,14 +19,21 @@ use crate::{
         SubscriptionListItemDto, SubscriptionPage, SubscriptionPatchError, UpdateSubscription,
     },
 };
+use url::Url;
 use uuid::Uuid;
 
-use super::{ApiError, ApiJson, RateLimitRejection, routes::sensitive_cache_headers};
+use super::{
+    ApiError, ApiJson, RateLimitRejection,
+    media::{fetch_raster_image, media_cache_headers},
+    routes::sensitive_cache_headers,
+};
 
 mod opml;
 
 const PUBLIC_TIME_FORMAT: &[time::format_description::FormatItem<'static>] =
     format_description!("[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:6]Z");
+const MAX_FAVICON_BYTES: usize = 512 * 1024;
+const FAVICON_CACHE_CONTROL: &str = "private, no-cache, max-age=0, must-revalidate";
 
 pub(super) fn router() -> Router<AppState> {
     let subscriptions = Router::new()
@@ -51,6 +58,15 @@ pub(super) fn router() -> Router<AppState> {
         .nest("/api/v1/subscriptions", subscriptions)
         .merge(opml::router())
         .layer(middleware::map_response(sensitive_cache_headers))
+}
+
+pub(super) fn media_router() -> Router<AppState> {
+    Router::new()
+        .route(
+            "/reader-assets/subscriptions/{subscription_id}/favicon",
+            get(subscription_favicon),
+        )
+        .layer(middleware::map_response(media_cache_headers))
 }
 
 async fn subscription_not_found() -> ApiError {
@@ -309,6 +325,50 @@ fn command_service(state: &AppState) -> Result<FeedCommandService, ApiError> {
         .map(FeedRepository::new)
         .map(FeedCommandService::new)
         .map_err(|_| ApiError::internal())
+}
+
+async fn subscription_favicon(
+    State(state): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    ApiPath(subscription_id): ApiPath<String>,
+) -> Result<Response, ApiError> {
+    let subscription = command_service(&state)?
+        .get_subscription(&user.id, &subscription_id)
+        .await
+        .map_err(map_favicon_subscription_error)?
+        .ok_or_else(ApiError::not_found)?;
+    let site_url = subscription.site_url.ok_or_else(ApiError::not_found)?;
+    let favicon_url = favicon_request_url(&site_url).ok_or_else(ApiError::not_found)?;
+    fetch_raster_image(
+        &state,
+        &favicon_url,
+        MAX_FAVICON_BYTES,
+        FAVICON_CACHE_CONTROL,
+    )
+    .await
+}
+
+fn map_favicon_subscription_error(error: FeedServiceError) -> ApiError {
+    match error {
+        FeedServiceError::InvalidSubscriptionId | FeedServiceError::Unauthorized => {
+            ApiError::not_found()
+        }
+        other => map_feed_service_error(other),
+    }
+}
+
+fn favicon_request_url(site_url: &str) -> Option<String> {
+    let mut url = Url::parse(site_url).ok()?;
+    if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some() {
+        return None;
+    }
+    url.set_path("/favicon.ico");
+    url.set_query(None);
+    url.set_fragment(None);
+    FeedUrlPolicy::new(false)
+        .normalize(url.as_str())
+        .ok()
+        .map(|normalized| normalized.complete().to_owned())
 }
 
 async fn list_subscriptions(
@@ -588,5 +648,21 @@ fn rate_limited_at(retry_at: OffsetDateTime, retry_after_seconds: u64) -> ApiErr
     match format_public_time(retry_at) {
         Ok(retry_at) => ApiError::rate_limited_with_retry(retry_at, retry_after_seconds),
         Err(error) => error,
+    }
+}
+
+#[cfg(test)]
+mod favicon_tests {
+    use super::*;
+
+    #[test]
+    fn favicon_request_uses_the_https_site_origin() {
+        let url = favicon_request_url("https://example.com/articles/feed?q=1#section")
+            .expect("HTTPS site URL should produce a favicon request");
+        assert_eq!(url, "https://example.com/favicon.ico");
+
+        assert!(favicon_request_url("http://example.com/").is_none());
+        assert!(favicon_request_url("https://user:secret@example.com/").is_none());
+        assert!(favicon_request_url("not a URL").is_none());
     }
 }

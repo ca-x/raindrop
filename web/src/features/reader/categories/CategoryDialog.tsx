@@ -156,6 +156,7 @@ export function CategoryDialog(props: CategoryDialogProps) {
               title={i18n._("reader.manageCategories")}
               subtitle={i18n._("reader.manageCategoriesDescription")}
               hasDivider
+              className="reader-dialog-header"
             />
           }
           content={

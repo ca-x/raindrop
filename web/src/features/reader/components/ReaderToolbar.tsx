@@ -10,14 +10,17 @@ import { useLingui } from "@lingui/react"
 import type { Ref } from "react"
 
 import { BrandMark } from "../../../shared/brand/BrandMark"
+import type { UserPreferencesLinkOpenMode } from "../../preferences/api/preferences.generated"
 
 interface SourceToolbarProps {
   onAdd: () => void
   onManage: () => void
+  onManageSubscription?: () => void
   onPreferences: () => void
   onTransferSubscriptions: () => void
   onLogout: () => Promise<void>
   manageButtonRef?: Ref<HTMLButtonElement>
+  manageSubscriptionButtonRef?: Ref<HTMLButtonElement>
   preferencesButtonRef?: Ref<HTMLButtonElement>
   refresh?: { label: string; onRefresh: () => Promise<void>; isDisabled: boolean }
 }
@@ -25,10 +28,12 @@ interface SourceToolbarProps {
 export function SourceToolbar({
   onAdd,
   onManage,
+  onManageSubscription,
   onPreferences,
   onTransferSubscriptions,
   onLogout,
   manageButtonRef,
+  manageSubscriptionButtonRef,
   preferencesButtonRef,
   refresh,
 }: SourceToolbarProps) {
@@ -41,14 +46,33 @@ export function SourceToolbar({
       startContent={<BrandMark size="sm" />}
       endContent={
         <>
+          <Button
+            label={i18n._("reader.addSubscription")}
+            icon={<PlusIcon />}
+            isIconOnly
+            tooltip={i18n._("reader.addSubscription")}
+            onClick={onAdd}
+            variant="ghost"
+          />
           {refresh ? (
             <Button
               label={refresh.label}
-              icon={<Icon icon="arrowDown" />}
+              icon={<RefreshIcon />}
               isIconOnly
               tooltip={refresh.label}
               clickAction={refresh.onRefresh}
               isDisabled={refresh.isDisabled}
+              variant="ghost"
+            />
+          ) : null}
+          {onManageSubscription ? (
+            <Button
+              ref={manageSubscriptionButtonRef}
+              label={i18n._("reader.manageFeed")}
+              icon={<FeedSettingsIcon />}
+              isIconOnly
+              tooltip={i18n._("reader.manageFeed")}
+              onClick={onManageSubscription}
               variant="ghost"
             />
           ) : null}
@@ -59,14 +83,6 @@ export function SourceToolbar({
             isIconOnly
             tooltip={i18n._("reader.manageCategories")}
             onClick={onManage}
-            variant="ghost"
-          />
-          <Button
-            label={i18n._("reader.addSubscription")}
-            icon={<span aria-hidden="true">＋</span>}
-            isIconOnly
-            tooltip={i18n._("reader.addSubscription")}
-            onClick={onAdd}
             variant="ghost"
           />
           <MoreMenu
@@ -126,6 +142,10 @@ interface ArticleToolbarProps {
   isRead: boolean
   isStarred: boolean
   canonicalUrl: string | null
+  linkOpenMode: UserPreferencesLinkOpenMode
+  readingFontScale: number
+  isReadingPreferenceSaving: boolean
+  onReadingFontScaleChange: (scale: number) => Promise<boolean>
   onToggleRead: () => Promise<void>
   onToggleStar: () => Promise<void>
   onOpenSummary?: () => void
@@ -136,8 +156,12 @@ interface ArticleToolbarProps {
 
 export function ArticleToolbar(props: ArticleToolbarProps) {
   const { i18n } = useLingui()
+  const updateScale = (scale: number) => {
+    void props.onReadingFontScaleChange(Math.max(85, Math.min(130, scale)))
+  }
   return (
     <Toolbar
+      className="reader-article-toolbar"
       label={i18n._("reader.articleActions")}
       size="lg"
       dividers={["bottom"]}
@@ -159,6 +183,41 @@ export function ArticleToolbar(props: ArticleToolbarProps) {
               variant="secondary"
             />
           ) : null}
+          <span
+            className="reader-reading-controls"
+            role="group"
+            aria-label={i18n._("reader.readingSizeControls")}
+          >
+            <Button
+              label={i18n._("reader.decreaseReadingSize")}
+              icon={<span aria-hidden="true">A−</span>}
+              isIconOnly
+              tooltip={i18n._("reader.decreaseReadingSize")}
+              onClick={() => updateScale(props.readingFontScale - 5)}
+              isDisabled={props.isReadingPreferenceSaving || props.readingFontScale <= 85}
+              variant="ghost"
+            />
+            <Button
+              label={i18n._("reader.resetReadingSize", { scale: props.readingFontScale })}
+              tooltip={i18n._("reader.resetReadingSize", { scale: props.readingFontScale })}
+              onClick={() => updateScale(100)}
+              isDisabled={
+                props.isReadingPreferenceSaving || props.readingFontScale === 100
+              }
+              variant="ghost"
+            >
+              {props.readingFontScale}%
+            </Button>
+            <Button
+              label={i18n._("reader.increaseReadingSize")}
+              icon={<span aria-hidden="true">A＋</span>}
+              isIconOnly
+              tooltip={i18n._("reader.increaseReadingSize")}
+              onClick={() => updateScale(props.readingFontScale + 5)}
+              isDisabled={props.isReadingPreferenceSaving || props.readingFontScale >= 130}
+              variant="ghost"
+            />
+          </span>
           <span className="reader-toolbar-shortcut">
             <ToggleButton
               label={i18n._(props.isRead ? "reader.markUnread" : "reader.markRead")}
@@ -191,13 +250,74 @@ export function ArticleToolbar(props: ArticleToolbarProps) {
               isIconOnly
               tooltip={i18n._("reader.openOriginal")}
               href={props.canonicalUrl}
-              target="_blank"
-              rel="noopener noreferrer"
+              target={props.linkOpenMode === "NEW_TAB" ? "_blank" : undefined}
+              rel={
+                props.linkOpenMode === "NEW_TAB" ? "noopener noreferrer" : undefined
+              }
               variant="ghost"
             />
           ) : null}
         </>
       }
     />
+  )
+}
+
+function RefreshIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width="1em"
+      height="1em"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M20 11a8 8 0 1 0-2.34 5.66" />
+      <path d="M20 4v7h-7" />
+    </svg>
+  )
+}
+
+function PlusIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width="1em"
+      height="1em"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    >
+      <path d="M12 5v14" />
+      <path d="M5 12h14" />
+    </svg>
+  )
+}
+
+function FeedSettingsIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width="1em"
+      height="1em"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="6" cy="18" r="1" fill="currentColor" stroke="none" />
+      <path d="M5 11a8 8 0 0 1 8 8" />
+      <path d="M5 5a14 14 0 0 1 14 14" />
+      <path d="M17 4v4" />
+      <path d="M15 6h4" />
+    </svg>
   )
 }

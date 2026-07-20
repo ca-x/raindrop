@@ -169,6 +169,49 @@ describe("Reader workspace", () => {
     expect(controller.reloadEntries).toHaveBeenCalledOnce()
   })
 
+  it("opens management for the selected feed from the source toolbar", async () => {
+    const user = userEvent.setup()
+    const controller = fakeController({
+      selectedSource: { kind: "feed", feedId: "feed-rust" },
+      subscriptionsById: {
+        subscription: {
+          subscriptionId: "subscription",
+          feedId: "feed-rust",
+          categoryId: null,
+          titleOverride: null,
+          position: 0,
+          title: "Planet Rust",
+          siteUrl: "https://planet-rust.example",
+          unreadCount: 7,
+          refresh: null,
+        },
+      },
+      subscriptionOrder: ["subscription"],
+      paneStatus: { subscriptions: "ready", queue: "ready", detail: "idle" },
+    })
+    window.history.replaceState(null, "", "/reader/feed/feed-rust")
+
+    render(
+      <Providers>
+        <ReaderRoutes
+          controller={controller}
+          username="reader"
+          onLogout={vi.fn()}
+          viewportMode="wide"
+        />
+      </Providers>,
+    )
+
+    await user.click(screen.getByRole("button", { name: "Manage current feed" }))
+    expect(
+      screen.getByRole("dialog", { name: "Manage current feed" }),
+    ).toBeVisible()
+    expect(screen.getByRole("link", { name: "Open site" })).toHaveAttribute(
+      "href",
+      "https://planet-rust.example",
+    )
+  })
+
   it("offers newly discovered entries without reordering the active queue", async () => {
     const user = userEvent.setup()
     const controller = fakeController({
@@ -299,6 +342,9 @@ describe("Reader workspace", () => {
               themeMode: "SYSTEM",
               layoutDensity: "SPACIOUS",
               readingFontScale: 100,
+              readingFontFamily: "SERIF",
+              readingColorScheme: "AUTO",
+              linkOpenMode: "NEW_TAB",
             },
           })}
           username="reader"

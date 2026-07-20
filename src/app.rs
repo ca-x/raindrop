@@ -1,13 +1,21 @@
 use axum::{Json, Router, extract::FromRef, routing::get};
 use serde::Serialize;
-use std::{future::Future, sync::Arc};
+use std::{
+    collections::{HashMap, VecDeque},
+    future::Future,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 use tokio::sync::Semaphore;
 
 use crate::{
     api::{self, AccountThrottle, RateLimiter, UserMutationLimiter},
     auth::SessionService,
     content::{provider::ProviderSecretKeyring, worker::ContentRuntimeHandle},
-    feeds::{FeedRuntime, FeedRuntimeHandle, FeedServiceError, HttpFeedTransport},
+    feeds::{
+        FeedRuntime, FeedRuntimeHandle, FeedServiceError, FeedTransport, HttpFeedTransport,
+        InertImageDto,
+    },
     setup::SetupService,
     web,
 };
@@ -20,6 +28,9 @@ pub struct AppState {
     pub(crate) login_authentication_semaphore: Arc<Semaphore>,
     pub(crate) login_account_throttle: AccountThrottle,
     pub(crate) setup_limiter: RateLimiter,
+    pub(crate) media_fetch_semaphore: Arc<Semaphore>,
+    pub(crate) media_transport: Option<Arc<dyn FeedTransport>>,
+    entry_image_cache: Arc<Mutex<EntryImageCache>>,
     pub feed_runtime: FeedRuntimeHandle,
     pub content_runtime: ContentRuntimeHandle,
     pub(crate) provider_keyring: Option<Arc<ProviderSecretKeyring>>,
@@ -72,6 +83,9 @@ impl AppState {
                 10_000,
             ),
             setup_limiter: RateLimiter::new(30, std::time::Duration::from_secs(15 * 60)),
+            media_fetch_semaphore: Arc::new(Semaphore::new(32)),
+            media_transport: None,
+            entry_image_cache: Arc::new(Mutex::new(EntryImageCache::default())),
             feed_runtime,
             content_runtime,
             provider_keyring,
@@ -92,6 +106,12 @@ impl AppState {
         self
     }
 
+    #[must_use]
+    pub fn with_media_transport(mut self, media_transport: Arc<dyn FeedTransport>) -> Self {
+        self.media_transport = Some(media_transport);
+        self
+    }
+
     pub async fn commit_and_notify_feed_runtime<F, T, E>(&self, command: F) -> Result<T, E>
     where
         F: Future<Output = Result<T, E>>,
@@ -105,12 +125,100 @@ impl AppState {
     }
 
     #[must_use]
+    pub(crate) fn media_transport(&self) -> Option<Arc<dyn FeedTransport>> {
+        self.media_transport.clone()
+    }
+
+    pub(crate) fn cache_entry_images(
+        &self,
+        user_id: &str,
+        entry_id: &str,
+        images: Vec<InertImageDto>,
+    ) {
+        self.entry_image_cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(user_id, entry_id, images);
+    }
+
+    pub(crate) fn cached_entry_image_source(
+        &self,
+        user_id: &str,
+        entry_id: &str,
+        image_index: u32,
+    ) -> Option<String> {
+        self.entry_image_cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .source(user_id, entry_id, image_index)
+    }
+
+    #[must_use]
     pub fn for_test() -> Self {
         Self::new(SetupService::required(
             std::path::Path::new("."),
             secrecy::SecretString::from("health-test-setup-token".to_owned()),
             None,
         ))
+    }
+}
+
+const ENTRY_IMAGE_CACHE_CAPACITY: usize = 32;
+const ENTRY_IMAGE_CACHE_TTL: Duration = Duration::from_secs(10 * 60);
+
+#[derive(Default)]
+struct EntryImageCache {
+    entries: HashMap<(String, String), CachedEntryImages>,
+    insertion_order: VecDeque<(String, String)>,
+}
+
+struct CachedEntryImages {
+    images: Vec<InertImageDto>,
+    expires_at: Instant,
+}
+
+impl EntryImageCache {
+    fn insert(&mut self, user_id: &str, entry_id: &str, images: Vec<InertImageDto>) {
+        let key = (user_id.to_owned(), entry_id.to_owned());
+        self.remove(&key);
+        while self.entries.len() >= ENTRY_IMAGE_CACHE_CAPACITY {
+            let Some(oldest) = self.insertion_order.pop_front() else {
+                break;
+            };
+            self.entries.remove(&oldest);
+        }
+        self.insertion_order.push_back(key.clone());
+        self.entries.insert(
+            key,
+            CachedEntryImages {
+                images,
+                expires_at: Instant::now() + ENTRY_IMAGE_CACHE_TTL,
+            },
+        );
+    }
+
+    fn source(&mut self, user_id: &str, entry_id: &str, image_index: u32) -> Option<String> {
+        let key = (user_id.to_owned(), entry_id.to_owned());
+        if self
+            .entries
+            .get(&key)
+            .is_some_and(|cached| Instant::now() >= cached.expires_at)
+        {
+            self.remove(&key);
+            return None;
+        }
+        self.entries.get(&key).and_then(|cached| {
+            cached
+                .images
+                .iter()
+                .find(|image| image.image_index == image_index)
+                .map(|image| image.source_url.clone())
+        })
+    }
+
+    fn remove(&mut self, key: &(String, String)) {
+        self.entries.remove(key);
+        self.insertion_order.retain(|stored| stored != key);
     }
 }
 

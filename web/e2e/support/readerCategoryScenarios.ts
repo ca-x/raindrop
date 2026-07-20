@@ -37,7 +37,8 @@ export async function verifyWideCategoryWorkflow(
   await expect(selector).toContainText("Research")
   await dialog.getByRole("button", { name: "Close" }).click()
 
-  await page.getByText("Research", { exact: true }).click()
+  const sources = page.getByRole("navigation", { name: "Sources" })
+  await sources.getByRole("button", { name: "Research", exact: true }).click()
   await expect(page).toHaveURL(`${baseURL}/reader/category/${readerIds.categoryB}`)
   await expect(readerRow(page, readerIds.firstEntry)).toBeVisible()
   await expect(readerRow(page, readerIds.seventhEntry)).toHaveCount(0)
@@ -48,7 +49,9 @@ export async function verifyWideCategoryWorkflow(
   const alert = page.getByRole("alertdialog", { name: "Delete this category?" })
   await alert.getByRole("button", { name: "Delete category" }).click()
   await expect(page).toHaveURL(`${baseURL}/reader/unread`)
-  await expect(page.getByText("Research", { exact: true })).toHaveCount(0)
+  await expect(
+    sources.getByRole("button", { name: "Research", exact: true }),
+  ).toHaveCount(0)
 
   expect(fixture.organization.categoryCalls.map((call) => call.method)).toEqual([
     "POST",

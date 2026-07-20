@@ -34,6 +34,11 @@ export function CategoryList({ state, onSelect, density, query = "" }: CategoryL
       state.selectedSource.state === stateName,
     onClick: () =>
       onSelect({ kind: "smart", state: stateName as "UNREAD" | "ALL" | "STARRED" }),
+    startContent: (
+      <span className="reader-smart-source-icon" aria-hidden="true">
+        <SmartSourceIcon state={stateName as "UNREAD" | "ALL" | "STARRED"} />
+      </span>
+    ),
   }))
 
   const categoryItems = groups.categorized.map(
@@ -46,6 +51,11 @@ export function CategoryList({ state, onSelect, density, query = "" }: CategoryL
       isExpanded: true,
       onClick: () =>
         onSelect({ kind: "category", categoryId: group.category!.categoryId }),
+      startContent: (
+        <span className="reader-smart-source-icon" aria-hidden="true">
+          <CategoryIcon />
+        </span>
+      ),
       endContent: <UnreadCount count={group.unreadCount} />,
       children: feedItems(group, state, onSelect, (id) => i18n._(id)),
     }),
@@ -54,6 +64,11 @@ export function CategoryList({ state, onSelect, density, query = "" }: CategoryL
     id: "uncategorized",
     label: i18n._("reader.uncategorized"),
     isExpanded: true,
+    startContent: (
+      <span className="reader-smart-source-icon" aria-hidden="true">
+        <CategoryIcon />
+      </span>
+    ),
     endContent: <UnreadCount count={groups.uncategorized.unreadCount} />,
     children: feedItems(groups.uncategorized, state, onSelect, (id) => i18n._(id)),
   }
@@ -88,6 +103,7 @@ function feedItems(
         state.selectedSource.kind === "feed" &&
         state.selectedSource.feedId === subscription.feedId,
       onClick: () => onSelect({ kind: "feed", feedId: subscription.feedId }),
+      startContent: <FeedSourceIcon subscriptionId={subscription.subscriptionId} />,
       endContent: (
         <span className="reader-source-status">
           <StatusDot
@@ -134,4 +150,58 @@ function filterGroups(
 
 function UnreadCount({ count }: { count: number }) {
   return <span className="reader-category-unread-count">{count}</span>
+}
+
+function SmartSourceIcon({ state }: { state: "UNREAD" | "ALL" | "STARRED" }) {
+  if (state === "UNREAD") {
+    return (
+      <svg viewBox="0 0 18 18" width="18" height="18" fill="none">
+        <circle cx="9" cy="9" r="3" fill="currentColor" />
+      </svg>
+    )
+  }
+  if (state === "STARRED") {
+    return (
+      <svg viewBox="0 0 18 18" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round">
+        <path d="m9 2.5 1.9 3.9 4.3.6-3.1 3 0.7 4.3L9 12.3l-3.8 2 0.7-4.3-3.1-3 4.3-.6L9 2.5Z" />
+      </svg>
+    )
+  }
+  return (
+    <svg viewBox="0 0 18 18" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
+      <path d="M4 5h10M4 9h10M4 13h10" />
+    </svg>
+  )
+}
+
+function CategoryIcon() {
+  return (
+    <svg viewBox="0 0 18 18" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round">
+      <path d="M2.8 5.2h4l1.4 1.6h7v6.5H2.8V5.2Z" />
+    </svg>
+  )
+}
+
+function FeedSourceIcon({ subscriptionId }: { subscriptionId: string }) {
+  return (
+    <span className="reader-source-icon" aria-hidden="true">
+      <svg viewBox="0 0 18 18" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+        <circle cx="5.2" cy="12.8" r="1" fill="currentColor" stroke="none" />
+        <path d="M4.2 8.6a5.2 5.2 0 0 1 5.2 5.2M4.2 4.2a9.6 9.6 0 0 1 9.6 9.6" />
+      </svg>
+      <img
+        className="reader-source-favicon"
+        src={`/reader-assets/subscriptions/${subscriptionId}/favicon`}
+        alt=""
+        width="18"
+        height="18"
+        loading="lazy"
+        decoding="async"
+        referrerPolicy="no-referrer"
+        onError={(event) => {
+          event.currentTarget.hidden = true
+        }}
+      />
+    </span>
+  )
 }

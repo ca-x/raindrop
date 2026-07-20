@@ -5,12 +5,12 @@
     const stored = localStorage.getItem(key)
     if (stored === null) return
     const hint = JSON.parse(stored)
-    if (!isHint(hint)) {
+    const preferences = preferencesFromHint(hint)
+    if (preferences === null) {
       localStorage.removeItem(key)
       return
     }
 
-    const preferences = hint.preferences
     const root = document.documentElement
     if (preferences.themeMode === "SYSTEM") {
       root.removeAttribute("data-theme")
@@ -23,6 +23,8 @@
       "--raindrop-reading-scale",
       `${preferences.readingFontScale}%`,
     )
+    root.dataset.raindropReadingFont = preferences.readingFontFamily.toLowerCase()
+    root.dataset.raindropReadingColor = preferences.readingColorScheme.toLowerCase()
   } catch {
     try {
       localStorage.removeItem(key)
@@ -31,15 +33,46 @@
     }
   }
 
-  function isHint(value) {
-    return (
-      hasOnlyKeys(value, ["schemaVersion", "preferences"]) &&
-      value.schemaVersion === 1 &&
-      isPreferences(value.preferences)
-    )
+  function preferencesFromHint(value) {
+    if (!hasOnlyKeys(value, ["schemaVersion", "preferences"])) return null
+    if (value.schemaVersion === 2 && isPreferences(value.preferences)) {
+      return value.preferences
+    }
+    if (value.schemaVersion === 1 && isLegacyPreferences(value.preferences)) {
+      return {
+        ...value.preferences,
+        readingFontFamily: "SERIF",
+        readingColorScheme: "AUTO",
+        linkOpenMode: "NEW_TAB",
+      }
+    }
+    return null
   }
 
   function isPreferences(value) {
+    return (
+      hasOnlyKeys(value, [
+        "locale",
+        "themeMode",
+        "layoutDensity",
+        "readingFontScale",
+        "readingFontFamily",
+        "readingColorScheme",
+        "linkOpenMode",
+      ]) &&
+      ["zh-CN", "en"].includes(value.locale) &&
+      ["SYSTEM", "LIGHT", "DARK"].includes(value.themeMode) &&
+      ["COMPACT", "BALANCED", "SPACIOUS"].includes(value.layoutDensity) &&
+      Number.isInteger(value.readingFontScale) &&
+      value.readingFontScale >= 85 &&
+      value.readingFontScale <= 130 &&
+      ["SERIF", "SANS"].includes(value.readingFontFamily) &&
+      ["AUTO", "PAPER", "SEPIA", "GRAY"].includes(value.readingColorScheme) &&
+      ["CURRENT_TAB", "NEW_TAB"].includes(value.linkOpenMode)
+    )
+  }
+
+  function isLegacyPreferences(value) {
     return (
       hasOnlyKeys(value, [
         "locale",

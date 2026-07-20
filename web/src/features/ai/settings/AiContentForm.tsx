@@ -8,6 +8,7 @@ import {
 } from "@astryxdesign/core/SegmentedControl"
 import { Selector } from "@astryxdesign/core/Selector"
 import { Stack } from "@astryxdesign/core/Stack"
+import { Switch } from "@astryxdesign/core/Switch"
 import { useLingui } from "@lingui/react"
 import { useEffect, useMemo, useState, type FormEvent } from "react"
 
@@ -26,6 +27,7 @@ interface AiContentFormProps {
 }
 
 interface AiContentDraft {
+  pluginEnabled: boolean
   summaryEnabled: boolean
   summaryProviderId: string
   summaryStyle: AiSummaryStyle
@@ -63,13 +65,20 @@ export function AiContentForm(props: AiContentFormProps) {
   }, [draft.defaultTargetLocale, i18n])
   const pluginReady = props.envelope.pluginState === "READY"
   const hasProvider = defaultProviderId.length > 0
-  const isDisabled = props.isSaving || !pluginReady || !hasProvider
+  const isUnavailable = props.isSaving || !pluginReady
+  const pluginToggleDisabled = isUnavailable || (!hasProvider && !draft.pluginEnabled)
+  const operationsDisabled = isUnavailable || !hasProvider || !draft.pluginEnabled
+  const canSubmit =
+    !isUnavailable &&
+    Boolean(draft.summaryProviderId) &&
+    Boolean(draft.translationProviderId) &&
+    (hasProvider || !draft.pluginEnabled)
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (isDisabled || !draft.summaryProviderId || !draft.translationProviderId) return
+    if (!canSubmit) return
     await props.onSave({
       expectedRevision: props.envelope.config?.revision ?? null,
-      isEnabled: draft.summaryEnabled || draft.translationEnabled,
+      isEnabled: draft.pluginEnabled,
       summary: {
         enabled: draft.summaryEnabled,
         providerId: draft.summaryProviderId,
@@ -100,6 +109,32 @@ export function AiContentForm(props: AiContentFormProps) {
             description={i18n._("ai.configNeedsProviderDescription")}
           />
         ) : null}
+        <section className="ai-plugin-toggle" aria-labelledby="ai-plugin-heading">
+          <div>
+            <div id="ai-plugin-heading" className="reader-preference-label">
+              {i18n._("ai.pluginTitle")}
+            </div>
+            <div className="reader-preference-description">
+              {i18n._("ai.pluginDescription")}
+            </div>
+          </div>
+          <Switch
+            label={i18n._("ai.pluginEnabled")}
+            value={draft.pluginEnabled}
+            onChange={(pluginEnabled) =>
+              setDraft({
+                ...draft,
+                pluginEnabled,
+                summaryEnabled:
+                  pluginEnabled && !draft.summaryEnabled && !draft.translationEnabled
+                    ? true
+                    : draft.summaryEnabled,
+              })
+            }
+            labelSpacing="spread"
+            isDisabled={pluginToggleDisabled}
+          />
+        </section>
         <section className="ai-operation-section" aria-labelledby="ai-summary-heading">
           <div>
             <div id="ai-summary-heading" className="reader-preference-label">
@@ -113,7 +148,7 @@ export function AiContentForm(props: AiContentFormProps) {
             label={i18n._("ai.summaryEnabled")}
             value={draft.summaryEnabled}
             onChange={(summaryEnabled) => setDraft({ ...draft, summaryEnabled })}
-            isDisabled={isDisabled}
+            isDisabled={operationsDisabled}
           />
           <Selector
             label={i18n._("ai.summaryProvider")}
@@ -123,7 +158,7 @@ export function AiContentForm(props: AiContentFormProps) {
               setDraft({ ...draft, summaryProviderId })
             }
             placeholder={i18n._("ai.selectProvider")}
-            isDisabled={isDisabled}
+            isDisabled={operationsDisabled}
             width="100%"
           />
           <SegmentedControl
@@ -133,7 +168,7 @@ export function AiContentForm(props: AiContentFormProps) {
               setDraft({ ...draft, summaryStyle: summaryStyle as AiSummaryStyle })
             }
             layout="fill"
-            isDisabled={isDisabled}
+            isDisabled={operationsDisabled}
           >
             <SegmentedControlItem
               value="CONCISE"
@@ -157,7 +192,7 @@ export function AiContentForm(props: AiContentFormProps) {
             onChange={(summaryMaxOutputTokens) =>
               setDraft({ ...draft, summaryMaxOutputTokens })
             }
-            isDisabled={isDisabled}
+            isDisabled={operationsDisabled}
             width="100%"
           />
         </section>
@@ -179,7 +214,7 @@ export function AiContentForm(props: AiContentFormProps) {
             onChange={(translationEnabled) =>
               setDraft({ ...draft, translationEnabled })
             }
-            isDisabled={isDisabled}
+            isDisabled={operationsDisabled}
           />
           <Selector
             label={i18n._("ai.translationProvider")}
@@ -189,7 +224,7 @@ export function AiContentForm(props: AiContentFormProps) {
               setDraft({ ...draft, translationProviderId })
             }
             placeholder={i18n._("ai.selectProvider")}
-            isDisabled={isDisabled}
+            isDisabled={operationsDisabled}
             width="100%"
           />
           <Selector
@@ -199,7 +234,7 @@ export function AiContentForm(props: AiContentFormProps) {
             onChange={(defaultTargetLocale) =>
               setDraft({ ...draft, defaultTargetLocale })
             }
-            isDisabled={isDisabled}
+            isDisabled={operationsDisabled}
             width="100%"
           />
           <NumberInput
@@ -211,7 +246,7 @@ export function AiContentForm(props: AiContentFormProps) {
             onChange={(translationMaxOutputTokens) =>
               setDraft({ ...draft, translationMaxOutputTokens })
             }
-            isDisabled={isDisabled}
+            isDisabled={operationsDisabled}
             width="100%"
           />
         </section>
@@ -221,7 +256,7 @@ export function AiContentForm(props: AiContentFormProps) {
             type="submit"
             variant="primary"
             isLoading={props.isSaving}
-            isDisabled={isDisabled}
+            isDisabled={!canSubmit}
           />
         </div>
       </Stack>
@@ -235,6 +270,7 @@ function toDraft(
 ): AiContentDraft {
   const config = envelope.config
   return {
+    pluginEnabled: config?.isEnabled ?? false,
     summaryEnabled: config?.summary.enabled ?? false,
     summaryProviderId: config?.summary.providerId ?? defaultProviderId,
     summaryStyle: config?.summary.style ?? "BALANCED",

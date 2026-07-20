@@ -12,8 +12,8 @@ use crate::{
     app::AppState,
     auth::{CsrfGuard, CurrentUser},
     preferences::{
-        LayoutDensity, Locale, PreferenceError, PreferenceRepository, ThemeMode,
-        UpdateUserPreferences, UserPreferences,
+        LayoutDensity, LinkOpenMode, Locale, PreferenceError, PreferenceRepository,
+        ReadingColorScheme, ReadingFontFamily, ThemeMode, UpdateUserPreferences, UserPreferences,
     },
 };
 
@@ -23,8 +23,12 @@ const PUBLIC_TIME_FORMAT: &[time::format_description::FormatItem<'static>] =
     format_description!("[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:6]Z");
 
 pub(super) fn router() -> Router<AppState> {
-    let preferences = Router::new()
-        .route("/", get(get_preferences).patch(patch_preferences))
+    let preferences_v1 = Router::new()
+        .route("/", get(get_preferences_v1).patch(patch_preferences_v1))
+        .fallback(preference_not_found)
+        .method_not_allowed_fallback(preference_method_not_allowed);
+    let preferences_v2 = Router::new()
+        .route("/", get(get_preferences_v2).patch(patch_preferences_v2))
         .fallback(preference_not_found)
         .method_not_allowed_fallback(preference_method_not_allowed);
     Router::new()
@@ -32,7 +36,12 @@ pub(super) fn router() -> Router<AppState> {
             "/api/v1/preferences/",
             axum::routing::any(preference_not_found),
         )
-        .nest("/api/v1/preferences", preferences)
+        .route(
+            "/api/v2/preferences/",
+            axum::routing::any(preference_not_found),
+        )
+        .nest("/api/v1/preferences", preferences_v1)
+        .nest("/api/v2/preferences", preferences_v2)
         .layer(middleware::map_response(sensitive_cache_headers))
 }
 
@@ -102,8 +111,84 @@ impl From<LayoutDensityRequest> for LayoutDensity {
 }
 
 #[derive(Deserialize)]
+enum ReadingFontFamilyRequest {
+    #[serde(rename = "SERIF")]
+    Serif,
+    #[serde(rename = "SANS")]
+    Sans,
+}
+
+impl From<ReadingFontFamilyRequest> for ReadingFontFamily {
+    fn from(value: ReadingFontFamilyRequest) -> Self {
+        match value {
+            ReadingFontFamilyRequest::Serif => Self::Serif,
+            ReadingFontFamilyRequest::Sans => Self::Sans,
+        }
+    }
+}
+
+#[derive(Deserialize)]
+enum ReadingColorSchemeRequest {
+    #[serde(rename = "AUTO")]
+    Auto,
+    #[serde(rename = "PAPER")]
+    Paper,
+    #[serde(rename = "SEPIA")]
+    Sepia,
+    #[serde(rename = "GRAY")]
+    Gray,
+}
+
+impl From<ReadingColorSchemeRequest> for ReadingColorScheme {
+    fn from(value: ReadingColorSchemeRequest) -> Self {
+        match value {
+            ReadingColorSchemeRequest::Auto => Self::Auto,
+            ReadingColorSchemeRequest::Paper => Self::Paper,
+            ReadingColorSchemeRequest::Sepia => Self::Sepia,
+            ReadingColorSchemeRequest::Gray => Self::Gray,
+        }
+    }
+}
+
+#[derive(Deserialize)]
+enum LinkOpenModeRequest {
+    #[serde(rename = "CURRENT_TAB")]
+    CurrentTab,
+    #[serde(rename = "NEW_TAB")]
+    NewTab,
+}
+
+impl From<LinkOpenModeRequest> for LinkOpenMode {
+    fn from(value: LinkOpenModeRequest) -> Self {
+        match value {
+            LinkOpenModeRequest::CurrentTab => Self::CurrentTab,
+            LinkOpenModeRequest::NewTab => Self::NewTab,
+        }
+    }
+}
+
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct PatchPreferencesRequest {
+    #[serde(default, deserialize_with = "deserialize_present")]
+    locale: Option<LocaleRequest>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    theme_mode: Option<ThemeModeRequest>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    layout_density: Option<LayoutDensityRequest>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    reading_font_scale: Option<i32>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    reading_font_family: Option<ReadingFontFamilyRequest>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    reading_color_scheme: Option<ReadingColorSchemeRequest>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    link_open_mode: Option<LinkOpenModeRequest>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PatchPreferencesV1Request {
     #[serde(default, deserialize_with = "deserialize_present")]
     locale: Option<LocaleRequest>,
     #[serde(default, deserialize_with = "deserialize_present")]
@@ -129,20 +214,35 @@ impl From<PatchPreferencesRequest> for UpdateUserPreferences {
             theme_mode: request.theme_mode.map(Into::into),
             layout_density: request.layout_density.map(Into::into),
             reading_font_scale: request.reading_font_scale,
+            reading_font_family: request.reading_font_family.map(Into::into),
+            reading_color_scheme: request.reading_color_scheme.map(Into::into),
+            link_open_mode: request.link_open_mode.map(Into::into),
+        }
+    }
+}
+
+impl From<PatchPreferencesV1Request> for UpdateUserPreferences {
+    fn from(request: PatchPreferencesV1Request) -> Self {
+        Self {
+            locale: request.locale.map(Into::into),
+            theme_mode: request.theme_mode.map(Into::into),
+            layout_density: request.layout_density.map(Into::into),
+            reading_font_scale: request.reading_font_scale,
+            ..Self::default()
         }
     }
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct PreferencesResponse {
+struct PreferencesV1Response {
     locale: &'static str,
     theme_mode: &'static str,
     layout_density: &'static str,
     reading_font_scale: i32,
 }
 
-impl From<UserPreferences> for PreferencesResponse {
+impl From<UserPreferences> for PreferencesV1Response {
     fn from(preferences: UserPreferences) -> Self {
         Self {
             locale: preferences.locale.as_str(),
@@ -153,34 +253,97 @@ impl From<UserPreferences> for PreferencesResponse {
     }
 }
 
-async fn get_preferences(
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PreferencesV2Response {
+    locale: &'static str,
+    theme_mode: &'static str,
+    layout_density: &'static str,
+    reading_font_scale: i32,
+    reading_font_family: &'static str,
+    reading_color_scheme: &'static str,
+    link_open_mode: &'static str,
+}
+
+impl From<UserPreferences> for PreferencesV2Response {
+    fn from(preferences: UserPreferences) -> Self {
+        Self {
+            locale: preferences.locale.as_str(),
+            theme_mode: preferences.theme_mode.as_str(),
+            layout_density: preferences.layout_density.as_str(),
+            reading_font_scale: preferences.reading_font_scale,
+            reading_font_family: preferences.reading_font_family.as_str(),
+            reading_color_scheme: preferences.reading_color_scheme.as_str(),
+            link_open_mode: preferences.link_open_mode.as_str(),
+        }
+    }
+}
+
+async fn get_preferences_v1(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
     headers: HeaderMap,
-) -> Result<Json<PreferencesResponse>, ApiError> {
-    let preferences = repository(&state)?
-        .get(&user.id, default_locale(&headers))
-        .await
-        .map_err(map_preference_error)?;
+) -> Result<Json<PreferencesV1Response>, ApiError> {
+    let preferences = get_user_preferences(&state, &user.id, &headers).await?;
     Ok(Json(preferences.into()))
 }
 
-async fn patch_preferences(
+async fn get_preferences_v2(
+    State(state): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    headers: HeaderMap,
+) -> Result<Json<PreferencesV2Response>, ApiError> {
+    let preferences = get_user_preferences(&state, &user.id, &headers).await?;
+    Ok(Json(preferences.into()))
+}
+
+async fn patch_preferences_v1(
+    State(state): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    _csrf: CsrfGuard,
+    headers: HeaderMap,
+    ApiJson(request): ApiJson<PatchPreferencesV1Request>,
+) -> Result<Json<PreferencesV1Response>, ApiError> {
+    let preferences = update_user_preferences(&state, &user.id, &headers, request.into()).await?;
+    Ok(Json(preferences.into()))
+}
+
+async fn patch_preferences_v2(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
     _csrf: CsrfGuard,
     headers: HeaderMap,
     ApiJson(request): ApiJson<PatchPreferencesRequest>,
-) -> Result<Json<PreferencesResponse>, ApiError> {
+) -> Result<Json<PreferencesV2Response>, ApiError> {
+    let preferences = update_user_preferences(&state, &user.id, &headers, request.into()).await?;
+    Ok(Json(preferences.into()))
+}
+
+async fn get_user_preferences(
+    state: &AppState,
+    user_id: &str,
+    headers: &HeaderMap,
+) -> Result<UserPreferences, ApiError> {
+    repository(state)?
+        .get(user_id, default_locale(headers))
+        .await
+        .map_err(map_preference_error)
+}
+
+async fn update_user_preferences(
+    state: &AppState,
+    user_id: &str,
+    headers: &HeaderMap,
+    request: UpdateUserPreferences,
+) -> Result<UserPreferences, ApiError> {
     state
         .preferences_mutation_limiter
-        .check(&user.id)
+        .check(user_id)
         .map_err(map_limiter_rejection)?;
-    let preferences = repository(&state)?
-        .update(&user.id, default_locale(&headers), request.into())
+    repository(state)?
+        .update(user_id, default_locale(headers), request)
         .await
-        .map_err(map_preference_error)?;
-    Ok(Json(preferences.into()))
+        .map_err(map_preference_error)
 }
 
 fn repository(state: &AppState) -> Result<PreferenceRepository, ApiError> {

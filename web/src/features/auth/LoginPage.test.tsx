@@ -177,13 +177,16 @@ function mockReaderWorkspace(
         jsonResponse({ items: [], nextCursor: null, snapshotGeneration: 1 }),
       )
     }
-    if (path === "/api/v1/preferences") {
+    if (path === "/api/v2/preferences") {
       return Promise.resolve(
         jsonResponse({
           locale: "en",
           themeMode: "SYSTEM",
           layoutDensity: "BALANCED",
           readingFontScale: 100,
+          readingFontFamily: "SERIF",
+          readingColorScheme: "AUTO",
+          linkOpenMode: "NEW_TAB",
         }),
       )
     }

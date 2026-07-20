@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { ComponentProps } from "react"
@@ -15,7 +15,7 @@ import "./reader.css"
 describe("Reader article workspace", () => {
   afterEach(() => vi.unstubAllGlobals())
 
-  it("renders compact detail actions and keeps inert publisher image URLs disabled", async () => {
+  it("restores sanitized publisher images and hides a failed image", async () => {
     activateLocale("en")
     const user = userEvent.setup()
     const controller = articleController()
@@ -29,12 +29,28 @@ describe("Reader article workspace", () => {
 
     expect(screen.getByRole("heading", { name: "Reading without trackers" })).toBeVisible()
     expect(screen.getByText("Safe original article.")) .toBeVisible()
-    expect(document.querySelector(".reader-article img")).not.toHaveAttribute("src")
+    const image = document.querySelector<HTMLImageElement>(".reader-article img")!
+    expect(image).toHaveAttribute("src", "/reader-assets/entries/entry/images/0")
+    expect(image).toHaveAttribute("loading", "lazy")
+    expect(image).toHaveAttribute("decoding", "async")
+    expect(image).toHaveAttribute("referrerpolicy", "no-referrer")
     expect(document.body).not.toHaveTextContent("publisher.example/tracker.gif")
+    fireEvent.load(image)
+    expect(image).toHaveAttribute("data-raindrop-image-state", "loaded")
+    fireEvent.error(image)
+    expect(image).not.toHaveAttribute("src")
+    expect(image).toHaveAttribute("data-raindrop-image-state", "error")
     const navigation = screen.getByRole("toolbar", { name: "Article navigation" })
     expect(navigation.closest(".reader-compact-navigation")).toBeInTheDocument()
+    const resetSize = screen.getByRole("button", {
+      name: "Reset text size, currently 100%",
+    })
+    expect(resetSize).toHaveTextContent("100%")
+    expect(resetSize.closest(".reader-article-toolbar")).toBeInTheDocument()
 
-    const original = screen.getByRole("link", { name: "Open original article" })
+    const original = screen
+      .getAllByRole("link", { name: "Open original article" })
+      .find((link) => link.classList.contains("reader-open-original"))!
     expect(getComputedStyle(original).minInlineSize).toBe("44px")
     expect(getComputedStyle(original).minBlockSize).toBe("44px")
 
@@ -158,7 +174,30 @@ describe("Reader article workspace", () => {
     activateLocale("en")
     const user = userEvent.setup()
     const controller = articleController()
-    const aiSettingsController = fakeAiSettingsController()
+    const baseAiSettingsController = fakeAiSettingsController()
+    const providerId = baseAiSettingsController.providers[0]!.providerId
+    const aiSettingsController = fakeAiSettingsController({
+      configEnvelope: {
+        pluginState: "READY",
+        mcpState: "CONTRACT_READY_TRANSPORT_UNAVAILABLE",
+        config: {
+          revision: 1,
+          isEnabled: true,
+          summary: {
+            enabled: true,
+            providerId,
+            style: "BALANCED",
+            maxOutputTokens: 1024,
+          },
+          translation: {
+            enabled: true,
+            providerId,
+            defaultTargetLocale: "zh-CN",
+            maxOutputTokens: 4096,
+          },
+        },
+      },
+    })
     window.history.replaceState(null, "", "/reader/unread/entry/entry")
     vi.stubGlobal(
       "fetch",

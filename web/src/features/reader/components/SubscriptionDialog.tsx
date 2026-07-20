@@ -64,7 +64,8 @@ export function SubscriptionDialog(props: SubscriptionDialogProps) {
         if (!open) close()
       }}
       purpose="form"
-      width={520}
+      width="min(520px, calc(100vw - 24px))"
+      maxHeight="min(560px, calc(100dvh - 24px))"
       className="reader-subscription-dialog"
     >
       <Layout
@@ -78,6 +79,7 @@ export function SubscriptionDialog(props: SubscriptionDialogProps) {
               if (!open) close()
             }}
             hasDivider
+            className="reader-dialog-header"
           />
         }
         content={

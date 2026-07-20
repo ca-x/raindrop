@@ -20,6 +20,9 @@ export async function verifyWidePreferences(
     themeMode: "DARK",
     layoutDensity: "COMPACT",
     readingFontScale: 120,
+    readingFontFamily: "SANS",
+    readingColorScheme: "SEPIA",
+    linkOpenMode: "CURRENT_TAB",
   })
   await dialog.getByRole("button", { name: "Save changes" }).click()
   await expect(dialog).not.toBeVisible()
@@ -28,6 +31,9 @@ export async function verifyWidePreferences(
     themeMode: "DARK",
     layoutDensity: "COMPACT",
     readingFontScale: 120,
+    readingFontFamily: "SANS",
+    readingColorScheme: "SEPIA",
+    linkOpenMode: "CURRENT_TAB",
   })
   await expect(page.getByRole("button", { name: "打开菜单" })).toBeFocused()
 
@@ -79,6 +85,9 @@ export async function verifyCompactPreferences(
     themeMode: "DARK",
     layoutDensity: failBeforeSuccess ? "SPACIOUS" : "COMPACT",
     readingFontScale: 120,
+    readingFontFamily: "SANS",
+    readingColorScheme: "SEPIA",
+    linkOpenMode: "CURRENT_TAB",
   }
   await choosePreferences(dialog, desired)
 
@@ -87,7 +96,7 @@ export async function verifyCompactPreferences(
     fixture.preferences.failNextPatch()
     const failedResponse = page.waitForResponse((response) =>
       response.request().method() === "PATCH" &&
-      new URL(response.url()).pathname === "/api/v1/preferences" &&
+      new URL(response.url()).pathname === "/api/v2/preferences" &&
       response.status() === 500
     )
     await Promise.all([
@@ -96,21 +105,32 @@ export async function verifyCompactPreferences(
     ])
     expect(fixture.preferences.patches).toHaveLength(failedPatchCount)
     await expect(dialog.getByText("Preferences could not be saved")).toBeVisible()
+    await expect(dialog.getByRole("radio", { name: "Sans serif" })).toBeChecked()
+    await expect(dialog.getByRole("radio", { name: "Sepia" })).toBeChecked()
+    await expect(dialog.getByRole("radio", { name: "Current page" })).toBeChecked()
+    await expect(dialog.getByRole("slider", { name: "Reading size" }))
+      .toHaveAttribute("aria-valuenow", "120")
+    await dialog.getByRole("button", { name: "Personal" }).click()
     await expect(dialog.getByRole("radio", { name: "Dark" })).toBeChecked()
     await expect(dialog.getByRole("radio", { name: "中文" })).toBeChecked()
     await expect(dialog.getByRole("radio", { name: "Spacious" })).toBeChecked()
-    await expect(dialog.getByRole("radio", { name: "120%" })).toBeChecked()
     await expectPresentation(page, {
       locale: "en",
       themeMode: "SYSTEM",
       layoutDensity: "BALANCED",
       readingFontScale: 100,
+      readingFontFamily: "SERIF",
+      readingColorScheme: "AUTO",
+      linkOpenMode: "NEW_TAB",
     })
     expect(fixture.preferences.current()).toEqual({
       locale: "en",
       themeMode: "SYSTEM",
       layoutDensity: "BALANCED",
       readingFontScale: 100,
+      readingFontFamily: "SERIF",
+      readingColorScheme: "AUTO",
+      linkOpenMode: "NEW_TAB",
     })
   }
 
@@ -139,9 +159,30 @@ async function choosePreferences(
   await dialog.getByRole("radio", {
     name: densityLabel(preferences.layoutDensity),
   }).click()
+  await dialog.getByRole("button", { name: /Reading|阅读/u }).click()
   await dialog.getByRole("radio", {
-    name: `${preferences.readingFontScale}%`,
+    name: preferences.readingFontFamily === "SERIF"
+      ? /Serif|衬线/u
+      : /Sans serif|无衬线/u,
   }).click()
+  await dialog.getByRole("radio", {
+    name: {
+      AUTO: /Auto|自动/u,
+      PAPER: /Paper|纸白/u,
+      SEPIA: /Sepia|米黄/u,
+      GRAY: /Gray|灰色/u,
+    }[preferences.readingColorScheme],
+  }).click()
+  await dialog.getByRole("radio", {
+    name: preferences.linkOpenMode === "CURRENT_TAB"
+      ? /Current page|当前页面/u
+      : /New window|新窗口/u,
+  }).click()
+  const slider = dialog.getByRole("slider", { name: /Reading size|阅读字号/u })
+  await slider.press("Home")
+  for (let value = 85; value < preferences.readingFontScale; value += 5) {
+    await slider.press("ArrowRight")
+  }
 }
 
 async function openCompactSettings(
@@ -172,11 +213,15 @@ async function expectPresentation(
     theme: document.documentElement.getAttribute("data-theme"),
     density: document.documentElement.dataset.raindropDensity,
     scale: document.documentElement.style.getPropertyValue("--raindrop-reading-scale"),
+    font: document.documentElement.dataset.raindropReadingFont,
+    color: document.documentElement.dataset.raindropReadingColor,
   }))).toEqual({
     locale: preferences.locale,
     theme: preferences.themeMode === "SYSTEM" ? null : preferences.themeMode.toLowerCase(),
     density: preferences.layoutDensity.toLowerCase(),
     scale: `${preferences.readingFontScale}%`,
+    font: preferences.readingFontFamily.toLowerCase(),
+    color: preferences.readingColorScheme.toLowerCase(),
   })
 }
 

@@ -35,7 +35,7 @@ describe("ReadyPage lifecycle", () => {
     const preferenceResponse = deferred<Response>()
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input)
-      return url === "/api/v1/preferences"
+      return url === "/api/v2/preferences"
         ? preferenceResponse.promise
         : Promise.resolve(jsonResponse(responseBody(url)))
     })
@@ -49,7 +49,7 @@ describe("ReadyPage lifecycle", () => {
 
     await waitFor(() => {
       const urls = fetchMock.mock.calls.map(([input]) => String(input))
-      expect(urls).toContain("/api/v1/preferences")
+      expect(urls).toContain("/api/v2/preferences")
       expect(urls).toContain("/api/v1/categories")
       expect(urls.some((url) => url.startsWith("/api/v1/subscriptions"))).toBe(true)
       expect(urls.some((url) => url.startsWith("/api/v1/entries"))).toBe(true)
@@ -61,6 +61,9 @@ describe("ReadyPage lifecycle", () => {
       themeMode: "DARK",
       layoutDensity: "SPACIOUS",
       readingFontScale: 120,
+      readingFontFamily: "SANS",
+      readingColorScheme: "SEPIA",
+      linkOpenMode: "CURRENT_TAB",
     }))
     await waitFor(() => {
       expect(document.documentElement).toHaveAttribute("data-theme", "dark")
@@ -79,7 +82,7 @@ describe("ReadyPage lifecycle", () => {
     window.history.replaceState(null, "", "/reader/unread")
     vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
       const url = String(input)
-      if (url === "/api/v1/preferences") {
+      if (url === "/api/v2/preferences") {
         return Promise.resolve(new Response(JSON.stringify({
           error: {
             code: "INTERNAL_ERROR",
@@ -151,12 +154,15 @@ function delayedReaderResponse(input: RequestInfo | URL, init?: RequestInit): Pr
 }
 
 function responseBody(url: string): unknown {
-  if (url === "/api/v1/preferences") {
+  if (url === "/api/v2/preferences") {
     return {
       locale: "en",
       themeMode: "SYSTEM",
       layoutDensity: "BALANCED",
       readingFontScale: 100,
+      readingFontFamily: "SERIF",
+      readingColorScheme: "AUTO",
+      linkOpenMode: "NEW_TAB",
     }
   }
   if (url === `/api/v1/entries/${entryId}`) {

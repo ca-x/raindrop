@@ -17,12 +17,17 @@ const appliedPreferences: UserPreferences = {
   themeMode: "DARK",
   layoutDensity: "COMPACT",
   readingFontScale: 130,
+  readingFontFamily: "SANS",
+  readingColorScheme: "SEPIA",
+  linkOpenMode: "CURRENT_TAB",
 }
 
 beforeEach(() => {
   localStorage.clear()
   document.documentElement.removeAttribute("data-theme")
   document.documentElement.removeAttribute("data-raindrop-density")
+  document.documentElement.removeAttribute("data-raindrop-reading-font")
+  document.documentElement.removeAttribute("data-raindrop-reading-color")
   document.documentElement.style.removeProperty("--raindrop-reading-scale")
   Object.defineProperty(navigator, "language", {
     configurable: true,
@@ -40,12 +45,17 @@ describe("PreferenceRuntime", () => {
       themeMode: "SYSTEM",
       layoutDensity: "BALANCED",
       readingFontScale: 100,
+      readingFontFamily: "SERIF",
+      readingColorScheme: "AUTO",
+      linkOpenMode: "NEW_TAB",
     })
     await expectPresentation({
       lang: "en",
       theme: null,
       density: "balanced",
       scale: "100%",
+      font: "serif",
+      color: "auto",
     })
   })
 
@@ -66,6 +76,8 @@ describe("PreferenceRuntime", () => {
       theme: "dark",
       density: "compact",
       scale: "130%",
+      font: "sans",
+      color: "sepia",
     })
     expect(i18n.locale).toBe("zh-CN")
   })
@@ -80,9 +92,11 @@ describe("PreferenceRuntime", () => {
       theme: "dark",
       density: "compact",
       scale: "130%",
+      font: "sans",
+      color: "sepia",
     })
     expect(JSON.parse(localStorage.getItem(PREFERENCE_HINT_KEY) ?? "null")).toEqual({
-      schemaVersion: 1,
+      schemaVersion: 2,
       preferences: appliedPreferences,
     })
   })
@@ -117,13 +131,15 @@ describe("theme-bootstrap.js", () => {
     expect(
       document.documentElement.style.getPropertyValue("--raindrop-reading-scale"),
     ).toBe("130%")
+    expect(document.documentElement.dataset.raindropReadingFont).toBe("sans")
+    expect(document.documentElement.dataset.raindropReadingColor).toBe("sepia")
   })
 
   it("removes a malformed hint without applying any of its values", () => {
     localStorage.setItem(
       PREFERENCE_HINT_KEY,
       JSON.stringify({
-        schemaVersion: 1,
+        schemaVersion: 2,
         preferences: { ...appliedPreferences, csrfToken: "must-not-persist" },
       }),
     )
@@ -132,6 +148,8 @@ describe("theme-bootstrap.js", () => {
     expect(localStorage.getItem(PREFERENCE_HINT_KEY)).toBeNull()
     expect(document.documentElement.getAttribute("data-theme")).toBeNull()
     expect(document.documentElement.dataset.raindropDensity).toBeUndefined()
+    expect(document.documentElement.dataset.raindropReadingFont).toBeUndefined()
+    expect(document.documentElement.dataset.raindropReadingColor).toBeUndefined()
     expect(
       document.documentElement.style.getPropertyValue("--raindrop-reading-scale"),
     ).toBe("")
@@ -170,6 +188,8 @@ async function expectPresentation(expected: {
   theme: string | null
   density: string
   scale: string
+  font: string
+  color: string
 }) {
   await waitFor(() => {
     expect(document.documentElement.lang).toBe(expected.lang)
@@ -178,5 +198,7 @@ async function expectPresentation(expected: {
     expect(
       document.documentElement.style.getPropertyValue("--raindrop-reading-scale"),
     ).toBe(expected.scale)
+    expect(document.documentElement.dataset.raindropReadingFont).toBe(expected.font)
+    expect(document.documentElement.dataset.raindropReadingColor).toBe(expected.color)
   })
 }

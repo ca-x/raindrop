@@ -1,12 +1,18 @@
 #[allow(dead_code)]
 mod support;
 
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
+
+use async_trait::async_trait;
 use axum::{
     Router,
     body::Body,
     http::{
         Method, Request, StatusCode,
-        header::{CACHE_CONTROL, CONTENT_TYPE, COOKIE, HOST, ORIGIN, PRAGMA},
+        header::{CACHE_CONTROL, CONTENT_TYPE, COOKIE, HOST, ORIGIN, PRAGMA, VARY},
     },
 };
 use http_body_util::BodyExt;
@@ -18,6 +24,7 @@ use raindrop::{
         entities::{category, entry, entry_state, feed, rss_counter, session, subscription, user},
         migrate,
     },
+    feeds::{FeedFetchError, FeedTransport, FetchOutcome, FetchRequest},
     setup::SetupService,
 };
 use sea_orm::{
@@ -42,6 +49,25 @@ const CATEGORY_A_ID: &str = "00000000-0000-4000-8000-000000000501";
 const CATEGORY_A_OTHER_ID: &str = "00000000-0000-4000-8000-000000000502";
 const CATEGORY_B_ID: &str = "00000000-0000-4000-8000-000000000503";
 
+#[derive(Clone)]
+struct StaticImageTransport {
+    calls: Arc<AtomicUsize>,
+}
+
+#[async_trait]
+impl FeedTransport for StaticImageTransport {
+    async fn fetch(&self, request: FetchRequest) -> Result<FetchOutcome, FeedFetchError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Ok(FetchOutcome::Document {
+            url: request.url().clone(),
+            document: b"\x89PNG\r\n\x1a\nreader-image".to_vec(),
+            content_type: Some("image/png".to_owned()),
+            etag: None,
+            last_modified: None,
+        })
+    }
+}
+
 struct ReaderFixture {
     _data: TempDir,
     app: Router,
@@ -50,6 +76,7 @@ struct ReaderFixture {
     user_a_csrf: String,
     user_b_cookie: String,
     user_b_csrf: String,
+    media_calls: Arc<AtomicUsize>,
 }
 
 #[derive(Clone, Copy)]
@@ -111,17 +138,22 @@ impl ReaderFixture {
             .await
             .expect("user B subscription should insert");
 
-        entry_model(
+        let mut entry_a = entry_model(
             ENTRY_A_ID,
             1,
             "entry-a",
             HASH_A,
             Some(1_784_246_400_000_000),
             now,
-        )
-        .insert(&database)
-        .await
-        .expect("entry A should insert");
+        );
+        entry_a.sanitized_content = Set(
+            "rdsc:v1:{\"html\":\"<p>Safe content</p><img alt=\\\"Preview\\\">\",\"inertImages\":[{\"imageIndex\":0,\"sourceUrl\":\"https://images.example.test/preview.png\",\"alt\":\"Preview\",\"width\":null,\"height\":null}]}"
+                .to_owned(),
+        );
+        entry_a
+            .insert(&database)
+            .await
+            .expect("entry A should insert");
         entry_model(
             ENTRY_B_ID,
             2,
@@ -170,7 +202,12 @@ impl ReaderFixture {
         let user_a_csrf = user_a_session.csrf_token.expose_secret().to_owned();
         let user_b_cookie = session_cookie(&user_b_session);
         let user_b_csrf = user_b_session.csrf_token.expose_secret().to_owned();
-        let app = build_router(AppState::new(setup));
+        let media_calls = Arc::new(AtomicUsize::new(0));
+        let app = build_router(AppState::new(setup).with_media_transport(Arc::new(
+            StaticImageTransport {
+                calls: Arc::clone(&media_calls),
+            },
+        )));
 
         Self {
             _data: data,
@@ -180,6 +217,7 @@ impl ReaderFixture {
             user_a_csrf,
             user_b_cookie,
             user_b_csrf,
+            media_calls,
         }
     }
 
@@ -1070,10 +1108,74 @@ async fn reader_detail_returns_only_sanitized_visible_content() {
         .await;
     assert_eq!(response.status(), StatusCode::OK);
     let body = response_json(response).await;
-    assert_eq!(body["contentHtml"], "<p>Safe content</p>");
+    assert_eq!(
+        body["contentHtml"],
+        "<p>Safe content</p><img alt=\"Preview\">"
+    );
     assert!(body["inertImages"].is_array());
     assert!(body["enclosures"].is_array());
     assert!(!body.to_string().contains("<script"));
+}
+
+#[tokio::test]
+async fn reader_image_proxy_is_same_origin_cached_and_user_scoped() {
+    let fixture = ReaderFixture::new().await;
+    let detail = fixture
+        .request(
+            Method::GET,
+            &format!("/api/v1/entries/{ENTRY_A_ID}"),
+            None,
+            UserKind::A,
+        )
+        .await;
+    assert_eq!(detail.status(), StatusCode::OK);
+    let detail = response_json(detail).await;
+    assert_eq!(
+        detail["inertImages"][0]["sourceUrl"],
+        "https://images.example.test/preview.png"
+    );
+
+    let image = fixture
+        .request(
+            Method::GET,
+            &format!("/reader-assets/entries/{ENTRY_A_ID}/images/0"),
+            None,
+            UserKind::A,
+        )
+        .await;
+    assert_eq!(image.status(), StatusCode::OK);
+    assert_eq!(image.headers()[CONTENT_TYPE], "image/png");
+    assert_eq!(
+        image.headers()[CACHE_CONTROL],
+        "private, no-cache, max-age=0, must-revalidate"
+    );
+    assert_eq!(image.headers()[VARY], "Cookie");
+    assert!(!image.headers().contains_key(PRAGMA));
+    let body = image
+        .into_body()
+        .collect()
+        .await
+        .expect("reader image should collect")
+        .to_bytes();
+    assert_eq!(&body[..8], b"\x89PNG\r\n\x1a\n");
+    assert_eq!(fixture.media_calls.load(Ordering::SeqCst), 1);
+
+    for (path, user) in [
+        (
+            format!("/reader-assets/entries/{ENTRY_A_ID}/images/0"),
+            UserKind::B,
+        ),
+        (
+            format!("/reader-assets/entries/{ENTRY_A_ID}/images/1"),
+            UserKind::A,
+        ),
+    ] {
+        let response = fixture.request(Method::GET, &path, None, user).await;
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert_eq!(response.headers()[CACHE_CONTROL], "no-store");
+        assert_eq!(response.headers()[PRAGMA], "no-cache");
+    }
+    assert_eq!(fixture.media_calls.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]

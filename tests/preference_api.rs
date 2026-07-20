@@ -413,6 +413,73 @@ async fn patch_persists_each_field_and_keeps_users_isolated() {
 }
 
 #[tokio::test]
+async fn v2_adds_reading_preferences_without_changing_the_v1_contract() {
+    let fixture = PreferenceFixture::new().await;
+    let initial = fixture
+        .json_request(
+            Method::GET,
+            "/api/v2/preferences",
+            None,
+            Some(UserKind::A),
+            false,
+            Some("en"),
+        )
+        .await;
+    assert_eq!(
+        initial.json(),
+        json!({
+            "locale": "en",
+            "themeMode": "SYSTEM",
+            "layoutDensity": "BALANCED",
+            "readingFontScale": 100,
+            "readingFontFamily": "SERIF",
+            "readingColorScheme": "AUTO",
+            "linkOpenMode": "NEW_TAB"
+        })
+    );
+
+    let updated = fixture
+        .json_request(
+            Method::PATCH,
+            "/api/v2/preferences",
+            Some(json!({
+                "readingFontFamily": "SANS",
+                "readingColorScheme": "SEPIA",
+                "linkOpenMode": "CURRENT_TAB"
+            })),
+            Some(UserKind::A),
+            true,
+            Some("en"),
+        )
+        .await;
+    assert_eq!(updated.status, StatusCode::OK);
+    assert_eq!(updated.json()["readingFontFamily"], "SANS");
+    assert_eq!(updated.json()["readingColorScheme"], "SEPIA");
+    assert_eq!(updated.json()["linkOpenMode"], "CURRENT_TAB");
+
+    let legacy = fixture
+        .json_request(
+            Method::GET,
+            "/api/v1/preferences",
+            None,
+            Some(UserKind::A),
+            false,
+            Some("en"),
+        )
+        .await;
+    assert_eq!(
+        legacy.json(),
+        json!({
+            "locale": "en",
+            "themeMode": "SYSTEM",
+            "layoutDensity": "BALANCED",
+            "readingFontScale": 100
+        })
+    );
+    assert_sensitive_cache_headers(&legacy);
+}
+
+#[tokio::test]
 async fn preference_namespace_has_exact_json_fallback_and_method_contracts() {
     let fixture = PreferenceFixture::new().await;
     for uri in ["/api/v1/preferences/", "/api/v1/preferences/unknown"] {

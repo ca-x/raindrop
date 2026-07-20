@@ -65,6 +65,7 @@ export function ReadyPage({ session, onLoggedOut }: ReadyPageProps) {
     preferencesController,
     aiSettingsController,
     username: session.user.username,
+    email: session.user.email,
     onLogout: signOut,
     onUnauthenticated: onLoggedOut,
     sessionError,

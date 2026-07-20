@@ -70,7 +70,9 @@ it("saves independent AI content config with the selected Provider", async () =>
   const saveConfig = vi.fn().mockResolvedValue(true)
   renderPanel(fakeAiSettingsController({ saveConfig }))
 
-  await user.click(screen.getByRole("checkbox", { name: "Enable summary" }))
+  await user.click(
+    screen.getByRole("switch", { name: "Enable AI reading plugin" }),
+  )
   await user.click(screen.getByRole("button", { name: "Save AI settings" }))
 
   expect(saveConfig).toHaveBeenCalledWith({
@@ -89,6 +91,54 @@ it("saves independent AI content config with the selected Provider", async () =>
       maxOutputTokens: 4096,
     },
   })
+})
+
+it("allows an enabled AI plugin to be disabled after all Providers are disabled", async () => {
+  activateLocale("en")
+  const user = userEvent.setup()
+  const controller = fakeAiSettingsController()
+  const provider = { ...controller.providers[0]!, isEnabled: false }
+  const saveConfig = vi.fn().mockResolvedValue(true)
+  renderPanel(
+    fakeAiSettingsController({
+      providers: [provider],
+      saveConfig,
+      configEnvelope: {
+        pluginState: "READY",
+        mcpState: "CONTRACT_READY_TRANSPORT_UNAVAILABLE",
+        config: {
+          revision: 3,
+          isEnabled: true,
+          summary: {
+            enabled: true,
+            providerId: provider.providerId,
+            style: "BALANCED",
+            maxOutputTokens: 1024,
+          },
+          translation: {
+            enabled: false,
+            providerId: provider.providerId,
+            defaultTargetLocale: "zh-CN",
+            maxOutputTokens: 4096,
+          },
+        },
+      },
+    }),
+  )
+
+  await user.click(
+    screen.getByRole("switch", { name: "Enable AI reading plugin" }),
+  )
+  await user.click(screen.getByRole("button", { name: "Save AI settings" }))
+
+  expect(saveConfig).toHaveBeenCalledWith(
+    expect.objectContaining({
+      expectedRevision: 3,
+      isEnabled: false,
+      summary: expect.objectContaining({ enabled: true }),
+      translation: expect.objectContaining({ enabled: false }),
+    }),
+  )
 })
 
 it("shows explicit keyring, plugin, and MCP availability without fake controls", () => {

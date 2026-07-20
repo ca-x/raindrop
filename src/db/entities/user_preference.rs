@@ -10,6 +10,9 @@ pub struct Model {
     pub theme_mode: String,
     pub layout_density: String,
     pub reading_font_scale: i32,
+    pub reading_font_family: String,
+    pub reading_color_scheme: String,
+    pub link_open_mode: String,
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
 }

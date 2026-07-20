@@ -462,6 +462,32 @@ async fn subscription_create_returns_before_blocked_transport_and_sets_location(
 }
 
 #[tokio::test]
+async fn subscription_favicon_fails_closed_until_the_feed_has_a_safe_site_url() {
+    let fixture = SubscriptionApiFixture::new().await;
+    let created = fixture
+        .post_with_csrf(
+            "/api/v1/subscriptions",
+            json!({ "url": "https://favicon.example/rss.xml" }),
+            UserKind::A,
+        )
+        .await;
+    let body = response_json(created).await;
+    let subscription_id = body["subscription"]["subscriptionId"]
+        .as_str()
+        .expect("created subscription should expose its identifier");
+
+    let response = fixture
+        .get(
+            &format!("/reader-assets/subscriptions/{subscription_id}/favicon"),
+            UserKind::A,
+        )
+        .await;
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_sensitive_cache_headers(&response);
+    assert_eq!(response_json(response).await["error"]["code"], "NOT_FOUND");
+}
+
+#[tokio::test]
 async fn subscription_patch_assigns_clears_and_hides_category_ownership() {
     let fixture = SubscriptionApiFixture::new().await;
     let created = fixture
@@ -611,6 +637,11 @@ async fn subscription_routes_require_active_session() {
         (
             Method::GET,
             "/api/v1/subscriptions/00000000-0000-4000-8000-000000000299",
+            None,
+        ),
+        (
+            Method::GET,
+            "/reader-assets/subscriptions/00000000-0000-4000-8000-000000000299/favicon",
             None,
         ),
         (

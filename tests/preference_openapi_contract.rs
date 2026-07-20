@@ -27,6 +27,7 @@ use tempfile::TempDir;
 use tower::ServiceExt;
 
 const OPENAPI_PATH: &str = "docs/openapi/preferences-v1.json";
+const OPENAPI_V2_PATH: &str = "docs/openapi/preferences-v2.json";
 const PREFERENCES_PATH: &str = "/api/v1/preferences";
 const METHODS: [&str; 8] = [
     "get", "put", "post", "delete", "options", "head", "patch", "trace",
@@ -130,6 +131,43 @@ fn preferences_openapi_freezes_the_public_surface_and_strict_schemas() {
             "preferences OpenAPI leaks internal field {forbidden}"
         );
     }
+}
+
+#[test]
+fn preferences_v2_adds_reader_fields_on_a_versioned_path() {
+    let document: Value = serde_json::from_str(
+        &fs::read_to_string(OPENAPI_V2_PATH).expect("preferences v2 OpenAPI should exist"),
+    )
+    .expect("preferences v2 OpenAPI should be valid JSON");
+    let path = "/api/v2/preferences";
+    assert!(document["paths"][path]["get"].is_object());
+    assert!(document["paths"][path]["patch"].is_object());
+    assert_required(
+        &document,
+        "UserPreferences",
+        &[
+            "locale",
+            "themeMode",
+            "layoutDensity",
+            "readingFontScale",
+            "readingFontFamily",
+            "readingColorScheme",
+            "linkOpenMode",
+        ],
+    );
+    assert_exact_properties(
+        &document["components"]["schemas"]["UserPreferences"],
+        &[
+            "locale",
+            "themeMode",
+            "layoutDensity",
+            "readingFontScale",
+            "readingFontFamily",
+            "readingColorScheme",
+            "linkOpenMode",
+        ],
+    );
+    assert_all_local_refs_resolve(&document, &document);
 }
 
 #[tokio::test]

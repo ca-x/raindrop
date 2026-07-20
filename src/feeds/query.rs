@@ -210,6 +210,36 @@ impl FeedRepository {
             .transpose()
     }
 
+    pub async fn entry_is_visible_to_user(
+        &self,
+        user_id: &str,
+        entry_id: &str,
+    ) -> Result<bool, RepositoryError> {
+        validate_uuid(user_id).map_err(|()| RepositoryError::InvalidUserId)?;
+        validate_uuid(entry_id).map_err(|()| RepositoryError::InvalidEntryId)?;
+        let backend = self.connection().get_database_backend();
+        self.connection()
+            .query_one(entry_visibility_statement(backend, user_id, entry_id))
+            .await
+            .map(|row| row.is_some())
+            .map_err(Into::into)
+    }
+
+    pub async fn get_inert_images_for_user(
+        &self,
+        user_id: &str,
+        entry_id: &str,
+    ) -> Result<Option<Vec<InertImageDto>>, RepositoryError> {
+        validate_uuid(user_id).map_err(|()| RepositoryError::InvalidUserId)?;
+        validate_uuid(entry_id).map_err(|()| RepositoryError::InvalidEntryId)?;
+        let backend = self.connection().get_database_backend();
+        self.connection()
+            .query_one(entry_images_statement(backend, user_id, entry_id))
+            .await?
+            .map(decode_inert_images)
+            .transpose()
+    }
+
     #[doc(hidden)]
     pub async fn explain_list_for_user(
         &self,
@@ -407,6 +437,32 @@ fn detail_statement(backend: DbBackend, user_id: &str, entry_id: &str) -> Statem
     ))
 }
 
+fn entry_visibility_statement(backend: DbBackend, user_id: &str, entry_id: &str) -> Statement {
+    let mut sql = Sql::new(backend);
+    let user = sql.bind(user_id);
+    let entry = sql.bind(entry_id);
+    sql.finish(format!(
+        "SELECT 1 AS visible
+         FROM subscriptions s
+         JOIN entries e ON e.feed_id = s.feed_id AND e.feed_sequence > s.start_sequence
+         WHERE s.user_id = {user} AND e.id = {entry}
+         LIMIT 1"
+    ))
+}
+
+fn entry_images_statement(backend: DbBackend, user_id: &str, entry_id: &str) -> Statement {
+    let mut sql = Sql::new(backend);
+    let user = sql.bind(user_id);
+    let entry = sql.bind(entry_id);
+    sql.finish(format!(
+        "SELECT e.sanitized_content AS sanitized_content
+         FROM subscriptions s
+         JOIN entries e ON e.feed_id = s.feed_id AND e.feed_sequence > s.start_sequence
+         WHERE s.user_id = {user} AND e.id = {entry}
+         LIMIT 1"
+    ))
+}
+
 fn decode_list_item(row: QueryResult) -> Result<EntryListItemDto, RepositoryError> {
     let feed_url: String = required(&row, "feed_url")?;
     Ok(EntryListItemDto {
@@ -447,19 +503,29 @@ fn decode_detail(row: QueryResult) -> Result<EntryDetailDto, RepositoryError> {
         is_read: required(&row, "is_read")?,
         is_starred: required(&row, "is_starred")?,
         content_html: content.html().to_owned(),
-        inert_images: content
-            .inert_images()
-            .iter()
-            .map(|image| InertImageDto {
-                image_index: image.image_index(),
-                source_url: image.source_url().to_owned(),
-                alt: image.alt().map(str::to_owned),
-                width: image.width(),
-                height: image.height(),
-            })
-            .collect(),
+        inert_images: inert_image_dtos(&content),
         enclosures,
     })
+}
+
+fn decode_inert_images(row: QueryResult) -> Result<Vec<InertImageDto>, RepositoryError> {
+    let storage: String = required(&row, "sanitized_content")?;
+    let content = EntryContentDetail::decode(&storage).map_err(RepositoryError::Content)?;
+    Ok(inert_image_dtos(&content))
+}
+
+fn inert_image_dtos(content: &EntryContentDetail) -> Vec<InertImageDto> {
+    content
+        .inert_images()
+        .iter()
+        .map(|image| InertImageDto {
+            image_index: image.image_index(),
+            source_url: image.source_url().to_owned(),
+            alt: image.alt().map(str::to_owned),
+            width: image.width(),
+            height: image.height(),
+        })
+        .collect()
 }
 
 fn decode_enclosures(storage: &str) -> Result<Vec<EnclosureDto>, RepositoryError> {

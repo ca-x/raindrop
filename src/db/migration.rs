@@ -9,6 +9,7 @@ mod content_jobs;
 mod organization;
 mod plugins;
 mod preferences;
+mod reader_preferences;
 mod rss;
 
 pub async fn migrate(database: &DatabaseConnection) -> Result<(), DbError> {
@@ -56,6 +57,7 @@ impl MigratorTrait for Migrator {
             Box::new(ai_providers::CreateAiProviders),
             Box::new(content_jobs::CreateContentJobs),
             Box::new(plugins::CreatePluginRegistry),
+            Box::new(reader_preferences::AddReaderPreferences),
         ]
     }
 }

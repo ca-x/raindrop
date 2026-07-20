@@ -5,8 +5,8 @@ import {
 
 export const PREFERENCE_HINT_KEY = "raindrop.preferences.v1"
 
-interface PreferenceHintV1 {
-  schemaVersion: 1
+interface PreferenceHintV2 {
+  schemaVersion: 2
   preferences: UserPreferences
 }
 
@@ -21,11 +21,14 @@ export function readPreferenceHint(): UserPreferences | null {
 
   try {
     const parsed: unknown = JSON.parse(stored)
-    if (!isPreferenceHint(parsed)) {
-      clearPreferenceHint()
-      return null
+    if (isPreferenceHint(parsed)) return parsed.preferences
+    const migrated = migrateLegacyHint(parsed)
+    if (migrated) {
+      writePreferenceHint(migrated)
+      return migrated
     }
-    return parsed.preferences
+    clearPreferenceHint()
+    return null
   } catch {
     clearPreferenceHint()
     return null
@@ -34,7 +37,7 @@ export function readPreferenceHint(): UserPreferences | null {
 
 export function writePreferenceHint(preferences: UserPreferences): void {
   if (!isUserPreferences(preferences)) return
-  const hint: PreferenceHintV1 = { schemaVersion: 1, preferences }
+  const hint: PreferenceHintV2 = { schemaVersion: 2, preferences }
   try {
     localStorage.setItem(PREFERENCE_HINT_KEY, JSON.stringify(hint))
   } catch {
@@ -50,13 +53,48 @@ export function clearPreferenceHint(): void {
   }
 }
 
-function isPreferenceHint(value: unknown): value is PreferenceHintV1 {
+function isPreferenceHint(value: unknown): value is PreferenceHintV2 {
   return (
     isRecord(value) &&
     hasOnlyKeys(value, ["schemaVersion", "preferences"]) &&
-    value.schemaVersion === 1 &&
+    value.schemaVersion === 2 &&
     isUserPreferences(value.preferences)
   )
+}
+
+function migrateLegacyHint(value: unknown): UserPreferences | null {
+  if (
+    !isRecord(value) ||
+    !hasOnlyKeys(value, ["schemaVersion", "preferences"]) ||
+    value.schemaVersion !== 1 ||
+    !isRecord(value.preferences) ||
+    !hasOnlyKeys(value.preferences, [
+      "locale",
+      "themeMode",
+      "layoutDensity",
+      "readingFontScale",
+    ]) ||
+    !["zh-CN", "en"].includes(String(value.preferences.locale)) ||
+    !["SYSTEM", "LIGHT", "DARK"].includes(String(value.preferences.themeMode)) ||
+    !["COMPACT", "BALANCED", "SPACIOUS"].includes(
+      String(value.preferences.layoutDensity),
+    ) ||
+    !Number.isInteger(value.preferences.readingFontScale) ||
+    Number(value.preferences.readingFontScale) < 85 ||
+    Number(value.preferences.readingFontScale) > 130
+  ) {
+    return null
+  }
+  return {
+    locale: value.preferences.locale as UserPreferences["locale"],
+    themeMode: value.preferences.themeMode as UserPreferences["themeMode"],
+    layoutDensity:
+      value.preferences.layoutDensity as UserPreferences["layoutDensity"],
+    readingFontScale: value.preferences.readingFontScale as number,
+    readingFontFamily: "SERIF",
+    readingColorScheme: "AUTO",
+    linkOpenMode: "NEW_TAB",
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

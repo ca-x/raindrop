@@ -21,6 +21,9 @@ const preferences = {
   themeMode: "DARK",
   layoutDensity: "COMPACT",
   readingFontScale: 110,
+  readingFontFamily: "SANS",
+  readingColorScheme: "PAPER",
+  linkOpenMode: "CURRENT_TAB",
 } as const
 
 it("generates the strict preference DTOs and includes them in drift checking", () => {
@@ -55,7 +58,7 @@ it("gets preferences through the generated strict response validator", async () 
 
   await expect(getPreferences()).resolves.toEqual(preferences)
   expect(fetchMock).toHaveBeenCalledWith(
-    "/api/v1/preferences",
+    "/api/v2/preferences",
     expect.objectContaining({ credentials: "same-origin" }),
   )
 })
@@ -88,7 +91,7 @@ it("patches only supplied fields with CSRF and an AbortSignal", async () => {
   ).resolves.toEqual(preferences)
 
   const [path, init] = fetchMock.mock.calls[0] ?? []
-  expect(path).toBe("/api/v1/preferences")
+  expect(path).toBe("/api/v2/preferences")
   expect(init?.method).toBe("PATCH")
   expect(init?.signal).toBe(signal)
   expect(new Headers(init?.headers).get("x-csrf-token")).toBe("csrf-memory")

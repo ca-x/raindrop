@@ -17,11 +17,13 @@ interface SourceTreeProps {
   onSelect: (source: ReaderSource) => void
   onAdd: () => void
   onManage: () => void
+  onManageSubscription?: () => void
   onPreferences: () => void
   onTransferSubscriptions: () => void
   onRefresh: (subscriptionId: string) => Promise<void>
   onLogout: () => Promise<void>
   manageButtonRef?: Ref<HTMLButtonElement>
+  manageSubscriptionButtonRef?: Ref<HTMLButtonElement>
   preferencesButtonRef?: Ref<HTMLButtonElement>
   density: TreeListDensity
 }
@@ -31,11 +33,13 @@ export function SourceTree({
   onSelect,
   onAdd,
   onManage,
+  onManageSubscription,
   onPreferences,
   onTransferSubscriptions,
   onRefresh,
   onLogout,
   manageButtonRef,
+  manageSubscriptionButtonRef,
   preferencesButtonRef,
   density,
 }: SourceTreeProps) {
@@ -55,10 +59,16 @@ export function SourceTree({
       <SourceToolbar
         onAdd={onAdd}
         onManage={onManage}
+        onManageSubscription={
+          selectedSubscription && onManageSubscription
+            ? onManageSubscription
+            : undefined
+        }
         onPreferences={onPreferences}
         onTransferSubscriptions={onTransferSubscriptions}
         onLogout={onLogout}
         manageButtonRef={manageButtonRef}
+        manageSubscriptionButtonRef={manageSubscriptionButtonRef}
         preferencesButtonRef={preferencesButtonRef}
         refresh={selectedSubscription ? {
           label: i18n._("reader.refreshFeed", { title: selectedSubscription.title }),

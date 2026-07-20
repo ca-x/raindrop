@@ -13,6 +13,9 @@ const preferences: UserPreferences = {
   themeMode: "DARK",
   layoutDensity: "COMPACT",
   readingFontScale: 110,
+  readingFontFamily: "SANS",
+  readingColorScheme: "SEPIA",
+  linkOpenMode: "CURRENT_TAB",
 }
 
 describe("preference presentation hint", () => {
@@ -22,7 +25,7 @@ describe("preference presentation hint", () => {
     writePreferenceHint(preferences)
 
     expect(JSON.parse(localStorage.getItem(PREFERENCE_HINT_KEY) ?? "null")).toEqual({
-      schemaVersion: 1,
+      schemaVersion: 2,
       preferences,
     })
     expect(readPreferenceHint()).toEqual(preferences)
@@ -33,22 +36,22 @@ describe("preference presentation hint", () => {
     ["invalid JSON", "{"],
     ["array", JSON.stringify([])],
     ["missing version", JSON.stringify({ preferences })],
-    ["wrong version", JSON.stringify({ schemaVersion: 2, preferences })],
+    ["wrong version", JSON.stringify({ schemaVersion: 3, preferences })],
     [
       "unknown top-level field",
-      JSON.stringify({ schemaVersion: 1, preferences, csrfToken: "must-not-persist" }),
+      JSON.stringify({ schemaVersion: 2, preferences, csrfToken: "must-not-persist" }),
     ],
     [
       "unknown preference field",
       JSON.stringify({
-        schemaVersion: 1,
+        schemaVersion: 2,
         preferences: { ...preferences, userId: "must-not-persist" },
       }),
     ],
     [
       "missing preference field",
       JSON.stringify({
-        schemaVersion: 1,
+        schemaVersion: 2,
         preferences: {
           locale: "zh-CN",
           themeMode: "DARK",
@@ -59,7 +62,7 @@ describe("preference presentation hint", () => {
     [
       "invalid preference value",
       JSON.stringify({
-        schemaVersion: 1,
+        schemaVersion: 2,
         preferences: { ...preferences, readingFontScale: 131 },
       }),
     ],
@@ -68,6 +71,35 @@ describe("preference presentation hint", () => {
 
     expect(readPreferenceHint()).toBeNull()
     expect(localStorage.getItem(PREFERENCE_HINT_KEY)).toBeNull()
+  })
+
+  it("migrates the v1 presentation hint with safe reading defaults", () => {
+    localStorage.setItem(
+      PREFERENCE_HINT_KEY,
+      JSON.stringify({
+        schemaVersion: 1,
+        preferences: {
+          locale: "zh-CN",
+          themeMode: "DARK",
+          layoutDensity: "COMPACT",
+          readingFontScale: 110,
+        },
+      }),
+    )
+
+    expect(readPreferenceHint()).toEqual({
+      locale: "zh-CN",
+      themeMode: "DARK",
+      layoutDensity: "COMPACT",
+      readingFontScale: 110,
+      readingFontFamily: "SERIF",
+      readingColorScheme: "AUTO",
+      linkOpenMode: "NEW_TAB",
+    })
+    expect(JSON.parse(localStorage.getItem(PREFERENCE_HINT_KEY) ?? "null")).toEqual({
+      schemaVersion: 2,
+      preferences: expect.objectContaining({ readingFontFamily: "SERIF" }),
+    })
   })
 
   it("keeps runtime behavior available when storage access fails", () => {

@@ -64,6 +64,11 @@ impl PreferenceRepository {
                     active.theme_mode = Set(updated.theme_mode.as_str().to_owned());
                     active.layout_density = Set(updated.layout_density.as_str().to_owned());
                     active.reading_font_scale = Set(updated.reading_font_scale);
+                    active.reading_font_family =
+                        Set(updated.reading_font_family.as_str().to_owned());
+                    active.reading_color_scheme =
+                        Set(updated.reading_color_scheme.as_str().to_owned());
+                    active.link_open_mode = Set(updated.link_open_mode.as_str().to_owned());
                     active.updated_at = Set(now);
                     active.update(&transaction).await?
                 }
@@ -74,6 +79,9 @@ impl PreferenceRepository {
                         theme_mode: Set(updated.theme_mode.as_str().to_owned()),
                         layout_density: Set(updated.layout_density.as_str().to_owned()),
                         reading_font_scale: Set(updated.reading_font_scale),
+                        reading_font_family: Set(updated.reading_font_family.as_str().to_owned()),
+                        reading_color_scheme: Set(updated.reading_color_scheme.as_str().to_owned()),
+                        link_open_mode: Set(updated.link_open_mode.as_str().to_owned()),
                         created_at: Set(now),
                         updated_at: Set(now),
                     }

@@ -20,6 +20,9 @@ const serverPreferences: UserPreferences = {
   themeMode: "LIGHT",
   layoutDensity: "SPACIOUS",
   readingFontScale: 110,
+  readingFontFamily: "SERIF",
+  readingColorScheme: "AUTO",
+  linkOpenMode: "NEW_TAB",
 }
 
 beforeEach(() => {
@@ -41,6 +44,9 @@ it("loads server preferences without blocking the initialized runtime", async ()
     themeMode: "SYSTEM",
     layoutDensity: "BALANCED",
     readingFontScale: 100,
+    readingFontFamily: "SERIF",
+    readingColorScheme: "AUTO",
+    linkOpenMode: "NEW_TAB",
   })
   expect(result.current.loadStatus).toBe("loading")
 

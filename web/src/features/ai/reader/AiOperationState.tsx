@@ -27,7 +27,7 @@ export function AiOperationState(props: AiOperationStateProps) {
   const { i18n } = useLingui()
   const settingsAction = props.onOpenSettings ? (
     <Button
-      label={i18n._("ai.reader.openSettings")}
+      label={i18n._("ai.reader.openPluginSettings")}
       onClick={props.onOpenSettings}
       variant="secondary"
     />

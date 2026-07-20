@@ -10,11 +10,15 @@ import type { PreferencesControllerError } from "../model/usePreferencesControll
 import { AiSettingsPanel } from "../../ai/settings/AiSettingsPanel"
 import type { AiSettingsController } from "../../ai/model/useAiSettingsController"
 import { OpmlTransferPanel } from "../../opml/components/OpmlTransferPanel"
-import { AppearancePreferencesForm } from "./AppearancePreferencesForm"
+import {
+  PersonalPreferencesForm,
+  ReadingPreferencesForm,
+} from "./AppearancePreferencesForm"
 
 interface PreferencesDialogProps {
   isOpen: boolean
   initialTab?: PreferencesTab
+  account?: { username: string; email: string | null }
   preferences: UserPreferences
   isSaving: boolean
   error: PreferencesControllerError | null
@@ -26,20 +30,20 @@ interface PreferencesDialogProps {
   onSubscriptionsChanged: () => Promise<void> | void
 }
 
-export type PreferencesTab = "appearance" | "ai" | "subscriptions"
+export type PreferencesTab = "personal" | "reading" | "plugins" | "subscriptions"
 
 export function PreferencesDialog(props: PreferencesDialogProps) {
   const { i18n } = useLingui()
   const [draft, setDraft] = useState(props.preferences)
   const [activeTab, setActiveTab] = useState<PreferencesTab>(
-    props.initialTab ?? "appearance",
+    props.initialTab ?? "personal",
   )
   const wasOpen = useRef(false)
 
   useEffect(() => {
     if (props.isOpen && !wasOpen.current) {
       setDraft(props.preferences)
-      setActiveTab(props.initialTab ?? "appearance")
+      setActiveTab(props.initialTab ?? "personal")
     }
     wasOpen.current = props.isOpen
   }, [props.initialTab, props.isOpen, props.preferences])
@@ -78,6 +82,7 @@ export function PreferencesDialog(props: PreferencesDialogProps) {
             title={i18n._("preferences.title")}
             subtitle={i18n._("preferences.description")}
             hasDivider
+            className="reader-dialog-header"
           />
         }
         content={
@@ -89,9 +94,10 @@ export function PreferencesDialog(props: PreferencesDialogProps) {
                 layout="fill"
                 hasDivider
               >
-                <Tab value="appearance" label={i18n._("preferences.tabAppearance")} />
+                <Tab value="personal" label={i18n._("preferences.tabPersonal")} />
+                <Tab value="reading" label={i18n._("preferences.tabReading")} />
                 {props.aiController ? (
-                  <Tab value="ai" label={i18n._("ai.settingsTab")} />
+                  <Tab value="plugins" label={i18n._("preferences.tabPlugins")} />
                 ) : null}
                 <Tab
                   value="subscriptions"
@@ -100,16 +106,25 @@ export function PreferencesDialog(props: PreferencesDialogProps) {
               </TabList>
             </div>
             <div className="reader-preferences-panel">
-              {activeTab === "appearance" ? (
-                <AppearancePreferencesForm
+              {activeTab === "personal" ? (
+                <PersonalPreferencesForm
+                  account={props.account ?? { username: "Raindrop", email: null }}
                   value={draft}
                   isSaving={props.isSaving}
                   error={props.error}
                   onChange={update}
                   onSubmit={submit}
                 />
-              ) : activeTab === "ai" && props.aiController ? (
-                <div role="tabpanel" aria-label={i18n._("ai.settingsTab")}>
+              ) : activeTab === "reading" ? (
+                <ReadingPreferencesForm
+                  value={draft}
+                  isSaving={props.isSaving}
+                  error={props.error}
+                  onChange={update}
+                  onSubmit={submit}
+                />
+              ) : activeTab === "plugins" && props.aiController ? (
+                <div role="tabpanel" aria-label={i18n._("preferences.tabPlugins")}>
                   <AiSettingsPanel controller={props.aiController} />
                 </div>
               ) : (
@@ -126,7 +141,7 @@ export function PreferencesDialog(props: PreferencesDialogProps) {
         footer={
           <LayoutFooter hasDivider padding={3}>
             <div className="reader-dialog-actions">
-              {activeTab === "appearance" ? (
+              {activeTab === "personal" || activeTab === "reading" ? (
                 <>
                   <Button
                     label={i18n._("common.cancel")}

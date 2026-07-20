@@ -53,7 +53,11 @@ export async function expectScrollTop(locator: Locator, expected: number, tolera
 export async function expectHostileContentContained(page: Page): Promise<void> {
   const body = page.locator(".reader-article-body")
   const inert = body.locator('img[data-raindrop-inert-image="0"]')
-  await expect(inert).not.toHaveAttribute("src", /.+/u)
+  await expect(inert).toHaveAttribute(
+    "src",
+    /^\/reader-assets\/entries\/[0-9a-f-]+\/images\/0$/u,
+  )
+  await expect(inert).toHaveAttribute("referrerpolicy", "no-referrer")
   await expect(body).not.toContainText("publisher.invalid/tracker.gif")
   await expect.poll(() => body.evaluate((element) => !element.innerHTML.includes("publisher.invalid/tracker.gif"))).toBe(true)
 
@@ -71,9 +75,15 @@ export async function expectHostileContentContained(page: Page): Promise<void> {
     })).toBe(true)
   }
 
-  for (const selector of ['[data-fixture="wide-table"]', '[data-fixture="wide-pre"]']) {
-    await expect.poll(() => body.locator(selector).evaluate((element) => getComputedStyle(element).overflowX)).toBe("auto")
-  }
+  await expect.poll(() => body
+    .locator('[data-fixture="wide-table"]')
+    .evaluate((element) => getComputedStyle(element).overflowX)).toBe("auto")
+  await expect.poll(() => body
+    .locator('[data-fixture="wide-pre"]')
+    .evaluate((element) => ({
+      overflowX: getComputedStyle(element).overflowX,
+      whiteSpace: getComputedStyle(element).whiteSpace,
+    }))).toEqual({ overflowX: "hidden", whiteSpace: "pre-wrap" })
   await expectNoHorizontalOverflow(page)
 }
 

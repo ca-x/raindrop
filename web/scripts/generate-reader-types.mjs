@@ -20,7 +20,7 @@ const artifacts = [
     aliases: {},
   },
   {
-    source: "docs/openapi/preferences-v1.json",
+    source: "docs/openapi/preferences-v2.json",
     output: "src/features/preferences/api/preferences.generated.ts",
     aliases: {},
   },

@@ -5,7 +5,7 @@ import {
   type UserPreferences,
 } from "./preferences.generated"
 
-const PREFERENCES_PATH = "/api/v1/preferences"
+const PREFERENCES_PATH = "/api/v2/preferences"
 
 export async function getPreferences(signal?: AbortSignal): Promise<UserPreferences> {
   const response = await apiRequest(PREFERENCES_PATH, { signal })

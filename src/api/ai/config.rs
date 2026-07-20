@@ -205,21 +205,28 @@ async fn put_config(
         .content_mutation_limiter
         .check(&user.id)
         .map_err(map_limiter_rejection)?;
-    if request.is_enabled != (request.summary.enabled || request.translation.enabled) {
-        return Err(ApiError::validation()
-            .with_field("isEnabled", "Value must match the enabled operations"));
-    }
-
     let (registry, providers) = repositories(&state)?;
     let plugin_state = load_plugin_state(&registry).await?;
     if !plugin_state.is_ready() {
         return Err(ai_unavailable());
     }
     if request.summary.enabled {
-        require_enabled_provider(&providers, &user.id, &request.summary.provider_id).await?;
+        require_provider(
+            &providers,
+            &user.id,
+            &request.summary.provider_id,
+            request.is_enabled,
+        )
+        .await?;
     }
     if request.translation.enabled {
-        require_enabled_provider(&providers, &user.id, &request.translation.provider_id).await?;
+        require_provider(
+            &providers,
+            &user.id,
+            &request.translation.provider_id,
+            request.is_enabled,
+        )
+        .await?;
     }
 
     let config_json = serde_json::to_vec(&serde_json::json!({
@@ -304,16 +311,17 @@ async fn load_plugin_state(
     }
 }
 
-async fn require_enabled_provider(
+async fn require_provider(
     repository: &ProviderRepository,
     user_id: &str,
     provider_id: &str,
+    require_enabled: bool,
 ) -> Result<(), ApiError> {
     let provider = repository
         .get_visible_for_user(provider_id, user_id)
         .await
         .map_err(map_selected_provider_error)?;
-    if provider.is_enabled() {
+    if !require_enabled || provider.is_enabled() {
         Ok(())
     } else {
         Err(ai_unavailable())

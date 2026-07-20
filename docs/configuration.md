@@ -1,6 +1,6 @@
 # Raindrop 配置
 
-本文记录当前已实现的运行时配置合同。未列出的运行时 `RAINDROP_*` 变量不会改变程序行为。AI Provider 独立加密 keyring、官方内嵌插件同步、生产内容 worker、用户设置 API/UI、手动内容任务和 Reader sidecar 已接通。自动入队、生命周期 dispatcher、MCP transport、插件管理 UI 和 OIDC 仍未实现。
+本文记录当前已实现的运行时配置合同。未列出的运行时 `RAINDROP_*` 变量不会改变程序行为。AI Provider 独立加密 keyring、官方内嵌插件同步、生产内容 worker、插件管理 UI、手动内容任务和 Reader sidecar 已接通。自动入队、生命周期 dispatcher、MCP transport、第三方插件分发和 OIDC 仍未实现。
 
 ## 加载顺序
 
@@ -24,7 +24,7 @@
 | `RAINDROP_DATABASE_URL` | `database_url` | 未设置。支持 `sqlite://`、`postgres://`、`postgresql://`、`mysql://`。存在时连接受管数据库；空库会自动创建管理员或进入仅管理员设置模式。 |
 | `RAINDROP_FEED_ORPHAN_RETENTION_DAYS` | `feed_orphan_retention_days` | `30`。必须是 `0..=3650` 的整数天；`0` 禁用 orphan Feed 的物理清理。 |
 | `RAINDROP_SESSION_SECRET` | `session_secret` | 未设置。设置后至少 32 字节，否则启动失败。当前 foundation 会加载并脱敏该值，但浏览器会话令牌仍由系统随机源独立生成，因此交互式设置不要求提供此变量。 |
-| `RAINDROP_PROVIDER_SECRET_KEYS` | `provider_secret_keys` | 未设置。逗号分隔的 `key-id:base64url` 列表；环境变量替换完整 TOML 列表。第一项用于新 credential 加密，后续项只用于轮换期解密。每份 key 解码后必须为 32 字节，且不得重复 ID 或 key material。详见 [AI Provider Core 运维合同](ai-providers.md)。 |
+| `RAINDROP_PROVIDER_SECRET_KEYS` | `provider_secret_keys` | 未设置。SQLite 和交互式设置会在数据目录创建 `provider-secret.key`；PostgreSQL/MySQL 环境托管部署未找到已有本地 key 时保持不可用。显式值为逗号分隔的 `key-id:base64url` 列表并覆盖本地 key，第一项用于新 credential 加密，后续项只用于轮换期解密。每份 key 解码后必须为 32 字节，且不得重复 ID 或 key material。详见 [AI Provider Core 运维合同](ai-providers.md)。 |
 | `RAINDROP_BOOTSTRAP_ADMIN_USERNAME` | `bootstrap_admin.username` | 未设置。与管理员密码成组使用；空数据库初始化时不能为空，最终用户名必须为 3 到 64 个非空白、非控制字符。 |
 | `RAINDROP_BOOTSTRAP_ADMIN_PASSWORD` | `bootstrap_admin.password` | 未设置。与管理员用户名成组使用，不能为空；生产环境仍建议使用密码管理器生成强密码。 |
 | `RAINDROP_BOOTSTRAP_ADMIN_EMAIL` | `bootstrap_admin.email` | 未设置。可选；首尾空白会被移除，空值按未提供处理。非空值仅接受 ASCII，转为小写后最多 320 字节、只能有一个 `@`、local/domain 都不能为空且分别最多 64/255 字节，并拒绝空白与控制字符。该保守的未加引号地址子集不覆盖 RFC 的 quoted local-part 或国际化地址。 |
@@ -105,9 +105,9 @@ chmod 700 /var/lib/raindrop
 
 ## AI Provider 与 Reader 执行
 
-`RAINDROP_PROVIDER_SECRET_KEYS` 是 AI credential 的运行时根密钥。没有 keyring 时，Raindrop 仍可启动、读取 Provider 元数据并使用 RSS；创建 Provider、轮换 credential 或为没有 current artifact 的文章创建新 AI 任务会返回 keyring unavailable。Raindrop 不会生成临时密钥，也不会把 credential 降级为明文。
+Provider keyring 是 AI credential 的运行时根密钥。SQLite 和交互式设置会在数据目录生成一次 `provider-secret.key`，以后稳定复用；Unix 文件权限会收紧为 `0600`。交互式设置即使选择 PostgreSQL/MySQL，也会继续使用并复用这份本地 key。纯环境托管的 PostgreSQL/MySQL 部署未配置 keyring 且数据目录没有已有本地 key 时，Raindrop 仍可启动、读取 Provider 元数据并使用 RSS，但创建 Provider、轮换 credential 或创建新 AI 任务会返回 keyring unavailable。任何模式都不会把 credential 降级为明文。
 
-配置 keyring 后，登录用户可以在“设置 > AI”中创建和编辑自己的 Provider，并选择摘要或翻译使用的 Provider。Provider API 和 UI 永远不回读 credential；编辑表单中的 credential 默认留空，留空表示保留已有秘密。Endpoint 必须是通过安全校验的 HTTPS URL。四种协议、轮换步骤和 transport 边界见 [AI Provider 运维合同](ai-providers.md)。
+登录用户可以在“设置 > 插件”中创建和编辑自己的 Provider，启用或关闭 AI 阅读插件，并选择摘要或翻译使用的 Provider。Provider API 和 UI 永远不回读 credential；编辑表单中的 credential 默认留空，留空表示保留已有秘密。Endpoint 必须是通过安全校验的 HTTPS URL。四种协议、轮换步骤和 transport 边界见 [AI Provider 运维合同](ai-providers.md)。
 
 Reader 只在用户点击摘要或翻译时创建任务。自动执行保持关闭，MCP 状态固定显示为 transport unavailable。任务运行、失败或等待重试时，原文仍是默认阅读面；sidecar 有独立滚动区，关闭后恢复触发按钮焦点。worker 的瞬时错误可以在同一任务内进行有界重试；用户点击“重试”会按当前文章、配置、插件和 Provider 快照创建新的任务历史，不会修改旧失败记录。
 
@@ -129,6 +129,8 @@ setup token 不会通过 bootstrap API 返回。服务只保留 token 的 BLAKE3
 durable boundary 成功后，配置不再被删除或回滚。若管理员密码哈希或数据库事务随后失败，当前进程保持 `ADMIN_ONLY`，可以使用同一 setup token 调用 `/api/v1/setup/admin` 重试。崩溃重启时，只有“零用户且无 bootstrap claim”会进入 `ADMIN_ONLY`；用户与 singleton claim 同时存在才进入 `READY`。claim 与用户数量不一致是显式启动错误，删除已认领管理员不会重新开放 bootstrap。Windows 没有 POSIX `0600`/`0700`，需要使用平台 ACL 保护数据目录和配置文件；当前不支持的其他非 Unix/非 Windows 目标会在 durable boundary 失败关闭。
 
 向导只新增或更新 `database_url`，已有 TOML 字段会保留。数据库 URL 以明文保存在 `config.toml`，文件权限和备份访问控制仍由管理员负责。
+
+进入交互式设置时，进程还会在同一数据目录创建 `provider-secret.key`。它不写入 `config.toml`，但与数据库中的 Provider credential envelope 共同构成可恢复状态；备份、迁移或更换数据目录时必须一并保留。
 
 ### 环境托管与 `ADMIN_ONLY`
 
