@@ -2,12 +2,12 @@
 
 Raindrop 是使用 Rust、Axum、SeaORM 和 React 构建的自托管 RSS 阅读器。它提供安全的 Feed 抓取与正文清洗、分类管理、未读与收藏状态、Feed 内搜索、批量已读、键盘导航、响应式阅读界面，以及 SQLite、PostgreSQL、MySQL 三种数据库支持。生产 Web 界面会嵌入单个 Rust 可执行文件。
 
-## v0.2.0
+## v0.3.0
 
-- 支持 OPML 预览、原子导入和导出，可保留订阅分类与自定义标题，并自动识别重复或无效订阅。
-- 阅读器来源树、文章队列、文章工具栏和移动端详情体验进一步对齐 CommaFeed 的高频阅读流程。
-- 设置界面拆分为外观与订阅分页，在桌面、短屏和移动端均保持操作可达。
-- 本地管理员密码只要求非空，不再限制至少 12 个字符。
+- 新增用户级 AI Provider 管理，支持 Anthropic Messages-compatible、OpenAI Responses、OpenAI Chat Completions-compatible 和 Google Gemini，credential 仅写入且加密保存。
+- Reader 新增手动摘要与翻译 sidecar，任务执行、轮询和失败重试均不阻塞原文，关闭或切换后保留正文与滚动位置。
+- 官方签名 `raindrop.ai-content@1.0.0` 通过统一 Provider broker、当前 artifact identity 和类型化结果合同执行，未配置 keyring 时保持惰性。
+- bootstrap 管理员配置与 Web 设置统一为密码只要求非空；生产部署仍建议使用密码管理器生成强密码。
 
 ## 界面预览
 
