@@ -66,7 +66,7 @@ tempfile = "3.27.0"
 tokio = { version = "1.52.3", features = ["test-util"] }
 tower = { version = "0.5.3", features = ["util"] }
 wasmprinter = { version = "=0.253.0", default-features = false, features = ["component-model", "validate"] }
-wat = "=1.253.0"
+wat = "=1.254.0"
 wit-component = { version = "=0.253.0", default-features = false, features = ["dummy-module"] }
 wit-parser = { version = "0.253.0", default-features = false, features = ["std"] }
 
