@@ -1,6 +1,11 @@
 export const MAX_LOOKUP_SELECTION_CHARACTERS = 200
 export const MAX_TRANSLATION_SELECTION_CHARACTERS = 8_000
 
+export interface ArticleSelectionAnchor {
+  clientX: number
+  clientY: number
+}
+
 export function readSelectedArticleText(
   container: HTMLElement | null,
   selection: Selection | null = document.getSelection(),
@@ -35,6 +40,41 @@ export function readSelectedArticleText(
   )
     ? ""
     : text
+}
+
+export function readSelectedArticleAnchor(
+  container: HTMLElement | null,
+  selection: Selection | null = document.getSelection(),
+): ArticleSelectionAnchor | null {
+  if (
+    !container ||
+    !selection ||
+    selection.isCollapsed ||
+    selection.rangeCount === 0
+  ) {
+    return null
+  }
+  const range = selection.getRangeAt(selection.rangeCount - 1)
+  if (
+    !container.contains(range.startContainer) ||
+    !container.contains(range.endContainer)
+  ) {
+    return null
+  }
+  const rectangles =
+    typeof range.getClientRects === "function"
+      ? Array.from(range.getClientRects()).filter(
+          (rectangle) => rectangle.width > 0 || rectangle.height > 0,
+        )
+      : []
+  const rectangle =
+    rectangles.at(-1) ??
+    (typeof range.getBoundingClientRect === "function"
+      ? range.getBoundingClientRect()
+      : null)
+  return rectangle
+    ? { clientX: rectangle.right, clientY: rectangle.bottom }
+    : null
 }
 
 export function unicodeLength(value: string): number {

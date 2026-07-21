@@ -149,7 +149,19 @@
   > div
   > :where(button, a):has(.reader-source-label) {
   min-inline-size: 0;
-  min-block-size: 0;
+  min-block-size: 44px;
+  justify-content: center;
+}
+
+.reader-source-tree
+  [role="treeitem"]
+  > div:last-of-type
+  > div
+  > :where(button, a):has(.reader-source-label)
+  > span:has(> .reader-source-label) {
+  display: flex;
+  align-items: center;
+  min-block-size: 18px;
 }
 
 .reader-queue-shortcuts,
@@ -530,15 +542,33 @@ html[data-raindrop-reading-color="gray"] .reader-article-plane {
   user-select: text;
 }
 
-.reader-selection-anchor {
+.reader-selection-action {
   position: absolute;
-  z-index: -1;
-  inline-size: 1px;
-  block-size: 1px;
-  padding: 0;
-  border: 0;
+  z-index: 4;
+  min-inline-size: 32px;
+  min-block-size: 32px;
+  border-radius: 999px;
+  box-shadow:
+    0 1px 2px color-mix(in oklch, black 14%, transparent),
+    0 6px 18px color-mix(in oklch, black 18%, transparent);
+  transform: translate(-50%, 6px);
+}
+
+.reader-selection-action[data-hidden="true"] {
+  visibility: hidden;
   opacity: 0;
   pointer-events: none;
+}
+
+.reader-selection-action[data-popover-open="true"] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.reader-selection-action-glyph {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  line-height: 1;
 }
 
 [popover]:has(.reader-selection-popover) {
@@ -619,6 +649,14 @@ html[data-raindrop-reading-color="gray"] .reader-article-plane {
   color: var(--color-text-danger);
   font-size: 0.875rem;
   line-height: 1.45;
+}
+
+@media (pointer: coarse) {
+  .reader-selection-action {
+    min-inline-size: 44px;
+    min-block-size: 44px;
+    transform: translate(-50%, 8px);
+  }
 }
 
 .reader-translation-title-pair,

@@ -35,6 +35,6 @@ test("managed empty database exposes only first-administrator setup", async ({ p
   const bootstrap = await page.request.get(`${server.baseURL}/api/v1/bootstrap`)
   await expect(bootstrap.json()).resolves.toEqual({
     status: "READY",
-    version: "0.3.6",
+    version: "0.3.7",
   })
 })

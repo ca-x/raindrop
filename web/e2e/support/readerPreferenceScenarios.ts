@@ -70,7 +70,7 @@ export async function verifyWidePreferences(
   await page.getByRole("button", { name: "打开菜单" }).click()
   await page.getByRole("menuitem", { name: "设置" }).click()
   const reopenedSettings = page.getByRole("dialog", { name: "设置" })
-  await reopenedSettings.getByRole("button", { name: "阅读" }).click()
+  await reopenedSettings.getByRole("button", { name: /^阅读(?:\s|$)/u }).click()
   await reopenedSettings.getByRole("button", { name: "删除字体“Editorial”" }).click()
   await expect(reopenedSettings.getByText("Editorial", { exact: true })).toHaveCount(0)
   await reopenedSettings.getByRole("button", { name: "取消" }).click()
@@ -189,7 +189,7 @@ async function choosePreferences(
   await dialog.getByRole("radio", {
     name: densityLabel(preferences.layoutDensity),
   }).click()
-  await dialog.getByRole("button", { name: /Reading|阅读/u }).click()
+  await dialog.getByRole("button", { name: /^(?:Reading\b|阅读)/u }).click()
   await dialog.getByRole("radio", {
     name: {
       AUTO: /Auto|自动/u,

@@ -6,7 +6,10 @@ import { Providers } from "../../../app/Providers"
 import { activateLocale } from "../../../shared/i18n/i18n"
 import type { EntryTranslationController } from "../model/useEntryTranslationController"
 import { ArticleSelectionPopover } from "./ArticleSelectionPopover"
-import { readSelectedArticleText } from "./articleSelection"
+import {
+  readSelectedArticleAnchor,
+  readSelectedArticleText,
+} from "./articleSelection"
 
 it("reads only selections whose endpoints stay inside the article body", () => {
   const body = document.createElement("div")
@@ -53,12 +56,53 @@ it("reads only selections whose endpoints stay inside the article body", () => {
   outside.remove()
 })
 
-it("opens a floating lookup result immediately for a short selection", async () => {
+it("anchors the floating action to the final visible selection rectangle", () => {
+  const body = document.createElement("div")
+  const paragraph = document.createElement("p")
+  paragraph.textContent = "A selection that wraps onto another line"
+  body.append(paragraph)
+  document.body.append(body)
+  const range = document.createRange()
+  range.selectNodeContents(paragraph)
+  Object.defineProperty(range, "getClientRects", {
+    value: () =>
+      [
+        new DOMRect(10, 20, 80, 18),
+        new DOMRect(10, 40, 52, 18),
+      ] as unknown as DOMRectList,
+  })
+  const selection = document.getSelection()
+  selection?.removeAllRanges()
+  selection?.addRange(range)
+
+  expect(readSelectedArticleAnchor(body, selection)).toEqual({
+    clientX: 62,
+    clientY: 58,
+  })
+
+  selection?.removeAllRanges()
+  body.remove()
+})
+
+it("offers a floating action after selection and looks up only after activation", async () => {
   activateLocale("en")
+  const user = userEvent.setup()
   const controller = createController()
   renderPopover("quick brown fox", controller)
 
-  openSelectedTextPopover()
+  revealSelectionAction()
+
+  const selectionAction = await screen.findByRole("button", {
+    name: "Look up or translate selected text",
+  })
+  const dialog = screen.getByRole("dialog", {
+    name: "Selected text translation",
+    hidden: true,
+  })
+  expect(controller.lookup).not.toHaveBeenCalled()
+  expect(dialog.closest("[popover]")).not.toHaveAttribute("popover-open")
+
+  await user.click(selectionAction)
 
   expect(controller.lookup).toHaveBeenCalledWith("quick brown fox")
   expect(
@@ -78,11 +122,17 @@ it("opens a floating lookup result immediately for a short selection", async () 
 
 it("opens paragraph translation directly and omits word lookup mode", async () => {
   activateLocale("en")
+  const user = userEvent.setup()
   const selectedText = "x".repeat(201)
   const controller = createController()
   renderPopover(selectedText, controller)
 
-  openSelectedTextPopover()
+  revealSelectionAction()
+  await user.click(
+    await screen.findByRole("button", {
+      name: "Look up or translate selected text",
+    }),
+  )
 
   expect(controller.translateSelection).toHaveBeenCalledWith(selectedText)
   expect(
@@ -104,7 +154,7 @@ it("lets a short selection switch from lookup to translation in place", async ()
   const user = userEvent.setup()
   const controller = createController()
   renderPopover("fox", controller)
-  openSelectedTextPopover()
+  await openSelectedTextPopover()
 
   await user.click(
     await screen.findByRole("button", {
@@ -115,12 +165,28 @@ it("lets a short selection switch from lookup to translation in place", async ()
   expect(controller.translateSelection).toHaveBeenCalledWith("fox")
 })
 
-it("preserves the native context menu when the selection is too large", () => {
+it("preserves the native context menu for a valid selection", () => {
+  activateLocale("en")
+  const controller = createController()
+  renderPopover("selected text", controller)
+  const articleBody = selectArticleText()
+
+  expect(fireEvent.contextMenu(articleBody)).toBe(true)
+  expect(controller.lookup).not.toHaveBeenCalled()
+  expect(controller.translateSelection).not.toHaveBeenCalled()
+})
+
+it("does not offer an action when the selection is too large", () => {
   activateLocale("en")
   const controller = createController()
   renderPopover("x".repeat(8_001), controller)
 
-  expect(openSelectedTextPopover()).toBe(true)
+  revealSelectionAction()
+  expect(
+    screen.queryByRole("button", {
+      name: "Look up or translate selected text",
+    }),
+  ).not.toBeInTheDocument()
   expect(controller.lookup).not.toHaveBeenCalled()
 })
 
@@ -140,11 +206,27 @@ it("preserves the native context menu when body text is not selected", () => {
   expect(controller.translateSelection).not.toHaveBeenCalled()
 })
 
+it("offers the same action after a mobile-style stable selection", async () => {
+  activateLocale("en")
+  const controller = createController()
+  renderPopover("mobile selection", controller)
+  selectArticleText()
+
+  fireEvent(document, new Event("selectionchange"))
+
+  expect(
+    await screen.findByRole("button", {
+      name: "Look up or translate selected text",
+    }),
+  ).toBeInTheDocument()
+  expect(controller.lookup).not.toHaveBeenCalled()
+})
+
 it("dismisses and cancels the floating result with Escape", async () => {
   activateLocale("en")
   const controller = createController()
   renderPopover("fox", controller)
-  openSelectedTextPopover()
+  await openSelectedTextPopover()
   const dialog = await screen.findByRole("dialog", { hidden: true })
   expect(dialog.closest("[popover]")).toHaveAttribute("popover-open")
 
@@ -161,7 +243,7 @@ it("keeps selected-text failures inside the floating result", async () => {
     contextError: "RATE_LIMITED",
   })
   renderPopover("fox", controller)
-  openSelectedTextPopover()
+  await openSelectedTextPopover()
 
   expect(await screen.findByRole("alert", { hidden: true })).toHaveTextContent(
     "Too many requests. Try again later.",
@@ -172,7 +254,7 @@ it("closes and disables the prior selection while the reader changes entry", asy
   activateLocale("en")
   const controller = createController()
   const view = renderPopover("fox", controller)
-  openSelectedTextPopover()
+  await openSelectedTextPopover()
   const dialog = await screen.findByRole("dialog", { hidden: true })
   expect(dialog.closest("[popover]")).toHaveAttribute("popover-open")
 
@@ -189,7 +271,7 @@ it("closes and disables the prior selection while the reader changes entry", asy
 
   expect(dialog.closest("[popover]")).not.toHaveAttribute("popover-open")
   expect(controller.cancelContextActions).toHaveBeenCalled()
-  expect(openSelectedTextPopover()).toBe(true)
+  revealSelectionAction()
   expect(controller.lookup).toHaveBeenCalledTimes(1)
 })
 
@@ -205,7 +287,7 @@ it("renders provider output as text instead of executable markup", async () => {
     },
   })
   renderPopover("x".repeat(201), controller)
-  openSelectedTextPopover()
+  await openSelectedTextPopover()
 
   expect(await screen.findByText(translatedText, { exact: true })).toBeInTheDocument()
   expect(
@@ -229,17 +311,30 @@ function renderPopover(
   )
 }
 
-function openSelectedTextPopover(): boolean {
+function selectArticleText(): HTMLElement {
   const articleBody = screen.getByTestId("article-body")
   const range = document.createRange()
   range.selectNodeContents(articleBody)
   const selection = document.getSelection()
   selection?.removeAllRanges()
   selection?.addRange(range)
-  return fireEvent.contextMenu(articleBody, {
+  return articleBody
+}
+
+function revealSelectionAction(): boolean {
+  return fireEvent.pointerUp(selectArticleText(), {
     clientX: 40,
     clientY: 40,
   })
+}
+
+async function openSelectedTextPopover(): Promise<void> {
+  revealSelectionAction()
+  const selectionAction = await screen.findByRole("button", {
+    name: "Look up or translate selected text",
+  })
+  fireEvent.pointerDown(selectionAction)
+  fireEvent.click(selectionAction)
 }
 
 function createController(

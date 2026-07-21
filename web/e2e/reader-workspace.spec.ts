@@ -141,6 +141,77 @@ test("Reader refresh observability", async ({ page }, testInfo) => {
   }
 })
 
+test("Selected text translation waits for an explicit floating action", async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    !["reader-1280x800", "reader-390x844"].includes(testInfo.project.name),
+    "Selection translation is exercised once per pointer family.",
+  )
+  const selectionServer = await startProductionServer()
+  try {
+    const translation = await installSelectionTranslationFixture(page)
+    await installReaderApiFixture(page)
+    await completeSetup(page, selectionServer, createCredentials())
+    await readerRowButton(page, readerIds.firstEntry).click()
+    await expect(page.getByRole("heading", { name: "First quiet article" })).toBeVisible()
+
+    const paragraph = page.locator(".reader-article-body p").first()
+    const selectionPoint = await paragraph.evaluate((element) => {
+      const range = document.createRange()
+      range.selectNodeContents(element)
+      const selection = document.getSelection()
+      selection?.removeAllRanges()
+      selection?.addRange(range)
+      const rectangle = range.getBoundingClientRect()
+      return { clientX: rectangle.right, clientY: rectangle.bottom }
+    })
+    await paragraph.dispatchEvent("pointerup", {
+      bubbles: true,
+      ...selectionPoint,
+      pointerType: testInfo.project.name.includes("390") ? "touch" : "mouse",
+    })
+
+    const action = page.getByRole("button", {
+      name: "Look up or translate selected text",
+    })
+    await expect(action).toBeVisible()
+    expect(translation.requests).toEqual([])
+    const contextMenuWasPrevented = await paragraph.evaluate((element) => {
+      const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true })
+      element.dispatchEvent(event)
+      return event.defaultPrevented
+    })
+    expect(contextMenuWasPrevented).toBe(false)
+    if (testInfo.project.name === "reader-390x844") {
+      const box = await action.boundingBox()
+      expect(box?.width ?? 0).toBeGreaterThanOrEqual(44)
+      expect(box?.height ?? 0).toBeGreaterThanOrEqual(44)
+    }
+
+    await action.click()
+    const dialog = page.getByRole("dialog", { name: "Selected text translation" })
+    const popover = dialog.locator("xpath=ancestor::*[@popover][1]")
+    await expect
+      .poll(() => popover.evaluate((element) => element.matches(":popover-open")))
+      .toBe(true)
+    await expect(dialog).toBeVisible()
+    if (testInfo.project.name === "reader-390x844") {
+      const viewport = page.viewportSize()
+      const box = await popover.boundingBox()
+      expect(box?.x ?? 0).toBeGreaterThanOrEqual(16)
+      expect(
+        (viewport?.width ?? 0) - ((box?.x ?? 0) + (box?.width ?? 0)),
+      ).toBeGreaterThanOrEqual(16)
+    }
+    await expect(dialog.getByText("确定性阅读条目 1", { exact: true })).toBeVisible()
+    expect(translation.requests).toEqual(["Deterministic Reader entry 1"])
+    expect(translation.hasCsrf).toBe(true)
+  } finally {
+    await selectionServer.stop()
+  }
+})
+
 async function verifyWide(page: Page, fixture: ReaderApiFixture): Promise<void> {
   await expect(page.getByRole("navigation", { name: "Sources" })).toBeVisible()
   await expect(page.getByRole("region", { name: "Entry queue" })).toBeVisible()
@@ -213,8 +284,8 @@ async function verifyWide(page: Page, fixture: ReaderApiFixture): Promise<void> 
   const managementDialog = page.getByRole("dialog", { name: "Manage subscriptions" })
   await managementDialog.getByRole("button", { name: "Close" }).click()
   await expect(managementDialog).not.toBeVisible()
-  await readerRowButton(page, readerIds.firstEntry).click()
-  await expect(page.getByRole("heading", { name: "First quiet article" })).toBeVisible()
+  await readerRowButton(page, readerIds.fourthEntry).click()
+  await expect(page.getByRole("heading", { name: "Fixture entry 04" })).toBeVisible()
   await verifyWidePreferences(page, fixture)
   await expectNoHorizontalOverflow(page)
 }
@@ -242,6 +313,65 @@ async function expectTouchTarget(locator: ReturnType<Page["getByRole"]>): Promis
   const box = await locator.boundingBox()
   expect(box?.width ?? 0).toBeGreaterThanOrEqual(44)
   expect(box?.height ?? 0).toBeGreaterThanOrEqual(44)
+}
+
+async function installSelectionTranslationFixture(page: Page): Promise<{
+  requests: string[]
+  hasCsrf: boolean
+}> {
+  const state = { requests: [] as string[], hasCsrf: false }
+  await page.route("**/api/v2/plugins/translation**", async (route) => {
+    const request = route.request()
+    const url = new URL(request.url())
+    if (url.pathname === "/api/v2/plugins/translation" && request.method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          engine: "DEEPLX",
+          displayMode: "BILINGUAL",
+          isEnabled: true,
+          defaultTargetLocale: "zh-CN",
+          openAi: {
+            providerId: null,
+            maxOutputTokens: 2048,
+            profile: "GENERAL",
+            customSystemPrompt: null,
+            customPrompt: null,
+          },
+          deepLx: {
+            displayName: "DeepLX",
+            description: null,
+            baseUrl: null,
+            hasApiKey: false,
+          },
+          revision: 1,
+        }),
+      })
+      return
+    }
+    if (url.pathname === "/api/v2/plugins/translation/lookup" && request.method() === "POST") {
+      const body = request.postDataJSON() as { text: string }
+      state.requests.push(body.text)
+      state.hasCsrf = Boolean(request.headers()["x-csrf-token"])
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          query: body.text,
+          translation: "确定性阅读条目 1",
+          definition: "用于验证选区查词的确定性结果。",
+          examples: [],
+          providerLabel: "DeepLX",
+          detectedSourceLocale: "en",
+          targetLocale: "zh-CN",
+        }),
+      })
+      return
+    }
+    throw new Error(`unexpected Translation request: ${request.method()} ${url.pathname}`)
+  })
+  return state
 }
 
 async function verifyMedium(page: Page, fixture: ReaderApiFixture): Promise<void> {
