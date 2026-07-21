@@ -11,6 +11,7 @@ import type { ReaderState } from "../model/types"
 import type { UserPreferencesLinkOpenMode } from "../../preferences/api/preferences.generated"
 import type {
   UserFont,
+  UserPreferencesReadingColorScheme,
   UserPreferencesReadingFontFamily,
 } from "../../preferences/api/preferences.generated"
 import { ArticleToolbar, ReadingFloatingToolbar } from "./ReaderToolbar"
@@ -32,12 +33,16 @@ interface ArticleReaderProps {
   readingFontScale?: number
   readingFontFamily?: UserPreferencesReadingFontFamily
   readingCustomFontId?: string | null
+  readingColorScheme?: UserPreferencesReadingColorScheme
   fonts?: UserFont[]
   isReadingPreferenceSaving?: boolean
   onReadingFontScaleChange?: (scale: number) => Promise<boolean>
   onReadingFontChange?: (
     family: UserPreferencesReadingFontFamily,
     customFontId: string | null,
+  ) => Promise<boolean>
+  onReadingColorSchemeChange?: (
+    colorScheme: UserPreferencesReadingColorScheme,
   ) => Promise<boolean>
 }
 
@@ -48,9 +53,12 @@ export function ArticleReader(props: ArticleReaderProps) {
   const linkOpenMode = props.linkOpenMode ?? "NEW_TAB"
   const readingFontScale = props.readingFontScale ?? 100
   const readingFontFamily = props.readingFontFamily ?? "SERIF"
+  const readingColorScheme = props.readingColorScheme ?? "AUTO"
   const onReadingFontScaleChange =
     props.onReadingFontScaleChange ?? (async () => true)
   const onReadingFontChange = props.onReadingFontChange ?? (async () => true)
+  const onReadingColorSchemeChange =
+    props.onReadingColorSchemeChange ?? (async () => true)
   const articleRef = useRef<HTMLElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
   const headingRef = useRef<HTMLHeadingElement>(null)
@@ -191,10 +199,12 @@ export function ArticleReader(props: ArticleReaderProps) {
         readingFontScale={readingFontScale}
         readingFontFamily={readingFontFamily}
         readingCustomFontId={props.readingCustomFontId ?? null}
+        readingColorScheme={readingColorScheme}
         fonts={props.fonts ?? []}
         isSaving={props.isReadingPreferenceSaving ?? false}
         onScaleChange={onReadingFontScaleChange}
         onFontChange={onReadingFontChange}
+        onColorSchemeChange={onReadingColorSchemeChange}
       />
     </div>
   )

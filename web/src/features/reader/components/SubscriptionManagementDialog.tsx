@@ -12,7 +12,6 @@ import { useLingui } from "@lingui/react"
 import { useEffect, useState, type FormEvent } from "react"
 
 import { OpmlTransferPanel } from "../../opml/components/OpmlTransferPanel"
-import type { UserPreferencesLinkOpenMode } from "../../preferences/api/preferences.generated"
 import {
   isCreateCategoryRequest,
   isUpdateCategoryRequest,
@@ -38,11 +37,9 @@ interface PendingSubscriptionSetup {
 
 interface SubscriptionManagementDialogProps {
   isOpen: boolean
-  selectedSubscription?: Subscription
   subscriptions: Subscription[]
   categories: Category[]
   mutationError: string | null
-  linkOpenMode: UserPreferencesLinkOpenMode
   csrfToken: string
   onOpenChange: (isOpen: boolean) => void
   onClearError: () => void
@@ -161,25 +158,12 @@ function SubscriptionPanel(
   const [isAdding, setIsAdding] = useState(false)
   const [isOrganizing, setIsOrganizing] = useState(false)
   const [isDiscarding, setIsDiscarding] = useState(false)
-  const [titleOverride, setTitleOverride] = useState("")
-  const [categoryId, setCategoryId] = useState(uncategorizedValue)
-  const [isSaving, setIsSaving] = useState(false)
-  const [isAssigning, setIsAssigning] = useState(false)
-  const [isDeleteOpen, setIsDeleteOpen] = useState(false)
-  const [isDeleting, setIsDeleting] = useState(false)
-  const subscription = props.selectedSubscription
   const addedSubscription = props.pendingSubscription
     ? props.subscriptions.find(
         (candidate) =>
           candidate.subscriptionId === props.pendingSubscription?.subscriptionId,
       )
     : undefined
-
-  useEffect(() => {
-    if (!props.isOpen || !subscription) return
-    setTitleOverride(subscription.titleOverride ?? "")
-    setCategoryId(subscription.categoryId ?? uncategorizedValue)
-  }, [props.isOpen, subscription])
 
   const categoryOptions = [
     { value: uncategorizedValue, label: i18n._("reader.uncategorized") },
@@ -245,41 +229,6 @@ function SubscriptionPanel(
     const deleted = await props.onDelete(addedSubscription.subscriptionId)
     setIsDiscarding(false)
     if (deleted) props.onPendingSubscriptionChange(null)
-  }
-
-  const saveTitle = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (!subscription) return
-    props.onClearError()
-    setIsSaving(true)
-    const saved = await props.onUpdate(subscription.subscriptionId, {
-      titleOverride: titleOverride.trim() || null,
-    })
-    setIsSaving(false)
-    if (!saved) setTitleOverride(subscription.titleOverride ?? "")
-  }
-
-  const assign = async (value: string) => {
-    if (!subscription) return
-    const previous = categoryId
-    setCategoryId(value)
-    props.onClearError()
-    setIsAssigning(true)
-    const saved = await props.onUpdate(subscription.subscriptionId, {
-      categoryId: value === uncategorizedValue ? null : value,
-    })
-    setIsAssigning(false)
-    if (!saved) setCategoryId(previous)
-  }
-
-  const deleteSubscription = async () => {
-    if (!subscription) return
-    props.onClearError()
-    setIsDeleting(true)
-    const deleted = await props.onDelete(subscription.subscriptionId)
-    setIsDeleting(false)
-    setIsDeleteOpen(false)
-    if (deleted) props.onOpenChange(false)
   }
 
   return (
@@ -394,101 +343,6 @@ function SubscriptionPanel(
         )}
       </section>
 
-      <section className="reader-management-section" aria-labelledby="reader-current-feed-heading">
-        <div>
-          <div id="reader-current-feed-heading" className="reader-preference-label">
-            {i18n._("reader.currentFeed")}
-          </div>
-          <div className="reader-preference-description">
-            {subscription
-              ? i18n._("reader.manageFeedDescription", { title: subscription.title })
-              : i18n._("reader.selectFeedToManage")}
-          </div>
-        </div>
-        {subscription ? (
-          <>
-            <dl className="reader-feed-addresses">
-              <div>
-                <dt>{i18n._("reader.feedUrl")}</dt>
-                <dd><a href={subscription.feedUrl}>{subscription.feedUrl}</a></dd>
-              </div>
-              <div>
-                <dt>{i18n._("reader.websiteUrl")}</dt>
-                <dd>
-                  {subscription.siteUrl ? (
-                    <a
-                      href={subscription.siteUrl}
-                      target={props.linkOpenMode === "NEW_TAB" ? "_blank" : undefined}
-                      rel={props.linkOpenMode === "NEW_TAB" ? "noopener noreferrer" : undefined}
-                    >
-                      {subscription.siteUrl}
-                    </a>
-                  ) : i18n._("reader.feedSiteUnavailable")}
-                </dd>
-              </div>
-            </dl>
-            <form onSubmit={saveTitle} noValidate>
-              <FormLayout>
-                <TextInput
-                  label={i18n._("reader.feedCustomTitle")}
-                  description={i18n._("reader.feedCustomTitleDescription")}
-                  value={titleOverride}
-                  onChange={setTitleOverride}
-                  placeholder={subscription.title}
-                  width="100%"
-                />
-                <div className="reader-category-form-actions">
-                  <Button
-                    label={i18n._("reader.saveFeed")}
-                    type="submit"
-                    isLoading={isSaving}
-                    isDisabled={titleOverride.trim() === (subscription.titleOverride ?? "")}
-                    variant="primary"
-                  />
-                </div>
-              </FormLayout>
-            </form>
-            <Selector
-              label={i18n._("reader.feedCategory")}
-              options={categoryOptions}
-              value={categoryId}
-              onChange={(value) => void assign(value)}
-              isLoading={isAssigning}
-              hasSearch={props.categories.length > 8}
-              placement="below"
-              width="100%"
-            />
-            <div className="reader-feed-danger-zone">
-              <div>
-                <div className="reader-preference-label">{i18n._("reader.deleteFeed")}</div>
-                <div className="reader-preference-description">
-                  {i18n._("reader.deleteFeedDescription")}
-                </div>
-              </div>
-              <Button
-                label={i18n._("reader.deleteFeed")}
-                onClick={() => setIsDeleteOpen(true)}
-                variant="destructive"
-              />
-            </div>
-          </>
-        ) : null}
-      </section>
-
-      <AlertDialog
-        isOpen={isDeleteOpen}
-        onOpenChange={(open) => {
-          if (!isDeleting) setIsDeleteOpen(open)
-        }}
-        title={i18n._("reader.deleteFeedTitle")}
-        description={i18n._("reader.deleteFeedConfirmation", {
-          title: subscription?.title ?? "",
-        })}
-        actionLabel={i18n._("reader.deleteFeed")}
-        cancelLabel={i18n._("common.cancel")}
-        isActionLoading={isDeleting}
-        onAction={() => void deleteSubscription()}
-      />
     </div>
   )
 }

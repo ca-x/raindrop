@@ -56,6 +56,7 @@
 .reader-compact-navigation :where(button, a),
 .reader-subscription-dialog :where(button, a),
 .reader-subscription-management-dialog :where(button, a, input, [role="combobox"]),
+.reader-subscription-edit-dialog :where(button, a, input, [role="combobox"]),
 .reader-category-dialog :where(button, a, input, [role="combobox"]),
 .reader-preferences-dialog :where(button, a, input, [role="radio"]),
 .reader-mobile-nav :where(button, a, [role="treeitem"]),
@@ -627,7 +628,9 @@ html[lang^="zh"] .ai-artifact-view {
   inline-size: 100%;
   block-size: 100%;
   max-block-size: min(70vh, 720px);
+  opacity: 1;
   object-fit: contain;
+  transition: opacity 160ms cubic-bezier(0.23, 1, 0.32, 1);
 }
 
 .reader-article-body img[data-raindrop-image-state="loading"] {
@@ -683,9 +686,27 @@ html[lang^="zh"] .ai-artifact-view {
   transform: scale(0.98);
 }
 
-.reader-reading-float {
+.reader-reading-dock {
   position: absolute;
   z-index: 3;
+  inset-inline-start: 50%;
+  inset-block-end: 0;
+  inline-size: min(460px, calc(100% - 24px));
+  block-size: max(82px, calc(64px + env(safe-area-inset-bottom)));
+  outline: none;
+  transform: translateX(-50%);
+}
+
+.reader-reading-dock-trigger {
+  position: absolute;
+  inset-inline-start: 50%;
+  inset-block-end: max(8px, env(safe-area-inset-bottom));
+  display: inline-flex !important;
+  transform: translateX(-50%);
+}
+
+.reader-reading-float {
+  position: absolute;
   inset-inline-start: 50%;
   inset-block-end: max(18px, env(safe-area-inset-bottom));
   display: flex;
@@ -698,39 +719,84 @@ html[lang^="zh"] .ai-artifact-view {
   border-radius: 8px;
   background: var(--reader-article-background);
   box-shadow: 0 2px 8px -4px color-mix(in oklch, var(--reader-article-foreground) 24%, transparent);
-  transform: translateX(-50%);
-  transition: opacity 180ms cubic-bezier(0.23, 1, 0.32, 1),
-    transform 180ms cubic-bezier(0.23, 1, 0.32, 1);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 6px);
+  visibility: hidden;
+  transition: opacity 160ms cubic-bezier(0.23, 1, 0.32, 1),
+    transform 160ms cubic-bezier(0.23, 1, 0.32, 1),
+    visibility 0s linear 160ms;
 }
 
-@starting-style {
-  .reader-reading-float {
-    opacity: 0;
-    transform: translate(-50%, 6px);
-  }
+.reader-reading-dock[data-expanded="true"] .reader-reading-float {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, 0);
+  visibility: visible;
+  transition-delay: 0s;
 }
 
-.reader-floating-font-control {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-inline-size: 0;
-  padding-inline: 8px 4px;
-  color: var(--reader-article-muted);
-  font-family: var(--font-family-body);
+.reader-reading-font-icon {
+  font-family: var(--reader-article-font);
   font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: -0.04em;
 }
 
-.reader-floating-font-control select {
-  max-inline-size: 150px;
-  min-block-size: 36px;
-  padding-inline: 6px 24px;
-  border: 0;
-  border-radius: 5px;
-  outline-offset: 2px;
-  background: transparent;
-  color: var(--reader-article-foreground);
-  font: inherit;
+.reader-reading-controls-icon {
+  display: grid;
+  inline-size: 18px;
+  gap: 5px;
+}
+
+.reader-reading-controls-icon > span {
+  position: relative;
+  display: block;
+  block-size: 1.5px;
+  border-radius: 1px;
+  background: currentColor;
+}
+
+.reader-reading-controls-icon > span::after {
+  position: absolute;
+  inset-block-start: 50%;
+  inline-size: 4px;
+  block-size: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  content: "";
+  transform: translateY(-50%);
+}
+
+.reader-reading-controls-icon > span:first-child::after {
+  inset-inline-start: 4px;
+}
+
+.reader-reading-controls-icon > span:last-child::after {
+  inset-inline-end: 4px;
+}
+
+.reader-reading-theme-icon {
+  position: relative;
+  display: inline-block;
+  inline-size: 16px;
+  block-size: 16px;
+  overflow: hidden;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+}
+
+.reader-reading-theme-icon::after {
+  position: absolute;
+  inset: 0 50% 0 0;
+  background: currentColor;
+  content: "";
+}
+
+.reader-reading-scale-value {
+  min-inline-size: 4ch;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
 }
 
 .reader-floating-divider {
@@ -739,14 +805,88 @@ html[lang^="zh"] .ai-artifact-view {
   background: color-mix(in oklch, var(--reader-article-foreground) 14%, transparent);
 }
 
-.reader-reading-float > :where(button, a) {
+.reader-reading-float :where(button, a) {
   min-inline-size: 38px;
   min-block-size: 38px;
   transition: transform 140ms cubic-bezier(0.23, 1, 0.32, 1);
 }
 
-.reader-reading-float > :where(button, a):active {
+.reader-reading-float :where(button, a):active {
   transform: scale(0.97);
+}
+
+.reader-reading-popover-list {
+  display: grid;
+  gap: 2px;
+  min-inline-size: 0;
+}
+
+.reader-reading-popover-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 20px;
+  align-items: center;
+  gap: 10px;
+  min-inline-size: 0;
+  min-block-size: 42px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-primary);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.reader-reading-popover-option:not(:has(.reader-reading-theme-swatch)) {
+  grid-template-columns: minmax(0, 1fr) 20px;
+}
+
+.reader-reading-popover-option[aria-pressed="true"] {
+  background: var(--color-accent-muted);
+}
+
+.reader-reading-popover-option:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.reader-reading-popover-option:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.reader-reading-popover-divider {
+  block-size: 1px;
+  margin-block: 5px;
+  background: var(--color-border);
+}
+
+.reader-reading-option-check {
+  color: var(--color-text-accent);
+  font-weight: 700;
+  text-align: center;
+}
+
+.reader-reading-theme-swatch {
+  display: inline-block;
+  inline-size: 18px;
+  block-size: 18px;
+  border: 1px solid color-mix(in oklch, var(--color-text-primary) 22%, transparent);
+  border-radius: 50%;
+  background: var(--color-background-surface);
+}
+
+.reader-reading-theme-swatch[data-reading-theme="paper"] {
+  background: #fcfaf5;
+}
+
+.reader-reading-theme-swatch[data-reading-theme="sepia"] {
+  background: #f3ead7;
+}
+
+.reader-reading-theme-swatch[data-reading-theme="gray"] {
+  background: #eceeed;
 }
 
 .reader-visually-hidden {
@@ -775,6 +915,12 @@ html[lang^="zh"] .ai-artifact-view {
 
 .reader-preferences-dialog {
   block-size: min(720px, calc(100dvh - 24px));
+  overscroll-behavior: contain;
+}
+
+.reader-subscription-management-dialog,
+.reader-subscription-edit-dialog {
+  block-size: min(780px, calc(100dvh - 24px));
   overscroll-behavior: contain;
 }
 
@@ -1039,9 +1185,11 @@ html[data-raindrop-density="spacious"] {
   min-inline-size: 0;
 }
 
-.reader-management-content {
+.reader-management-content,
+.reader-subscription-edit-content {
   min-block-size: 0;
-  overflow: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .reader-management-tabs {
@@ -1058,6 +1206,12 @@ html[data-raindrop-density="spacious"] {
 .reader-management-stack {
   display: grid;
   gap: 20px;
+}
+
+.reader-subscription-edit-stack {
+  display: grid;
+  gap: 22px;
+  min-inline-size: 0;
 }
 
 .reader-management-section {
@@ -1162,6 +1316,33 @@ html[data-raindrop-density="spacious"] {
   .reader-entry-item:hover {
     background: color-mix(in oklch, var(--color-accent-muted) 54%, transparent);
   }
+
+  .reader-reading-dock:hover .reader-reading-float,
+  .reader-reading-dock:focus-within .reader-reading-float {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translate(-50%, 0);
+    visibility: visible;
+    transition-delay: 0s;
+  }
+
+  .reader-reading-dock-trigger {
+    display: none !important;
+  }
+
+  .reader-reading-popover-option:not(:disabled):hover {
+    background: color-mix(in oklch, var(--color-accent-muted) 54%, transparent);
+  }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .reader-reading-dock {
+    block-size: max(100px, calc(82px + env(safe-area-inset-bottom)));
+  }
+
+  .reader-reading-dock[data-expanded="true"] .reader-reading-float {
+    inset-block-end: max(54px, calc(44px + env(safe-area-inset-bottom)));
+  }
 }
 
 @media (max-width: 719px) {
@@ -1211,10 +1392,6 @@ html[data-raindrop-density="spacious"] {
   .reader-font-row {
     align-items: stretch;
     flex-direction: column;
-  }
-
-  .reader-floating-font-control select {
-    max-inline-size: 112px;
   }
 
   .reader-feed-management-summary,
@@ -1277,5 +1454,16 @@ html[data-raindrop-density="spacious"] {
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
+  }
+
+  .reader-reading-float {
+    transform: translate(-50%, 0) !important;
+    transition-duration: 160ms !important;
+    transition-property: opacity !important;
+  }
+
+  .reader-article-body img[data-raindrop-image-state] {
+    transition-duration: 160ms !important;
+    transition-property: opacity !important;
   }
 }

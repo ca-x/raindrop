@@ -58,9 +58,14 @@ export async function verifyWidePreferences(
   expect(fixture.preferences.patches.every((patch) => Boolean(patch.csrf))).toBe(true)
 
   const readingToolbar = page.getByRole("toolbar", { name: "正文显示控制" })
-  await readingToolbar.getByRole("combobox", { name: "正文字体" }).selectOption({
-    label: "Editorial",
-  })
+  await page.getByRole("article").getByRole("heading", { level: 1 }).focus()
+  await page.mouse.move(0, 0)
+  await expect(readingToolbar).toBeHidden()
+  await page.locator(".reader-reading-dock").hover()
+  await expect(readingToolbar).toBeVisible()
+  await readingToolbar.getByRole("button", { name: "选择正文字体" }).click()
+  const fontDialog = page.getByRole("dialog", { name: "选择正文字体" })
+  await fontDialog.getByRole("button", { name: "Editorial" }).click()
   await expect.poll(() => fixture.preferences.current().readingCustomFontId).not.toBeNull()
   await page.getByRole("button", { name: "打开菜单" }).click()
   await page.getByRole("menuitem", { name: "设置" }).click()
@@ -202,7 +207,15 @@ async function choosePreferences(
 
 async function chooseReadingDisplay(page: Page): Promise<void> {
   const toolbar = page.getByRole("toolbar", { name: "Article display controls" })
-  await toolbar.getByRole("combobox", { name: "Article font" }).selectOption("SANS")
+  await page.getByRole("article").getByRole("heading", { level: 1 }).focus()
+  await page.mouse.move(0, 0)
+  await expect(toolbar).toBeHidden()
+  await page.locator(".reader-reading-dock").hover()
+  await expect(toolbar).toBeVisible()
+  await toolbar.getByRole("button", { name: "Choose article font" }).click()
+  const fontDialog = page.getByRole("dialog", { name: "Choose article font" })
+  await fontDialog.getByRole("button", { name: "Sans serif" }).click()
+  await page.locator(".reader-reading-dock").hover()
   const increase = toolbar.getByRole("button", { name: "Increase article text size" })
   for (let value = 100; value < 120; value += 5) await increase.click()
   await expect(

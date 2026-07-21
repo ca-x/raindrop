@@ -16,6 +16,7 @@ import { EntryQueue } from "../components/EntryQueue"
 import { MarkReadDialog } from "../components/MarkReadDialog"
 import { MutationFeedback } from "../components/MutationFeedback"
 import { SourceTree } from "../components/SourceTree"
+import { SubscriptionEditDialog } from "../components/SubscriptionEditDialog"
 import { SubscriptionManagementDialog } from "../components/SubscriptionManagementDialog"
 import { useReaderHotkeys } from "../keyboard/useReaderHotkeys"
 import { sourceKey, type ReaderSource } from "../model/types"
@@ -51,14 +52,17 @@ export function ReaderShell(props: ReaderShellProps) {
   const { i18n } = useLingui()
   const [isNavOpen, setIsNavOpen] = useState(false)
   const [isManagementOpen, setIsManagementOpen] = useState(false)
+  const [isSubscriptionEditOpen, setIsSubscriptionEditOpen] = useState(false)
   const [isPreferencesOpen, setIsPreferencesOpen] = useState(false)
   const [preferencesInitialTab, setPreferencesInitialTab] =
     useState<PreferencesTab>("personal")
   const [isMarkReadOpen, setIsMarkReadOpen] = useState(false)
   const mobileNavRef = useRef<HTMLDialogElement>(null)
   const managementButtonRef = useRef<HTMLButtonElement>(null)
+  const editSubscriptionButtonRef = useRef<HTMLButtonElement>(null)
   const preferencesButtonRef = useRef<HTMLButtonElement>(null)
   const reopenSourcesAfterManagement = useRef(false)
+  const reopenSourcesAfterSubscriptionEdit = useRef(false)
   const reopenSourcesAfterPreferences = useRef(false)
   const sources = useResizable({ defaultSize: 240, minSizePx: 200, maxSizePx: 340, autoSaveId: "reader-sources" })
   const queue = useResizable({ defaultSize: 380, minSizePx: 300, maxSizePx: 560, autoSaveId: "reader-queue" })
@@ -89,6 +93,7 @@ export function ReaderShell(props: ReaderShellProps) {
     isDisabled:
       isNavOpen ||
       isManagementOpen ||
+      isSubscriptionEditOpen ||
       isPreferencesOpen ||
       isMarkReadOpen ||
       !props.isSourceReady,
@@ -118,6 +123,15 @@ export function ReaderShell(props: ReaderShellProps) {
         }
         setIsManagementOpen(true)
       }}
+      onEditSubscription={() => {
+        if (!selectedSubscription) return
+        reopenSourcesAfterSubscriptionEdit.current = props.viewportMode !== "wide"
+        if (reopenSourcesAfterSubscriptionEdit.current) {
+          mobileNavRef.current?.close()
+          setIsNavOpen(false)
+        }
+        setIsSubscriptionEditOpen(true)
+      }}
       onPreferences={() => {
         setPreferencesInitialTab("personal")
         reopenSourcesAfterPreferences.current = props.viewportMode !== "wide"
@@ -134,6 +148,7 @@ export function ReaderShell(props: ReaderShellProps) {
         await props.onLogout()
       }}
       manageButtonRef={managementButtonRef}
+      editSubscriptionButtonRef={editSubscriptionButtonRef}
       preferencesButtonRef={preferencesButtonRef}
       density={toAstryxDensity(
         props.preferencesController.preferences.layoutDensity,
@@ -182,6 +197,7 @@ export function ReaderShell(props: ReaderShellProps) {
       readingFontScale={props.preferencesController.preferences.readingFontScale}
       readingFontFamily={props.preferencesController.preferences.readingFontFamily}
       readingCustomFontId={props.preferencesController.preferences.readingCustomFontId}
+      readingColorScheme={props.preferencesController.preferences.readingColorScheme}
       fonts={props.preferencesController.fonts}
       isReadingPreferenceSaving={props.preferencesController.isSaving}
       onReadingFontScaleChange={(readingFontScale) =>
@@ -195,6 +211,12 @@ export function ReaderShell(props: ReaderShellProps) {
           ...props.preferencesController.preferences,
           readingFontFamily,
           readingCustomFontId,
+        })
+      }
+      onReadingColorSchemeChange={(readingColorScheme) =>
+        props.preferencesController.save({
+          ...props.preferencesController.preferences,
+          readingColorScheme,
         })
       }
       onUnauthenticated={props.onUnauthenticated}
@@ -244,7 +266,6 @@ export function ReaderShell(props: ReaderShellProps) {
       />
       <SubscriptionManagementDialog
         isOpen={isManagementOpen}
-        selectedSubscription={selectedSubscription}
         subscriptions={props.controller.state.subscriptionOrder.map(
           (id) => props.controller.state.subscriptionsById[id],
         )}
@@ -252,7 +273,6 @@ export function ReaderShell(props: ReaderShellProps) {
           (id) => props.controller.state.categoriesById[id],
         )}
         mutationError={props.controller.state.errors.mutation}
-        linkOpenMode={props.preferencesController.preferences.linkOpenMode}
         csrfToken={props.preferencesController.csrfToken}
         onClearError={props.controller.clearMutationError}
         onAdd={props.controller.addSubscription}
@@ -289,6 +309,35 @@ export function ReaderShell(props: ReaderShellProps) {
             return
           }
           requestAnimationFrame(() => managementButtonRef.current?.focus())
+        }}
+      />
+      <SubscriptionEditDialog
+        isOpen={isSubscriptionEditOpen}
+        subscription={selectedSubscription}
+        categories={props.controller.state.categoryOrder.map(
+          (id) => props.controller.state.categoriesById[id],
+        )}
+        mutationError={props.controller.state.errors.mutation}
+        linkOpenMode={props.preferencesController.preferences.linkOpenMode}
+        onClearError={props.controller.clearMutationError}
+        onUpdate={props.controller.updateSubscription}
+        onDelete={async (subscriptionId) => {
+          const deleted = await props.controller.deleteSubscription(subscriptionId)
+          if (deleted) props.onSelectSource({ kind: "smart", state: "UNREAD" })
+          return deleted
+        }}
+        onOpenChange={(open) => {
+          setIsSubscriptionEditOpen(open)
+          if (open) return
+          if (reopenSourcesAfterSubscriptionEdit.current) {
+            reopenSourcesAfterSubscriptionEdit.current = false
+            setIsNavOpen(true)
+            requestAnimationFrame(() =>
+              requestAnimationFrame(() => editSubscriptionButtonRef.current?.focus()),
+            )
+            return
+          }
+          requestAnimationFrame(() => editSubscriptionButtonRef.current?.focus())
         }}
       />
       <PreferencesDialog
@@ -331,6 +380,7 @@ export function ReaderShell(props: ReaderShellProps) {
         error={props.controller.state.errors.mutation}
         isDialogOpen={
           isManagementOpen ||
+          isSubscriptionEditOpen ||
           isPreferencesOpen ||
           isMarkReadOpen
         }

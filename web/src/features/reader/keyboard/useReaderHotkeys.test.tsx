@@ -190,6 +190,17 @@ describe("useReaderHotkeys", () => {
     press("j")
     expect(options.onCursorChange).toHaveBeenCalledWith("second")
   })
+
+  it("does not block shortcuts for closed popover dialog content", () => {
+    const options = hotkeyOptions()
+    renderHook(() => useReaderHotkeys(options))
+    const popover = element("div", { popover: "auto" })
+    popover.append(element("div", { role: "dialog", "aria-modal": "true" }))
+    document.body.append(popover)
+
+    press("j")
+    expect(options.onCursorChange).toHaveBeenCalledWith("second")
+  })
 })
 
 function hotkeyOptions(overrides: Partial<UseReaderHotkeysOptions> & { unread?: Set<string> } = {}): UseReaderHotkeysOptions {

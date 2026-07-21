@@ -61,6 +61,12 @@ describe("Reader article workspace", () => {
     expect(frame).toHaveAttribute("aria-label", "Rain")
     const navigation = screen.getByRole("toolbar", { name: "Article navigation" })
     expect(navigation.closest(".reader-compact-navigation")).toBeInTheDocument()
+    expect(screen.queryByRole("button", {
+      name: "Reset text size, currently 100%",
+    })).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", {
+      name: "Open article display controls",
+    }))
     const resetSize = screen.getByRole("button", {
       name: "Reset text size, currently 100%",
     })
@@ -80,6 +86,59 @@ describe("Reader article workspace", () => {
 
     await user.click(screen.getByRole("button", { name: "Back to entry queue" }))
     expect(window.location.pathname).toBe("/reader/unread")
+  })
+
+  it("opens the compact reading dock and saves font and article-theme choices", async () => {
+    activateLocale("en")
+    const user = userEvent.setup()
+    const save = vi.fn().mockResolvedValue(true)
+    const preferencesController = fakePreferencesController({ save })
+    window.history.replaceState(null, "", "/reader/unread/entry/entry")
+
+    render(
+      <Providers>
+        <ProductionReaderRoutes
+          controller={articleController()}
+          preferencesController={preferencesController}
+          username="reader"
+          onLogout={vi.fn()}
+          viewportMode="compact"
+        />
+      </Providers>,
+    )
+
+    const dock = document.querySelector<HTMLElement>(".reader-reading-dock")!
+    expect(dock).not.toHaveAttribute("data-expanded")
+    await user.click(screen.getByRole("button", { name: "Open article display controls" }))
+    expect(dock).toHaveAttribute("data-expanded", "true")
+
+    const fontTrigger = screen.getByRole("button", { name: "Choose article font" })
+    fireEvent.click(fontTrigger)
+    expect(fontTrigger).toHaveAttribute("aria-expanded", "true")
+    const fontDialog = screen.getByRole("dialog", {
+      name: "Choose article font",
+      hidden: true,
+    })
+    fireEvent.click(within(fontDialog).getByRole("button", {
+      name: "Sans serif",
+      hidden: true,
+    }))
+    expect(save).toHaveBeenCalledWith({
+      ...preferencesController.preferences,
+      readingFontFamily: "SANS",
+      readingCustomFontId: null,
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: "Choose article theme" }))
+    const themeDialog = screen.getByRole("dialog", {
+      name: "Choose article theme",
+      hidden: true,
+    })
+    fireEvent.click(within(themeDialog).getByRole("button", { name: "Sepia", hidden: true }))
+    expect(save).toHaveBeenCalledWith({
+      ...preferencesController.preferences,
+      readingColorScheme: "SEPIA",
+    })
   })
 
   it.each(["loading", "error"] as const)(

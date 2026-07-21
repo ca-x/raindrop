@@ -30,14 +30,16 @@ export async function verifyWideCategoryWorkflow(
   await dialog.getByRole("button", { name: "Save changes" }).click()
   await expect(dialog.getByRole("button", { name: /Research/u })).toBeVisible()
 
-  await dialog.getByRole("button", { name: "Subscriptions", exact: true }).click()
-  const selector = dialog.getByRole("combobox", {
+  await dialog.getByRole("button", { name: "Close" }).click()
+  await page.getByRole("button", { name: "Edit current subscription" }).click()
+  const editDialog = page.getByRole("dialog", { name: "Edit current subscription" })
+  const selector = editDialog.getByRole("combobox", {
     name: /^Category for the current feed/u,
   })
   await selector.click()
   await page.getByRole("option", { name: "Research" }).click()
   await expect(selector).toContainText("Research")
-  await dialog.getByRole("button", { name: "Close" }).click()
+  await editDialog.getByRole("button", { name: "Close" }).click()
 
   const sources = page.getByRole("navigation", { name: "Sources" })
   await sources.getByRole("button", { name: "Research", exact: true }).click()

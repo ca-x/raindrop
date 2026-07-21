@@ -22,8 +22,7 @@ const editableSelector = [
   "[role='spinbutton']",
   "[role='slider']",
 ].join(",")
-const modalSelector = [
-  "dialog[open]",
+const ariaModalSelector = [
   ":not(dialog)[role='dialog'][aria-modal='true']",
   ":not(dialog)[role='alertdialog'][aria-modal='true']",
 ].join(",")
@@ -94,6 +93,16 @@ function isAdditionalEditable(target: EventTarget | null): boolean {
   return target instanceof Element && target.closest(editableSelector) !== null
 }
 
+function hasOpenModal(): boolean {
+  if (document.querySelector("dialog[open]")) return true
+  return [...document.querySelectorAll<HTMLElement>(ariaModalSelector)].some(
+    (modal) => {
+      const popover = modal.closest<HTMLElement>("[popover]")
+      return !popover || popover.matches(":popover-open")
+    },
+  )
+}
+
 function useImmediateInteractionGuard(): void {
   useEffect(() => {
     const guard = (event: KeyboardEvent) => {
@@ -101,7 +110,7 @@ function useImmediateInteractionGuard(): void {
       if (event.ctrlKey || event.metaKey || event.altKey) return
       if (
         isAdditionalEditable(event.target) ||
-        document.querySelector(modalSelector)
+        hasOpenModal()
       ) {
         event.stopImmediatePropagation()
       }

@@ -1,8 +1,8 @@
-# v0.3.3 Reader usability and custom fonts
+# v0.3.4 Reader management and contextual toolbar refinement
 
 ## Objective
 
-Repair the five reported reader regressions and ship a cohesive subscription-management and reading-controls update, using the local CommaFeed source as the behavioral reference while retaining Raindrop's ASTRYX visual language.
+Clarify the boundary between adding/managing sources and editing the selected feed, then make reading presentation controls available only when the reader asks for them while retaining Raindrop's ASTRYX visual language.
 
 ## Confirmed root causes
 
@@ -15,11 +15,11 @@ Repair the five reported reader regressions and ship a cohesive subscription-man
 
 ## Product contract
 
-- Replace fragmented source-management actions with one management dialog containing `Subscriptions`, `Add category`, and `OPML` tabs, following CommaFeed's information architecture.
-- Keep selected-feed edit/delete in the subscription tab and show `Feed URL` separately from `Website`.
+- Keep one add/manage dialog containing `Subscriptions`, `Add category`, and `OPML` tabs, following CommaFeed's information architecture.
+- Move selected-feed edit/delete into a separate dialog opened from a contextual toolbar action, and show `Feed URL` separately from `Website`.
 - Use a two-step subscription flow: analyze/create the feed, then allow title/category confirmation through the existing update API. Reuse controller state; do not create a parallel subscription cache.
-- Move size controls into an occasional floating reading toolbar inside the article plane. Keep read/star/original/AI actions in the fixed toolbar.
-- Add a font selector to the floating toolbar and font upload/delete management to Reading settings.
+- Move size controls into an occasional bottom reading toolbar inside the article plane. Keep read/star/original/AI actions in the fixed toolbar.
+- Put font and article-theme selection in anchored Popovers; reveal the toolbar from the desktop bottom hot zone or a touch trigger.
 - Relative times update every minute, use the browser locale, render an absolute `<time datetime>` value, and expose the absolute local timestamp as a tooltip/title.
 - Recognize AVIF only when its ISO-BMFF `ftyp` box contains an `avif` or `avis` compatible brand. Keep SVG/HTML and unknown bytes rejected.
 - Article images preserve a stable bounded box across loading, loaded and error states; failed images show a quiet placeholder rather than collapsing.
@@ -38,8 +38,8 @@ Repair the five reported reader regressions and ship a cohesive subscription-man
 
 | Before | After | Why |
 | --- | --- | --- |
-| Four unrelated icon-only management actions | One labeled management entry with three task-oriented tabs | Related work is discoverable in one place and the toolbar has a clear hierarchy |
-| Font sizing in the fixed article action bar | Compact floating reading toolbar with size and font controls | Reading presentation is contextual and no longer competes with article actions |
+| Add and selected-feed editing mixed in one dialog | `+` for add/manage, contextual edit action for the selected feed | Each action has one clear responsibility |
+| Reading controls always visible | Bottom hot-zone/touch dock with font and theme Popovers | Reading presentation stays reachable without occupying the article chrome |
 | Failed image collapses after loading | Stable bounded media frame with an intentional error state | Prevents visual flashing and preserves reading position |
 | Generic/high-frequency motion | Floating toolbar entrance only, exact `opacity`/`transform` properties, <= 180 ms custom ease-out | Occasional state change gains spatial continuity without slowing navigation or keyboard work |
 | No press feedback on custom controls | `transform: scale(0.97)` on `:active` with reduced-motion fallback | Controls immediately acknowledge pointer input |
@@ -50,7 +50,7 @@ Repair the five reported reader regressions and ship a cohesive subscription-man
 - OpenAPI drift checks and generated TypeScript guards for subscription and preferences v2/font contracts.
 - Frontend tests: unified management tabs and two-step flow, feed/site labels, relative-time boundaries/timer, floating toolbar persistence, font upload/delete/select, stable image states, category row structure.
 - Browser verification at wide/tablet/mobile sizes, including `https://www.appinn.com/feed/`, keyboard focus, reduced motion, and centerline/layout stability assertions.
-- Release gate: format, lint/typecheck, targeted and full tests, production web build, version 0.3.3 consistency, clean staged diff, push `main`, create/push `v0.3.3`, monitor GitHub workflows and release assets.
+- Release gate: format, lint/typecheck, targeted and full tests, production web build, version 0.3.4 consistency, clean staged diff, push `main`, create/push `v0.3.4`, monitor GitHub workflows and release assets.
 
 ## Out of scope
 

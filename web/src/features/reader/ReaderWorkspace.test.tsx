@@ -171,7 +171,7 @@ describe("Reader workspace", () => {
     expect(controller.reloadEntries).toHaveBeenCalledOnce()
   })
 
-  it("opens management for the selected feed from the source toolbar", async () => {
+  it("keeps adding and editing a selected feed as separate source-toolbar actions", async () => {
     const user = userEvent.setup()
     const controller = fakeController({
       selectedSource: { kind: "feed", feedId: "feed-rust" },
@@ -206,17 +206,35 @@ describe("Reader workspace", () => {
     )
 
     await user.click(screen.getByRole("button", { name: "Manage subscriptions" }))
+    const managementDialog = screen.getByRole("dialog", {
+      name: "Manage subscriptions",
+    })
+    expect(managementDialog).toBeVisible()
+    expect(within(managementDialog).getByRole("textbox", { name: /^Feed URL/ })).toBeVisible()
     expect(
-      screen.getByRole("dialog", { name: "Manage subscriptions" }),
-    ).toBeVisible()
-    expect(screen.getByRole("link", { name: "https://planet-rust.example/feed.xml" })).toHaveAttribute(
+      within(managementDialog).queryByRole("link", {
+        name: "https://planet-rust.example/feed.xml",
+      }),
+    ).not.toBeInTheDocument()
+    await user.click(within(managementDialog).getByRole("button", { name: "Close" }))
+
+    const editTrigger = screen.getByRole("button", {
+      name: "Edit current subscription",
+    })
+    await user.click(editTrigger)
+    const editDialog = screen.getByRole("dialog", {
+      name: "Edit current subscription",
+    })
+    expect(within(editDialog).getByRole("link", { name: "https://planet-rust.example/feed.xml" })).toHaveAttribute(
       "href",
       "https://planet-rust.example/feed.xml",
     )
-    expect(screen.getByRole("link", { name: "https://planet-rust.example" })).toHaveAttribute(
+    expect(within(editDialog).getByRole("link", { name: "https://planet-rust.example" })).toHaveAttribute(
       "href",
       "https://planet-rust.example",
     )
+    await user.click(within(editDialog).getByRole("button", { name: "Close" }))
+    await waitFor(() => expect(editTrigger).toHaveFocus())
   })
 
   it("offers newly discovered entries without reordering the active queue", async () => {
@@ -402,6 +420,57 @@ describe("Reader workspace", () => {
     const reopenedSources = await screen.findByRole("dialog", { name: "Sources" })
     const restoredTrigger = within(reopenedSources).getByRole("button", {
       name: "Manage subscriptions",
+    })
+    await waitFor(() => expect(restoredTrigger).toHaveFocus())
+  })
+
+  it("reopens mobile sources and restores focus after editing the selected feed", async () => {
+    activateLocale("en")
+    const user = userEvent.setup()
+    const controller = fakeController({
+      selectedSource: { kind: "feed", feedId: "feed-rust" },
+      subscriptionsById: {
+        subscription: {
+          subscriptionId: "subscription",
+          feedId: "feed-rust",
+          categoryId: null,
+          titleOverride: null,
+          position: 0,
+          title: "Planet Rust",
+          feedUrl: "https://planet-rust.example/feed.xml",
+          siteUrl: "https://planet-rust.example",
+          unreadCount: 7,
+          refresh: null,
+        },
+      },
+      subscriptionOrder: ["subscription"],
+      paneStatus: { subscriptions: "ready", queue: "ready", detail: "idle" },
+    })
+    window.history.replaceState(null, "", "/reader/feed/feed-rust")
+    render(
+      <Providers>
+        <ReaderRoutes
+          controller={controller}
+          username="reader"
+          onLogout={vi.fn()}
+          viewportMode="compact"
+        />
+      </Providers>,
+    )
+
+    await user.click(await screen.findByRole("button", { name: "Open sources" }))
+    const sources = await screen.findByRole("dialog", { name: "Sources" })
+    await user.click(within(sources).getByRole("button", {
+      name: "Edit current subscription",
+    }))
+    const editDialog = await screen.findByRole("dialog", {
+      name: "Edit current subscription",
+    })
+    await user.click(within(editDialog).getByRole("button", { name: "Close" }))
+
+    const reopenedSources = await screen.findByRole("dialog", { name: "Sources" })
+    const restoredTrigger = within(reopenedSources).getByRole("button", {
+      name: "Edit current subscription",
     })
     await waitFor(() => expect(restoredTrigger).toHaveFocus())
   })

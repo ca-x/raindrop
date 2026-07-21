@@ -1,15 +1,12 @@
-# v0.3.3 checklist
+# v0.3.4 checklist
 
-- [x] Expose normalized RSS URL as `feedUrl` through repository, API, OpenAPI and generated frontend types.
-- [x] Add strict AVIF sniffing and stable bounded article-image loading/error presentation.
-- [x] Add locale-aware relative entry times that refresh every minute and retain absolute timestamps.
-- [x] Align category chevron/icon/label/count rows with an explicit shared row metric.
-- [x] Replace fragmented source actions with one CommaFeed-inspired management dialog for subscribe/category/OPML and selected-feed editing.
-- [x] Add tenant-scoped WOFF2 storage, upload/list/file/delete API, quotas, migration and ownership tests.
-- [x] Extend reading preferences with nullable custom-font selection and generated contracts.
-- [x] Move font-size controls into a floating article toolbar and add font selection plus settings-side font management.
-- [x] Run targeted Rust/frontend tests, OpenAPI drift, typecheck/build and browser checks with Appinn.
-- [ ] Update all versions to 0.3.3, review the release diff, commit, push `main`, tag `v0.3.3`, and verify GitHub release workflows.
+- [x] Separate add/manage actions from editing the currently selected subscription.
+- [x] Make the source `+` icon-only with a tooltip and expose a selected-feed edit action.
+- [x] Move font, size, and article-theme controls into a bottom hover/touch dock with Popovers.
+- [x] Preserve keyboard shortcuts while closed Popover content remains mounted.
+- [x] Add restrained toolbar and image transitions with reduced-motion handling.
+- [x] Cover desktop/mobile dialog focus restoration and reading-control persistence.
+- [ ] Update all versions to 0.3.4, review the release diff, commit, push `main`, tag `v0.3.4`, and verify GitHub release workflows.
 
 # Raindrop 任务清单
 
