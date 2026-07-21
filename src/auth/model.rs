@@ -11,6 +11,20 @@ pub struct User {
     pub roles: Vec<Role>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UserProfile {
+    pub user_id: String,
+    pub username: String,
+    pub display_name: Option<String>,
+    pub email: Option<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct UpdateUserProfile {
+    pub display_name: Option<Option<String>>,
+    pub email: Option<Option<String>>,
+}
+
 impl User {
     #[must_use]
     pub fn is_admin(&self) -> bool {
@@ -57,6 +71,30 @@ pub enum UsernameError {
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 #[error("email must be a valid unquoted address of at most 320 bytes")]
 pub struct EmailError;
+
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum DisplayNameError {
+    #[error("display name must contain at most 80 characters")]
+    InvalidLength,
+    #[error("display name cannot contain control characters")]
+    InvalidCharacter,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ProfileError {
+    #[error("profile update must contain at least one field")]
+    EmptyPatch,
+    #[error(transparent)]
+    InvalidDisplayName(#[from] DisplayNameError),
+    #[error(transparent)]
+    InvalidEmail(#[from] EmailError),
+    #[error("email address is already used by another account")]
+    EmailTaken,
+    #[error("profile was not found")]
+    NotFound,
+    #[error("database operation failed")]
+    Database(#[source] sea_orm::DbErr),
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum CreateAdminError {

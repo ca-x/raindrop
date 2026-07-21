@@ -1,6 +1,6 @@
 [package]
 name = "raindrop"
-version = "0.3.4"
+version = "0.3.5"
 edition = "2024"
 rust-version = "1.94"
 license = "MIT"
@@ -23,6 +23,7 @@ blake3 = "1.8.3"
 brotli-decompressor = "5.0.3"
 cookie = "0.18.1"
 constant_time_eq = "0.4.2"
+dlx = { version = "3", git = "https://github.com/hominsu/deeplx-rs", rev = "03054aebd09b54e9934642cd8f11f212e2513065", default-features = false }
 encoding_rs = "=0.8.35"
 feedparser-rs = { version = "=0.5.5", default-features = false }
 futures-util = "0.3.32"
@@ -38,7 +39,7 @@ rand_core = { version = "0.6.4", features = ["getrandom"] }
 reqwest = { version = "0.13.4", default-features = false, features = ["rustls-no-provider", "stream"] }
 ring = "=0.17.14"
 rust-embed = "8.12.0"
-rustls = { version = "0.23.42", default-features = false, features = ["ring"] }
+rustls = { version = "=0.23.39", default-features = false, features = ["ring"] }
 sea-orm = { version = "1.1.19", default-features = false, features = ["macros", "runtime-tokio-rustls", "sqlx-mysql", "sqlx-postgres", "sqlx-sqlite", "with-time"] }
 sea-orm-migration = { version = "1.1.19", default-features = false, features = ["runtime-tokio-rustls", "sqlx-mysql", "sqlx-postgres", "sqlx-sqlite"] }
 serde = { version = "1.0.228", features = ["derive"] }
@@ -76,6 +77,14 @@ serde_json = { version = "1.0.150", features = ["unbounded_depth"] }
 wasmprinter = { version = "=0.253.0", default-features = false, features = ["component-model", "validate"] }
 wit-component = { version = "=0.253.0", default-features = false, features = ["dummy-module"] }
 zeroize = "1.8.2"
+
+# `dlx` uses `impit`, whose custom TLS fingerprinting support is carried by
+# patched Apify forks. Cargo intentionally ignores dependency-local patches,
+# so the application workspace must pin the compatible revisions used by
+# `impit`. Its older `h2` and `tower-http` patches do not match this graph.
+[patch.crates-io]
+hyper-util = { git = "https://github.com/apify/hyper-util", rev = "9b7795dfd7158fc55e7c84b65bf1dae1d2dea67d" }
+rustls = { git = "https://github.com/apify/rustls", rev = "1ebb6d466a557858cdd8c836ffcbb26d04d7a9f9" }
 
 [profile.release]
 lto = "thin"

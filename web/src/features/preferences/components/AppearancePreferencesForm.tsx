@@ -6,9 +6,15 @@ import {
   SegmentedControlItem,
 } from "@astryxdesign/core/SegmentedControl"
 import { Stack } from "@astryxdesign/core/Stack"
+import { TextInput } from "@astryxdesign/core/TextInput"
 import { useLingui } from "@lingui/react"
 import { useState, type FormEvent, type ReactNode } from "react"
 
+import type { UserProfile } from "../../profile/api/profile.generated"
+import type {
+  ProfileControllerError,
+  ProfileFieldError,
+} from "../../profile/model/useProfileController"
 import type { UserFont, UserPreferences } from "../api/preferences.generated"
 import type { PreferencesControllerError } from "../model/usePreferencesController"
 
@@ -21,15 +27,21 @@ interface PreferencesFormProps {
 }
 
 interface PersonalPreferencesFormProps extends PreferencesFormProps {
-  account: { username: string; email: string | null }
+  profile: UserProfile
+  profileError: ProfileControllerError | null
+  profileFieldErrors: Partial<Record<"displayName" | "email", ProfileFieldError>>
+  onProfileChange: (profile: UserProfile) => void
 }
 
 export function PersonalPreferencesForm(props: PersonalPreferencesFormProps) {
   const { i18n } = useLingui()
   return (
     <PreferencesFormShell {...props}>
-      <section className="reader-account-card" aria-labelledby="reader-account-heading">
-        <div>
+      <section
+        className="reader-settings-section"
+        aria-labelledby="reader-account-heading"
+      >
+        <div className="reader-settings-section-heading">
           <div id="reader-account-heading" className="reader-preference-label">
             {i18n._("preferences.account")}
           </div>
@@ -37,74 +49,167 @@ export function PersonalPreferencesForm(props: PersonalPreferencesFormProps) {
             {i18n._("preferences.accountDescription")}
           </div>
         </div>
-        <dl className="reader-account-details">
-          <div>
-            <dt>{i18n._("preferences.username")}</dt>
-            <dd>{props.account.username}</dd>
+        {props.profileError ? (
+          <Banner
+            status="error"
+            title={i18n._("preferences.profileSaveError")}
+            description={i18n._("preferences.profileSaveErrorDescription")}
+          />
+        ) : null}
+        <div className="reader-profile-fields">
+          <div className="reader-readonly-field">
+            <div className="reader-readonly-field-heading">
+              <span className="reader-preference-label">
+                {i18n._("preferences.username")}
+              </span>
+              <span className="reader-readonly-badge">
+                {i18n._("preferences.readOnly")}
+              </span>
+            </div>
+            <div className="reader-readonly-value">{props.profile.username}</div>
+            <div className="reader-preference-description">
+              {i18n._("preferences.usernameDescription")}
+            </div>
           </div>
-          <div>
-            <dt>{i18n._("preferences.email")}</dt>
-            <dd>{props.account.email ?? i18n._("preferences.emailUnset")}</dd>
-          </div>
-        </dl>
+          <TextInput
+            label={i18n._("preferences.displayName")}
+            description={i18n._("preferences.displayNameDescription")}
+            value={props.profile.displayName ?? ""}
+            onChange={(displayName) =>
+              props.onProfileChange({
+                ...props.profile,
+                displayName: displayName || null,
+              })
+            }
+            htmlName="displayName"
+            isOptional
+            isDisabled={props.isSaving}
+            width="100%"
+            status={profileFieldStatus(
+              props.profileFieldErrors.displayName,
+              i18n._("preferences.displayNameInvalid"),
+            )}
+          />
+          <TextInput
+            label={i18n._("preferences.email")}
+            description={i18n._("preferences.emailDescription")}
+            type="email"
+            value={props.profile.email ?? ""}
+            onChange={(email) =>
+              props.onProfileChange({
+                ...props.profile,
+                email: email || null,
+              })
+            }
+            htmlName="email"
+            isOptional
+            isDisabled={props.isSaving}
+            width="100%"
+            status={profileFieldStatus(
+              props.profileFieldErrors.email,
+              i18n._(
+                props.profileFieldErrors.email === "TAKEN"
+                  ? "preferences.emailTaken"
+                  : "preferences.emailInvalid",
+              ),
+            )}
+          />
+        </div>
       </section>
-      <PreferenceField
-        label={i18n._("preferences.appearance")}
-        description={i18n._("preferences.appearanceDescription")}
+      <section
+        className="reader-settings-section"
+        aria-labelledby="reader-interface-heading"
       >
-        <SegmentedControl
+        <div className="reader-settings-section-heading">
+          <div id="reader-interface-heading" className="reader-preference-label">
+            {i18n._("preferences.interface")}
+          </div>
+          <div className="reader-preference-description">
+            {i18n._("preferences.interfaceDescription")}
+          </div>
+        </div>
+        <PreferenceField
           label={i18n._("preferences.appearance")}
-          value={props.value.themeMode}
-          onChange={(value) =>
-            props.onChange({ themeMode: value as UserPreferences["themeMode"] })
-          }
-          layout="fill"
-          isDisabled={props.isSaving}
+          description={i18n._("preferences.appearanceDescription")}
         >
-          <SegmentedControlItem value="SYSTEM" label={i18n._("preferences.themeSystem")} />
-          <SegmentedControlItem value="LIGHT" label={i18n._("preferences.themeLight")} />
-          <SegmentedControlItem value="DARK" label={i18n._("preferences.themeDark")} />
-        </SegmentedControl>
-      </PreferenceField>
-      <PreferenceField
-        label={i18n._("preferences.language")}
-        description={i18n._("preferences.languageDescription")}
-      >
-        <SegmentedControl
+          <SegmentedControl
+            label={i18n._("preferences.appearance")}
+            value={props.value.themeMode}
+            onChange={(value) =>
+              props.onChange({
+                themeMode: value as UserPreferences["themeMode"],
+              })
+            }
+            layout="fill"
+            isDisabled={props.isSaving}
+          >
+            <SegmentedControlItem
+              value="SYSTEM"
+              label={i18n._("preferences.themeSystem")}
+            />
+            <SegmentedControlItem
+              value="LIGHT"
+              label={i18n._("preferences.themeLight")}
+            />
+            <SegmentedControlItem
+              value="DARK"
+              label={i18n._("preferences.themeDark")}
+            />
+          </SegmentedControl>
+        </PreferenceField>
+        <PreferenceField
           label={i18n._("preferences.language")}
-          value={props.value.locale}
-          onChange={(value) =>
-            props.onChange({ locale: value as UserPreferences["locale"] })
-          }
-          layout="fill"
-          isDisabled={props.isSaving}
+          description={i18n._("preferences.languageDescription")}
         >
-          <SegmentedControlItem value="zh-CN" label="中文" />
-          <SegmentedControlItem value="en" label="English" />
-        </SegmentedControl>
-      </PreferenceField>
-      <PreferenceField
-        label={i18n._("preferences.density")}
-        description={i18n._("preferences.densityDescription")}
-      >
-        <SegmentedControl
+          <SegmentedControl
+            label={i18n._("preferences.language")}
+            value={props.value.locale}
+            onChange={(value) =>
+              props.onChange({ locale: value as UserPreferences["locale"] })
+            }
+            layout="fill"
+            isDisabled={props.isSaving}
+          >
+            <SegmentedControlItem value="zh-CN" label="中文" />
+            <SegmentedControlItem value="en" label="English" />
+          </SegmentedControl>
+        </PreferenceField>
+        <PreferenceField
           label={i18n._("preferences.density")}
-          value={props.value.layoutDensity}
-          onChange={(value) =>
-            props.onChange({
-              layoutDensity: value as UserPreferences["layoutDensity"],
-            })
-          }
-          layout="fill"
-          isDisabled={props.isSaving}
+          description={i18n._("preferences.densityDescription")}
         >
-          <SegmentedControlItem value="COMPACT" label={i18n._("preferences.densityCompact")} />
-          <SegmentedControlItem value="BALANCED" label={i18n._("preferences.densityBalanced")} />
-          <SegmentedControlItem value="SPACIOUS" label={i18n._("preferences.densitySpacious")} />
-        </SegmentedControl>
-      </PreferenceField>
+          <SegmentedControl
+            label={i18n._("preferences.density")}
+            value={props.value.layoutDensity}
+            onChange={(value) =>
+              props.onChange({
+                layoutDensity: value as UserPreferences["layoutDensity"],
+              })
+            }
+            layout="fill"
+            isDisabled={props.isSaving}
+          >
+            <SegmentedControlItem
+              value="COMPACT"
+              label={i18n._("preferences.densityCompact")}
+            />
+            <SegmentedControlItem
+              value="BALANCED"
+              label={i18n._("preferences.densityBalanced")}
+            />
+            <SegmentedControlItem
+              value="SPACIOUS"
+              label={i18n._("preferences.densitySpacious")}
+            />
+          </SegmentedControl>
+        </PreferenceField>
+      </section>
     </PreferencesFormShell>
   )
+}
+
+function profileFieldStatus(error: ProfileFieldError | undefined, message: string) {
+  return error ? ({ type: "error", message } as const) : undefined
 }
 
 interface ReadingPreferencesFormProps extends PreferencesFormProps {

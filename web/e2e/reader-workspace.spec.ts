@@ -187,6 +187,7 @@ async function verifyWide(page: Page, fixture: ReaderApiFixture): Promise<void> 
   await addDialog.getByRole("button", { name: "Close" }).click()
 
   await readerRowButton(page, readerIds.firstEntry).click()
+  await expect.poll(() => fixture.entryState(readerIds.firstEntry).isRead).toBe(true)
   const articleUrl = page.url()
   const queue = page.getByTestId("entry-queue-scroll")
   await setScrollTop(queue, 260)

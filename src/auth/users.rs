@@ -1,6 +1,7 @@
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, Condition, DatabaseConnection, EntityTrait,
-    QueryFilter, TransactionTrait,
+    QueryFilter, RuntimeErr, SqlxError, SqlxMySqlError, SqlxPostgresError, SqlxSqliteError,
+    TransactionTrait,
 };
 use secrecy::{ExposeSecret, SecretString};
 use time::OffsetDateTime;
@@ -10,8 +11,8 @@ use crate::db::entities::{bootstrap_state, user, user_role};
 
 use super::{
     model::{
-        AuthenticateError, CreateAdminError, CreateAdminInput, EmailError, LoginIdentifier, Role,
-        User, UsernameError,
+        AuthenticateError, CreateAdminError, CreateAdminInput, DisplayNameError, EmailError,
+        LoginIdentifier, ProfileError, Role, UpdateUserProfile, User, UserProfile, UsernameError,
     },
     password::PasswordService,
 };
@@ -75,6 +76,7 @@ pub async fn create_admin(
         id: Set(id.clone()),
         username: Set(input.username.trim().to_owned()),
         normalized_username: Set(normalized_username.clone()),
+        display_name: Set(None),
         email: Set(email.clone()),
         password_hash: Set(password_hash),
         is_disabled: Set(false),
@@ -205,6 +207,65 @@ pub(crate) async fn load_user_by_id(
     }))
 }
 
+pub async fn load_user_profile(
+    database: &DatabaseConnection,
+    user_id: &str,
+) -> Result<UserProfile, ProfileError> {
+    let stored = user::Entity::find_by_id(user_id)
+        .one(database)
+        .await
+        .map_err(ProfileError::Database)?
+        .ok_or(ProfileError::NotFound)?;
+    Ok(profile_from_model(stored))
+}
+
+pub async fn update_user_profile(
+    database: &DatabaseConnection,
+    user_id: &str,
+    patch: UpdateUserProfile,
+) -> Result<UserProfile, ProfileError> {
+    if patch.display_name.is_none() && patch.email.is_none() {
+        return Err(ProfileError::EmptyPatch);
+    }
+    let display_name = patch
+        .display_name
+        .map(normalize_optional_display_name)
+        .transpose()?;
+    let email = patch.email.map(normalize_optional_email).transpose()?;
+    if let Some(Some(email)) = &email {
+        let owner = user::Entity::find()
+            .filter(user::Column::Email.eq(email))
+            .filter(user::Column::Id.ne(user_id))
+            .one(database)
+            .await
+            .map_err(ProfileError::Database)?;
+        if owner.is_some() {
+            return Err(ProfileError::EmailTaken);
+        }
+    }
+
+    let stored = user::Entity::find_by_id(user_id)
+        .one(database)
+        .await
+        .map_err(ProfileError::Database)?
+        .ok_or(ProfileError::NotFound)?;
+    let mut active: user::ActiveModel = stored.into();
+    if let Some(display_name) = display_name {
+        active.display_name = Set(display_name);
+    }
+    if let Some(email) = email {
+        active.email = Set(email);
+    }
+    let updated = active.update(database).await.map_err(|error| {
+        if is_unique_violation(&error) {
+            ProfileError::EmailTaken
+        } else {
+            ProfileError::Database(error)
+        }
+    })?;
+    Ok(profile_from_model(updated))
+}
+
 async fn load_roles(
     database: &DatabaseConnection,
     user_id: &str,
@@ -228,6 +289,25 @@ const fn role_name(role: Role) -> &'static str {
         Role::Admin => "ADMIN",
         Role::User => "USER",
     }
+}
+
+fn normalize_optional_display_name(
+    value: Option<String>,
+) -> Result<Option<String>, DisplayNameError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    if trimmed.chars().count() > 80 {
+        return Err(DisplayNameError::InvalidLength);
+    }
+    if trimmed.chars().any(char::is_control) {
+        return Err(DisplayNameError::InvalidCharacter);
+    }
+    Ok(Some(trimmed.to_owned()))
 }
 
 fn normalize_optional_email(value: Option<String>) -> Result<Option<String>, EmailError> {
@@ -261,4 +341,39 @@ fn normalize_optional_email(value: Option<String>) -> Result<Option<String>, Ema
         return Err(EmailError);
     }
     Ok(Some(normalized))
+}
+
+fn profile_from_model(stored: user::Model) -> UserProfile {
+    UserProfile {
+        user_id: stored.id,
+        username: stored.username,
+        display_name: stored.display_name,
+        email: stored.email,
+    }
+}
+
+fn is_unique_violation(error: &sea_orm::DbErr) -> bool {
+    let runtime = match error {
+        sea_orm::DbErr::Conn(runtime)
+        | sea_orm::DbErr::Exec(runtime)
+        | sea_orm::DbErr::Query(runtime) => runtime,
+        _ => return false,
+    };
+    let RuntimeErr::SqlxError(SqlxError::Database(database_error)) = runtime else {
+        return false;
+    };
+    if let Some(error) = database_error.try_downcast_ref::<SqlxPostgresError>() {
+        return error.code() == "23505";
+    }
+    if let Some(error) = database_error.try_downcast_ref::<SqlxMySqlError>() {
+        return error.number() == 1062;
+    }
+    database_error
+        .try_downcast_ref::<SqlxSqliteError>()
+        .is_some()
+        && database_error
+            .code()
+            .as_deref()
+            .and_then(|code| code.parse::<i32>().ok())
+            .is_some_and(|code| matches!(code, 1555 | 2067))
 }

@@ -66,13 +66,11 @@ it("keeps sidecar controls at the 44px touch-target minimum", () => {
   renderSidecar(controller())
 
   const close = screen.getByRole("button", { name: "Close AI sidecar" })
-  const summaryTab = screen.getByRole("button", { name: "Summary" })
-  const translationTab = screen.getByRole("button", { name: "Translation" })
+  const runSummary = screen.getByRole("button", { name: "Generate summary" })
 
   expect(getComputedStyle(close).minInlineSize).toBe("44px")
   expect(getComputedStyle(close).minBlockSize).toBe("44px")
-  expect(getComputedStyle(summaryTab).minBlockSize).toBe("44px")
-  expect(getComputedStyle(translationTab).minBlockSize).toBe("44px")
+  expect(getComputedStyle(runSummary).minBlockSize).toBe("44px")
 })
 
 function renderSidecar(

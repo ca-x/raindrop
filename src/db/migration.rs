@@ -9,8 +9,10 @@ mod content_jobs;
 mod organization;
 mod plugins;
 mod preferences;
+mod profile;
 mod reader_preferences;
 mod rss;
+mod translation;
 mod user_fonts;
 
 pub async fn migrate(database: &DatabaseConnection) -> Result<(), DbError> {
@@ -60,6 +62,8 @@ impl MigratorTrait for Migrator {
             Box::new(plugins::CreatePluginRegistry),
             Box::new(reader_preferences::AddReaderPreferences),
             Box::new(user_fonts::CreateUserFonts),
+            Box::new(profile::AddUserDisplayName),
+            Box::new(translation::CreateTranslationConfigs),
         ]
     }
 }

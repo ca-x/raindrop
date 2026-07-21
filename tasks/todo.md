@@ -1,12 +1,16 @@
-# v0.3.4 checklist
+# v0.3.5 checklist
 
-- [x] Separate add/manage actions from editing the currently selected subscription.
-- [x] Make the source `+` icon-only with a tooltip and expose a selected-feed edit action.
-- [x] Move font, size, and article-theme controls into a bottom hover/touch dock with Popovers.
-- [x] Preserve keyboard shortcuts while closed Popover content remains mounted.
-- [x] Add restrained toolbar and image transitions with reduced-motion handling.
-- [x] Cover desktop/mobile dialog focus restoration and reading-control persistence.
-- [ ] Update all versions to 0.3.4, review the release diff, commit, push `main`, tag `v0.3.4`, and verify GitHub release workflows.
+- [x] Mark an unread entry read when pointer interaction opens its article.
+- [x] Keep pointer and J/K entry-open behavior consistent without changing N/P cursor movement.
+- [x] Raise reading-toolbar touch targets to 44px, use 8px spacing, and expose keyboard focus feedback.
+- [x] Add unit and production-browser regression coverage for pointer-open read state.
+- [x] Add a secure current-user profile API for optional nickname and email editing.
+- [x] Widen and repartition Settings around personal, reading, and plugin tasks.
+- [x] Replace the top-level Provider form with a three-row plugin list: AI Provider, AI Assistant, and Translation.
+- [x] Keep AI Assistant focused on summary/synthesis and remove translation from its public detail.
+- [x] Add a secure Translation plugin with OpenAI and DeepLX engines using pinned `dlx` v3.0.1, including connection testing, article translation, and bounded word lookup.
+- [x] Verify profile/plugin behavior, responsive settings layout, keyboard focus, and reduced motion.
+- [ ] Update all versions to 0.3.5, review the release diff, commit, push `main`, tag `v0.3.5`, and verify GitHub release workflows.
 
 # Raindrop 任务清单
 

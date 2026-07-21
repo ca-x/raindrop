@@ -5,7 +5,10 @@ mod policy;
 use std::{error::Error, fmt};
 
 pub(crate) use hash::{content_hash, source_content_hash};
-use images::{extract_images, extract_search_text, extract_text, validate_image_metadata};
+use images::{
+    extract_images, extract_search_text, extract_text, extract_translation_segments,
+    validate_image_metadata,
+};
 use policy::sanitize_html;
 
 const MAX_FINAL_HTML_BYTES: usize = 1024 * 1024;
@@ -236,6 +239,10 @@ pub(crate) fn extract_rendered_text(input: &str) -> String {
     extract_search_text(input)
 }
 
+pub(crate) fn rendered_translation_segments(input: &str) -> Vec<String> {
+    extract_translation_segments(input)
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum StoredContentValidationError {
     HtmlTooLong,
@@ -328,6 +335,14 @@ fn canonical_metadata_bytes(images: &[InertImage]) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn translation_segments_preserve_repeated_adjacent_paragraphs() {
+        assert_eq!(
+            rendered_translation_segments("<p>Repeat me</p><p>Repeat me</p>"),
+            ["Repeat me", "Repeat me"]
+        );
+    }
 
     #[test]
     fn sanitizer_enforces_image_and_final_html_budgets() {

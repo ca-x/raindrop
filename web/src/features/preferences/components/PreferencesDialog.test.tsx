@@ -5,6 +5,7 @@ import { expect, it, vi } from "vitest"
 import { Providers } from "../../../app/Providers"
 import { activateLocale } from "../../../shared/i18n/i18n"
 import { fakeAiSettingsController } from "../../ai/model/testFixtures"
+import type { TranslationSettingsController } from "../../translation/model/useTranslationSettingsController"
 import type { UserPreferences } from "../api/preferences.generated"
 import { PreferencesDialog } from "./PreferencesDialog"
 
@@ -30,7 +31,7 @@ it("edits personal and reading preferences through ASTRYX controls and saves onc
   await user.click(within(dialog).getByRole("radio", { name: "Dark" }))
   await user.click(within(dialog).getByRole("radio", { name: "中文" }))
   await user.click(within(dialog).getByRole("radio", { name: "Compact" }))
-  await user.click(within(dialog).getByRole("button", { name: "Reading" }))
+  await user.click(within(dialog).getByRole("button", { name: /^Reading/ }))
   expect(within(dialog).queryByRole("combobox", { name: "Article font" })).not.toBeInTheDocument()
   expect(within(dialog).queryByRole("slider", { name: "Reading size" })).not.toBeInTheDocument()
   await user.click(within(dialog).getByRole("radio", { name: "Sepia" }))
@@ -64,15 +65,26 @@ it("preserves the draft and inline error when saving fails", async () => {
     <Providers>
       <PreferencesDialog
         isOpen
+        profile={{
+          userId: "00000000-0000-4000-8000-000000000001",
+          username: "reader",
+          displayName: null,
+          email: null,
+        }}
         preferences={preferences}
         fonts={[]}
         fontLimits={{ maximumCount: 8, maximumBytes: 5 * 1024 * 1024 }}
         isSaving={false}
+        isProfileSaving={false}
         isFontMutating={false}
         error="SAVE"
+        profileError={null}
+        profileFieldErrors={{}}
         onOpenChange={vi.fn()}
         onClearError={vi.fn()}
+        onClearProfileError={vi.fn()}
         onSave={onSave}
+        onSaveProfile={vi.fn().mockResolvedValue(true)}
         onUploadFont={vi.fn().mockResolvedValue(true)}
         onDeleteFont={vi.fn().mockResolvedValue(true)}
       />
@@ -163,10 +175,24 @@ it("keeps plugin saves separate from the preference controller", async () => {
   renderDialog({
     onSave,
     aiController: fakeAiSettingsController({ saveConfig }),
+    translationController: fakeTranslationSettingsController(),
   })
   const dialog = screen.getByRole("dialog", { name: "Settings" })
 
-  await user.click(within(dialog).getByRole("button", { name: "Plugins" }))
+  await user.click(within(dialog).getByRole("button", { name: /^Plugins/ }))
+  expect(
+    within(dialog).getByRole("button", { name: "Settings for AI Provider" }),
+  ).toBeVisible()
+  expect(
+    within(dialog).getByRole("button", { name: "Settings for Translation" }),
+  ).toBeVisible()
+  const assistant = within(dialog).getByText("AI Assistant").closest("li")
+  expect(assistant).not.toBeNull()
+  await user.click(
+    within(assistant as HTMLElement).getByRole("button", {
+      name: "Settings for AI Assistant",
+    }),
+  )
   await user.click(
     within(dialog).getByRole("switch", { name: "Enable AI reading plugin" }),
   )
@@ -184,15 +210,26 @@ function renderDialog(
 ) {
   const props: React.ComponentProps<typeof PreferencesDialog> = {
     isOpen: true,
+    profile: {
+      userId: "00000000-0000-4000-8000-000000000001",
+      username: "reader",
+      displayName: null,
+      email: null,
+    },
     preferences,
     fonts: [],
     fontLimits: { maximumCount: 8, maximumBytes: 5 * 1024 * 1024 },
     isSaving: false,
+    isProfileSaving: false,
     isFontMutating: false,
     error: null,
+    profileError: null,
+    profileFieldErrors: {},
     onOpenChange: vi.fn(),
     onClearError: vi.fn(),
+    onClearProfileError: vi.fn(),
     onSave: vi.fn().mockResolvedValue(true),
+    onSaveProfile: vi.fn().mockResolvedValue(true),
     onUploadFont: vi.fn().mockResolvedValue(true),
     onDeleteFont: vi.fn().mockResolvedValue(true),
     ...overrides,
@@ -202,4 +239,40 @@ function renderDialog(
       <PreferencesDialog {...props} />
     </Providers>,
   )
+}
+
+function fakeTranslationSettingsController(): TranslationSettingsController {
+  return {
+    config: {
+      engine: "DEEPLX",
+      displayMode: "BILINGUAL",
+      isEnabled: false,
+      defaultTargetLocale: "zh-CN",
+      openAi: {
+        providerId: null,
+        maxOutputTokens: 4096,
+        profile: "GENERAL",
+        customSystemPrompt: null,
+        customPrompt: null,
+      },
+      deepLx: {
+        displayName: "DeepLX",
+        description: null,
+        baseUrl: null,
+        hasApiKey: false,
+      },
+      revision: null,
+    },
+    loadStatus: "ready",
+    error: null,
+    isSaving: false,
+    isTesting: false,
+    testResult: null,
+    load: vi.fn().mockResolvedValue(undefined),
+    save: vi.fn().mockResolvedValue(true),
+    saveDisplayMode: vi.fn().mockResolvedValue(true),
+    test: vi.fn().mockResolvedValue(true),
+    clearError: vi.fn(),
+    cancel: vi.fn(),
+  }
 }

@@ -18,6 +18,39 @@ pub mod subscription;
 pub mod user_font;
 pub mod user_preference;
 
+pub mod translation_config {
+    use sea_orm::entity::prelude::*;
+    use time::OffsetDateTime;
+
+    #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
+    #[sea_orm(table_name = "translation_configs")]
+    pub struct Model {
+        #[sea_orm(primary_key, auto_increment = false)]
+        pub user_id: String,
+        pub engine: String,
+        pub display_mode: String,
+        pub is_enabled: bool,
+        pub default_target_locale: String,
+        pub open_ai_provider_id: Option<String>,
+        pub open_ai_max_output_tokens: i32,
+        pub open_ai_profile: String,
+        pub open_ai_custom_system_prompt: Option<String>,
+        pub open_ai_custom_prompt: Option<String>,
+        pub deep_lx_display_name: String,
+        pub deep_lx_description: Option<String>,
+        pub deep_lx_base_url: Option<String>,
+        pub encrypted_deep_lx_api_key: Option<String>,
+        pub revision: i64,
+        pub created_at: OffsetDateTime,
+        pub updated_at: OffsetDateTime,
+    }
+
+    #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+    pub enum Relation {}
+
+    impl ActiveModelBehavior for ActiveModel {}
+}
+
 pub mod bootstrap_state {
     use sea_orm::entity::prelude::*;
 
@@ -46,6 +79,7 @@ pub mod user {
         pub id: String,
         pub username: String,
         pub normalized_username: String,
+        pub display_name: Option<String>,
         pub email: Option<String>,
         pub password_hash: String,
         pub is_disabled: bool,

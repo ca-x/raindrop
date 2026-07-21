@@ -11,6 +11,8 @@ import { PreferencesDialog } from "../../preferences/components/PreferencesDialo
 import type { PreferencesTab } from "../../preferences/components/PreferencesDialog"
 import { toAstryxDensity } from "../../preferences/model/preferenceTypes"
 import type { PreferencesController } from "../../preferences/model/usePreferencesController"
+import type { ProfileController } from "../../profile/model/useProfileController"
+import type { TranslationSettingsController } from "../../translation/model/useTranslationSettingsController"
 import { ArticleReader } from "../components/ArticleReader"
 import { EntryQueue } from "../components/EntryQueue"
 import { MarkReadDialog } from "../components/MarkReadDialog"
@@ -28,7 +30,9 @@ import { ReaderWorkspacePanels } from "./ReaderWorkspacePanels"
 interface ReaderShellProps {
   controller: ReaderController
   preferencesController: PreferencesController
+  profileController?: ProfileController
   aiSettingsController?: AiSettingsController
+  translationController?: TranslationSettingsController
   route: ReaderRouteMatch
   isSourceReady: boolean
   username: string
@@ -66,6 +70,7 @@ export function ReaderShell(props: ReaderShellProps) {
   const reopenSourcesAfterPreferences = useRef(false)
   const sources = useResizable({ defaultSize: 240, minSizePx: 200, maxSizePx: 340, autoSaveId: "reader-sources" })
   const queue = useResizable({ defaultSize: 380, minSizePx: 300, maxSizePx: 560, autoSaveId: "reader-queue" })
+  const accountLabel = props.profileController?.profile.displayName || props.username
   const queueEntryIds = props.isSourceReady
     ? props.controller.state.queueBySourceKey[sourceKey(props.controller.state.selectedSource)] ?? []
     : []
@@ -80,12 +85,8 @@ export function ReaderShell(props: ReaderShellProps) {
       : undefined
   const entryRoute = props.route.entryId ? pathForEntry(props.route.sourcePath, props.route.entryId) : null
   const aiConfig = props.aiSettingsController?.configEnvelope?.config
-  const aiOperations = aiConfig?.isEnabled
-    ? {
-        summary: aiConfig.summary.enabled,
-        translation: aiConfig.translation.enabled,
-      }
-    : undefined
+  const summaryEnabled = Boolean(aiConfig?.isEnabled && aiConfig.summary.enabled)
+  const translationConfig = props.translationController?.config ?? null
   useReaderHotkeys({
     queueEntryIds,
     cursorEntryId: props.cursorEntryId,
@@ -191,8 +192,10 @@ export function ReaderShell(props: ReaderShellProps) {
       onRecordScroll={props.controller.recordScrollAnchor}
       onToggleRead={props.controller.toggleRead}
       onToggleStar={props.controller.toggleStar}
-      csrfToken={aiOperations ? props.aiSettingsController?.csrfToken : undefined}
-      aiOperations={aiOperations}
+      csrfToken={props.aiSettingsController?.csrfToken}
+      summaryEnabled={summaryEnabled}
+      translationConfig={translationConfig}
+      translationSettingsController={props.translationController}
       linkOpenMode={props.preferencesController.preferences.linkOpenMode}
       readingFontScale={props.preferencesController.preferences.readingFontScale}
       readingFontFamily={props.preferencesController.preferences.readingFontFamily}
@@ -243,7 +246,7 @@ export function ReaderShell(props: ReaderShellProps) {
             isOpen={isNavOpen}
             onOpenChange={setIsNavOpen}
             label={i18n._("reader.sources")}
-            header={`Raindrop · ${props.username}`}
+            header={`Raindrop · ${accountLabel}`}
             className="reader-mobile-nav"
           >
             {sourceTree}
@@ -343,18 +346,29 @@ export function ReaderShell(props: ReaderShellProps) {
       <PreferencesDialog
         isOpen={isPreferencesOpen}
         initialTab={preferencesInitialTab}
-        account={{ username: props.username, email: props.email ?? null }}
+        profile={props.profileController?.profile ?? {
+          userId: "00000000-0000-4000-8000-000000000000",
+          username: props.username,
+          displayName: null,
+          email: props.email ?? null,
+        }}
         preferences={props.preferencesController.preferences}
         fonts={props.preferencesController.fonts}
         fontLimits={props.preferencesController.fontLimits}
         isSaving={props.preferencesController.isSaving}
+        isProfileSaving={props.profileController?.isSaving ?? false}
         isFontMutating={props.preferencesController.isFontMutating}
         error={props.preferencesController.error}
+        profileError={props.profileController?.error ?? null}
+        profileFieldErrors={props.profileController?.fieldErrors ?? {}}
         aiController={props.aiSettingsController}
+        translationController={props.translationController}
         onClearError={props.preferencesController.clearError}
         onSave={props.preferencesController.save}
+        onSaveProfile={props.profileController?.save ?? (async () => true)}
         onUploadFont={props.preferencesController.uploadFont}
         onDeleteFont={props.preferencesController.deleteFont}
+        onClearProfileError={props.profileController?.clearError ?? (() => undefined)}
         onOpenChange={(open) => {
           setIsPreferencesOpen(open)
           if (open) return

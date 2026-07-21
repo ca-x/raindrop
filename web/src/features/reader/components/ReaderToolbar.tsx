@@ -139,9 +139,7 @@ interface ArticleToolbarProps {
   onToggleRead: () => Promise<void>
   onToggleStar: () => Promise<void>
   onOpenSummary?: () => void
-  onOpenTranslation?: () => void
   summaryButtonRef?: Ref<HTMLButtonElement>
-  translationButtonRef?: Ref<HTMLButtonElement>
 }
 
 export function ArticleToolbar(props: ArticleToolbarProps) {
@@ -159,14 +157,6 @@ export function ArticleToolbar(props: ArticleToolbarProps) {
               ref={props.summaryButtonRef}
               label={i18n._("ai.reader.summaryAction")}
               onClick={props.onOpenSummary}
-              variant="secondary"
-            />
-          ) : null}
-          {props.onOpenTranslation ? (
-            <Button
-              ref={props.translationButtonRef}
-              label={i18n._("ai.reader.translationAction")}
-              onClick={props.onOpenTranslation}
               variant="secondary"
             />
           ) : null}

@@ -32,6 +32,7 @@ pub async fn insert_user(database: &DatabaseConnection, id: &str, username: &str
         id: Set(id.to_owned()),
         username: Set(username.to_owned()),
         normalized_username: Set(username.to_owned()),
+        display_name: Set(None),
         email: Set(None),
         password_hash: Set("test-hash".to_owned()),
         is_disabled: Set(false),

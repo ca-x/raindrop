@@ -10,4 +10,5 @@ pub mod organization;
 pub mod plugins;
 pub mod preferences;
 pub mod setup;
+pub mod translation;
 pub mod web;

@@ -1,6 +1,5 @@
 import { Banner } from "@astryxdesign/core/Banner"
 import { Button } from "@astryxdesign/core/Button"
-import { CheckboxInput } from "@astryxdesign/core/CheckboxInput"
 import { NumberInput } from "@astryxdesign/core/NumberInput"
 import {
   SegmentedControl,
@@ -10,7 +9,7 @@ import { Selector } from "@astryxdesign/core/Selector"
 import { Stack } from "@astryxdesign/core/Stack"
 import { Switch } from "@astryxdesign/core/Switch"
 import { useLingui } from "@lingui/react"
-import { useEffect, useMemo, useState, type FormEvent } from "react"
+import { useEffect, useState, type FormEvent } from "react"
 
 import type {
   AiConfigEnvelope,
@@ -32,13 +31,7 @@ interface AiContentDraft {
   summaryProviderId: string
   summaryStyle: AiSummaryStyle
   summaryMaxOutputTokens: number
-  translationEnabled: boolean
-  translationProviderId: string
-  defaultTargetLocale: string
-  translationMaxOutputTokens: number
 }
-
-const TARGET_LOCALES = ["zh-CN", "en", "ja-JP", "ko-KR", "fr", "de", "es"]
 
 export function AiContentForm(props: AiContentFormProps) {
   const { i18n } = useLingui()
@@ -54,15 +47,6 @@ export function AiContentForm(props: AiContentFormProps) {
     label: `${provider.displayName} · ${provider.model}`,
     disabled: !provider.isEnabled,
   }))
-  const localeOptions = useMemo(() => {
-    const locales = TARGET_LOCALES.includes(draft.defaultTargetLocale)
-      ? TARGET_LOCALES
-      : [draft.defaultTargetLocale, ...TARGET_LOCALES]
-    return locales.filter(Boolean).map((locale) => ({
-      value: locale,
-      label: i18n._(`ai.locale.${locale}`),
-    }))
-  }, [draft.defaultTargetLocale, i18n])
   const pluginReady = props.envelope.pluginState === "READY"
   const hasProvider = defaultProviderId.length > 0
   const isUnavailable = props.isSaving || !pluginReady
@@ -71,7 +55,6 @@ export function AiContentForm(props: AiContentFormProps) {
   const canSubmit =
     !isUnavailable &&
     Boolean(draft.summaryProviderId) &&
-    Boolean(draft.translationProviderId) &&
     (hasProvider || !draft.pluginEnabled)
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -86,10 +69,13 @@ export function AiContentForm(props: AiContentFormProps) {
         maxOutputTokens: draft.summaryMaxOutputTokens,
       },
       translation: {
-        enabled: draft.translationEnabled,
-        providerId: draft.translationProviderId,
-        defaultTargetLocale: draft.defaultTargetLocale,
-        maxOutputTokens: draft.translationMaxOutputTokens,
+        enabled: false,
+        providerId:
+          props.envelope.config?.translation.providerId ?? draft.summaryProviderId,
+        defaultTargetLocale:
+          props.envelope.config?.translation.defaultTargetLocale ?? "zh-CN",
+        maxOutputTokens:
+          props.envelope.config?.translation.maxOutputTokens ?? 4096,
       },
     })
   }
@@ -126,9 +112,7 @@ export function AiContentForm(props: AiContentFormProps) {
                 ...draft,
                 pluginEnabled,
                 summaryEnabled:
-                  pluginEnabled && !draft.summaryEnabled && !draft.translationEnabled
-                    ? true
-                    : draft.summaryEnabled,
+                  pluginEnabled && !draft.summaryEnabled ? true : draft.summaryEnabled,
               })
             }
             labelSpacing="spread"
@@ -144,12 +128,6 @@ export function AiContentForm(props: AiContentFormProps) {
               {i18n._("ai.summaryDescription")}
             </div>
           </div>
-          <CheckboxInput
-            label={i18n._("ai.summaryEnabled")}
-            value={draft.summaryEnabled}
-            onChange={(summaryEnabled) => setDraft({ ...draft, summaryEnabled })}
-            isDisabled={operationsDisabled}
-          />
           <Selector
             label={i18n._("ai.summaryProvider")}
             value={draft.summaryProviderId || undefined}
@@ -196,60 +174,6 @@ export function AiContentForm(props: AiContentFormProps) {
             width="100%"
           />
         </section>
-        <section
-          className="ai-operation-section"
-          aria-labelledby="ai-translation-heading"
-        >
-          <div>
-            <div id="ai-translation-heading" className="reader-preference-label">
-              {i18n._("ai.translationTitle")}
-            </div>
-            <div className="reader-preference-description">
-              {i18n._("ai.translationDescription")}
-            </div>
-          </div>
-          <CheckboxInput
-            label={i18n._("ai.translationEnabled")}
-            value={draft.translationEnabled}
-            onChange={(translationEnabled) =>
-              setDraft({ ...draft, translationEnabled })
-            }
-            isDisabled={operationsDisabled}
-          />
-          <Selector
-            label={i18n._("ai.translationProvider")}
-            value={draft.translationProviderId || undefined}
-            options={providerOptions}
-            onChange={(translationProviderId) =>
-              setDraft({ ...draft, translationProviderId })
-            }
-            placeholder={i18n._("ai.selectProvider")}
-            isDisabled={operationsDisabled}
-            width="100%"
-          />
-          <Selector
-            label={i18n._("ai.translationLocale")}
-            value={draft.defaultTargetLocale}
-            options={localeOptions}
-            onChange={(defaultTargetLocale) =>
-              setDraft({ ...draft, defaultTargetLocale })
-            }
-            isDisabled={operationsDisabled}
-            width="100%"
-          />
-          <NumberInput
-            label={i18n._("ai.translationTokenLimit")}
-            value={draft.translationMaxOutputTokens}
-            min={256}
-            max={16_384}
-            isIntegerOnly
-            onChange={(translationMaxOutputTokens) =>
-              setDraft({ ...draft, translationMaxOutputTokens })
-            }
-            isDisabled={operationsDisabled}
-            width="100%"
-          />
-        </section>
         <div className="reader-dialog-actions">
           <Button
             label={i18n._("ai.configSave")}
@@ -275,9 +199,5 @@ function toDraft(
     summaryProviderId: config?.summary.providerId ?? defaultProviderId,
     summaryStyle: config?.summary.style ?? "BALANCED",
     summaryMaxOutputTokens: config?.summary.maxOutputTokens ?? 1024,
-    translationEnabled: config?.translation.enabled ?? false,
-    translationProviderId: config?.translation.providerId ?? defaultProviderId,
-    defaultTargetLocale: config?.translation.defaultTargetLocale ?? "zh-CN",
-    translationMaxOutputTokens: config?.translation.maxOutputTokens ?? 4096,
   }
 }

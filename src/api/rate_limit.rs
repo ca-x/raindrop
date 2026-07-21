@@ -4,10 +4,12 @@ use std::{
     time::{Duration, Instant},
 };
 use time::OffsetDateTime;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 const USER_MUTATION_LIMIT: u32 = 30;
 const USER_MUTATION_WINDOW: Duration = Duration::from_secs(15 * 60);
 const USER_MUTATION_MAX_KEYS: usize = 10_000;
+const USER_CONCURRENCY_MAX_KEYS: usize = 10_000;
 
 #[derive(Clone)]
 pub(crate) struct RateLimiter {
@@ -252,6 +254,67 @@ impl Default for UserMutationLimiter {
     }
 }
 
+#[derive(Clone)]
+pub(crate) struct UserConcurrencyLimiter {
+    inner: Arc<Mutex<HashMap<String, UserConcurrencyEntry>>>,
+    permits_per_user: usize,
+    max_keys: usize,
+}
+
+struct UserConcurrencyEntry {
+    semaphore: Arc<Semaphore>,
+    updated_at: Instant,
+}
+
+impl UserConcurrencyLimiter {
+    pub(crate) fn new(permits_per_user: usize) -> Self {
+        Self::with_limits(permits_per_user, USER_CONCURRENCY_MAX_KEYS)
+    }
+
+    fn with_limits(permits_per_user: usize, max_keys: usize) -> Self {
+        assert!(
+            permits_per_user > 0,
+            "user concurrency must allow a request"
+        );
+        assert!(
+            max_keys > 0,
+            "user concurrency must track at least one user"
+        );
+        Self {
+            inner: Arc::new(Mutex::new(HashMap::new())),
+            permits_per_user,
+            max_keys,
+        }
+    }
+
+    pub(crate) fn try_acquire(&self, user_id: &str) -> Option<OwnedSemaphorePermit> {
+        let semaphore = {
+            let now = Instant::now();
+            let mut users = self
+                .inner
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if !users.contains_key(user_id) && users.len() >= self.max_keys {
+                let oldest_idle = users
+                    .iter()
+                    .filter(|(_, entry)| Arc::strong_count(&entry.semaphore) == 1)
+                    .min_by_key(|(_, entry)| entry.updated_at)
+                    .map(|(user_id, _)| user_id.clone());
+                users.remove(&oldest_idle?);
+            }
+            let entry = users
+                .entry(user_id.to_owned())
+                .or_insert_with(|| UserConcurrencyEntry {
+                    semaphore: Arc::new(Semaphore::new(self.permits_per_user)),
+                    updated_at: now,
+                });
+            entry.updated_at = now;
+            Arc::clone(&entry.semaphore)
+        };
+        semaphore.try_acquire_owned().ok()
+    }
+}
+
 fn rate_limit_rejection(
     now: Instant,
     wall_clock: OffsetDateTime,
@@ -285,6 +348,30 @@ mod tests {
         assert!(limiter.check_at(start));
         assert!(!limiter.check_at(start));
         assert!(limiter.check_at(start + window));
+    }
+
+    #[test]
+    fn user_concurrency_isolated_by_user_and_releases_capacity() {
+        let limiter = UserConcurrencyLimiter::with_limits(1, 10);
+        let first = limiter.try_acquire("user-a").expect("first request");
+        assert!(limiter.try_acquire("user-a").is_none());
+        let other = limiter
+            .try_acquire("user-b")
+            .expect("another user keeps independent capacity");
+
+        drop(first);
+        assert!(limiter.try_acquire("user-a").is_some());
+        drop(other);
+    }
+
+    #[test]
+    fn user_concurrency_evicts_only_idle_entries_at_capacity() {
+        let limiter = UserConcurrencyLimiter::with_limits(1, 1);
+        let active = limiter.try_acquire("user-a").expect("active request");
+        assert!(limiter.try_acquire("user-b").is_none());
+
+        drop(active);
+        assert!(limiter.try_acquire("user-b").is_some());
     }
 
     #[test]

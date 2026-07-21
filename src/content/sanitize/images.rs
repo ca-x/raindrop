@@ -3,7 +3,7 @@ use std::cell::RefCell;
 use html5ever::{
     tendril::StrTendril,
     tokenizer::{
-        BufferQueue, StartTag, TagToken, Token, TokenSink, TokenSinkResult, Tokenizer,
+        BufferQueue, EndTag, StartTag, TagToken, Token, TokenSink, TokenSinkResult, Tokenizer,
         TokenizerOpts,
     },
 };
@@ -174,6 +174,95 @@ fn is_search_text_boundary(name: &str) -> bool {
             | "thead"
             | "tr"
             | "ul"
+    )
+}
+
+struct TranslationSegmentSink {
+    current: RefCell<String>,
+    segments: RefCell<Vec<String>>,
+}
+
+impl TranslationSegmentSink {
+    fn flush(&self) {
+        let normalized = normalize_segment(&self.current.borrow());
+        self.current.borrow_mut().clear();
+        if !normalized.is_empty() {
+            self.segments.borrow_mut().push(normalized);
+        }
+    }
+}
+
+impl TokenSink for TranslationSegmentSink {
+    type Handle = ();
+
+    fn process_token(&self, token: Token, _line_number: u64) -> TokenSinkResult<Self::Handle> {
+        match token {
+            Token::CharacterTokens(characters) => self.current.borrow_mut().push_str(&characters),
+            TagToken(tag)
+                if matches!(tag.kind, StartTag | EndTag)
+                    && is_translation_segment_boundary(tag.name.as_ref()) =>
+            {
+                self.flush();
+            }
+            _ => {}
+        }
+        TokenSinkResult::Continue
+    }
+}
+
+pub(super) fn extract_translation_segments(html: &str) -> Vec<String> {
+    let input = BufferQueue::default();
+    input.push_back(StrTendril::from(html));
+    let tokenizer = Tokenizer::new(
+        TranslationSegmentSink {
+            current: RefCell::new(String::new()),
+            segments: RefCell::new(Vec::new()),
+        },
+        TokenizerOpts::default(),
+    );
+    let _ = tokenizer.feed(&input);
+    tokenizer.end();
+    tokenizer.sink.flush();
+    tokenizer.sink.segments.into_inner()
+}
+
+fn normalize_segment(value: &str) -> String {
+    let mut normalized = String::with_capacity(value.len());
+    let mut pending_space = false;
+    for character in value.chars() {
+        if character.is_whitespace() {
+            pending_space = true;
+        } else {
+            if pending_space && !normalized.is_empty() {
+                normalized.push(' ');
+            }
+            normalized.push(character);
+            pending_space = false;
+        }
+    }
+    normalized
+}
+
+fn is_translation_segment_boundary(name: &str) -> bool {
+    matches!(
+        name,
+        "address"
+            | "blockquote"
+            | "dd"
+            | "div"
+            | "dt"
+            | "figcaption"
+            | "h1"
+            | "h2"
+            | "h3"
+            | "h4"
+            | "h5"
+            | "h6"
+            | "li"
+            | "p"
+            | "pre"
+            | "td"
+            | "th"
     )
 }
 

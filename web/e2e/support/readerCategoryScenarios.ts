@@ -1,4 +1,4 @@
-import { expect, type Page } from "@playwright/test"
+import { expect, type Locator, type Page } from "@playwright/test"
 
 import { readerIds, type ReaderApiFixture } from "./readerApiFixture"
 import {
@@ -155,6 +155,9 @@ async function verifyCrossUserDenial(
 async function verifyCompactCategoryDialog(page: Page): Promise<void> {
   await page.getByRole("button", { name: "Open sources" }).click()
   const sources = page.getByRole("dialog", { name: "Sources" })
+  await expectCategoryRowAligned(
+    sources.locator(`[data-tree-id="category:${readerIds.categoryA}"]`),
+  )
   await sources.getByRole("button", { name: "Manage subscriptions" }).click()
   const dialog = page.getByRole("dialog", { name: "Manage subscriptions" })
   await expectDialogContained(dialog, page)
@@ -162,4 +165,15 @@ async function verifyCompactCategoryDialog(page: Page): Promise<void> {
   await dialog.getByRole("button", { name: "Close" }).click()
   await expect(sources).toBeVisible()
   await expect(sources.getByRole("button", { name: "Manage subscriptions" })).toBeFocused()
+}
+
+async function expectCategoryRowAligned(row: Locator): Promise<void> {
+  const boxes = await Promise.all([
+    row.getByRole("button", { name: "Toggle children" }).boundingBox(),
+    row.locator(".reader-smart-source-icon").first().boundingBox(),
+    row.locator(".reader-source-label").boundingBox(),
+  ])
+  expect(boxes.every(Boolean)).toBe(true)
+  const centers = boxes.map((box) => box!.y + box!.height / 2)
+  expect(Math.max(...centers) - Math.min(...centers)).toBeLessThanOrEqual(1)
 }

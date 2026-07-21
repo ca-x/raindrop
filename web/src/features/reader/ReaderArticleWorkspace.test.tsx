@@ -348,14 +348,6 @@ describe("Reader article workspace", () => {
       "false",
     )
 
-    const sidecar = screen
-      .getByRole("heading", { name: "AI reading tools" })
-      .closest("section")!
-    await user.click(within(sidecar).getByRole("button", { name: "Translation" }))
-    expect(await screen.findByText("原文仍然保留。")).toBeVisible()
-    expect(document.querySelector(".reader-article")).toBe(article)
-    expect(article.scrollTop).toBe(180)
-
     await user.click(screen.getByRole("button", { name: "Close AI sidecar" }))
     expect(screen.queryByText("A stable summary.")).not.toBeInTheDocument()
     expect(document.querySelector(".reader-article")).toBe(article)

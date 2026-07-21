@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import type { ViewportMode } from "../../../shared/responsive/useViewportMode"
 import type { AiSettingsController } from "../../ai/model/useAiSettingsController"
 import type { PreferencesController } from "../../preferences/model/usePreferencesController"
+import type { ProfileController } from "../../profile/model/useProfileController"
+import type { TranslationSettingsController } from "../../translation/model/useTranslationSettingsController"
 import { adjacentUnreadSource, type UnreadSourceDirection } from "../model/unreadSourceNavigation"
 import { sourceKey } from "../model/types"
 import type { ReaderController } from "../model/useReaderController"
@@ -18,7 +20,9 @@ import {
 interface ReaderRoutesProps {
   controller: ReaderController
   preferencesController: PreferencesController
+  profileController?: ProfileController
   aiSettingsController?: AiSettingsController
+  translationController?: TranslationSettingsController
   username: string
   onLogout: () => Promise<void>
   onUnauthenticated?: () => void
@@ -84,6 +88,11 @@ export function ReaderRoutes(props: ReaderRoutesProps) {
 
   if (!route) return <Navigate to="/reader/unread" replace />
   const readerQueuePath = (location.state as { readerQueuePath?: unknown } | null)?.readerQueuePath
+  const markOpenedEntryRead = (entryId: string) => {
+    const entry = props.controller.state.entriesById[entryId]
+      ?? props.controller.state.detailsById[entryId]
+    if (entry && !entry.isRead) void props.controller.toggleRead(entryId)
+  }
 
   return (
     <ReaderShell
@@ -99,6 +108,7 @@ export function ReaderRoutes(props: ReaderRoutesProps) {
       onSelectSource={(source) => navigate(pathForSource(source))}
       onSelectEntry={(entryId) => {
         setCursorEntryId(entryId)
+        markOpenedEntryRead(entryId)
         const path = pathForEntry(route.sourcePath, entryId)
         if (route.entryId) {
           navigate(path, {

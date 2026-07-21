@@ -91,13 +91,14 @@ describe("Reader keyboard workspace", () => {
     await waitFor(() => expect(window.location.pathname).toBe("/reader/unread"))
   })
 
-  it("restores the originating queue row focus after compact Back", async () => {
+  it("marks a clicked entry read and restores its queue-row focus after compact Back", async () => {
     const controller = keyboardController()
     window.history.replaceState(null, "", "/reader/unread")
     render(workspace(controller, "compact"))
 
     fireEvent.click(screen.getByText("Second article"))
     await waitFor(() => expect(window.location.pathname).toBe("/reader/unread/entry/second"))
+    expect(controller.toggleRead).toHaveBeenCalledWith("second")
     fireEvent.click(screen.getByRole("button", { name: "Back to entry queue" }))
     await waitFor(() => expect(window.location.pathname).toBe("/reader/unread"))
 

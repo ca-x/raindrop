@@ -24,6 +24,7 @@ COPY . ./
 COPY --from=web-builder /src/web/dist /src/web/dist
 RUN --mount=type=secret,id=raindrop_official_plugin_signing_seed \
     --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=/src/target,sharing=locked \
     test -n "$RAINDROP_SIGNING_CACHE_EPOCH" && \
     if [ "$RAINDROP_REQUIRE_OFFICIAL_PLUGIN_SIGNATURE" = "1" ]; then \

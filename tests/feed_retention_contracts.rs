@@ -568,6 +568,7 @@ async fn seed_user(database: &sea_orm::DatabaseConnection, at: OffsetDateTime) -
         id: Set(user_id.clone()),
         username: Set(format!("retention-{}", &user_id[..8])),
         normalized_username: Set(format!("retention-{}", &user_id[..8])),
+        display_name: Set(None),
         email: Set(None),
         password_hash: Set("test-hash".to_owned()),
         is_disabled: Set(false),

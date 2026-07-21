@@ -3,7 +3,6 @@ import { Button } from "@astryxdesign/core/Button"
 import { Heading } from "@astryxdesign/core/Heading"
 import { Icon } from "@astryxdesign/core/Icon"
 import { Spinner } from "@astryxdesign/core/Spinner"
-import { Tab, TabList } from "@astryxdesign/core/TabList"
 import { useLingui } from "@lingui/react"
 import { useEffect, useRef } from "react"
 
@@ -26,11 +25,7 @@ export function AiReaderSidecar(props: AiReaderSidecarProps) {
   if (!tab) return null
 
   const overview = props.controller.overview
-  const operation = overview
-    ? tab === "summary"
-      ? overview.summary
-      : overview.translation
-    : null
+  const operation = overview?.summary ?? null
   return (
     <section
       className="reader-ai-sidecar"
@@ -54,19 +49,6 @@ export function AiReaderSidecar(props: AiReaderSidecarProps) {
           variant="ghost"
         />
       </div>
-      <div className="reader-ai-sidecar-tabs">
-        <TabList
-          value={tab}
-          onChange={(value) =>
-            props.controller.open(value as NonNullable<EntryAiController["openTab"]>)
-          }
-          layout="fill"
-          hasDivider
-        >
-          <Tab value="summary" label={i18n._("ai.reader.summaryTab")} />
-          <Tab value="translation" label={i18n._("ai.reader.translationTab")} />
-        </TabList>
-      </div>
       <div className="reader-ai-sidecar-content" aria-live="polite">
         {props.controller.error ? (
           <Banner
@@ -87,12 +69,12 @@ export function AiReaderSidecar(props: AiReaderSidecarProps) {
           </div>
         ) : (
           <AiOperationState
-            tab={tab}
+            tab="summary"
             availability={overview.availability}
             operation={operation}
             isMutating={props.controller.isMutating}
-            onRun={() => props.controller.enqueue(tab)}
-            onRetry={() => props.controller.retry(tab)}
+            onRun={() => props.controller.enqueue("summary")}
+            onRetry={() => props.controller.retry("summary")}
             onOpenSettings={props.onOpenSettings}
           />
         )}

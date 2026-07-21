@@ -52,6 +52,15 @@ impl ProviderSecretKeyring {
         kind: ProviderKind,
         credential: &SecretString,
     ) -> Result<String, ProviderSecretError> {
+        self.encrypt_scoped(provider_id, kind.as_storage(), credential)
+    }
+
+    pub(crate) fn encrypt_scoped(
+        &self,
+        record_id: &str,
+        purpose: &str,
+        credential: &SecretString,
+    ) -> Result<String, ProviderSecretError> {
         let plaintext = credential.expose_secret().as_bytes();
         if !(1..=MAX_CREDENTIAL_BYTES).contains(&plaintext.len()) {
             return Err(ProviderSecretError::new(
@@ -69,7 +78,7 @@ impl ProviderSecretKeyring {
             .map_err(|_| ProviderSecretError::new(ProviderSecretErrorKind::EncryptFailed))?;
         let nonce = Nonce::assume_unique_for_key(nonce_bytes);
         let mut ciphertext = plaintext.to_vec();
-        let aad = associated_data(provider_id, kind);
+        let aad = associated_data(record_id, purpose);
         if active
             .key
             .seal_in_place_append_tag(nonce, Aad::from(aad.as_slice()), &mut ciphertext)
@@ -94,6 +103,15 @@ impl ProviderSecretKeyring {
         &self,
         provider_id: &str,
         kind: ProviderKind,
+        envelope: &str,
+    ) -> Result<SecretString, ProviderSecretError> {
+        self.decrypt_scoped(provider_id, kind.as_storage(), envelope)
+    }
+
+    pub(crate) fn decrypt_scoped(
+        &self,
+        record_id: &str,
+        purpose: &str,
         envelope: &str,
     ) -> Result<SecretString, ProviderSecretError> {
         let mut parts = envelope.split('.');
@@ -128,7 +146,7 @@ impl ProviderSecretKeyring {
             ciphertext.zeroize();
             return Err(decrypt_failed());
         }
-        let aad = associated_data(provider_id, kind);
+        let aad = associated_data(record_id, purpose);
         let plaintext =
             match slot
                 .key
@@ -230,13 +248,12 @@ fn decode_canonical(value: &str) -> Result<Vec<u8>, ()> {
     }
 }
 
-fn associated_data(provider_id: &str, kind: ProviderKind) -> Vec<u8> {
-    let mut aad =
-        Vec::with_capacity(AAD_PREFIX.len() + provider_id.len() + 1 + kind.as_storage().len());
+fn associated_data(record_id: &str, purpose: &str) -> Vec<u8> {
+    let mut aad = Vec::with_capacity(AAD_PREFIX.len() + record_id.len() + 1 + purpose.len());
     aad.extend_from_slice(AAD_PREFIX);
-    aad.extend_from_slice(provider_id.as_bytes());
+    aad.extend_from_slice(record_id.as_bytes());
     aad.push(0);
-    aad.extend_from_slice(kind.as_storage().as_bytes());
+    aad.extend_from_slice(purpose.as_bytes());
     aad
 }
 

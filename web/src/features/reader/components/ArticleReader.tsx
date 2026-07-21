@@ -4,9 +4,14 @@ import { EmptyState } from "@astryxdesign/core/EmptyState"
 import { Skeleton } from "@astryxdesign/core/Skeleton"
 import { useLingui } from "@lingui/react"
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react"
+import { useState } from "react"
 
 import { AiReaderSidecar } from "../../ai/reader/AiReaderSidecar"
 import { useEntryAiController } from "../../ai/model/useEntryAiController"
+import type { TranslationConfig } from "../../translation/api/translation.generated"
+import { useEntryTranslationController } from "../../translation/model/useEntryTranslationController"
+import type { TranslationSettingsController } from "../../translation/model/useTranslationSettingsController"
+import { TranslationReaderControls } from "../../translation/reader/TranslationReaderControls"
 import type { ReaderState } from "../model/types"
 import type { UserPreferencesLinkOpenMode } from "../../preferences/api/preferences.generated"
 import type {
@@ -28,7 +33,9 @@ interface ArticleReaderProps {
   csrfToken?: string
   onUnauthenticated?: () => void
   onOpenAiSettings?: () => void
-  aiOperations?: { summary: boolean; translation: boolean }
+  summaryEnabled?: boolean
+  translationConfig?: TranslationConfig | null
+  translationSettingsController?: TranslationSettingsController
   linkOpenMode?: UserPreferencesLinkOpenMode
   readingFontScale?: number
   readingFontFamily?: UserPreferencesReadingFontFamily
@@ -63,8 +70,8 @@ export function ArticleReader(props: ArticleReaderProps) {
   const bodyRef = useRef<HTMLDivElement>(null)
   const headingRef = useRef<HTMLHeadingElement>(null)
   const summaryButtonRef = useRef<HTMLButtonElement>(null)
-  const translationButtonRef = useRef<HTMLButtonElement>(null)
   const activeAiTrigger = useRef<HTMLButtonElement | null>(null)
+  const [selectedText, setSelectedText] = useState("")
   const detail = props.state.selectedEntryId ? props.state.detailsById[props.state.selectedEntryId] : undefined
   const detailMatchesRoute = Boolean(detail && detail.entryId === props.routeEntryId)
   const canBindArticle = detailMatchesRoute && props.state.paneStatus.detail === "ready"
@@ -86,6 +93,11 @@ export function ArticleReader(props: ArticleReaderProps) {
     props.csrfToken ?? "",
     props.onUnauthenticated ?? ignoreUnauthenticated,
   )
+  const translationController = useEntryTranslationController(
+    detailMatchesRoute ? detail?.entryId ?? null : null,
+    props.csrfToken ?? "",
+    props.onUnauthenticated ?? ignoreUnauthenticated,
+  )
   useLayoutEffect(() => {
     const node = articleRef.current
     const entryRoute = props.entryRoute
@@ -100,6 +112,37 @@ export function ArticleReader(props: ArticleReaderProps) {
     if (!articleHtml || !bodyRef.current) return
     return enhanceArticleContent(bodyRef.current)
   })
+  useLayoutEffect(() => {
+    if (!bodyRef.current || !translationController.result || !props.translationConfig) {
+      return
+    }
+    return applyImmersiveTranslation(
+      bodyRef.current,
+      translationController.result.segments,
+      props.translationConfig.displayMode,
+      props.translationConfig.defaultTargetLocale,
+    )
+  }, [
+    articleHtml,
+    props.translationConfig?.defaultTargetLocale,
+    props.translationConfig?.displayMode,
+    translationController.result,
+  ])
+  useEffect(() => {
+    const article = articleRef.current
+    if (!article || !props.translationConfig?.isEnabled) return
+    const updateSelection = () => {
+      const selection = document.getSelection()
+      if (!selection || selection.isCollapsed || !selection.anchorNode) {
+        setSelectedText("")
+        return
+      }
+      if (!article.contains(selection.anchorNode)) return
+      setSelectedText(selection.toString().trim().slice(0, 200))
+    }
+    document.addEventListener("selectionchange", updateSelection)
+    return () => document.removeEventListener("selectionchange", updateSelection)
+  }, [detail?.entryId, props.translationConfig?.isEnabled])
   if (props.state.selectedEntryId && props.state.paneStatus.detail === "error") {
     return (
       <Banner
@@ -139,23 +182,14 @@ export function ArticleReader(props: ArticleReaderProps) {
         onToggleRead={() => props.onToggleRead(detail.entryId)}
         onToggleStar={() => props.onToggleStar(detail.entryId)}
         onOpenSummary={
-          props.csrfToken && props.aiOperations?.summary
+          props.csrfToken && props.summaryEnabled
             ? () => {
                 activeAiTrigger.current = summaryButtonRef.current
                 aiController.open("summary")
               }
             : undefined
         }
-        onOpenTranslation={
-          props.csrfToken && props.aiOperations?.translation
-            ? () => {
-                activeAiTrigger.current = translationButtonRef.current
-                aiController.open("translation")
-              }
-            : undefined
-        }
         summaryButtonRef={summaryButtonRef}
-        translationButtonRef={translationButtonRef}
       />
       {aiController.openTab ? (
         <AiReaderSidecar
@@ -167,13 +201,37 @@ export function ArticleReader(props: ArticleReaderProps) {
           }}
         />
       ) : null}
+      {props.translationConfig?.isEnabled && props.translationSettingsController ? (
+        <TranslationReaderControls
+          controller={translationController}
+          config={props.translationConfig}
+          selectedText={selectedText}
+          onDisplayModeChange={props.translationSettingsController.saveDisplayMode}
+        />
+      ) : null}
       <article
         ref={articleRef}
         className="reader-article"
         lang={i18n.locale}
       >
         <p className="reader-article-kicker">{detail.feedTitle}</p>
-        <h1 ref={headingRef} tabIndex={-1}>{detail.title ?? i18n._("reader.untitled")}</h1>
+        <div
+          className="reader-translation-title-pair"
+          data-translation-mode={
+            translationController.result && props.translationConfig
+              ? props.translationConfig.displayMode
+              : undefined
+          }
+        >
+          <h1 className="reader-translation-original" ref={headingRef} tabIndex={-1}>
+            {detail.title ?? i18n._("reader.untitled")}
+          </h1>
+          {translationController.result ? (
+            <div className="reader-translation-title" lang={props.translationConfig?.defaultTargetLocale}>
+              {translationController.result.title}
+            </div>
+          ) : null}
+        </div>
         <div
           ref={bodyRef}
           className="reader-article-body"
@@ -208,6 +266,95 @@ export function ArticleReader(props: ArticleReaderProps) {
       />
     </div>
   )
+}
+
+const TRANSLATION_BLOCK_SELECTOR = [
+  "p",
+  "li",
+  "blockquote",
+  "pre",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "figcaption",
+  "td",
+  "th",
+  "div",
+].join(",")
+
+function applyImmersiveTranslation(
+  body: HTMLElement,
+  segments: Array<{ index: number; originalText: string; translatedText: string }>,
+  mode: TranslationConfig["displayMode"],
+  targetLocale: string,
+): () => void {
+  const candidates = Array.from(
+    body.querySelectorAll<HTMLElement>(TRANSLATION_BLOCK_SELECTOR),
+  ).filter((element) => {
+    if (!normalizeTranslationText(element.textContent ?? "")) return false
+    return !Array.from(
+      element.querySelectorAll<HTMLElement>(TRANSLATION_BLOCK_SELECTOR),
+    ).some(
+      (child) =>
+        child !== element && normalizeTranslationText(child.textContent ?? ""),
+    )
+  })
+  const used = new Set<HTMLElement>()
+  let cursor = 0
+  body.dataset.translationMode = mode
+  for (const segment of segments) {
+    const original = normalizeTranslationText(segment.originalText)
+    let matched: HTMLElement | undefined
+    for (let index = cursor; index < candidates.length; index += 1) {
+      const candidate = candidates[index]
+      if (!candidate || used.has(candidate)) continue
+      if (normalizeTranslationText(candidate.textContent ?? "") === original) {
+        matched = candidate
+        cursor = index + 1
+        break
+      }
+    }
+    if (!matched) {
+      matched = candidates.find(
+        (candidate) =>
+          !used.has(candidate) &&
+          normalizeTranslationText(candidate.textContent ?? "") === original,
+      )
+    }
+    if (!matched) continue
+    used.add(matched)
+    const originalContent = document.createElement("span")
+    originalContent.className = "reader-translation-original"
+    while (matched.firstChild) originalContent.append(matched.firstChild)
+    const translation = document.createElement("span")
+    translation.className = "reader-translation-segment"
+    translation.lang = targetLocale
+    translation.textContent = segment.translatedText
+    matched.classList.add("reader-translation-pair")
+    matched.dataset.translationIndex = String(segment.index)
+    matched.append(originalContent, translation)
+  }
+  return () => {
+    delete body.dataset.translationMode
+    for (const pair of body.querySelectorAll<HTMLElement>(".reader-translation-pair")) {
+      const original = pair.querySelector<HTMLElement>(":scope > .reader-translation-original")
+      const translation = pair.querySelector<HTMLElement>(":scope > .reader-translation-segment")
+      translation?.remove()
+      if (original) {
+        while (original.firstChild) pair.insertBefore(original.firstChild, original)
+        original.remove()
+      }
+      pair.classList.remove("reader-translation-pair")
+      delete pair.dataset.translationIndex
+    }
+  }
+}
+
+function normalizeTranslationText(value: string): string {
+  return value.replace(/\s+/gu, " ").trim()
 }
 
 function prepareArticleHtml(

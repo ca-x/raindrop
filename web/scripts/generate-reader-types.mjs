@@ -25,6 +25,16 @@ const artifacts = [
     aliases: {},
   },
   {
+    source: "docs/openapi/profile-v2.json",
+    output: "src/features/profile/api/profile.generated.ts",
+    aliases: {},
+  },
+  {
+    source: "docs/openapi/translation-v2.json",
+    output: "src/features/translation/api/translation.generated.ts",
+    aliases: {},
+  },
+  {
     source: "docs/openapi/organization-v1.json",
     output: "src/features/reader/api/organization.generated.ts",
     aliases: {

@@ -1,3 +1,58 @@
+# v0.3.5 Settings profile and plugin management redesign
+
+## Objective
+
+Make Settings match user intent: editable identity details, readable functional grouping, and a plugin list that scales beyond the current AI plugin without exposing Provider implementation details at the top level.
+
+## Product contract
+
+- Widen the desktop dialog and split navigation from the active settings panel; collapse safely on narrow viewports.
+- Keep username as a read-only login identifier. Add optional nickname and email editing, with the nickname used as the visible reader account label and username as fallback.
+- Open Plugins on an extensible plugin list containing AI Provider, AI Assistant, and Translation.
+- AI Provider independently owns OpenAI-compatible endpoint, model, credential, and availability management.
+- AI Assistant owns summary and synthesis. Translation is removed from its public configuration; keyword query/retrieval remain future capabilities and do not get fake controls in this release.
+- Translation independently provides full-article translation and word lookup, selecting OpenAI or DeepLX. OpenAI reuses an enabled AI Provider; DeepLX owns anonymous/API-key authentication, official/custom endpoint selection, masked credential rotation, default target language, enablement, and an in-place connection test.
+- OpenAI translation includes six built-in prompt profiles plus bounded custom `{{to}}`/`{{text}}` templates. Article output is inserted per paragraph without replacing the source DOM and supports translation-only, bilingual, hover, and side-by-side modes.
+- Use `dlx` v3.0.1 from the requested upstream repository, pinned to commit `03054aebd09b54e9934642cd8f11f212e2513065` because crates.io's same-name package is unrelated.
+- Connect the enabled Translation plugin to article translation through its selected engine without exposing credentials or accepting article text from the browser.
+- Use direct, frequent navigation without animation; keep only restrained press feedback, exact transition properties, fine-pointer hover gates, and reduced-motion fallbacks.
+
+## API and security contract
+
+- Add `GET/PATCH /api/v2/profile` with a committed OpenAPI contract and generated runtime-validated TypeScript types.
+- PATCH is strict, authenticated, CSRF-protected, rate-limited, and scoped to the current user.
+- Normalize display names to optional trimmed Unicode text (maximum 80 characters, no controls) and email through the existing strict lowercasing validator.
+- Preserve unique email semantics and return stable validation/conflict errors without echoing rejected input.
+
+## Verification
+
+- Profile API, migration, OpenAPI, controller, dialog, plugin navigation, and AI detail tests.
+- DeepLX persistence/API/client adapter, connection-test, chunking, article translation, settings UI, and reader integration tests.
+- Full typecheck, Vitest, production Web build, Rust format/tests/release build, and responsive Playwright inspection.
+- Review the final UI against the Emil Design Engineering before/after table and interaction checklist.
+
+# v0.3.5 Entry-open read state and interaction polish
+
+## Objective
+
+Make pointer-opened articles follow the same read-state contract as J/K navigation, then apply a focused interaction audit to the reading controls before publishing a patch release.
+
+## Root cause
+
+`ReaderRoutes` navigated pointer-selected entries without calling the optimistic entry-state mutation used by the J/K open path, so the detail view loaded while list, count, and server state remained unread.
+
+## Product contract
+
+- Opening an unread entry from the queue marks it read before navigation; opening an already-read entry does not toggle it back to unread.
+- N/P remains cursor-only, while M continues to explicitly toggle the selected entry's read state.
+- Reading-toolbar controls keep hover and touch disclosure while meeting 44px target, spacing, focus, reduced-motion, and safe-area requirements.
+
+## Verification
+
+- Red/green Reader workspace regression test for pointer-open read state.
+- Production Playwright checks for persisted read state, pointer and keyboard navigation, 375px/390px portrait, and compact landscape containment.
+- Full TypeScript, Vitest, production Web, release contract, Rust release, and GitHub workflow gates.
+
 # v0.3.4 Reader management and contextual toolbar refinement
 
 ## Objective

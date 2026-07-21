@@ -9,7 +9,7 @@ use std::{
 use tokio::sync::Semaphore;
 
 use crate::{
-    api::{self, AccountThrottle, RateLimiter, UserMutationLimiter},
+    api::{self, AccountThrottle, RateLimiter, UserConcurrencyLimiter, UserMutationLimiter},
     auth::SessionService,
     content::{provider::ProviderSecretKeyring, worker::ContentRuntimeHandle},
     feeds::{
@@ -17,6 +17,7 @@ use crate::{
         InertImageDto,
     },
     setup::SetupService,
+    translation::{DeepLxTransport, OpenAiTranslationTransport, ProductionDeepLxTransport},
     web,
 };
 
@@ -35,6 +36,10 @@ pub struct AppState {
     pub feed_runtime: FeedRuntimeHandle,
     pub content_runtime: ContentRuntimeHandle,
     pub(crate) provider_keyring: Option<Arc<ProviderSecretKeyring>>,
+    pub(crate) translation_deeplx_transport: Arc<dyn DeepLxTransport>,
+    pub(crate) translation_openai_transport: Option<Arc<dyn OpenAiTranslationTransport>>,
+    pub(crate) translation_request_semaphore: Arc<Semaphore>,
+    pub(crate) translation_user_concurrency: UserConcurrencyLimiter,
     pub organization_mutation_limiter: UserMutationLimiter,
     pub preferences_mutation_limiter: UserMutationLimiter,
     pub subscription_mutation_limiter: UserMutationLimiter,
@@ -91,6 +96,10 @@ impl AppState {
             feed_runtime,
             content_runtime,
             provider_keyring,
+            translation_deeplx_transport: Arc::new(ProductionDeepLxTransport),
+            translation_openai_transport: None,
+            translation_request_semaphore: Arc::new(Semaphore::new(4)),
+            translation_user_concurrency: UserConcurrencyLimiter::new(1),
             organization_mutation_limiter: UserMutationLimiter::new(),
             preferences_mutation_limiter: UserMutationLimiter::new(),
             subscription_mutation_limiter: UserMutationLimiter::new(),
@@ -105,6 +114,24 @@ impl AppState {
         provider_keyring: Option<Arc<ProviderSecretKeyring>>,
     ) -> Self {
         self.provider_keyring = provider_keyring;
+        self
+    }
+
+    #[must_use]
+    pub fn with_translation_deeplx_transport(
+        mut self,
+        transport: Arc<dyn DeepLxTransport>,
+    ) -> Self {
+        self.translation_deeplx_transport = transport;
+        self
+    }
+
+    #[must_use]
+    pub fn with_translation_openai_transport(
+        mut self,
+        transport: Arc<dyn OpenAiTranslationTransport>,
+    ) -> Self {
+        self.translation_openai_transport = Some(transport);
         self
     }
 
@@ -124,6 +151,18 @@ impl AppState {
     #[must_use]
     pub(crate) fn provider_keyring(&self) -> Option<Arc<ProviderSecretKeyring>> {
         self.provider_keyring.clone()
+    }
+
+    #[must_use]
+    pub(crate) fn translation_deeplx_transport(&self) -> Arc<dyn DeepLxTransport> {
+        Arc::clone(&self.translation_deeplx_transport)
+    }
+
+    #[must_use]
+    pub(crate) fn translation_openai_transport(
+        &self,
+    ) -> Option<Arc<dyn OpenAiTranslationTransport>> {
+        self.translation_openai_transport.clone()
     }
 
     #[must_use]
