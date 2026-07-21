@@ -185,6 +185,14 @@ pub struct TranslationTestResult {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TranslationTextResult {
+    pub translated_text: String,
+    pub provider_label: String,
+    pub detected_source_locale: Option<String>,
+    pub target_locale: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TranslationResult {
     pub title: String,
     pub segments: Vec<TranslationSegment>,

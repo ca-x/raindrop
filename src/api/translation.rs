@@ -21,6 +21,7 @@ use crate::{
         SaveTranslationConfig, TestTranslationInput, TranslationConfig, TranslationDisplayMode,
         TranslationEngine, TranslationError, TranslationErrorKind, TranslationLookupResult,
         TranslationRepository, TranslationResult, TranslationService, TranslationTestResult,
+        TranslationTextResult,
     },
 };
 
@@ -30,6 +31,7 @@ pub(super) fn router() -> Router<AppState> {
     let plugin = Router::new()
         .route("/", get(get_config).put(put_config))
         .route("/test", post(test_connection))
+        .route("/translate", post(translate_text))
         .route("/lookup", post(lookup))
         .route("/entries/{entry_id}/translate", post(translate_entry))
         .fallback(translation_not_found)
@@ -235,6 +237,12 @@ struct LookupRequest {
     text: String,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TranslateTextRequest {
+    text: String,
+}
+
 fn deserialize_present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -262,6 +270,26 @@ struct TranslationTestResponse {
 
 impl From<TranslationTestResult> for TranslationTestResponse {
     fn from(result: TranslationTestResult) -> Self {
+        Self {
+            translated_text: result.translated_text,
+            provider_label: result.provider_label,
+            detected_source_locale: result.detected_source_locale,
+            target_locale: result.target_locale,
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TranslationTextResponse {
+    translated_text: String,
+    provider_label: String,
+    detected_source_locale: Option<String>,
+    target_locale: String,
+}
+
+impl From<TranslationTextResult> for TranslationTextResponse {
+    fn from(result: TranslationTextResult) -> Self {
         Self {
             translated_text: result.translated_text,
             provider_label: result.provider_label,
@@ -437,6 +465,21 @@ async fn translate_entry(
     let _permits = acquire_translation_permits(&state, &user.id)?;
     let result = service(&state)?
         .translate_entry(&user.id, &entry_id)
+        .await
+        .map_err(map_error)?;
+    Ok(Json(result.into()))
+}
+
+async fn translate_text(
+    State(state): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    _csrf: CsrfGuard,
+    ApiJson(request): ApiJson<TranslateTextRequest>,
+) -> Result<Json<TranslationTextResponse>, ApiError> {
+    admit_translation_request(&state, &user.id)?;
+    let _permits = acquire_translation_permits(&state, &user.id)?;
+    let result = service(&state)?
+        .translate_text(&user.id, &request.text)
         .await
         .map_err(map_error)?;
     Ok(Json(result.into()))

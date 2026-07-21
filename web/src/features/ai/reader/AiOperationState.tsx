@@ -73,9 +73,7 @@ export function AiOperationState(props: AiOperationStateProps) {
               ? "ai.reader.runSummary"
               : "ai.reader.runTranslation",
           )}
-          clickAction={async () => {
-            await props.onRun()
-          }}
+          onClick={() => void props.onRun()}
           variant="primary"
           isLoading={props.isMutating}
         />
@@ -112,9 +110,7 @@ export function AiOperationState(props: AiOperationStateProps) {
         />
         <Button
           label={i18n._("ai.reader.retry")}
-          clickAction={async () => {
-            await props.onRetry()
-          }}
+          onClick={() => void props.onRetry()}
           variant="primary"
           isLoading={props.isMutating}
         />

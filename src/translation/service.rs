@@ -16,6 +16,7 @@ use super::{
     ApiKeyUpdate, SaveTranslationConfig, TestTranslationInput, TranslationConfig,
     TranslationEngine, TranslationError, TranslationErrorKind, TranslationLookupResult,
     TranslationRepository, TranslationResult, TranslationSegment, TranslationTestResult,
+    TranslationTextResult,
     deeplx::{
         DeepLxTranslateInput, DeepLxTransport, requires_url_api_key, validate_base_url_template,
     },
@@ -30,6 +31,7 @@ const TEST_TEXT: &str = "Raindrop connection test";
 const MAX_ARTICLE_CHARACTERS: usize = 24_000;
 const MAX_ARTICLE_SEGMENTS: usize = 96;
 const MAX_LOOKUP_CHARACTERS: usize = 200;
+const MAX_SELECTION_CHARACTERS: usize = 8_000;
 const ANONYMOUS_CHUNK_CHARACTERS: usize = 1_350;
 const AUTHENTICATED_CHUNK_CHARACTERS: usize = 3_500;
 const MAX_OPENAI_BATCH_CHARACTERS: usize = 6_000;
@@ -378,6 +380,74 @@ impl TranslationService {
         }
     }
 
+    pub async fn translate_text(
+        &self,
+        user_id: &str,
+        text: &str,
+    ) -> Result<TranslationTextResult, TranslationError> {
+        translation_with_timeout(
+            ENTRY_TRANSLATION_TIMEOUT,
+            self.translate_text_inner(user_id, text),
+        )
+        .await
+    }
+
+    async fn translate_text_inner(
+        &self,
+        user_id: &str,
+        text: &str,
+    ) -> Result<TranslationTextResult, TranslationError> {
+        let text = normalize_selection_text(text)?;
+        let config = self.enabled_config(user_id).await?;
+        match config.engine {
+            TranslationEngine::OpenAi => {
+                let provider_id =
+                    config.open_ai.provider_id.clone().ok_or_else(|| {
+                        TranslationError::new(TranslationErrorKind::NotConfigured)
+                    })?;
+                let output = self
+                    .openai
+                    .translate(OpenAiTranslateInput {
+                        user_id: user_id.to_owned(),
+                        provider_id,
+                        text,
+                        target_locale: config.default_target_locale.clone(),
+                        max_output_tokens: config.open_ai.max_output_tokens,
+                        profile: config.open_ai.profile,
+                        custom_system_prompt: config.open_ai.custom_system_prompt,
+                        custom_prompt: config.open_ai.custom_prompt,
+                    })
+                    .await?;
+                Ok(TranslationTextResult {
+                    translated_text: output.text,
+                    provider_label: output.provider_label,
+                    detected_source_locale: None,
+                    target_locale: config.default_target_locale,
+                })
+            }
+            TranslationEngine::DeepLx => {
+                let api_key = self.repository.deeplx_api_key(user_id).await?;
+                if requires_url_api_key(config.deeplx.base_url.as_deref()) && api_key.is_none() {
+                    return Err(TranslationError::new(TranslationErrorKind::NotConfigured));
+                }
+                let maximum = if api_key.is_some() {
+                    AUTHENTICATED_CHUNK_CHARACTERS
+                } else {
+                    ANONYMOUS_CHUNK_CHARACTERS
+                };
+                let output = self
+                    .translate_deeplx_text(&config, api_key.as_ref(), text, maximum)
+                    .await?;
+                Ok(TranslationTextResult {
+                    translated_text: output.text,
+                    provider_label: output.provider_label,
+                    detected_source_locale: output.detected_source_locale,
+                    target_locale: config.default_target_locale,
+                })
+            }
+        }
+    }
+
     async fn enabled_config(&self, user_id: &str) -> Result<TranslationConfig, TranslationError> {
         let config = self.repository.get(user_id).await?;
         if config.revision.is_none() {
@@ -487,6 +557,26 @@ fn normalize_lookup_query(value: &str) -> Result<String, TranslationError> {
     let value = value.trim();
     if value.is_empty()
         || value.chars().count() > MAX_LOOKUP_CHARACTERS
+        || value
+            .chars()
+            .any(|character| character.is_control() && !matches!(character, '\n' | '\r' | '\t'))
+    {
+        return Err(invalid_input());
+    }
+    Ok(value.to_owned())
+}
+
+fn normalize_selection_text(value: &str) -> Result<String, TranslationError> {
+    normalize_bounded_text(value, MAX_SELECTION_CHARACTERS)
+}
+
+fn normalize_bounded_text(
+    value: &str,
+    maximum_characters: usize,
+) -> Result<String, TranslationError> {
+    let value = value.trim();
+    if value.is_empty()
+        || value.chars().count() > maximum_characters
         || value
             .chars()
             .any(|character| character.is_control() && !matches!(character, '\n' | '\r' | '\t'))
@@ -618,6 +708,17 @@ mod tests {
         assert_eq!(normalize_lookup_query(" fox ").unwrap(), "fox");
         assert!(normalize_lookup_query("").is_err());
         assert!(normalize_lookup_query(&"x".repeat(201)).is_err());
+    }
+
+    #[test]
+    fn selected_text_is_trimmed_and_bounded() {
+        assert_eq!(
+            normalize_selection_text("  Selected paragraph.  ").unwrap(),
+            "Selected paragraph."
+        );
+        assert!(normalize_selection_text("").is_err());
+        assert!(normalize_selection_text("unsafe\u{0007}text").is_err());
+        assert!(normalize_selection_text(&"x".repeat(MAX_SELECTION_CHARACTERS + 1)).is_err());
     }
 
     #[test]

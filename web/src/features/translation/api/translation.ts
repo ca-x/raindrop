@@ -4,12 +4,14 @@ import {
   isTranslationConfig,
   isTranslationResult,
   isTranslationTestResult,
+  isTranslationTextResult,
   type LookupResult,
   type PutTranslationConfigRequest,
   type TestTranslationRequest,
   type TranslationConfig,
   type TranslationResult,
   type TranslationTestResult,
+  type TranslationTextResult,
 } from "./translation.generated"
 
 const TRANSLATION_PATH = "/api/v2/plugins/translation"
@@ -66,6 +68,21 @@ export async function translateEntry(
     },
   )
   if (!isTranslationResult(response)) throw invalidResponseError()
+  return response
+}
+
+export async function translateSelectedText(
+  text: string,
+  csrfToken: string,
+  signal?: AbortSignal,
+): Promise<TranslationTextResult> {
+  const response = await apiRequest(`${TRANSLATION_PATH}/translate`, {
+    method: "POST",
+    headers: { "x-csrf-token": csrfToken },
+    body: JSON.stringify({ text }),
+    signal,
+  })
+  if (!isTranslationTextResult(response)) throw invalidResponseError()
   return response
 }
 

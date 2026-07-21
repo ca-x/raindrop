@@ -502,11 +502,6 @@ html[data-raindrop-reading-color="gray"] .reader-article-plane {
   min-block-size: 44px;
 }
 
-.reader-translation-lookup {
-  min-inline-size: 0;
-  padding: 4px;
-}
-
 .reader-lookup-result {
   display: grid;
   gap: 10px;
@@ -526,6 +521,103 @@ html[data-raindrop-reading-color="gray"] .reader-article-plane {
   font-family: var(--reader-article-font);
   font-size: 1.25rem;
   font-weight: 650;
+  line-height: 1.45;
+}
+
+.reader-selection-trigger {
+  position: relative;
+  -webkit-touch-callout: default;
+  user-select: text;
+}
+
+.reader-selection-anchor {
+  position: absolute;
+  z-index: -1;
+  inline-size: 1px;
+  block-size: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+[popover]:has(.reader-selection-popover) {
+  animation: none !important;
+  transition: none !important;
+}
+
+.reader-selection-popover {
+  display: grid;
+  min-inline-size: 0;
+  gap: 12px;
+}
+
+.reader-selection-popover-header {
+  display: grid;
+  gap: 4px;
+  min-inline-size: 0;
+}
+
+.reader-selection-popover-header > p {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.reader-selection-mode-switch {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-control);
+  background: var(--color-background-muted);
+}
+
+.reader-selection-mode-switch > button {
+  flex: 1;
+  justify-content: center;
+  min-block-size: 36px;
+}
+
+.reader-selection-popover-result {
+  display: grid;
+  min-inline-size: 0;
+}
+
+.reader-selection-loading {
+  display: grid;
+  min-block-size: 72px;
+  place-items: center;
+}
+
+.reader-selection-translation-result {
+  display: grid;
+  gap: 10px;
+  min-inline-size: 0;
+  padding-block-start: 12px;
+  border-block-start: 1px solid var(--color-border);
+}
+
+.reader-selection-translation-text {
+  max-block-size: min(42vh, 280px);
+  overflow: auto;
+  color: var(--color-text-primary);
+  font-family: var(--reader-article-font);
+  font-size: 1rem;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+.reader-selection-error {
+  padding: 8px 10px;
+  border: 1px solid var(--color-border-danger);
+  border-radius: var(--radius-control);
+  color: var(--color-text-danger);
+  font-size: 0.875rem;
   line-height: 1.45;
 }
 

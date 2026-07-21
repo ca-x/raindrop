@@ -200,7 +200,12 @@ async fn heartbeat_extends_only_to_attempt_deadline() {
     assert_eq!(extended.attempt_deadline_at(), deadline);
     assert_eq!(extended.lease_until(), deadline);
     assert!(extended.remaining_attempt() > std::time::Duration::ZERO);
-    assert!(extended.remaining_attempt() <= std::time::Duration::from_secs(10));
+    // SQLite's database clock is millisecond-precision while the process clock
+    // used to construct the deadline retains nanoseconds.
+    assert!(
+        extended.remaining_attempt()
+            <= std::time::Duration::from_secs(10) + std::time::Duration::from_millis(1)
+    );
 }
 
 #[tokio::test]

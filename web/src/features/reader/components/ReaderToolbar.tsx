@@ -63,7 +63,7 @@ export function SourceToolbar({
               icon={<RefreshIcon />}
               isIconOnly
               tooltip={refresh.label}
-              clickAction={refresh.onRefresh}
+              onClick={() => void refresh.onRefresh()}
               isDisabled={refresh.isDisabled}
               variant="ghost"
             />

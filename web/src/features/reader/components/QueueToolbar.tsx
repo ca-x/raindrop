@@ -76,7 +76,7 @@ export function QueueToolbar(props: QueueToolbarProps) {
             icon={<Icon icon="arrowsUpDown" />}
             isIconOnly
             tooltip={i18n._("reader.reloadStored")}
-            clickAction={props.onReload}
+            onClick={() => void props.onReload()}
             variant="ghost"
           />
         </>

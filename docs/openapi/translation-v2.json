@@ -69,6 +69,32 @@
         }
       }
     },
+    "/api/v2/plugins/translation/translate": {
+      "post": {
+        "tags": ["Translation"],
+        "operationId": "translateSelectedText",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/CsrfToken" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/TranslateTextRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/TranslationText" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" },
+          "422": { "$ref": "#/components/responses/Error" },
+          "429": { "$ref": "#/components/responses/Error" },
+          "502": { "$ref": "#/components/responses/Error" },
+          "504": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
     "/api/v2/plugins/translation/lookup": {
       "post": {
         "tags": ["Translation"],
@@ -250,6 +276,25 @@
           "targetLocale": { "type": "string", "minLength": 2, "maxLength": 35 }
         }
       },
+      "TranslateTextRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["text"],
+        "properties": {
+          "text": { "type": "string", "minLength": 1, "maxLength": 8000 }
+        }
+      },
+      "TranslationTextResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["translatedText", "providerLabel", "detectedSourceLocale", "targetLocale"],
+        "properties": {
+          "translatedText": { "type": "string", "minLength": 1, "maxLength": 65536 },
+          "providerLabel": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "detectedSourceLocale": { "type": ["string", "null"], "maxLength": 35 },
+          "targetLocale": { "type": "string", "minLength": 2, "maxLength": 35 }
+        }
+      },
       "TranslationSegment": {
         "type": "object",
         "additionalProperties": false,
@@ -332,6 +377,10 @@
       "TranslationTest": {
         "description": "One bounded translation proving the selected engine can respond.",
         "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TranslationTestResult" } } }
+      },
+      "TranslationText": {
+        "description": "A bounded translation of text selected in the article reader.",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TranslationTextResult" } } }
       },
       "TranslationResult": {
         "description": "Paragraph-addressed translated article content.",

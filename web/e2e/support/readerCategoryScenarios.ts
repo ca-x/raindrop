@@ -171,7 +171,7 @@ async function expectCategoryRowAligned(row: Locator): Promise<void> {
   const boxes = await Promise.all([
     row.getByRole("button", { name: "Toggle children" }).boundingBox(),
     row.locator(".reader-smart-source-icon").first().boundingBox(),
-    row.locator(".reader-source-label").boundingBox(),
+    row.locator(".reader-source-label").first().boundingBox(),
   ])
   expect(boxes.every(Boolean)).toBe(true)
   const centers = boxes.map((box) => box!.y + box!.height / 2)

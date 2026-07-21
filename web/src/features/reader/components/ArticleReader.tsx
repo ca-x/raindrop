@@ -4,13 +4,13 @@ import { EmptyState } from "@astryxdesign/core/EmptyState"
 import { Skeleton } from "@astryxdesign/core/Skeleton"
 import { useLingui } from "@lingui/react"
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react"
-import { useState } from "react"
 
 import { AiReaderSidecar } from "../../ai/reader/AiReaderSidecar"
 import { useEntryAiController } from "../../ai/model/useEntryAiController"
 import type { TranslationConfig } from "../../translation/api/translation.generated"
 import { useEntryTranslationController } from "../../translation/model/useEntryTranslationController"
 import type { TranslationSettingsController } from "../../translation/model/useTranslationSettingsController"
+import { ArticleSelectionPopover } from "../../translation/reader/ArticleSelectionPopover"
 import { TranslationReaderControls } from "../../translation/reader/TranslationReaderControls"
 import type { ReaderState } from "../model/types"
 import type { UserPreferencesLinkOpenMode } from "../../preferences/api/preferences.generated"
@@ -71,7 +71,6 @@ export function ArticleReader(props: ArticleReaderProps) {
   const headingRef = useRef<HTMLHeadingElement>(null)
   const summaryButtonRef = useRef<HTMLButtonElement>(null)
   const activeAiTrigger = useRef<HTMLButtonElement | null>(null)
-  const [selectedText, setSelectedText] = useState("")
   const detail = props.state.selectedEntryId ? props.state.detailsById[props.state.selectedEntryId] : undefined
   const detailMatchesRoute = Boolean(detail && detail.entryId === props.routeEntryId)
   const canBindArticle = detailMatchesRoute && props.state.paneStatus.detail === "ready"
@@ -128,21 +127,6 @@ export function ArticleReader(props: ArticleReaderProps) {
     props.translationConfig?.displayMode,
     translationController.result,
   ])
-  useEffect(() => {
-    const article = articleRef.current
-    if (!article || !props.translationConfig?.isEnabled) return
-    const updateSelection = () => {
-      const selection = document.getSelection()
-      if (!selection || selection.isCollapsed || !selection.anchorNode) {
-        setSelectedText("")
-        return
-      }
-      if (!article.contains(selection.anchorNode)) return
-      setSelectedText(selection.toString().trim().slice(0, 200))
-    }
-    document.addEventListener("selectionchange", updateSelection)
-    return () => document.removeEventListener("selectionchange", updateSelection)
-  }, [detail?.entryId, props.translationConfig?.isEnabled])
   if (props.state.selectedEntryId && props.state.paneStatus.detail === "error") {
     return (
       <Banner
@@ -205,7 +189,6 @@ export function ArticleReader(props: ArticleReaderProps) {
         <TranslationReaderControls
           controller={translationController}
           config={props.translationConfig}
-          selectedText={selectedText}
           onDisplayModeChange={props.translationSettingsController.saveDisplayMode}
         />
       ) : null}
@@ -232,11 +215,16 @@ export function ArticleReader(props: ArticleReaderProps) {
             </div>
           ) : null}
         </div>
-        <div
-          ref={bodyRef}
-          className="reader-article-body"
-          dangerouslySetInnerHTML={articleMarkup}
-        />
+        <ArticleSelectionPopover
+          controller={translationController}
+          isEnabled={props.translationConfig?.isEnabled ?? false}
+        >
+          <div
+            ref={bodyRef}
+            className="reader-article-body"
+            dangerouslySetInnerHTML={articleMarkup}
+          />
+        </ArticleSelectionPopover>
         {safeHttpUrl(detail.canonicalUrl) ? (
           <a
             className="reader-open-original"

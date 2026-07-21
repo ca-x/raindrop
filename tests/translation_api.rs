@@ -374,6 +374,87 @@ async fn deeplx_key_is_not_returned_and_drives_lookup_and_owned_article_translat
 }
 
 #[tokio::test]
+async fn selection_translation_requires_authentication_csrf_strict_json_and_bounded_text() {
+    let fixture = TranslationFixture::new(true).await;
+    let unauthenticated = fixture
+        .json_request(
+            Method::POST,
+            "/api/v2/plugins/translation/translate",
+            Some(json!({ "text": "Selected paragraph" })),
+            None,
+            false,
+        )
+        .await;
+    assert_error(
+        &unauthenticated,
+        StatusCode::UNAUTHORIZED,
+        "AUTHENTICATION_REQUIRED",
+    );
+
+    let missing_csrf = fixture
+        .json_request(
+            Method::POST,
+            "/api/v2/plugins/translation/translate",
+            Some(json!({ "text": "Selected paragraph" })),
+            Some(UserKind::A),
+            false,
+        )
+        .await;
+    assert_error(&missing_csrf, StatusCode::FORBIDDEN, "FORBIDDEN");
+
+    for body in [
+        json!({}),
+        json!({ "text": "" }),
+        json!({ "text": "unsafe\u{0007}text" }),
+        json!({ "text": "x".repeat(8_001) }),
+        json!({ "text": "safe", "unexpected": true }),
+    ] {
+        let invalid = fixture
+            .json_request(
+                Method::POST,
+                "/api/v2/plugins/translation/translate",
+                Some(body),
+                Some(UserKind::A),
+                true,
+            )
+            .await;
+        assert_error(
+            &invalid,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "VALIDATION_ERROR",
+        );
+    }
+}
+
+#[tokio::test]
+async fn selection_translation_uses_the_saved_provider_configuration() {
+    let fixture = TranslationFixture::new(true).await;
+    let configured = fixture
+        .configure_deeplx(UserKind::A, Some("secret-key-sentinel"), None)
+        .await;
+    assert_eq!(configured.status, StatusCode::OK, "{}", configured.json());
+
+    let translated = fixture
+        .json_request(
+            Method::POST,
+            "/api/v2/plugins/translation/translate",
+            Some(json!({ "text": "  Selected paragraph.  " })),
+            Some(UserKind::A),
+            true,
+        )
+        .await;
+
+    assert_eq!(translated.status, StatusCode::OK, "{}", translated.json());
+    assert_eq!(
+        translated.json()["translatedText"],
+        "translated: Selected paragraph."
+    );
+    assert_eq!(translated.json()["providerLabel"], "DeepLX");
+    assert_eq!(translated.json()["detectedSourceLocale"], "en");
+    assert_eq!(translated.json()["targetLocale"], "zh-CN");
+}
+
+#[tokio::test]
 async fn custom_deeplx_private_addresses_are_rejected_before_connection() {
     let fixture = TranslationFixture::new(false).await;
     let configured = fixture

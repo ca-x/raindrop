@@ -77,6 +77,17 @@ export interface TranslationTestResult {
   targetLocale: string
 }
 
+export interface TranslateTextRequest {
+  text: string
+}
+
+export interface TranslationTextResult {
+  translatedText: string
+  providerLabel: string
+  detectedSourceLocale: string | null
+  targetLocale: string
+}
+
 export interface TranslationSegment {
   index: number
   originalText: string
@@ -190,6 +201,14 @@ export function isTestTranslationRequest(value: unknown): value is TestTranslati
 }
 
 export function isTranslationTestResult(value: unknown): value is TranslationTestResult {
+  return ((isRecord(value) && hasOnlyKeys(value, ["translatedText","providerLabel","detectedSourceLocale","targetLocale"]) && hasOwn(value, "translatedText") && ((typeof value["translatedText"] === "string" && value["translatedText"].length >= 1 && value["translatedText"].length <= 65536)) && hasOwn(value, "providerLabel") && ((typeof value["providerLabel"] === "string" && value["providerLabel"].length >= 1 && value["providerLabel"].length <= 200)) && hasOwn(value, "detectedSourceLocale") && ((typeof value["detectedSourceLocale"] === "string" && value["detectedSourceLocale"].length <= 35) || value["detectedSourceLocale"] === null) && hasOwn(value, "targetLocale") && ((typeof value["targetLocale"] === "string" && value["targetLocale"].length >= 2 && value["targetLocale"].length <= 35))))
+}
+
+export function isTranslateTextRequest(value: unknown): value is TranslateTextRequest {
+  return ((isRecord(value) && hasOnlyKeys(value, ["text"]) && hasOwn(value, "text") && ((typeof value["text"] === "string" && value["text"].length >= 1 && value["text"].length <= 8000))))
+}
+
+export function isTranslationTextResult(value: unknown): value is TranslationTextResult {
   return ((isRecord(value) && hasOnlyKeys(value, ["translatedText","providerLabel","detectedSourceLocale","targetLocale"]) && hasOwn(value, "translatedText") && ((typeof value["translatedText"] === "string" && value["translatedText"].length >= 1 && value["translatedText"].length <= 65536)) && hasOwn(value, "providerLabel") && ((typeof value["providerLabel"] === "string" && value["providerLabel"].length >= 1 && value["providerLabel"].length <= 200)) && hasOwn(value, "detectedSourceLocale") && ((typeof value["detectedSourceLocale"] === "string" && value["detectedSourceLocale"].length <= 35) || value["detectedSourceLocale"] === null) && hasOwn(value, "targetLocale") && ((typeof value["targetLocale"] === "string" && value["targetLocale"].length >= 2 && value["targetLocale"].length <= 35))))
 }
 
