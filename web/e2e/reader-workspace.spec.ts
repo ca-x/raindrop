@@ -176,17 +176,15 @@ async function verifyWide(page: Page, fixture: ReaderApiFixture): Promise<void> 
     isStarred: true,
   })
 
-  await page.getByRole("button", { name: "Add subscription" }).click()
-  const addDialog = page.getByRole("dialog").filter({
-    has: page.getByRole("heading", { name: "Add subscription" }),
-  })
+  await page.getByRole("button", { name: "Manage subscriptions" }).click()
+  const addDialog = page.getByRole("dialog", { name: "Manage subscriptions" })
   await expect(addDialog).toBeVisible()
   const beforeDialog = { url: page.url(), patches: fixture.patches.length }
-  await addDialog.getByRole("button", { name: "Cancel" }).focus()
+  await addDialog.getByRole("button", { name: "Close" }).focus()
   await page.keyboard.press("j")
   await page.keyboard.press("m")
   expect({ url: page.url(), patches: fixture.patches.length }).toEqual(beforeDialog)
-  await addDialog.getByRole("button", { name: "Cancel" }).click()
+  await addDialog.getByRole("button", { name: "Close" }).click()
 
   await readerRowButton(page, readerIds.firstEntry).click()
   const articleUrl = page.url()
@@ -211,9 +209,11 @@ async function verifyWide(page: Page, fixture: ReaderApiFixture): Promise<void> 
   await readerRowButton(page, readerIds.firstEntry).click()
   await expectScrollTop(article, 320)
   await verifyWideCategoryWorkflow(page, fixture, server.baseURL)
-  const categoryDialog = page.getByRole("dialog", { name: "Manage categories" })
-  await categoryDialog.getByRole("button", { name: "Close" }).click()
-  await expect(categoryDialog).not.toBeVisible()
+  const managementDialog = page.getByRole("dialog", { name: "Manage subscriptions" })
+  await managementDialog.getByRole("button", { name: "Close" }).click()
+  await expect(managementDialog).not.toBeVisible()
+  await readerRowButton(page, readerIds.firstEntry).click()
+  await expect(page.getByRole("heading", { name: "First quiet article" })).toBeVisible()
   await verifyWidePreferences(page, fixture)
   await expectNoHorizontalOverflow(page)
 }

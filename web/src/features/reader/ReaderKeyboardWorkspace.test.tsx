@@ -258,6 +258,7 @@ function subscription(
     titleOverride: null,
     position: 0,
     title,
+    feedUrl: `https://example.com/${feedId}.xml`,
     siteUrl: null,
     unreadCount: 3,
     refresh: null,

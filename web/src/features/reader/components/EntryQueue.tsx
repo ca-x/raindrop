@@ -12,6 +12,7 @@ import { MountTransition } from "../../../shared/motion/MountTransition"
 import { sourceKey, type ReaderState } from "../model/types"
 import { FeedSearchInput } from "./FeedSearchInput"
 import { QueueToolbar, type MarkReadAvailability } from "./QueueToolbar"
+import { RelativeEntryTime } from "./RelativeEntryTime"
 
 interface EntryQueueProps {
   state: ReaderState
@@ -160,10 +161,7 @@ export function EntryQueue({
               const entry = state.entriesById[entryId]
               if (!entry) return null
               const summary = entryPreview(entry.summary)
-              const date = new Intl.DateTimeFormat(i18n.locale, {
-                month: "short",
-                day: "numeric",
-              }).format(new Date((entry.publishedAtUs ?? entry.sortAtUs) / 1000))
+              const timestampUs = entry.publishedAtUs ?? entry.sortAtUs
               return (
                 <Item
                   as="li"
@@ -198,7 +196,13 @@ export function EntryQueue({
                   descriptionLines={2}
                   labelLines={2}
                   align="start"
-                  endContent={<time dateTime={new Date((entry.publishedAtUs ?? entry.sortAtUs) / 1000).toISOString()}>{date}</time>}
+                  endContent={(
+                    <RelativeEntryTime
+                      timestampUs={timestampUs}
+                      locale={i18n.locale}
+                      justNowLabel={i18n._("reader.justNow")}
+                    />
+                  )}
                 />
               )
             })}

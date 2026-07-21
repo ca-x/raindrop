@@ -19,6 +19,8 @@ use crate::{
 
 use super::{ApiError, ApiJson, RateLimitRejection, routes::sensitive_cache_headers};
 
+mod fonts;
+
 const PUBLIC_TIME_FORMAT: &[time::format_description::FormatItem<'static>] =
     format_description!("[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:6]Z");
 
@@ -31,7 +33,7 @@ pub(super) fn router() -> Router<AppState> {
         .route("/", get(get_preferences_v2).patch(patch_preferences_v2))
         .fallback(preference_not_found)
         .method_not_allowed_fallback(preference_method_not_allowed);
-    Router::new()
+    let sensitive = Router::new()
         .route(
             "/api/v1/preferences/",
             axum::routing::any(preference_not_found),
@@ -42,7 +44,9 @@ pub(super) fn router() -> Router<AppState> {
         )
         .nest("/api/v1/preferences", preferences_v1)
         .nest("/api/v2/preferences", preferences_v2)
-        .layer(middleware::map_response(sensitive_cache_headers))
+        .merge(fonts::command_router())
+        .layer(middleware::map_response(sensitive_cache_headers));
+    sensitive.merge(fonts::file_router())
 }
 
 async fn preference_not_found() -> ApiError {
@@ -181,6 +185,8 @@ struct PatchPreferencesRequest {
     #[serde(default, deserialize_with = "deserialize_present")]
     reading_font_family: Option<ReadingFontFamilyRequest>,
     #[serde(default, deserialize_with = "deserialize_present")]
+    reading_custom_font_id: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_present")]
     reading_color_scheme: Option<ReadingColorSchemeRequest>,
     #[serde(default, deserialize_with = "deserialize_present")]
     link_open_mode: Option<LinkOpenModeRequest>,
@@ -215,6 +221,7 @@ impl From<PatchPreferencesRequest> for UpdateUserPreferences {
             layout_density: request.layout_density.map(Into::into),
             reading_font_scale: request.reading_font_scale,
             reading_font_family: request.reading_font_family.map(Into::into),
+            reading_custom_font_id: request.reading_custom_font_id,
             reading_color_scheme: request.reading_color_scheme.map(Into::into),
             link_open_mode: request.link_open_mode.map(Into::into),
         }
@@ -261,6 +268,7 @@ struct PreferencesV2Response {
     layout_density: &'static str,
     reading_font_scale: i32,
     reading_font_family: &'static str,
+    reading_custom_font_id: Option<String>,
     reading_color_scheme: &'static str,
     link_open_mode: &'static str,
 }
@@ -273,6 +281,7 @@ impl From<UserPreferences> for PreferencesV2Response {
             layout_density: preferences.layout_density.as_str(),
             reading_font_scale: preferences.reading_font_scale,
             reading_font_family: preferences.reading_font_family.as_str(),
+            reading_custom_font_id: preferences.reading_custom_font_id,
             reading_color_scheme: preferences.reading_color_scheme.as_str(),
             link_open_mode: preferences.link_open_mode.as_str(),
         }
@@ -395,6 +404,10 @@ fn map_preference_error(error: PreferenceError) -> ApiError {
         PreferenceError::InvalidFontScale => ApiError::validation().with_field(
             "readingFontScale",
             "Reading font scale must be between 85 and 130",
+        ),
+        PreferenceError::InvalidCustomFont => ApiError::validation().with_field(
+            "readingCustomFontId",
+            "Custom font must belong to the current user",
         ),
         PreferenceError::Database(_)
         | PreferenceError::InvalidUserId

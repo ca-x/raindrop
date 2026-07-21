@@ -1,14 +1,15 @@
 import { Banner } from "@astryxdesign/core/Banner"
+import { Button } from "@astryxdesign/core/Button"
+import { FileInput } from "@astryxdesign/core/FileInput"
 import {
   SegmentedControl,
   SegmentedControlItem,
 } from "@astryxdesign/core/SegmentedControl"
-import { Slider } from "@astryxdesign/core/Slider"
 import { Stack } from "@astryxdesign/core/Stack"
 import { useLingui } from "@lingui/react"
-import type { FormEvent, ReactNode } from "react"
+import { useState, type FormEvent, type ReactNode } from "react"
 
-import type { UserPreferences } from "../api/preferences.generated"
+import type { UserFont, UserPreferences } from "../api/preferences.generated"
 import type { PreferencesControllerError } from "../model/usePreferencesController"
 
 interface PreferencesFormProps {
@@ -106,29 +107,19 @@ export function PersonalPreferencesForm(props: PersonalPreferencesFormProps) {
   )
 }
 
-export function ReadingPreferencesForm(props: PreferencesFormProps) {
+interface ReadingPreferencesFormProps extends PreferencesFormProps {
+  fonts: UserFont[]
+  fontLimits: { maximumCount: number; maximumBytes: number }
+  isFontMutating: boolean
+  onUploadFont: (file: File) => Promise<boolean>
+  onDeleteFont: (fontId: string) => Promise<boolean>
+}
+
+export function ReadingPreferencesForm(props: ReadingPreferencesFormProps) {
   const { i18n } = useLingui()
   return (
     <PreferencesFormShell {...props}>
-      <PreferenceField
-        label={i18n._("preferences.readingFont")}
-        description={i18n._("preferences.readingFontDescription")}
-      >
-        <SegmentedControl
-          label={i18n._("preferences.readingFont")}
-          value={props.value.readingFontFamily}
-          onChange={(value) =>
-            props.onChange({
-              readingFontFamily: value as UserPreferences["readingFontFamily"],
-            })
-          }
-          layout="fill"
-          isDisabled={props.isSaving}
-        >
-          <SegmentedControlItem value="SERIF" label={i18n._("preferences.fontSerif")} />
-          <SegmentedControlItem value="SANS" label={i18n._("preferences.fontSans")} />
-        </SegmentedControl>
-      </PreferenceField>
+      <CustomFontManagement {...props} />
       <PreferenceField
         label={i18n._("preferences.readingColor")}
         description={i18n._("preferences.readingColorDescription")}
@@ -151,24 +142,6 @@ export function ReadingPreferencesForm(props: PreferencesFormProps) {
         </SegmentedControl>
       </PreferenceField>
       <PreferenceField
-        label={i18n._("preferences.readingSize")}
-        description={i18n._("preferences.readingSizeDescription")}
-      >
-        <Slider
-          label={i18n._("preferences.readingSize")}
-          isLabelHidden
-          value={props.value.readingFontScale}
-          min={85}
-          max={130}
-          step={5}
-          formatValue={(value) => `${value}%`}
-          valueDisplay="text"
-          onChange={(readingFontScale: number) => props.onChange({ readingFontScale })}
-          isDisabled={props.isSaving}
-          width="100%"
-        />
-      </PreferenceField>
-      <PreferenceField
         label={i18n._("preferences.linkOpenMode")}
         description={i18n._("preferences.linkOpenModeDescription")}
       >
@@ -187,6 +160,70 @@ export function ReadingPreferencesForm(props: PreferencesFormProps) {
       </PreferenceField>
     </PreferencesFormShell>
   )
+}
+
+function CustomFontManagement(props: ReadingPreferencesFormProps) {
+  const { i18n } = useLingui()
+  const [file, setFile] = useState<File | null>(null)
+  const upload = async () => {
+    if (!file) return
+    if (await props.onUploadFont(file)) setFile(null)
+  }
+  return (
+    <PreferenceField
+      label={i18n._("preferences.customFonts")}
+      description={i18n._("preferences.customFontsDescription", {
+        count: props.fontLimits.maximumCount,
+        size: Math.round(props.fontLimits.maximumBytes / 1024 / 1024),
+      })}
+    >
+      <div className="reader-font-upload">
+        <FileInput
+          label={i18n._("preferences.customFontFile")}
+          isLabelHidden
+          value={file}
+          onChange={(value) => setFile(value instanceof File ? value : null)}
+          accept=".woff2,font/woff2"
+          maxSize={props.fontLimits.maximumBytes}
+          placeholder={i18n._("preferences.chooseCustomFont")}
+          isDisabled={props.isFontMutating || props.fonts.length >= props.fontLimits.maximumCount}
+        />
+        <Button
+          label={i18n._("preferences.uploadCustomFont")}
+          onClick={() => void upload()}
+          isLoading={props.isFontMutating}
+          isDisabled={!file || props.fonts.length >= props.fontLimits.maximumCount}
+          variant="secondary"
+        />
+      </div>
+      <div className="reader-font-list" aria-label={i18n._("preferences.customFonts")}>
+        {props.fonts.length === 0 ? (
+          <div className="reader-preference-description">
+            {i18n._("preferences.noCustomFonts")}
+          </div>
+        ) : props.fonts.map((font) => (
+          <div key={font.fontId} className="reader-font-row">
+            <div>
+              <div className="reader-preference-label">{font.displayName}</div>
+              <div className="reader-preference-description">{formatBytes(font.byteSize)}</div>
+            </div>
+            <Button
+              label={i18n._("preferences.deleteCustomFont", { name: font.displayName })}
+              onClick={() => void props.onDeleteFont(font.fontId)}
+              isDisabled={props.isFontMutating}
+              variant="destructive"
+            />
+          </div>
+        ))}
+      </div>
+    </PreferenceField>
+  )
+}
+
+function formatBytes(bytes: number): string {
+  return bytes >= 1024 * 1024
+    ? `${(bytes / 1024 / 1024).toFixed(1)} MiB`
+    : `${Math.max(1, Math.round(bytes / 1024))} KiB`
 }
 
 function PreferencesFormShell(

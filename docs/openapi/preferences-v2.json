@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Raindrop User Preferences API",
-    "version": "2.0.0",
-    "description": "Authenticated user-scoped personal and reading preferences. This committed v2 contract is the frontend wire DTO source."
+    "version": "2.1.0",
+    "description": "Authenticated user-scoped personal and reading preferences, including private WOFF2 custom fonts. This committed v2 contract is the frontend wire DTO source."
   },
   "servers": [
     {
@@ -95,6 +95,89 @@
           }
         }
       }
+    },
+    "/api/v2/preferences/fonts": {
+      "get": {
+        "tags": ["Preferences"],
+        "operationId": "listUserFonts",
+        "summary": "List the current user's custom fonts",
+        "security": [{ "sessionCookie": [] }],
+        "responses": {
+          "200": {
+            "description": "Bounded custom-font list.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserFontList" } } }
+          },
+          "401": { "$ref": "#/components/responses/Error" },
+          "500": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "post": {
+        "tags": ["Preferences"],
+        "operationId": "uploadUserFont",
+        "summary": "Upload a private WOFF2 font",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/CsrfToken" },
+          { "$ref": "#/components/parameters/FontName" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "font/woff2": { "schema": { "type": "string", "format": "binary", "maxLength": 5242880 } }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Uploaded custom font.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserFont" } } }
+          },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" },
+          "413": { "$ref": "#/components/responses/Error" },
+          "422": { "$ref": "#/components/responses/Error" },
+          "429": { "$ref": "#/components/responses/RateLimited" },
+          "500": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v2/preferences/fonts/{fontId}": {
+      "delete": {
+        "tags": ["Preferences"],
+        "operationId": "deleteUserFont",
+        "summary": "Delete an owned custom font and clear its active selection",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/FontId" },
+          { "$ref": "#/components/parameters/CsrfToken" }
+        ],
+        "responses": {
+          "204": { "description": "Font deleted." },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "429": { "$ref": "#/components/responses/RateLimited" },
+          "500": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v2/preferences/fonts/{fontId}/file": {
+      "get": {
+        "tags": ["Preferences"],
+        "operationId": "getUserFontFile",
+        "summary": "Read an owned custom WOFF2 font",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/FontId" }],
+        "responses": {
+          "200": {
+            "description": "Private immutable WOFF2 bytes.",
+            "content": { "font/woff2": { "schema": { "type": "string", "format": "binary" } } }
+          },
+          "401": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "500": { "$ref": "#/components/responses/Error" }
+        }
+      }
     }
   },
   "components": {
@@ -122,6 +205,18 @@
         "schema": {
           "type": "string"
         }
+      },
+      "FontId": {
+        "name": "fontId",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string", "format": "uuid" }
+      },
+      "FontName": {
+        "name": "name",
+        "in": "query",
+        "required": true,
+        "schema": { "type": "string", "minLength": 1, "maxLength": 80 }
       }
     },
     "headers": {
@@ -161,6 +256,7 @@
           "layoutDensity",
           "readingFontScale",
           "readingFontFamily",
+          "readingCustomFontId",
           "readingColorScheme",
           "linkOpenMode"
         ],
@@ -199,6 +295,11 @@
               "SERIF",
               "SANS"
             ]
+          },
+          "readingCustomFontId": {
+            "description": "Owned custom font selection, or null to use the built-in family.",
+            "type": ["string", "null"],
+            "format": "uuid"
           },
           "readingColorScheme": {
             "type": "string",
@@ -258,6 +359,11 @@
               "SANS"
             ]
           },
+          "readingCustomFontId": {
+            "description": "Set an owned custom font, or null to return to the built-in family.",
+            "type": ["string", "null"],
+            "format": "uuid"
+          },
           "readingColorScheme": {
             "type": "string",
             "enum": [
@@ -274,6 +380,34 @@
               "NEW_TAB"
             ]
           }
+        }
+      },
+      "UserFont": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["fontId", "displayName", "byteSize", "fileUrl"],
+        "properties": {
+          "fontId": { "type": "string", "format": "uuid" },
+          "displayName": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "byteSize": { "type": "integer", "minimum": 1, "maximum": 5242880 },
+          "fileUrl": {
+            "type": "string",
+            "pattern": "^/api/v2/preferences/fonts/[0-9a-f-]{36}/file$"
+          }
+        }
+      },
+      "UserFontList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["items", "maximumCount", "maximumBytes"],
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 8,
+            "items": { "$ref": "#/components/schemas/UserFont" }
+          },
+          "maximumCount": { "type": "integer", "const": 8 },
+          "maximumBytes": { "type": "integer", "const": 5242880 }
         }
       },
       "ApiError": {

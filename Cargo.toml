@@ -1,6 +1,6 @@
 [package]
 name = "raindrop"
-version = "0.3.2"
+version = "0.3.3"
 edition = "2024"
 rust-version = "1.94"
 license = "MIT"
@@ -20,6 +20,7 @@ async-trait = "0.1.89"
 axum = { version = "0.8.9", features = ["json", "macros"] }
 base64 = "0.22.1"
 blake3 = "1.8.3"
+brotli-decompressor = "5.0.3"
 cookie = "0.18.1"
 constant_time_eq = "0.4.2"
 encoding_rs = "=0.8.35"
@@ -52,6 +53,7 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
 url = { version = "2.5.7", features = ["serde"] }
 uuid = { version = "1.24.0", features = ["v4"] }
 wasmtime = { version = "=46.0.1", default-features = false, features = ["async", "call-hook", "component-model", "component-model-async", "cranelift", "runtime", "std"] }
+wuff = { version = "0.2.8", default-features = false }
 zeroize = "1.8.2"
 
 [target.'cfg(windows)'.dependencies]

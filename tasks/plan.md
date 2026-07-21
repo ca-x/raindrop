@@ -1,3 +1,62 @@
+# v0.3.3 Reader usability and custom fonts
+
+## Objective
+
+Repair the five reported reader regressions and ship a cohesive subscription-management and reading-controls update, using the local CommaFeed source as the behavioral reference while retaining Raindrop's ASTRYX visual language.
+
+## Confirmed root causes
+
+1. Category rows rely on TreeList's generic line box while the chevron, custom SVG and label do not share an explicit row metric, so category icon/label centerlines can drift.
+2. Add subscription, manage feed, manage categories and OPML are split across several icon-only toolbar actions and dialogs, obscuring the relationship between them.
+3. Appinn serves AVIF article images; the media proxy rejects AVIF, and article scroll updates rewrite enhanced image DOM back to `loading`, causing broken media, blank frames and layout flashing.
+4. EntryQueue renders a fixed month/day string once and has no relative-time clock.
+5. The subscription query selects `normalized_url`, but the repository DTO and public API omit it, so management can only display the website URL.
+6. Reading preferences only support a built-in serif/sans enum, and size controls occupy the high-frequency article action toolbar instead of a contextual reading tool.
+
+## Product contract
+
+- Replace fragmented source-management actions with one management dialog containing `Subscriptions`, `Add category`, and `OPML` tabs, following CommaFeed's information architecture.
+- Keep selected-feed edit/delete in the subscription tab and show `Feed URL` separately from `Website`.
+- Use a two-step subscription flow: analyze/create the feed, then allow title/category confirmation through the existing update API. Reuse controller state; do not create a parallel subscription cache.
+- Move size controls into an occasional floating reading toolbar inside the article plane. Keep read/star/original/AI actions in the fixed toolbar.
+- Add a font selector to the floating toolbar and font upload/delete management to Reading settings.
+- Relative times update every minute, use the browser locale, render an absolute `<time datetime>` value, and expose the absolute local timestamp as a tooltip/title.
+- Recognize AVIF only when its ISO-BMFF `ftyp` box contains an `avif` or `avis` compatible brand. Keep SVG/HTML and unknown bytes rejected.
+- Article images preserve a stable bounded box across loading, loaded and error states; failed images show a quiet placeholder rather than collapsing.
+
+## Custom font API and storage
+
+- WOFF2 only; validate `Content-Type`, filename/display name, the complete WOFF2 container, and a bounded decode before storage.
+- Maximum 5 MiB per font and 8 fonts per user. Enforce quota transactionally.
+- Store bytes in a new `user_fonts` table with a user FK using cascade deletion. Use MySQL `MEDIUMBLOB` so the 5 MiB contract is consistent across SQLite, PostgreSQL and MySQL.
+- Store a nullable `reading_custom_font_id` on preferences. A non-null selection must belong to the current user; built-in `readingFontFamily` remains the fallback and v1 remains unchanged.
+- Add authenticated v2 routes for list/upload/file/delete. Upload/delete require CSRF and the existing preference mutation limiter; upload admission and bounded global concurrency happen before request-body buffering.
+- Font file responses are owner-only, `font/woff2`, `nosniff`, and `private` cached. No filesystem path or original filename is persisted.
+- Duplicate content for the same user returns a stable conflict response. Deleting the selected font clears the preference atomically.
+
+## Emil design review
+
+| Before | After | Why |
+| --- | --- | --- |
+| Four unrelated icon-only management actions | One labeled management entry with three task-oriented tabs | Related work is discoverable in one place and the toolbar has a clear hierarchy |
+| Font sizing in the fixed article action bar | Compact floating reading toolbar with size and font controls | Reading presentation is contextual and no longer competes with article actions |
+| Failed image collapses after loading | Stable bounded media frame with an intentional error state | Prevents visual flashing and preserves reading position |
+| Generic/high-frequency motion | Floating toolbar entrance only, exact `opacity`/`transform` properties, <= 180 ms custom ease-out | Occasional state change gains spatial continuity without slowing navigation or keyboard work |
+| No press feedback on custom controls | `transform: scale(0.97)` on `:active` with reduced-motion fallback | Controls immediately acknowledge pointer input |
+
+## Verification
+
+- Rust unit/integration tests: AVIF sniffing, font quotas/type/magic/ownership/delete-selection, subscription `feedUrl`, migrations.
+- OpenAPI drift checks and generated TypeScript guards for subscription and preferences v2/font contracts.
+- Frontend tests: unified management tabs and two-step flow, feed/site labels, relative-time boundaries/timer, floating toolbar persistence, font upload/delete/select, stable image states, category row structure.
+- Browser verification at wide/tablet/mobile sizes, including `https://www.appinn.com/feed/`, keyboard focus, reduced motion, and centerline/layout stability assertions.
+- Release gate: format, lint/typecheck, targeted and full tests, production web build, version 0.3.3 consistency, clean staged diff, push `main`, create/push `v0.3.3`, monitor GitHub workflows and release assets.
+
+## Out of scope
+
+- Parsing arbitrary TTF/OTF metadata, third-party font hosting, shared fonts between users, nested categories, and a new feed-discovery endpoint.
+- Copying CommaFeed's Mantine styling or dependency choices.
+
 # Raindrop 总体实施路线
 
 权威设计规格：`docs/superpowers/specs/2026-07-16-raindrop-design.md`。

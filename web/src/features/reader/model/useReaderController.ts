@@ -11,7 +11,10 @@ import { useOrganizationActions } from "./useOrganizationActions"
 import { useReaderRequests } from "./useReaderRequests"
 import { useSubscriptionActions } from "./useSubscriptionActions"
 import type { UpdateCategoryRequest } from "../api/organization.generated"
-import type { UpdateSubscriptionRequest } from "../api/subscription.generated"
+import type {
+  CreateSubscriptionResponse,
+  UpdateSubscriptionRequest,
+} from "../api/subscription.generated"
 
 export interface ReaderController {
   state: ReaderState
@@ -27,7 +30,7 @@ export interface ReaderController {
   previousUnreadSource: () => Promise<void>
   toggleRead: (entryId: string) => Promise<void>
   toggleStar: (entryId: string) => Promise<void>
-  addSubscription: (url: string) => Promise<void>
+  addSubscription: (url: string) => Promise<CreateSubscriptionResponse | null>
   deleteSubscription: (subscriptionId: string) => Promise<boolean>
   refreshSubscription: (subscriptionId: string) => Promise<void>
   createCategory: (title: string) => Promise<boolean>

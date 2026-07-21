@@ -7,10 +7,12 @@ use axum::{
     http::{
         Method, Request, StatusCode,
         header::{
-            ACCEPT_LANGUAGE, CACHE_CONTROL, CONTENT_TYPE, COOKIE, HOST, ORIGIN, PRAGMA, RETRY_AFTER,
+            ACCEPT_LANGUAGE, CACHE_CONTROL, CONTENT_TYPE, COOKIE, ETAG, HOST, ORIGIN, PRAGMA,
+            RETRY_AFTER, VARY, X_CONTENT_TYPE_OPTIONS,
         },
     },
 };
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use http_body_util::BodyExt;
 use raindrop::{
     app::{AppState, build_router},
@@ -152,6 +154,43 @@ impl PreferenceFixture {
             },
         )
         .await
+    }
+
+    async fn font_request(
+        &self,
+        method: Method,
+        uri: &str,
+        body: Vec<u8>,
+        user: UserKind,
+        include_csrf: bool,
+        content_type: &str,
+    ) -> CapturedResponse {
+        let (cookie, csrf) = match user {
+            UserKind::A => (&self.user_a_cookie, &self.user_a_csrf),
+            UserKind::B => (&self.user_b_cookie, &self.user_b_csrf),
+        };
+        let mut request = Request::builder()
+            .method(method)
+            .uri(uri)
+            .header(COOKIE, cookie)
+            .header(CONTENT_TYPE, content_type);
+        if include_csrf {
+            request = request
+                .header("x-csrf-token", csrf)
+                .header(ORIGIN, "http://preferences.test")
+                .header(HOST, "preferences.test");
+        }
+        let response = self
+            .app
+            .clone()
+            .oneshot(
+                request
+                    .body(Body::from(body))
+                    .expect("font request should build"),
+            )
+            .await
+            .expect("font request should complete");
+        CapturedResponse::from_response(response).await
     }
 }
 
@@ -433,6 +472,7 @@ async fn v2_adds_reading_preferences_without_changing_the_v1_contract() {
             "layoutDensity": "BALANCED",
             "readingFontScale": 100,
             "readingFontFamily": "SERIF",
+            "readingCustomFontId": null,
             "readingColorScheme": "AUTO",
             "linkOpenMode": "NEW_TAB"
         })
@@ -477,6 +517,312 @@ async fn v2_adds_reading_preferences_without_changing_the_v1_contract() {
         })
     );
     assert_sensitive_cache_headers(&legacy);
+}
+
+#[tokio::test]
+async fn custom_fonts_are_private_validated_and_clear_the_active_selection_on_delete() {
+    let fixture = PreferenceFixture::new().await;
+    let font_bytes = valid_woff2_fixture(1);
+    let invalid_type = fixture
+        .font_request(
+            Method::POST,
+            "/api/v2/preferences/fonts?name=Reader",
+            font_bytes.clone(),
+            UserKind::A,
+            true,
+            "text/plain",
+        )
+        .await;
+    assert_error(
+        &invalid_type,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "VALIDATION_ERROR",
+    );
+
+    let invalid_magic = fixture
+        .font_request(
+            Method::POST,
+            "/api/v2/preferences/fonts?name=Reader",
+            b"not-a-font".to_vec(),
+            UserKind::A,
+            true,
+            "font/woff2",
+        )
+        .await;
+    assert_error(
+        &invalid_magic,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "VALIDATION_ERROR",
+    );
+
+    let uploaded = fixture
+        .font_request(
+            Method::POST,
+            "/api/v2/preferences/fonts?name=Reader%20Serif",
+            font_bytes.clone(),
+            UserKind::A,
+            true,
+            "font/woff2",
+        )
+        .await;
+    assert_eq!(uploaded.status, StatusCode::CREATED);
+    assert_sensitive_cache_headers(&uploaded);
+    let font_id = uploaded.json()["fontId"]
+        .as_str()
+        .expect("uploaded font id should be present")
+        .to_owned();
+    assert_eq!(uploaded.json()["displayName"], "Reader Serif");
+
+    let duplicate = fixture
+        .font_request(
+            Method::POST,
+            "/api/v2/preferences/fonts?name=Reader%20Serif",
+            font_bytes.clone(),
+            UserKind::A,
+            true,
+            "font/woff2",
+        )
+        .await;
+    assert_error(&duplicate, StatusCode::CONFLICT, "FONT_ALREADY_EXISTS");
+
+    let list_a = fixture
+        .json_request(
+            Method::GET,
+            "/api/v2/preferences/fonts",
+            None,
+            Some(UserKind::A),
+            false,
+            None,
+        )
+        .await;
+    assert_eq!(list_a.status, StatusCode::OK);
+    assert_eq!(list_a.json()["items"].as_array().map(Vec::len), Some(1));
+    let list_b = fixture
+        .json_request(
+            Method::GET,
+            "/api/v2/preferences/fonts",
+            None,
+            Some(UserKind::B),
+            false,
+            None,
+        )
+        .await;
+    assert_eq!(list_b.json()["items"].as_array().map(Vec::len), Some(0));
+
+    let hidden = fixture
+        .font_request(
+            Method::GET,
+            &format!("/api/v2/preferences/fonts/{font_id}/file"),
+            Vec::new(),
+            UserKind::B,
+            false,
+            "font/woff2",
+        )
+        .await;
+    assert_eq!(hidden.status, StatusCode::NOT_FOUND);
+    assert_eq!(hidden.headers[CACHE_CONTROL], "no-store");
+    assert_eq!(hidden.headers[PRAGMA], "no-cache");
+    assert_eq!(hidden.headers[VARY], "Cookie");
+
+    let file = fixture
+        .font_request(
+            Method::GET,
+            &format!("/api/v2/preferences/fonts/{font_id}/file"),
+            Vec::new(),
+            UserKind::A,
+            false,
+            "font/woff2",
+        )
+        .await;
+    assert_eq!(file.status, StatusCode::OK);
+    assert_eq!(file.headers[CONTENT_TYPE], "font/woff2");
+    assert_eq!(file.headers[X_CONTENT_TYPE_OPTIONS], "nosniff");
+    assert_eq!(file.headers[VARY], "Cookie");
+    assert!(file.headers.contains_key(ETAG));
+    assert_eq!(file.body, font_bytes);
+
+    let cross_tenant_selection = fixture
+        .json_request(
+            Method::PATCH,
+            "/api/v2/preferences",
+            Some(json!({ "readingCustomFontId": font_id })),
+            Some(UserKind::B),
+            true,
+            None,
+        )
+        .await;
+    assert_error(
+        &cross_tenant_selection,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "VALIDATION_ERROR",
+    );
+
+    let selected = fixture
+        .json_request(
+            Method::PATCH,
+            "/api/v2/preferences",
+            Some(json!({ "readingCustomFontId": font_id })),
+            Some(UserKind::A),
+            true,
+            None,
+        )
+        .await;
+    assert_eq!(selected.status, StatusCode::OK);
+    assert_eq!(selected.json()["readingCustomFontId"], font_id);
+
+    let forbidden_delete = fixture
+        .font_request(
+            Method::DELETE,
+            &format!("/api/v2/preferences/fonts/{font_id}"),
+            Vec::new(),
+            UserKind::B,
+            true,
+            "font/woff2",
+        )
+        .await;
+    assert_eq!(forbidden_delete.status, StatusCode::NOT_FOUND);
+
+    let deleted = fixture
+        .font_request(
+            Method::DELETE,
+            &format!("/api/v2/preferences/fonts/{font_id}"),
+            Vec::new(),
+            UserKind::A,
+            true,
+            "font/woff2",
+        )
+        .await;
+    assert_eq!(deleted.status, StatusCode::NO_CONTENT);
+    let preferences = fixture
+        .json_request(
+            Method::GET,
+            "/api/v2/preferences",
+            None,
+            Some(UserKind::A),
+            false,
+            None,
+        )
+        .await;
+    assert_eq!(preferences.json()["readingCustomFontId"], Value::Null);
+}
+
+#[tokio::test]
+async fn font_upload_requires_csrf_and_enforces_the_per_user_quota() {
+    let fixture = PreferenceFixture::new().await;
+    let missing_csrf = fixture
+        .font_request(
+            Method::POST,
+            "/api/v2/preferences/fonts?name=Reader-0",
+            valid_woff2_fixture(10),
+            UserKind::A,
+            false,
+            "font/woff2",
+        )
+        .await;
+    assert_error(&missing_csrf, StatusCode::FORBIDDEN, "FORBIDDEN");
+
+    let oversized = fixture
+        .font_request(
+            Method::POST,
+            "/api/v2/preferences/fonts?name=Oversized",
+            vec![0; 5 * 1024 * 1024 + 1],
+            UserKind::A,
+            true,
+            "font/woff2",
+        )
+        .await;
+    assert_error(&oversized, StatusCode::PAYLOAD_TOO_LARGE, "FONT_TOO_LARGE");
+
+    for index in 0..8 {
+        let uploaded = fixture
+            .font_request(
+                Method::POST,
+                &format!("/api/v2/preferences/fonts?name=Reader-{index}"),
+                valid_woff2_fixture(100 + index),
+                UserKind::A,
+                true,
+                "font/woff2",
+            )
+            .await;
+        assert_eq!(uploaded.status, StatusCode::CREATED);
+    }
+
+    let over_quota = fixture
+        .font_request(
+            Method::POST,
+            "/api/v2/preferences/fonts?name=Reader-8",
+            valid_woff2_fixture(108),
+            UserKind::A,
+            true,
+            "font/woff2",
+        )
+        .await;
+    assert_error(&over_quota, StatusCode::CONFLICT, "FONT_QUOTA_EXCEEDED");
+
+    let other_user = fixture
+        .font_request(
+            Method::POST,
+            "/api/v2/preferences/fonts?name=Reader-0",
+            valid_woff2_fixture(100),
+            UserKind::B,
+            true,
+            "font/woff2",
+        )
+        .await;
+    assert_eq!(other_user.status, StatusCode::CREATED);
+}
+
+#[tokio::test]
+async fn invalid_font_content_types_still_consume_the_pre_body_upload_budget() {
+    let fixture = PreferenceFixture::new().await;
+    for index in 0..30 {
+        let rejected = fixture
+            .font_request(
+                Method::POST,
+                &format!("/api/v2/preferences/fonts?name=Rejected-{index}"),
+                valid_woff2_fixture(1_000 + index),
+                UserKind::A,
+                true,
+                "text/plain",
+            )
+            .await;
+        assert_error(
+            &rejected,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "VALIDATION_ERROR",
+        );
+    }
+
+    let limited = fixture
+        .font_request(
+            Method::POST,
+            "/api/v2/preferences/fonts?name=Limited",
+            valid_woff2_fixture(2_000),
+            UserKind::A,
+            true,
+            "font/woff2",
+        )
+        .await;
+    assert_error(&limited, StatusCode::TOO_MANY_REQUESTS, "RATE_LIMITED");
+}
+
+fn valid_woff2_fixture(private_value: u32) -> Vec<u8> {
+    let encoded = include_str!("fixtures/lato-v22-latin-regular.woff2.b64");
+    let mut bytes = STANDARD
+        .decode(encoded.split_whitespace().collect::<String>())
+        .expect("WOFF2 fixture should decode");
+    assert_eq!(
+        bytes.len() % 4,
+        0,
+        "fixture should end on a WOFF2 block boundary"
+    );
+    let private_offset = u32::try_from(bytes.len()).expect("fixture offset should fit");
+    bytes.extend_from_slice(&private_value.to_be_bytes());
+    let length = u32::try_from(bytes.len()).expect("fixture length should fit");
+    bytes[8..12].copy_from_slice(&length.to_be_bytes());
+    bytes[40..44].copy_from_slice(&private_offset.to_be_bytes());
+    bytes[44..48].copy_from_slice(&4_u32.to_be_bytes());
+    bytes
 }
 
 #[tokio::test]

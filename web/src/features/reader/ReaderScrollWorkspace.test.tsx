@@ -60,10 +60,12 @@ describe("Reader scroll anchors", () => {
     expect(first.scrollTop).toBe(320)
     first.scrollTop = 540
     fireEvent.scroll(first)
+    expect(record).not.toHaveBeenCalled()
 
     rerender(article("second", anchors, record))
     const second = screen.getByRole("article")
     expect(second.scrollTop).toBe(0)
+    expect(record).toHaveBeenCalledWith("/reader/unread/entry/first", 540)
     second.scrollTop = 210
     fireEvent.scroll(second)
 

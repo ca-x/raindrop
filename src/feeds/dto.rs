@@ -167,6 +167,7 @@ pub struct SubscriptionListItemDto {
     pub title_override: Option<String>,
     pub position: i64,
     pub title: String,
+    pub feed_url: String,
     pub site_url: Option<String>,
     pub unread_count: i64,
     pub refresh: Option<RefreshDto>,
@@ -185,6 +186,7 @@ impl fmt::Debug for SubscriptionListItemDto {
             )
             .field("position", &self.position)
             .field("title", &"[REDACTED]")
+            .field("feed_url", &"[REDACTED]")
             .field("site_url", &self.site_url.as_ref().map(|_| "[REDACTED]"))
             .field("unread_count", &self.unread_count)
             .field("refresh", &self.refresh)

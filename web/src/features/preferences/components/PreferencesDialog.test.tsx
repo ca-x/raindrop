@@ -14,6 +14,7 @@ const preferences: UserPreferences = {
   layoutDensity: "BALANCED",
   readingFontScale: 100,
   readingFontFamily: "SERIF",
+  readingCustomFontId: null,
   readingColorScheme: "AUTO",
   linkOpenMode: "NEW_TAB",
 }
@@ -30,12 +31,10 @@ it("edits personal and reading preferences through ASTRYX controls and saves onc
   await user.click(within(dialog).getByRole("radio", { name: "中文" }))
   await user.click(within(dialog).getByRole("radio", { name: "Compact" }))
   await user.click(within(dialog).getByRole("button", { name: "Reading" }))
-  await user.click(within(dialog).getByRole("radio", { name: "Sans serif" }))
+  expect(within(dialog).queryByRole("combobox", { name: "Article font" })).not.toBeInTheDocument()
+  expect(within(dialog).queryByRole("slider", { name: "Reading size" })).not.toBeInTheDocument()
   await user.click(within(dialog).getByRole("radio", { name: "Sepia" }))
   await user.click(within(dialog).getByRole("radio", { name: "Current page" }))
-  const readingSize = within(dialog).getByRole("slider", { name: "Reading size" })
-  readingSize.focus()
-  await user.keyboard("{ArrowRight}{ArrowRight}{ArrowRight}{ArrowRight}")
   await user.click(within(dialog).getByRole("button", { name: "Save changes" }))
 
   expect(onSave).toHaveBeenCalledOnce()
@@ -43,8 +42,9 @@ it("edits personal and reading preferences through ASTRYX controls and saves onc
     locale: "zh-CN",
     themeMode: "DARK",
     layoutDensity: "COMPACT",
-    readingFontScale: 120,
-    readingFontFamily: "SANS",
+    readingFontScale: 100,
+    readingFontFamily: "SERIF",
+    readingCustomFontId: null,
     readingColorScheme: "SEPIA",
     linkOpenMode: "CURRENT_TAB",
   })
@@ -65,13 +65,16 @@ it("preserves the draft and inline error when saving fails", async () => {
       <PreferencesDialog
         isOpen
         preferences={preferences}
+        fonts={[]}
+        fontLimits={{ maximumCount: 8, maximumBytes: 5 * 1024 * 1024 }}
         isSaving={false}
+        isFontMutating={false}
         error="SAVE"
-        csrfToken="csrf-memory"
         onOpenChange={vi.fn()}
         onClearError={vi.fn()}
         onSave={onSave}
-        onSubscriptionsChanged={vi.fn()}
+        onUploadFont={vi.fn().mockResolvedValue(true)}
+        onDeleteFont={vi.fn().mockResolvedValue(true)}
       />
     </Providers>,
   )
@@ -105,29 +108,51 @@ it("renders the complete settings workflow in Chinese", () => {
   renderDialog()
 
   const dialog = screen.getByRole("dialog", { name: "设置" })
-  expect(within(dialog).getByText("调整阅读体验并管理订阅数据，不打断当前阅读。")).toBeVisible()
+  expect(within(dialog).getByText("调整界面、阅读与插件设置，不打断当前阅读。")).toBeVisible()
   expect(within(dialog).getByRole("radio", { name: "跟随系统" })).toBeVisible()
   expect(within(dialog).getByRole("radio", { name: "均衡" })).toBeVisible()
   expect(within(dialog).getByRole("button", { name: "保存更改" })).toBeVisible()
 })
 
-it("keeps OPML transfer in a separate subscriptions tab", async () => {
+it("keeps subscription transfer out of settings", () => {
   activateLocale("en")
-  const user = userEvent.setup()
   renderDialog()
   const dialog = screen.getByRole("dialog", { name: "Settings" })
 
-  await user.click(within(dialog).getByRole("button", { name: "Subscriptions" }))
+  expect(within(dialog).queryByRole("button", { name: "Subscriptions" })).not.toBeInTheDocument()
+  expect(within(dialog).queryByLabelText("OPML file")).not.toBeInTheDocument()
+})
 
-  expect(
-    within(dialog)
-      .getAllByLabelText("OPML file")
-      .find((element) => element.tagName === "INPUT"),
-  ).toBeVisible()
-  expect(within(dialog).getByRole("button", { name: "Export OPML" })).toBeVisible()
-  expect(within(dialog).getByRole("button", { name: "Import subscriptions" })).toBeDisabled()
-  expect(within(dialog).queryByRole("button", { name: "Save changes" })).not.toBeInTheDocument()
-  expect(within(dialog).getByRole("button", { name: "Close" })).toBeVisible()
+it("clears a deleted active custom font from the open draft before saving", async () => {
+  activateLocale("en")
+  const user = userEvent.setup()
+  const fontId = "00000000-0000-4000-8000-000000000701"
+  const onSave = vi.fn().mockResolvedValue(true)
+  const onDeleteFont = vi.fn().mockResolvedValue(true)
+  renderDialog({
+    initialTab: "reading",
+    preferences: { ...preferences, readingCustomFontId: fontId },
+    fonts: [{
+      fontId,
+      displayName: "Reader Serif",
+      byteSize: 24_000,
+      fileUrl: `/api/v2/preferences/fonts/${fontId}/file`,
+    }],
+    onSave,
+    onDeleteFont,
+  })
+  const dialog = screen.getByRole("dialog", { name: "Settings" })
+
+  await user.click(
+    within(dialog).getByRole("button", { name: "Delete “Reader Serif”" }),
+  )
+  await user.click(within(dialog).getByRole("button", { name: "Save changes" }))
+
+  expect(onDeleteFont).toHaveBeenCalledWith(fontId)
+  expect(onSave).toHaveBeenCalledWith({
+    ...preferences,
+    readingCustomFontId: null,
+  })
 })
 
 it("keeps plugin saves separate from the preference controller", async () => {
@@ -160,13 +185,16 @@ function renderDialog(
   const props: React.ComponentProps<typeof PreferencesDialog> = {
     isOpen: true,
     preferences,
+    fonts: [],
+    fontLimits: { maximumCount: 8, maximumBytes: 5 * 1024 * 1024 },
     isSaving: false,
+    isFontMutating: false,
     error: null,
-    csrfToken: "csrf-memory",
     onOpenChange: vi.fn(),
     onClearError: vi.fn(),
     onSave: vi.fn().mockResolvedValue(true),
-    onSubscriptionsChanged: vi.fn(),
+    onUploadFont: vi.fn().mockResolvedValue(true),
+    onDeleteFont: vi.fn().mockResolvedValue(true),
     ...overrides,
   }
   return render(

@@ -8,6 +8,7 @@ export interface UserPreferences {
   layoutDensity: UserPreferencesLayoutDensity
   readingFontScale: number
   readingFontFamily: UserPreferencesReadingFontFamily
+  readingCustomFontId: string | null
   readingColorScheme: UserPreferencesReadingColorScheme
   linkOpenMode: UserPreferencesLinkOpenMode
 }
@@ -30,6 +31,7 @@ export type PatchUserPreferencesRequest = {
   layoutDensity?: PatchUserPreferencesRequestLayoutDensity
   readingFontScale?: number
   readingFontFamily?: PatchUserPreferencesRequestReadingFontFamily
+  readingCustomFontId?: string | null
   readingColorScheme?: PatchUserPreferencesRequestReadingColorScheme
   linkOpenMode?: PatchUserPreferencesRequestLinkOpenMode
 } & (
@@ -38,6 +40,7 @@ export type PatchUserPreferencesRequest = {
   | { layoutDensity: PatchUserPreferencesRequestLayoutDensity }
   | { readingFontScale: number }
   | { readingFontFamily: PatchUserPreferencesRequestReadingFontFamily }
+  | { readingCustomFontId: string | null }
   | { readingColorScheme: PatchUserPreferencesRequestReadingColorScheme }
   | { linkOpenMode: PatchUserPreferencesRequestLinkOpenMode }
 )
@@ -53,6 +56,19 @@ export type PatchUserPreferencesRequestReadingFontFamily = "SERIF" | "SANS"
 export type PatchUserPreferencesRequestReadingColorScheme = "AUTO" | "PAPER" | "SEPIA" | "GRAY"
 
 export type PatchUserPreferencesRequestLinkOpenMode = "CURRENT_TAB" | "NEW_TAB"
+
+export interface UserFont {
+  fontId: string
+  displayName: string
+  byteSize: number
+  fileUrl: string
+}
+
+export interface UserFontList {
+  items: UserFont[]
+  maximumCount: number
+  maximumBytes: number
+}
 
 export interface ApiError {
   code: string
@@ -90,11 +106,19 @@ function isUri(value: string): boolean {
 }
 
 export function isUserPreferences(value: unknown): value is UserPreferences {
-  return ((isRecord(value) && hasOnlyKeys(value, ["locale","themeMode","layoutDensity","readingFontScale","readingFontFamily","readingColorScheme","linkOpenMode"]) && hasOwn(value, "locale") && (value["locale"] === "zh-CN" || value["locale"] === "en") && hasOwn(value, "themeMode") && (value["themeMode"] === "SYSTEM" || value["themeMode"] === "LIGHT" || value["themeMode"] === "DARK") && hasOwn(value, "layoutDensity") && (value["layoutDensity"] === "COMPACT" || value["layoutDensity"] === "BALANCED" || value["layoutDensity"] === "SPACIOUS") && hasOwn(value, "readingFontScale") && ((typeof value["readingFontScale"] === "number" && Number.isFinite(value["readingFontScale"]) && Number.isInteger(value["readingFontScale"]) && value["readingFontScale"] >= 85 && value["readingFontScale"] <= 130)) && hasOwn(value, "readingFontFamily") && (value["readingFontFamily"] === "SERIF" || value["readingFontFamily"] === "SANS") && hasOwn(value, "readingColorScheme") && (value["readingColorScheme"] === "AUTO" || value["readingColorScheme"] === "PAPER" || value["readingColorScheme"] === "SEPIA" || value["readingColorScheme"] === "GRAY") && hasOwn(value, "linkOpenMode") && (value["linkOpenMode"] === "CURRENT_TAB" || value["linkOpenMode"] === "NEW_TAB")))
+  return ((isRecord(value) && hasOnlyKeys(value, ["locale","themeMode","layoutDensity","readingFontScale","readingFontFamily","readingCustomFontId","readingColorScheme","linkOpenMode"]) && hasOwn(value, "locale") && (value["locale"] === "zh-CN" || value["locale"] === "en") && hasOwn(value, "themeMode") && (value["themeMode"] === "SYSTEM" || value["themeMode"] === "LIGHT" || value["themeMode"] === "DARK") && hasOwn(value, "layoutDensity") && (value["layoutDensity"] === "COMPACT" || value["layoutDensity"] === "BALANCED" || value["layoutDensity"] === "SPACIOUS") && hasOwn(value, "readingFontScale") && ((typeof value["readingFontScale"] === "number" && Number.isFinite(value["readingFontScale"]) && Number.isInteger(value["readingFontScale"]) && value["readingFontScale"] >= 85 && value["readingFontScale"] <= 130)) && hasOwn(value, "readingFontFamily") && (value["readingFontFamily"] === "SERIF" || value["readingFontFamily"] === "SANS") && hasOwn(value, "readingCustomFontId") && ((typeof value["readingCustomFontId"] === "string" && isUuid(value["readingCustomFontId"])) || value["readingCustomFontId"] === null) && hasOwn(value, "readingColorScheme") && (value["readingColorScheme"] === "AUTO" || value["readingColorScheme"] === "PAPER" || value["readingColorScheme"] === "SEPIA" || value["readingColorScheme"] === "GRAY") && hasOwn(value, "linkOpenMode") && (value["linkOpenMode"] === "CURRENT_TAB" || value["linkOpenMode"] === "NEW_TAB")))
 }
 
 export function isPatchUserPreferencesRequest(value: unknown): value is PatchUserPreferencesRequest {
-  return ((isRecord(value) && hasOnlyKeys(value, ["locale","themeMode","layoutDensity","readingFontScale","readingFontFamily","readingColorScheme","linkOpenMode"]) && Object.keys(value).length >= 1 && (!hasOwn(value, "locale") || (value["locale"] === "zh-CN" || value["locale"] === "en")) && (!hasOwn(value, "themeMode") || (value["themeMode"] === "SYSTEM" || value["themeMode"] === "LIGHT" || value["themeMode"] === "DARK")) && (!hasOwn(value, "layoutDensity") || (value["layoutDensity"] === "COMPACT" || value["layoutDensity"] === "BALANCED" || value["layoutDensity"] === "SPACIOUS")) && (!hasOwn(value, "readingFontScale") || ((typeof value["readingFontScale"] === "number" && Number.isFinite(value["readingFontScale"]) && Number.isInteger(value["readingFontScale"]) && value["readingFontScale"] >= 85 && value["readingFontScale"] <= 130))) && (!hasOwn(value, "readingFontFamily") || (value["readingFontFamily"] === "SERIF" || value["readingFontFamily"] === "SANS")) && (!hasOwn(value, "readingColorScheme") || (value["readingColorScheme"] === "AUTO" || value["readingColorScheme"] === "PAPER" || value["readingColorScheme"] === "SEPIA" || value["readingColorScheme"] === "GRAY")) && (!hasOwn(value, "linkOpenMode") || (value["linkOpenMode"] === "CURRENT_TAB" || value["linkOpenMode"] === "NEW_TAB"))))
+  return ((isRecord(value) && hasOnlyKeys(value, ["locale","themeMode","layoutDensity","readingFontScale","readingFontFamily","readingCustomFontId","readingColorScheme","linkOpenMode"]) && Object.keys(value).length >= 1 && (!hasOwn(value, "locale") || (value["locale"] === "zh-CN" || value["locale"] === "en")) && (!hasOwn(value, "themeMode") || (value["themeMode"] === "SYSTEM" || value["themeMode"] === "LIGHT" || value["themeMode"] === "DARK")) && (!hasOwn(value, "layoutDensity") || (value["layoutDensity"] === "COMPACT" || value["layoutDensity"] === "BALANCED" || value["layoutDensity"] === "SPACIOUS")) && (!hasOwn(value, "readingFontScale") || ((typeof value["readingFontScale"] === "number" && Number.isFinite(value["readingFontScale"]) && Number.isInteger(value["readingFontScale"]) && value["readingFontScale"] >= 85 && value["readingFontScale"] <= 130))) && (!hasOwn(value, "readingFontFamily") || (value["readingFontFamily"] === "SERIF" || value["readingFontFamily"] === "SANS")) && (!hasOwn(value, "readingCustomFontId") || ((typeof value["readingCustomFontId"] === "string" && isUuid(value["readingCustomFontId"])) || value["readingCustomFontId"] === null)) && (!hasOwn(value, "readingColorScheme") || (value["readingColorScheme"] === "AUTO" || value["readingColorScheme"] === "PAPER" || value["readingColorScheme"] === "SEPIA" || value["readingColorScheme"] === "GRAY")) && (!hasOwn(value, "linkOpenMode") || (value["linkOpenMode"] === "CURRENT_TAB" || value["linkOpenMode"] === "NEW_TAB"))))
+}
+
+export function isUserFont(value: unknown): value is UserFont {
+  return ((isRecord(value) && hasOnlyKeys(value, ["fontId","displayName","byteSize","fileUrl"]) && hasOwn(value, "fontId") && ((typeof value["fontId"] === "string" && isUuid(value["fontId"]))) && hasOwn(value, "displayName") && ((typeof value["displayName"] === "string" && value["displayName"].length >= 1 && value["displayName"].length <= 80)) && hasOwn(value, "byteSize") && ((typeof value["byteSize"] === "number" && Number.isFinite(value["byteSize"]) && Number.isInteger(value["byteSize"]) && value["byteSize"] >= 1 && value["byteSize"] <= 5242880)) && hasOwn(value, "fileUrl") && ((typeof value["fileUrl"] === "string" && new RegExp("^/api/v2/preferences/fonts/[0-9a-f-]{36}/file$").test(value["fileUrl"])))))
+}
+
+export function isUserFontList(value: unknown): value is UserFontList {
+  return ((isRecord(value) && hasOnlyKeys(value, ["items","maximumCount","maximumBytes"]) && hasOwn(value, "items") && ((Array.isArray(value["items"]) && value["items"].length <= 8 && value["items"].every((item1) => isUserFont(item1)))) && hasOwn(value, "maximumCount") && ((typeof value["maximumCount"] === "number" && Number.isFinite(value["maximumCount"]) && Number.isInteger(value["maximumCount"]))) && hasOwn(value, "maximumBytes") && ((typeof value["maximumBytes"] === "number" && Number.isFinite(value["maximumBytes"]) && Number.isInteger(value["maximumBytes"])))))
 }
 
 export function isApiError(value: unknown): value is ApiError {

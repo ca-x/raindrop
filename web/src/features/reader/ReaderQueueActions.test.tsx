@@ -181,6 +181,7 @@ function feedState(overrides: Partial<ReaderState> = {}): ReaderState {
         titleOverride: null,
         position: 0,
         title: "Planet Rust",
+        feedUrl: "https://planet-rust.example/feed.xml",
         siteUrl: null,
         unreadCount: 7,
         refresh: null,

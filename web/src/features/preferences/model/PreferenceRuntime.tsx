@@ -53,6 +53,7 @@ export function PreferenceRuntimeProvider({ children }: { children: ReactNode })
     document.documentElement.dataset.raindropReadingFont = toReadingDataValue(
       preferences.readingFontFamily,
     )
+    applyCustomReadingFont(preferences.readingCustomFontId)
     document.documentElement.dataset.raindropReadingColor = toReadingDataValue(
       preferences.readingColorScheme,
     )
@@ -74,6 +75,24 @@ export function PreferenceRuntimeProvider({ children }: { children: ReactNode })
       {children}
     </PreferenceRuntimeContext.Provider>
   )
+}
+
+function applyCustomReadingFont(fontId: string | null): void {
+  const root = document.documentElement
+  const styleId = "raindrop-custom-reading-font"
+  document.getElementById(styleId)?.remove()
+  if (!fontId) {
+    delete root.dataset.raindropReadingCustomFont
+    root.style.removeProperty("--raindrop-custom-reading-font")
+    return
+  }
+  const family = `RaindropCustom_${fontId.replaceAll("-", "")}`
+  const style = document.createElement("style")
+  style.id = styleId
+  style.textContent = `@font-face{font-family:"${family}";src:url("/api/v2/preferences/fonts/${fontId}/file") format("woff2");font-display:swap;}`
+  document.head.append(style)
+  root.dataset.raindropReadingCustomFont = fontId
+  root.style.setProperty("--raindrop-custom-reading-font", `"${family}"`)
 }
 
 export function usePreferenceRuntime(): PreferenceRuntimeValue {

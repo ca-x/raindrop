@@ -15,15 +15,11 @@ import { SourceToolbar } from "./ReaderToolbar"
 interface SourceTreeProps {
   state: ReaderState
   onSelect: (source: ReaderSource) => void
-  onAdd: () => void
   onManage: () => void
-  onManageSubscription?: () => void
   onPreferences: () => void
-  onTransferSubscriptions: () => void
   onRefresh: (subscriptionId: string) => Promise<void>
   onLogout: () => Promise<void>
   manageButtonRef?: Ref<HTMLButtonElement>
-  manageSubscriptionButtonRef?: Ref<HTMLButtonElement>
   preferencesButtonRef?: Ref<HTMLButtonElement>
   density: TreeListDensity
 }
@@ -31,15 +27,11 @@ interface SourceTreeProps {
 export function SourceTree({
   state,
   onSelect,
-  onAdd,
   onManage,
-  onManageSubscription,
   onPreferences,
-  onTransferSubscriptions,
   onRefresh,
   onLogout,
   manageButtonRef,
-  manageSubscriptionButtonRef,
   preferencesButtonRef,
   density,
 }: SourceTreeProps) {
@@ -57,18 +49,10 @@ export function SourceTree({
   return (
     <div className="reader-source-tree" aria-busy={state.paneStatus.subscriptions === "loading"}>
       <SourceToolbar
-        onAdd={onAdd}
         onManage={onManage}
-        onManageSubscription={
-          selectedSubscription && onManageSubscription
-            ? onManageSubscription
-            : undefined
-        }
         onPreferences={onPreferences}
-        onTransferSubscriptions={onTransferSubscriptions}
         onLogout={onLogout}
         manageButtonRef={manageButtonRef}
-        manageSubscriptionButtonRef={manageSubscriptionButtonRef}
         preferencesButtonRef={preferencesButtonRef}
         refresh={selectedSubscription ? {
           label: i18n._("reader.refreshFeed", { title: selectedSubscription.title }),

@@ -8,6 +8,7 @@ import {
   readerErrorMessage,
 } from "./controllerErrors"
 import type { ReaderAction } from "./reducer"
+import type { CreateSubscriptionResponse } from "../api/subscription.generated"
 
 interface SubscriptionActionOptions {
   api: ReaderApi
@@ -111,6 +112,7 @@ export function useSubscriptionActions({
 
   const addSubscription = useCallback(
     async (url: string) => {
+      let added: CreateSubscriptionResponse | null = null
       await runAction(
         (signal) => api.createSubscription({ url }, csrfToken, signal),
         (response) => ({
@@ -118,11 +120,13 @@ export function useSubscriptionActions({
           subscription: response.subscription,
         }),
         (response) => {
+          added = response
           if (response.subscription.refresh?.state === "PENDING") {
             pollSubscription(response.subscription.subscriptionId)
           }
         },
       )
+      return added
     },
     [api, csrfToken, pollSubscription, runAction],
   )

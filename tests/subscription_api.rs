@@ -1071,6 +1071,7 @@ async fn subscription_detail_hides_missing_and_cross_tenant() {
     assert_eq!(response.status(), StatusCode::OK);
     let body = response_json(response).await;
     assert_eq!(body["subscriptionId"], subscription_id);
+    assert_eq!(body["feedUrl"], "https://feed.example/rss.xml");
     assert_eq!(
         body.as_object()
             .expect("subscription should be an object")
@@ -1080,6 +1081,7 @@ async fn subscription_detail_hides_missing_and_cross_tenant() {
         std::collections::BTreeSet::from([
             "categoryId",
             "feedId",
+            "feedUrl",
             "position",
             "refresh",
             "siteUrl",

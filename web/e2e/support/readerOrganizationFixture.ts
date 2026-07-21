@@ -250,6 +250,7 @@ function subscription(
     titleOverride: null,
     position: 0,
     title,
+    feedUrl: `${siteUrl.replace(/\/$/u, "")}/feed.xml`,
     siteUrl,
     unreadCount: 6,
     refresh: null,

@@ -11,6 +11,7 @@ export async function verifyWidePreferences(
   page: Page,
   fixture: ReaderApiFixture,
 ): Promise<void> {
+  await chooseReadingDisplay(page)
   const trigger = page.getByRole("button", { name: "Open menu" })
   await trigger.click()
   await page.getByRole("menuitem", { name: "Settings" }).click()
@@ -21,9 +22,17 @@ export async function verifyWidePreferences(
     layoutDensity: "COMPACT",
     readingFontScale: 120,
     readingFontFamily: "SANS",
+    readingCustomFontId: null,
     readingColorScheme: "SEPIA",
     linkOpenMode: "CURRENT_TAB",
   })
+  await dialog.locator('input[type="file"][accept*=".woff2"]').setInputFiles({
+    name: "Editorial.woff2",
+    mimeType: "font/woff2",
+    buffer: Buffer.from("wOF2fixture-font"),
+  })
+  await dialog.getByRole("button", { name: "Upload font" }).click()
+  await expect(dialog.getByText("Editorial", { exact: true })).toBeVisible()
   await dialog.getByRole("button", { name: "Save changes" }).click()
   await expect(dialog).not.toBeVisible()
   await expectPresentation(page, {
@@ -32,27 +41,41 @@ export async function verifyWidePreferences(
     layoutDensity: "COMPACT",
     readingFontScale: 120,
     readingFontFamily: "SANS",
+    readingCustomFontId: null,
     readingColorScheme: "SEPIA",
     linkOpenMode: "CURRENT_TAB",
   })
   await expect(page.getByRole("button", { name: "打开菜单" })).toBeFocused()
 
-  expect(fixture.preferences.patches).toHaveLength(1)
-  expect(fixture.preferences.patches[0]).toMatchObject({
+  expect(fixture.preferences.patches).toHaveLength(6)
+  expect(fixture.preferences.patches[5]).toMatchObject({
     body: {
       locale: "zh-CN",
       themeMode: "DARK",
       layoutDensity: "COMPACT",
-      readingFontScale: 120,
     },
   })
-  expect(fixture.preferences.patches[0]?.csrf).toBeTruthy()
+  expect(fixture.preferences.patches.every((patch) => Boolean(patch.csrf))).toBe(true)
+
+  const readingToolbar = page.getByRole("toolbar", { name: "正文显示控制" })
+  await readingToolbar.getByRole("combobox", { name: "正文字体" }).selectOption({
+    label: "Editorial",
+  })
+  await expect.poll(() => fixture.preferences.current().readingCustomFontId).not.toBeNull()
+  await page.getByRole("button", { name: "打开菜单" }).click()
+  await page.getByRole("menuitem", { name: "设置" }).click()
+  const reopenedSettings = page.getByRole("dialog", { name: "设置" })
+  await reopenedSettings.getByRole("button", { name: "阅读" }).click()
+  await reopenedSettings.getByRole("button", { name: "删除字体“Editorial”" }).click()
+  await expect(reopenedSettings.getByText("Editorial", { exact: true })).toHaveCount(0)
+  await reopenedSettings.getByRole("button", { name: "取消" }).click()
+  await expect.poll(() => fixture.preferences.current().readingCustomFontId).toBeNull()
 
   await page.reload({ waitUntil: "domcontentloaded" })
   await expect(page).toHaveURL(/\/reader\/unread(?:\/entry\/[^/]+)?$/u)
   await expect(page.getByRole("button", { name: "打开菜单" })).toBeVisible()
   await expectPresentation(page, fixture.preferences.current())
-  expect(fixture.preferences.patches).toHaveLength(1)
+  expect(fixture.preferences.patches).toHaveLength(7)
   await expectNoHorizontalOverflow(page)
 }
 
@@ -84,8 +107,9 @@ export async function verifyCompactPreferences(
     locale: "zh-CN",
     themeMode: "DARK",
     layoutDensity: failBeforeSuccess ? "SPACIOUS" : "COMPACT",
-    readingFontScale: 120,
-    readingFontFamily: "SANS",
+    readingFontScale: 100,
+    readingFontFamily: "SERIF",
+    readingCustomFontId: null,
     readingColorScheme: "SEPIA",
     linkOpenMode: "CURRENT_TAB",
   }
@@ -105,11 +129,10 @@ export async function verifyCompactPreferences(
     ])
     expect(fixture.preferences.patches).toHaveLength(failedPatchCount)
     await expect(dialog.getByText("Preferences could not be saved")).toBeVisible()
-    await expect(dialog.getByRole("radio", { name: "Sans serif" })).toBeChecked()
+    await expect(dialog.getByRole("combobox", { name: "Article font" })).toHaveCount(0)
     await expect(dialog.getByRole("radio", { name: "Sepia" })).toBeChecked()
     await expect(dialog.getByRole("radio", { name: "Current page" })).toBeChecked()
-    await expect(dialog.getByRole("slider", { name: "Reading size" }))
-      .toHaveAttribute("aria-valuenow", "120")
+    await expect(dialog.getByRole("slider", { name: "Reading size" })).toHaveCount(0)
     await dialog.getByRole("button", { name: "Personal" }).click()
     await expect(dialog.getByRole("radio", { name: "Dark" })).toBeChecked()
     await expect(dialog.getByRole("radio", { name: "中文" })).toBeChecked()
@@ -120,6 +143,7 @@ export async function verifyCompactPreferences(
       layoutDensity: "BALANCED",
       readingFontScale: 100,
       readingFontFamily: "SERIF",
+      readingCustomFontId: null,
       readingColorScheme: "AUTO",
       linkOpenMode: "NEW_TAB",
     })
@@ -129,6 +153,7 @@ export async function verifyCompactPreferences(
       layoutDensity: "BALANCED",
       readingFontScale: 100,
       readingFontFamily: "SERIF",
+      readingCustomFontId: null,
       readingColorScheme: "AUTO",
       linkOpenMode: "NEW_TAB",
     })
@@ -139,7 +164,7 @@ export async function verifyCompactPreferences(
   await expectPresentation(page, desired)
   const reopened = await openCompactSettings(page, "zh-CN")
   await expect(reopened.dialog.getByText(
-    "调整阅读体验并管理订阅数据，不打断当前阅读。",
+    "调整界面、阅读与插件设置，不打断当前阅读。",
   )).toBeVisible()
   await expectDialogContained(reopened.dialog, page)
   await expectNoHorizontalOverflow(page)
@@ -161,11 +186,6 @@ async function choosePreferences(
   }).click()
   await dialog.getByRole("button", { name: /Reading|阅读/u }).click()
   await dialog.getByRole("radio", {
-    name: preferences.readingFontFamily === "SERIF"
-      ? /Serif|衬线/u
-      : /Sans serif|无衬线/u,
-  }).click()
-  await dialog.getByRole("radio", {
     name: {
       AUTO: /Auto|自动/u,
       PAPER: /Paper|纸白/u,
@@ -178,11 +198,16 @@ async function choosePreferences(
       ? /Current page|当前页面/u
       : /New window|新窗口/u,
   }).click()
-  const slider = dialog.getByRole("slider", { name: /Reading size|阅读字号/u })
-  await slider.press("Home")
-  for (let value = 85; value < preferences.readingFontScale; value += 5) {
-    await slider.press("ArrowRight")
-  }
+}
+
+async function chooseReadingDisplay(page: Page): Promise<void> {
+  const toolbar = page.getByRole("toolbar", { name: "Article display controls" })
+  await toolbar.getByRole("combobox", { name: "Article font" }).selectOption("SANS")
+  const increase = toolbar.getByRole("button", { name: "Increase article text size" })
+  for (let value = 100; value < 120; value += 5) await increase.click()
+  await expect(
+    toolbar.getByRole("button", { name: "Reset text size, currently 120%" }),
+  ).toBeVisible()
 }
 
 async function openCompactSettings(

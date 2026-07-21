@@ -277,6 +277,7 @@ fn subscription_openapi_declares_only_the_real_public_surface() {
             "titleOverride",
             "position",
             "title",
+            "feedUrl",
             "siteUrl",
             "unreadCount",
             "refresh",
@@ -1604,6 +1605,7 @@ fn frozen_schema_manifest() -> Value {
                 "titleOverride",
                 "position",
                 "title",
+                "feedUrl",
                 "siteUrl",
                 "unreadCount",
                 "refresh"
@@ -1615,6 +1617,7 @@ fn frozen_schema_manifest() -> Value {
                 "titleOverride": { "type": ["string", "null"], "maxLength": 200 },
                 "position": { "type": "integer", "minimum": 0 },
                 "title": { "type": "string" },
+                "feedUrl": { "type": "string", "format": "uri" },
                 "siteUrl": { "type": ["string", "null"], "format": "uri" },
                 "unreadCount": { "type": "integer", "minimum": 0 },
                 "refresh": {

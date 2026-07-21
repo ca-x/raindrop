@@ -894,6 +894,7 @@ fn decode_subscription_projection(
             title_override,
             position,
             title,
+            feed_url: normalized_url,
             site_url: projection_optional(&row, "site_url")?,
             unread_count,
             refresh,

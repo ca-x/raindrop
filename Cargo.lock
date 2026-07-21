@@ -2368,7 +2368,7 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
 name = "raindrop"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "ammonia",
  "anyhow",
@@ -2378,6 +2378,7 @@ dependencies = [
  "axum",
  "base64",
  "blake3",
+ "brotli-decompressor",
  "constant_time_eq",
  "cookie",
  "encoding_rs",
@@ -2418,6 +2419,7 @@ dependencies = [
  "windows-sys 0.61.2",
  "wit-component",
  "wit-parser 0.253.0",
+ "wuff",
  "zeroize",
 ]
 
@@ -4770,6 +4772,15 @@ name = "writeable"
 version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ffae5123b2d3fc086436f8834ae3ab053a283cfac8fe0a0b8eaae044768a4c4"
+
+[[package]]
+name = "wuff"
+version = "0.2.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f625c6894838ab68e8c1c6e0f728e67363c9d4391cfa82333e58e6e30bc3a627"
+dependencies = [
+ "bytes",
+]
 
 [[package]]
 name = "yansi"

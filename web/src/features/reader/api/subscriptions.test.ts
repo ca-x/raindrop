@@ -36,6 +36,7 @@ const subscription = {
   titleOverride: null,
   position: 0,
   title: "Example Feed",
+  feedUrl: "https://example.com/feed.xml",
   siteUrl: "https://example.com/",
   unreadCount: 3,
   refresh: null,
@@ -198,6 +199,7 @@ it("generates both artifacts deterministically and detects missing or edited out
   expect(original).toContain("export type ApiErrorEnvelope = ErrorEnvelope")
   expect(original).toContain("export function isSubscriptionPageResponse")
   expect(original).toContain("items: Subscription[]")
+  expect(original).toContain("feedUrl: string")
   expect(original).toContain("siteUrl: string | null")
   expect(original).toContain("fields?: Record<string, string>")
   writeFileSync(subscriptionPath, original.replace("title: string", "title: number"))

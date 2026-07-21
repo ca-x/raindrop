@@ -22,6 +22,7 @@ const preferences = {
   layoutDensity: "COMPACT",
   readingFontScale: 110,
   readingFontFamily: "SANS",
+  readingCustomFontId: null,
   readingColorScheme: "PAPER",
   linkOpenMode: "CURRENT_TAB",
 } as const

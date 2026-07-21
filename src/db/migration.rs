@@ -11,6 +11,7 @@ mod plugins;
 mod preferences;
 mod reader_preferences;
 mod rss;
+mod user_fonts;
 
 pub async fn migrate(database: &DatabaseConnection) -> Result<(), DbError> {
     Migrator::up(database, None).await.map_err(DbError::from)
@@ -58,6 +59,7 @@ impl MigratorTrait for Migrator {
             Box::new(content_jobs::CreateContentJobs),
             Box::new(plugins::CreatePluginRegistry),
             Box::new(reader_preferences::AddReaderPreferences),
+            Box::new(user_fonts::CreateUserFonts),
         ]
     }
 }

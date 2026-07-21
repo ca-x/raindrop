@@ -89,9 +89,26 @@ fn raster_image_content_type(document: &[u8]) -> Option<&'static str> {
         Some("image/jpeg")
     } else if document.len() >= 12 && document.starts_with(b"RIFF") && &document[8..12] == b"WEBP" {
         Some("image/webp")
+    } else if is_avif(document) {
+        Some("image/avif")
     } else {
         None
     }
+}
+
+fn is_avif(document: &[u8]) -> bool {
+    if document.len() < 16 || &document[4..8] != b"ftyp" {
+        return false;
+    }
+    let box_size = u32::from_be_bytes(document[0..4].try_into().expect("slice length")) as usize;
+    if box_size < 16 || box_size > document.len() || !(box_size - 16).is_multiple_of(4) {
+        return false;
+    }
+    document[8..12] == *b"avif"
+        || document[8..12] == *b"avis"
+        || document[16..box_size]
+            .chunks_exact(4)
+            .any(|brand| brand == b"avif" || brand == b"avis")
 }
 
 #[cfg(test)]
@@ -115,6 +132,30 @@ mod tests {
         );
         assert_eq!(
             raster_image_content_type(b"<html>not an image</html>"),
+            None
+        );
+    }
+
+    #[test]
+    fn raster_image_sniffing_accepts_only_structural_avif_brands() {
+        assert_eq!(
+            raster_image_content_type(b"\x00\x00\x00\x18ftypavif\x00\x00\x00\x00mif1avif"),
+            Some("image/avif")
+        );
+        assert_eq!(
+            raster_image_content_type(b"\x00\x00\x00\x18ftypmif1\x00\x00\x00\x00mif1avis"),
+            Some("image/avif")
+        );
+        assert_eq!(
+            raster_image_content_type(b"\x00\x00\x00\x18ftypmif1\x00\x00\x00\x00mif1heic"),
+            None
+        );
+        assert_eq!(
+            raster_image_content_type(b"\x00\x00\x00\x7fftypavif\x00\x00\x00\x00"),
+            None
+        );
+        assert_eq!(
+            raster_image_content_type(b"\x00\x00\x00\x19ftypmif1\x00\x00\x00\x00mif1avifx"),
             None
         );
     }

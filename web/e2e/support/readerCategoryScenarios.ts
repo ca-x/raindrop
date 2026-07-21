@@ -18,9 +18,10 @@ export async function verifyWideCategoryWorkflow(
     .getByRole("button", { name: "Quiet Web", exact: true })
     .click()
   await expect(page).toHaveURL(`${baseURL}/reader/feed/${readerIds.feedA}`)
-  await page.getByRole("button", { name: "Manage categories" }).click()
-  const dialog = page.getByRole("dialog", { name: "Manage categories" })
+  await page.getByRole("button", { name: "Manage subscriptions" }).click()
+  const dialog = page.getByRole("dialog", { name: "Manage subscriptions" })
   await expect(dialog).toBeVisible()
+  await dialog.getByRole("button", { name: "Add category" }).click()
 
   await dialog.getByRole("textbox", { name: /^New category/u }).fill("Reading")
   await dialog.getByRole("button", { name: "Create category" }).click()
@@ -29,6 +30,7 @@ export async function verifyWideCategoryWorkflow(
   await dialog.getByRole("button", { name: "Save changes" }).click()
   await expect(dialog.getByRole("button", { name: /Research/u })).toBeVisible()
 
+  await dialog.getByRole("button", { name: "Subscriptions", exact: true }).click()
   const selector = dialog.getByRole("combobox", {
     name: /^Category for the current feed/u,
   })
@@ -43,7 +45,8 @@ export async function verifyWideCategoryWorkflow(
   await expect(readerRow(page, readerIds.firstEntry)).toBeVisible()
   await expect(readerRow(page, readerIds.seventhEntry)).toHaveCount(0)
 
-  await page.getByRole("button", { name: "Manage categories" }).click()
+  await page.getByRole("button", { name: "Manage subscriptions" }).click()
+  await dialog.getByRole("button", { name: "Add category" }).click()
   await dialog.getByRole("button", { name: /Research/u }).click()
   await dialog.getByRole("button", { name: "Delete category" }).click()
   const alert = page.getByRole("alertdialog", { name: "Delete this category?" })
@@ -71,13 +74,13 @@ export async function verifyWideCategoryWorkflow(
 export async function verifyMediumCategoryFocus(page: Page): Promise<void> {
   const sources = page.getByRole("dialog", { name: "Sources" })
   await page.getByRole("button", { name: "Open sources" }).click()
-  await sources.getByRole("button", { name: "Manage categories" }).click()
-  const categoryDialog = page.getByRole("dialog", { name: "Manage categories" })
-  await expect(categoryDialog).toBeVisible()
+  await sources.getByRole("button", { name: "Manage subscriptions" }).click()
+  const managementDialog = page.getByRole("dialog", { name: "Manage subscriptions" })
+  await expect(managementDialog).toBeVisible()
   await expect(sources).not.toBeVisible()
-  await categoryDialog.getByRole("button", { name: "Close" }).click()
+  await managementDialog.getByRole("button", { name: "Close" }).click()
   await expect(sources).toBeVisible()
-  await expect(sources.getByRole("button", { name: "Manage categories" })).toBeFocused()
+  await expect(sources.getByRole("button", { name: "Manage subscriptions" })).toBeFocused()
 }
 
 export async function verifyCompactCategoryRoute(
@@ -150,11 +153,11 @@ async function verifyCrossUserDenial(
 async function verifyCompactCategoryDialog(page: Page): Promise<void> {
   await page.getByRole("button", { name: "Open sources" }).click()
   const sources = page.getByRole("dialog", { name: "Sources" })
-  await sources.getByRole("button", { name: "Manage categories" }).click()
-  const dialog = page.getByRole("dialog", { name: "Manage categories" })
+  await sources.getByRole("button", { name: "Manage subscriptions" }).click()
+  const dialog = page.getByRole("dialog", { name: "Manage subscriptions" })
   await expectDialogContained(dialog, page)
   await expectNoHorizontalOverflow(page)
   await dialog.getByRole("button", { name: "Close" }).click()
   await expect(sources).toBeVisible()
-  await expect(sources.getByRole("button", { name: "Manage categories" })).toBeFocused()
+  await expect(sources.getByRole("button", { name: "Manage subscriptions" })).toBeFocused()
 }

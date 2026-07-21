@@ -9,7 +9,11 @@ import { AiReaderSidecar } from "../../ai/reader/AiReaderSidecar"
 import { useEntryAiController } from "../../ai/model/useEntryAiController"
 import type { ReaderState } from "../model/types"
 import type { UserPreferencesLinkOpenMode } from "../../preferences/api/preferences.generated"
-import { ArticleToolbar } from "./ReaderToolbar"
+import type {
+  UserFont,
+  UserPreferencesReadingFontFamily,
+} from "../../preferences/api/preferences.generated"
+import { ArticleToolbar, ReadingFloatingToolbar } from "./ReaderToolbar"
 
 interface ArticleReaderProps {
   state: ReaderState
@@ -26,8 +30,15 @@ interface ArticleReaderProps {
   aiOperations?: { summary: boolean; translation: boolean }
   linkOpenMode?: UserPreferencesLinkOpenMode
   readingFontScale?: number
+  readingFontFamily?: UserPreferencesReadingFontFamily
+  readingCustomFontId?: string | null
+  fonts?: UserFont[]
   isReadingPreferenceSaving?: boolean
   onReadingFontScaleChange?: (scale: number) => Promise<boolean>
+  onReadingFontChange?: (
+    family: UserPreferencesReadingFontFamily,
+    customFontId: string | null,
+  ) => Promise<boolean>
 }
 
 const ignoreUnauthenticated = () => {}
@@ -36,8 +47,10 @@ export function ArticleReader(props: ArticleReaderProps) {
   const { i18n } = useLingui()
   const linkOpenMode = props.linkOpenMode ?? "NEW_TAB"
   const readingFontScale = props.readingFontScale ?? 100
+  const readingFontFamily = props.readingFontFamily ?? "SERIF"
   const onReadingFontScaleChange =
     props.onReadingFontScaleChange ?? (async () => true)
+  const onReadingFontChange = props.onReadingFontChange ?? (async () => true)
   const articleRef = useRef<HTMLElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
   const headingRef = useRef<HTMLHeadingElement>(null)
@@ -54,10 +67,12 @@ export function ArticleReader(props: ArticleReaderProps) {
           detail.contentHtml,
           detail.inertImages,
           linkOpenMode,
+          i18n._("reader.imageUnavailable"),
         )
       : "",
-    [detail?.contentHtml, detail?.entryId, detail?.inertImages, linkOpenMode],
+    [detail?.contentHtml, detail?.entryId, detail?.inertImages, i18n.locale, linkOpenMode],
   )
+  const articleMarkup = useMemo(() => ({ __html: articleHtml }), [articleHtml])
   const aiController = useEntryAiController(
     detailMatchesRoute ? detail?.entryId ?? null : null,
     props.csrfToken ?? "",
@@ -76,7 +91,7 @@ export function ArticleReader(props: ArticleReaderProps) {
   useLayoutEffect(() => {
     if (!articleHtml || !bodyRef.current) return
     return enhanceArticleContent(bodyRef.current)
-  }, [articleHtml, detail?.entryId])
+  })
   if (props.state.selectedEntryId && props.state.paneStatus.detail === "error") {
     return (
       <Banner
@@ -113,9 +128,6 @@ export function ArticleReader(props: ArticleReaderProps) {
         isStarred={detail.isStarred}
         canonicalUrl={detail.canonicalUrl}
         linkOpenMode={linkOpenMode}
-        readingFontScale={readingFontScale}
-        isReadingPreferenceSaving={props.isReadingPreferenceSaving ?? false}
-        onReadingFontScaleChange={onReadingFontScaleChange}
         onToggleRead={() => props.onToggleRead(detail.entryId)}
         onToggleStar={() => props.onToggleStar(detail.entryId)}
         onOpenSummary={
@@ -151,18 +163,13 @@ export function ArticleReader(props: ArticleReaderProps) {
         ref={articleRef}
         className="reader-article"
         lang={i18n.locale}
-        onScroll={(event) => {
-          if (canBindArticle && props.entryRoute) {
-            props.onRecordScroll(props.entryRoute, event.currentTarget.scrollTop)
-          }
-        }}
       >
         <p className="reader-article-kicker">{detail.feedTitle}</p>
         <h1 ref={headingRef} tabIndex={-1}>{detail.title ?? i18n._("reader.untitled")}</h1>
         <div
           ref={bodyRef}
           className="reader-article-body"
-          dangerouslySetInnerHTML={{ __html: articleHtml }}
+          dangerouslySetInnerHTML={articleMarkup}
         />
         {safeHttpUrl(detail.canonicalUrl) ? (
           <a
@@ -180,6 +187,15 @@ export function ArticleReader(props: ArticleReaderProps) {
           </a>
         ) : null}
       </article>
+      <ReadingFloatingToolbar
+        readingFontScale={readingFontScale}
+        readingFontFamily={readingFontFamily}
+        readingCustomFontId={props.readingCustomFontId ?? null}
+        fonts={props.fonts ?? []}
+        isSaving={props.isReadingPreferenceSaving ?? false}
+        onScaleChange={onReadingFontScaleChange}
+        onFontChange={onReadingFontChange}
+      />
     </div>
   )
 }
@@ -195,6 +211,7 @@ function prepareArticleHtml(
     height: number | null
   }>,
   linkOpenMode: UserPreferencesLinkOpenMode,
+  imageUnavailableLabel: string,
 ): string {
   const template = document.createElement("template")
   template.innerHTML = contentHtml
@@ -210,6 +227,17 @@ function prepareArticleHtml(
     image.setAttribute("referrerpolicy", "no-referrer")
     image.dataset.raindropImageState = "loading"
     image.src = `/reader-assets/entries/${encodeURIComponent(entryId)}/images/${metadata.imageIndex}`
+    const frame = document.createElement("span")
+    frame.className = "reader-article-image-frame"
+    frame.dataset.raindropImageState = "loading"
+    frame.dataset.raindropImageLabel = imageUnavailableLabel
+    frame.setAttribute("role", "group")
+    if (metadata.width && metadata.height) {
+      frame.style.setProperty("--reader-image-aspect", `${metadata.width} / ${metadata.height}`)
+      frame.style.setProperty("--reader-image-width", `${metadata.width}px`)
+    }
+    image.before(frame)
+    frame.append(image)
   }
 
   for (const anchor of template.content.querySelectorAll<HTMLAnchorElement>("a[href]")) {
@@ -227,18 +255,29 @@ function prepareArticleHtml(
 function enhanceArticleContent(body: HTMLElement): () => void {
   const cleanups: Array<() => void> = []
   for (const image of body.querySelectorAll<HTMLImageElement>(
-    'img[data-raindrop-image-state="loading"]',
+    "img[data-raindrop-image-state]",
   )) {
+    const frame = image.closest<HTMLElement>(".reader-article-image-frame")
     const onLoad = () => {
       image.dataset.raindropImageState = "loaded"
+      if (frame) frame.dataset.raindropImageState = "loaded"
     }
     const onError = () => {
       image.removeAttribute("src")
       image.dataset.raindropImageState = "error"
+      image.hidden = true
+      if (frame) {
+        frame.dataset.raindropImageState = "error"
+        frame.setAttribute("role", "img")
+        frame.setAttribute(
+          "aria-label",
+          image.alt || frame.dataset.raindropImageLabel || "",
+        )
+      }
     }
     image.addEventListener("load", onLoad)
     image.addEventListener("error", onError)
-    if (image.complete) {
+    if (image.dataset.raindropImageState === "loading" && image.complete) {
       if (image.naturalWidth > 0) onLoad()
       else onError()
     }

@@ -37,10 +37,8 @@ it("disables redundant refresh while the selected feed is queued", () => {
           subscriptionOrder: [subscriptionId],
         }}
         onSelect={vi.fn()}
-        onAdd={vi.fn()}
         onManage={vi.fn()}
         onPreferences={vi.fn()}
-        onTransferSubscriptions={vi.fn()}
         onRefresh={vi.fn()}
         onLogout={vi.fn()}
         density="balanced"

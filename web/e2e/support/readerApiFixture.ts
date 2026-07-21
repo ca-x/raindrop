@@ -9,6 +9,7 @@ import type {
 } from "../../src/features/reader/api/reader.generated"
 import type {
   PatchUserPreferencesRequest,
+  UserFont,
   UserPreferences,
 } from "../../src/features/preferences/api/preferences.generated"
 import {
@@ -238,11 +239,68 @@ async function installPreferenceFixture(page: Page): Promise<ReaderPreferenceFix
     layoutDensity: "BALANCED",
     readingFontScale: 100,
     readingFontFamily: "SERIF",
+    readingCustomFontId: null,
     readingColorScheme: "AUTO",
     linkOpenMode: "NEW_TAB",
   }
   let shouldFailNextPatch = false
   const patches: PreferencePatchCall[] = []
+  const fonts: UserFont[] = []
+
+  await page.route(/\/api\/v2\/preferences\/fonts(?:\?.*)?$/u, async (route) => {
+    const request = route.request()
+    if (request.method() === "GET") {
+      await json(route, { items: fonts, maximumCount: 8, maximumBytes: 5_242_880 })
+      return
+    }
+    if (request.method() !== "POST") {
+      throw new Error(`unexpected Font request: ${request.method()}`)
+    }
+    const csrf = request.headers()["x-csrf-token"]
+    if (!csrf) throw new Error("font upload omitted CSRF")
+    const url = new URL(request.url())
+    const fontId = `00000000-0000-4000-8000-${String(700 + fonts.length).padStart(12, "0")}`
+    const font: UserFont = {
+      fontId,
+      displayName: url.searchParams.get("name") ?? "Custom font",
+      byteSize: request.postDataBuffer()?.byteLength ?? 0,
+      fileUrl: `/api/v2/preferences/fonts/${fontId}/file`,
+    }
+    fonts.push(font)
+    await json(route, font, 201)
+  })
+
+  await page.route(/\/api\/v2\/preferences\/fonts\/([0-9a-f-]{36})(?:\/file)?$/u, async (route) => {
+    const request = route.request()
+    const match = new URL(request.url()).pathname.match(
+      /\/api\/v2\/preferences\/fonts\/([0-9a-f-]{36})(\/file)?$/u,
+    )
+    const fontId = match?.[1]
+    if (!fontId) throw new Error("font fixture received an invalid identifier")
+    if (match?.[2]) {
+      await route.fulfill({
+        status: 200,
+        contentType: "font/woff2",
+        headers: { "cache-control": "private, max-age=31536000, immutable" },
+        body: "wOF2fixture-font",
+      })
+      return
+    }
+    if (request.method() !== "DELETE") {
+      throw new Error(`unexpected Font item request: ${request.method()}`)
+    }
+    if (!request.headers()["x-csrf-token"]) {
+      throw new Error("font deletion omitted CSRF")
+    }
+    const index = fonts.findIndex((font) => font.fontId === fontId)
+    if (index < 0) {
+      await json(route, { error: { code: "NOT_FOUND", message: "Not found" } }, 404)
+      return
+    }
+    fonts.splice(index, 1)
+    if (current.readingCustomFontId === fontId) current = { ...current, readingCustomFontId: null }
+    await route.fulfill({ status: 204 })
+  })
 
   await page.route("**/api/v2/preferences", async (route) => {
     const request = route.request()

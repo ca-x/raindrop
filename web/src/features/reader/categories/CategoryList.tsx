@@ -28,7 +28,7 @@ export function CategoryList({ state, onSelect, density, query = "" }: CategoryL
     ["STARRED", "reader.starred"],
   ].map(([stateName, label]) => ({
     id: `smart:${stateName}`,
-    label: i18n._(label),
+    label: <span className="reader-source-label">{i18n._(label)}</span>,
     isSelected:
       state.selectedSource.kind === "smart" &&
       state.selectedSource.state === stateName,
@@ -44,7 +44,7 @@ export function CategoryList({ state, onSelect, density, query = "" }: CategoryL
   const categoryItems = groups.categorized.map(
     (group): TreeListItemData => ({
       id: `category:${group.category!.categoryId}`,
-      label: group.category!.title,
+      label: <span className="reader-source-label">{group.category!.title}</span>,
       isSelected:
         state.selectedSource.kind === "category" &&
         state.selectedSource.categoryId === group.category!.categoryId,
@@ -62,7 +62,7 @@ export function CategoryList({ state, onSelect, density, query = "" }: CategoryL
   )
   const uncategorized: TreeListItemData = {
     id: "uncategorized",
-    label: i18n._("reader.uncategorized"),
+    label: <span className="reader-source-label">{i18n._("reader.uncategorized")}</span>,
     isExpanded: true,
     startContent: (
       <span className="reader-smart-source-icon" aria-hidden="true">
@@ -98,7 +98,7 @@ function feedItems(
     const status = refreshPresentation(subscription.refresh)
     return {
       id: `feed:${subscription.feedId}`,
-      label: subscription.title,
+      label: <span className="reader-source-label">{subscription.title}</span>,
       isSelected:
         state.selectedSource.kind === "feed" &&
         state.selectedSource.feedId === subscription.feedId,
@@ -129,7 +129,7 @@ function filterGroups(
     const subscriptions = categoryMatches
       ? group.subscriptions
       : group.subscriptions.filter((subscription) =>
-          [subscription.title, subscription.siteUrl]
+          [subscription.title, subscription.feedUrl, subscription.siteUrl]
             .filter(Boolean)
             .some((value) => value!.toLocaleLowerCase().includes(normalized)),
         )

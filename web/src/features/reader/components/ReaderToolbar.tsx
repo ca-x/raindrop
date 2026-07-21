@@ -10,30 +10,26 @@ import { useLingui } from "@lingui/react"
 import type { Ref } from "react"
 
 import { BrandMark } from "../../../shared/brand/BrandMark"
-import type { UserPreferencesLinkOpenMode } from "../../preferences/api/preferences.generated"
+import type {
+  UserFont,
+  UserPreferencesLinkOpenMode,
+  UserPreferencesReadingFontFamily,
+} from "../../preferences/api/preferences.generated"
 
 interface SourceToolbarProps {
-  onAdd: () => void
   onManage: () => void
-  onManageSubscription?: () => void
   onPreferences: () => void
-  onTransferSubscriptions: () => void
   onLogout: () => Promise<void>
   manageButtonRef?: Ref<HTMLButtonElement>
-  manageSubscriptionButtonRef?: Ref<HTMLButtonElement>
   preferencesButtonRef?: Ref<HTMLButtonElement>
   refresh?: { label: string; onRefresh: () => Promise<void>; isDisabled: boolean }
 }
 
 export function SourceToolbar({
-  onAdd,
   onManage,
-  onManageSubscription,
   onPreferences,
-  onTransferSubscriptions,
   onLogout,
   manageButtonRef,
-  manageSubscriptionButtonRef,
   preferencesButtonRef,
   refresh,
 }: SourceToolbarProps) {
@@ -47,12 +43,11 @@ export function SourceToolbar({
       endContent={
         <>
           <Button
-            label={i18n._("reader.addSubscription")}
+            ref={manageButtonRef}
+            label={i18n._("reader.manageSubscriptions")}
             icon={<PlusIcon />}
-            isIconOnly
-            tooltip={i18n._("reader.addSubscription")}
-            onClick={onAdd}
-            variant="ghost"
+            onClick={onManage}
+            variant="secondary"
           />
           {refresh ? (
             <Button
@@ -65,33 +60,12 @@ export function SourceToolbar({
               variant="ghost"
             />
           ) : null}
-          {onManageSubscription ? (
-            <Button
-              ref={manageSubscriptionButtonRef}
-              label={i18n._("reader.manageFeed")}
-              icon={<FeedSettingsIcon />}
-              isIconOnly
-              tooltip={i18n._("reader.manageFeed")}
-              onClick={onManageSubscription}
-              variant="ghost"
-            />
-          ) : null}
-          <Button
-            ref={manageButtonRef}
-            label={i18n._("reader.manageCategories")}
-            icon={<Icon icon="wrench" />}
-            isIconOnly
-            tooltip={i18n._("reader.manageCategories")}
-            onClick={onManage}
-            variant="ghost"
-          />
           <MoreMenu
             ref={preferencesButtonRef}
             label={i18n._("common.menu")}
             size="lg"
             items={[
               { label: i18n._("preferences.open"), onClick: onPreferences },
-              { label: i18n._("opml.open"), onClick: onTransferSubscriptions },
               { type: "divider" },
               { label: i18n._("common.logout"), onClick: () => void onLogout() },
             ]}
@@ -143,9 +117,6 @@ interface ArticleToolbarProps {
   isStarred: boolean
   canonicalUrl: string | null
   linkOpenMode: UserPreferencesLinkOpenMode
-  readingFontScale: number
-  isReadingPreferenceSaving: boolean
-  onReadingFontScaleChange: (scale: number) => Promise<boolean>
   onToggleRead: () => Promise<void>
   onToggleStar: () => Promise<void>
   onOpenSummary?: () => void
@@ -156,9 +127,6 @@ interface ArticleToolbarProps {
 
 export function ArticleToolbar(props: ArticleToolbarProps) {
   const { i18n } = useLingui()
-  const updateScale = (scale: number) => {
-    void props.onReadingFontScaleChange(Math.max(85, Math.min(130, scale)))
-  }
   return (
     <Toolbar
       className="reader-article-toolbar"
@@ -183,41 +151,6 @@ export function ArticleToolbar(props: ArticleToolbarProps) {
               variant="secondary"
             />
           ) : null}
-          <span
-            className="reader-reading-controls"
-            role="group"
-            aria-label={i18n._("reader.readingSizeControls")}
-          >
-            <Button
-              label={i18n._("reader.decreaseReadingSize")}
-              icon={<span aria-hidden="true">A−</span>}
-              isIconOnly
-              tooltip={i18n._("reader.decreaseReadingSize")}
-              onClick={() => updateScale(props.readingFontScale - 5)}
-              isDisabled={props.isReadingPreferenceSaving || props.readingFontScale <= 85}
-              variant="ghost"
-            />
-            <Button
-              label={i18n._("reader.resetReadingSize", { scale: props.readingFontScale })}
-              tooltip={i18n._("reader.resetReadingSize", { scale: props.readingFontScale })}
-              onClick={() => updateScale(100)}
-              isDisabled={
-                props.isReadingPreferenceSaving || props.readingFontScale === 100
-              }
-              variant="ghost"
-            >
-              {props.readingFontScale}%
-            </Button>
-            <Button
-              label={i18n._("reader.increaseReadingSize")}
-              icon={<span aria-hidden="true">A＋</span>}
-              isIconOnly
-              tooltip={i18n._("reader.increaseReadingSize")}
-              onClick={() => updateScale(props.readingFontScale + 5)}
-              isDisabled={props.isReadingPreferenceSaving || props.readingFontScale >= 130}
-              variant="ghost"
-            />
-          </span>
           <span className="reader-toolbar-shortcut">
             <ToggleButton
               label={i18n._(props.isRead ? "reader.markUnread" : "reader.markRead")}
@@ -263,6 +196,90 @@ export function ArticleToolbar(props: ArticleToolbarProps) {
   )
 }
 
+interface ReadingFloatingToolbarProps {
+  readingFontScale: number
+  readingFontFamily: UserPreferencesReadingFontFamily
+  readingCustomFontId: string | null
+  fonts: UserFont[]
+  isSaving: boolean
+  onScaleChange: (scale: number) => Promise<boolean>
+  onFontChange: (
+    family: UserPreferencesReadingFontFamily,
+    customFontId: string | null,
+  ) => Promise<boolean>
+}
+
+export function ReadingFloatingToolbar(props: ReadingFloatingToolbarProps) {
+  const { i18n } = useLingui()
+  const updateScale = (scale: number) => {
+    void props.onScaleChange(Math.max(85, Math.min(130, scale)))
+  }
+  const value = props.readingCustomFontId
+    ? `custom:${props.readingCustomFontId}`
+    : props.readingFontFamily
+  return (
+    <div
+      className="reader-reading-float"
+      role="toolbar"
+      aria-label={i18n._("reader.readingDisplayControls")}
+    >
+      <label className="reader-floating-font-control">
+        <span aria-hidden="true">Aa</span>
+        <span className="reader-visually-hidden">{i18n._("preferences.readingFont")}</span>
+        <select
+          aria-label={i18n._("preferences.readingFont")}
+          value={value}
+          disabled={props.isSaving}
+          onChange={(event) => {
+            const next = event.currentTarget.value
+            if (next.startsWith("custom:")) {
+              void props.onFontChange(props.readingFontFamily, next.slice("custom:".length))
+            } else {
+              void props.onFontChange(next as UserPreferencesReadingFontFamily, null)
+            }
+          }}
+        >
+          <option value="SERIF">{i18n._("preferences.fontSerif")}</option>
+          <option value="SANS">{i18n._("preferences.fontSans")}</option>
+          {props.fonts.map((font) => (
+            <option key={font.fontId} value={`custom:${font.fontId}`}>
+              {font.displayName}
+            </option>
+          ))}
+        </select>
+      </label>
+      <span className="reader-floating-divider" aria-hidden="true" />
+      <Button
+        label={i18n._("reader.decreaseReadingSize")}
+        icon={<span aria-hidden="true">A−</span>}
+        isIconOnly
+        tooltip={i18n._("reader.decreaseReadingSize")}
+        onClick={() => updateScale(props.readingFontScale - 5)}
+        isDisabled={props.isSaving || props.readingFontScale <= 85}
+        variant="ghost"
+      />
+      <Button
+        label={i18n._("reader.resetReadingSize", { scale: props.readingFontScale })}
+        tooltip={i18n._("reader.resetReadingSize", { scale: props.readingFontScale })}
+        onClick={() => updateScale(100)}
+        isDisabled={props.isSaving || props.readingFontScale === 100}
+        variant="ghost"
+      >
+        {props.readingFontScale}%
+      </Button>
+      <Button
+        label={i18n._("reader.increaseReadingSize")}
+        icon={<span aria-hidden="true">A＋</span>}
+        isIconOnly
+        tooltip={i18n._("reader.increaseReadingSize")}
+        onClick={() => updateScale(props.readingFontScale + 5)}
+        isDisabled={props.isSaving || props.readingFontScale >= 130}
+        variant="ghost"
+      />
+    </div>
+  )
+}
+
 function RefreshIcon() {
   return (
     <svg
@@ -296,28 +313,6 @@ function PlusIcon() {
     >
       <path d="M12 5v14" />
       <path d="M5 12h14" />
-    </svg>
-  )
-}
-
-function FeedSettingsIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      width="1em"
-      height="1em"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <circle cx="6" cy="18" r="1" fill="currentColor" stroke="none" />
-      <path d="M5 11a8 8 0 0 1 8 8" />
-      <path d="M5 5a14 14 0 0 1 14 14" />
-      <path d="M17 4v4" />
-      <path d="M15 6h4" />
     </svg>
   )
 }

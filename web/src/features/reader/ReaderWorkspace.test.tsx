@@ -57,6 +57,7 @@ describe("Reader workspace", () => {
           titleOverride: null,
           position: 0,
           title: "Planet Rust",
+          feedUrl: "https://planet-rust.example/feed.xml",
           siteUrl: "https://planet-rust.example",
           unreadCount: 7,
           refresh: null,
@@ -146,6 +147,7 @@ describe("Reader workspace", () => {
           titleOverride: null,
           position: 0,
           title: "Planet Rust",
+          feedUrl: "https://planet-rust.example/feed.xml",
           siteUrl: null,
           unreadCount: 7,
           refresh: null,
@@ -181,6 +183,7 @@ describe("Reader workspace", () => {
           titleOverride: null,
           position: 0,
           title: "Planet Rust",
+          feedUrl: "https://planet-rust.example/feed.xml",
           siteUrl: "https://planet-rust.example",
           unreadCount: 7,
           refresh: null,
@@ -202,11 +205,15 @@ describe("Reader workspace", () => {
       </Providers>,
     )
 
-    await user.click(screen.getByRole("button", { name: "Manage current feed" }))
+    await user.click(screen.getByRole("button", { name: "Manage subscriptions" }))
     expect(
-      screen.getByRole("dialog", { name: "Manage current feed" }),
+      screen.getByRole("dialog", { name: "Manage subscriptions" }),
     ).toBeVisible()
-    expect(screen.getByRole("link", { name: "Open site" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "https://planet-rust.example/feed.xml" })).toHaveAttribute(
+      "href",
+      "https://planet-rust.example/feed.xml",
+    )
+    expect(screen.getByRole("link", { name: "https://planet-rust.example" })).toHaveAttribute(
       "href",
       "https://planet-rust.example",
     )
@@ -260,7 +267,7 @@ describe("Reader workspace", () => {
     await waitFor(() => expect(window.location.pathname).toBe("/reader/unread"))
   })
 
-  it("returns focus to the category trigger after the desktop dialog closes", async () => {
+  it("returns focus to the management trigger after the desktop dialog closes", async () => {
     activateLocale("en")
     const user = userEvent.setup()
     window.history.replaceState(null, "", "/reader/unread")
@@ -275,9 +282,9 @@ describe("Reader workspace", () => {
       </Providers>,
     )
 
-    const trigger = await screen.findByRole("button", { name: "Manage categories" })
+    const trigger = await screen.findByRole("button", { name: "Manage subscriptions" })
     await user.click(trigger)
-    const dialog = await screen.findByRole("dialog", { name: "Manage categories" })
+    const dialog = await screen.findByRole("dialog", { name: "Manage subscriptions" })
     await user.click(within(dialog).getByRole("button", { name: "Close" }))
     await waitFor(() => expect(trigger).toHaveFocus())
   })
@@ -343,6 +350,7 @@ describe("Reader workspace", () => {
               layoutDensity: "SPACIOUS",
               readingFontScale: 100,
               readingFontFamily: "SERIF",
+              readingCustomFontId: null,
               readingColorScheme: "AUTO",
               linkOpenMode: "NEW_TAB",
             },
@@ -368,7 +376,7 @@ describe("Reader workspace", () => {
     )
   })
 
-  it("reopens mobile sources and restores focus after category management", async () => {
+  it("reopens mobile sources and restores focus after subscription management", async () => {
     activateLocale("en")
     const user = userEvent.setup()
     window.history.replaceState(null, "", "/reader/unread")
@@ -385,15 +393,15 @@ describe("Reader workspace", () => {
 
     await user.click(await screen.findByRole("button", { name: "Open sources" }))
     const sources = await screen.findByRole("dialog", { name: "Sources" })
-    await user.click(within(sources).getByRole("button", { name: "Manage categories" }))
-    const categoryDialog = await screen.findByRole("dialog", {
-      name: "Manage categories",
+    await user.click(within(sources).getByRole("button", { name: "Manage subscriptions" }))
+    const managementDialog = await screen.findByRole("dialog", {
+      name: "Manage subscriptions",
     })
-    await user.click(within(categoryDialog).getByRole("button", { name: "Close" }))
+    await user.click(within(managementDialog).getByRole("button", { name: "Close" }))
 
     const reopenedSources = await screen.findByRole("dialog", { name: "Sources" })
     const restoredTrigger = within(reopenedSources).getByRole("button", {
-      name: "Manage categories",
+      name: "Manage subscriptions",
     })
     await waitFor(() => expect(restoredTrigger).toHaveFocus())
   })
@@ -453,7 +461,8 @@ describe("Reader workspace", () => {
       </Providers>,
     )
 
-    await user.click(await screen.findByRole("button", { name: "Manage categories" }))
+    await user.click(await screen.findByRole("button", { name: "Manage subscriptions" }))
+    await user.click(screen.getByRole("button", { name: "Add category" }))
     await user.click(screen.getByRole("button", { name: "Delete category" }))
     const alert = await screen.findByRole("alertdialog", {
       name: "Delete this category?",

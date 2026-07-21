@@ -2,11 +2,16 @@ import { useCallback, useRef, useState } from "react"
 
 import { ApiClientError } from "../../../shared/api/client"
 import {
+  deleteUserFont,
   getPreferences,
+  listUserFonts,
   patchPreferences,
+  uploadUserFont,
 } from "../api/preferences"
 import type {
   PatchUserPreferencesRequest,
+  UserFont,
+  UserFontList,
   UserPreferences,
 } from "../api/preferences.generated"
 import { usePreferenceRuntime } from "./PreferenceRuntime"
@@ -18,6 +23,9 @@ export interface PreferencesApi {
     patch: PatchUserPreferencesRequest,
     signal?: AbortSignal,
   ) => Promise<UserPreferences>
+  listUserFonts: (signal?: AbortSignal) => Promise<UserFontList>
+  uploadUserFont: (file: File, csrfToken: string, signal?: AbortSignal) => Promise<UserFont>
+  deleteUserFont: (fontId: string, csrfToken: string, signal?: AbortSignal) => Promise<void>
 }
 
 export type PreferencesControllerError = "LOAD" | "SAVE"
@@ -29,9 +37,14 @@ export interface PreferencesController {
   loadStatus: PreferencesLoadStatus
   error: PreferencesControllerError | null
   isSaving: boolean
+  fonts: UserFont[]
+  fontLimits: { maximumCount: number; maximumBytes: number }
+  isFontMutating: boolean
   load: () => Promise<void>
   cancelLoad: () => void
   save: (draft: UserPreferences) => Promise<boolean>
+  uploadFont: (file: File) => Promise<boolean>
+  deleteFont: (fontId: string) => Promise<boolean>
   clearError: () => void
   clearHint: () => void
 }
@@ -42,7 +55,13 @@ interface UsePreferencesControllerOptions {
   api?: PreferencesApi
 }
 
-const defaultApi: PreferencesApi = { getPreferences, patchPreferences }
+const defaultApi: PreferencesApi = {
+  getPreferences,
+  patchPreferences,
+  listUserFonts,
+  uploadUserFont,
+  deleteUserFont,
+}
 
 export function usePreferencesController({
   csrfToken,
@@ -53,6 +72,9 @@ export function usePreferencesController({
   const [loadStatus, setLoadStatus] = useState<PreferencesLoadStatus>("idle")
   const [error, setError] = useState<PreferencesControllerError | null>(null)
   const [isSaving, setIsSaving] = useState(false)
+  const [fonts, setFonts] = useState<UserFont[]>([])
+  const [fontLimits, setFontLimits] = useState({ maximumCount: 8, maximumBytes: 5 * 1024 * 1024 })
+  const [isFontMutating, setIsFontMutating] = useState(false)
   const isSavingRef = useRef(false)
   const loadGeneration = useRef(0)
   const loadAbort = useRef<AbortController | null>(null)
@@ -70,9 +92,17 @@ export function usePreferencesController({
     setLoadStatus("loading")
     setError(null)
     try {
-      const preferences = await api.getPreferences(abort.signal)
+      const [preferences, fontList] = await Promise.all([
+        api.getPreferences(abort.signal),
+        api.listUserFonts(abort.signal),
+      ])
       if (generation !== loadGeneration.current) return
       runtime.apply(preferences)
+      setFonts(fontList.items)
+      setFontLimits({
+        maximumCount: fontList.maximumCount,
+        maximumBytes: fontList.maximumBytes,
+      })
       setLoadStatus("ready")
     } catch (cause) {
       if (generation !== loadGeneration.current || isAbortError(cause)) return
@@ -128,15 +158,57 @@ export function usePreferencesController({
     [api, csrfToken, endSession, runtime.apply, runtime.preferences],
   )
 
+  const uploadFont = useCallback(async (file: File) => {
+    if (isFontMutating) return false
+    setIsFontMutating(true)
+    setError(null)
+    try {
+      const font = await api.uploadUserFont(file, csrfToken)
+      setFonts((current) => [...current, font])
+      return true
+    } catch (cause) {
+      if (isAuthenticationError(cause)) endSession()
+      else setError("SAVE")
+      return false
+    } finally {
+      setIsFontMutating(false)
+    }
+  }, [api, csrfToken, endSession, isFontMutating])
+
+  const deleteFont = useCallback(async (fontId: string) => {
+    if (isFontMutating) return false
+    setIsFontMutating(true)
+    setError(null)
+    try {
+      await api.deleteUserFont(fontId, csrfToken)
+      setFonts((current) => current.filter((font) => font.fontId !== fontId))
+      if (runtime.preferences.readingCustomFontId === fontId) {
+        runtime.apply({ ...runtime.preferences, readingCustomFontId: null })
+      }
+      return true
+    } catch (cause) {
+      if (isAuthenticationError(cause)) endSession()
+      else setError("SAVE")
+      return false
+    } finally {
+      setIsFontMutating(false)
+    }
+  }, [api, csrfToken, endSession, isFontMutating, runtime])
+
   return {
     csrfToken,
     preferences: runtime.preferences,
     loadStatus,
     error,
     isSaving,
+    fonts,
+    fontLimits,
+    isFontMutating,
     load,
     cancelLoad,
     save,
+    uploadFont,
+    deleteFont,
     clearError: useCallback(() => setError(null), []),
     clearHint: runtime.clearHint,
   }
@@ -157,6 +229,9 @@ function preferencePatch(
   }
   if (current.readingFontFamily !== draft.readingFontFamily) {
     patch.readingFontFamily = draft.readingFontFamily
+  }
+  if (current.readingCustomFontId !== draft.readingCustomFontId) {
+    patch.readingCustomFontId = draft.readingCustomFontId
   }
   if (current.readingColorScheme !== draft.readingColorScheme) {
     patch.readingColorScheme = draft.readingColorScheme

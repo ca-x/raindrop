@@ -20,6 +20,7 @@ export function makeSubscription(
     titleOverride: null,
     position: 0,
     title: "Example Feed",
+    feedUrl: "https://example.com/feed.xml",
     siteUrl: "https://example.com/",
     unreadCount: 3,
     refresh: null,

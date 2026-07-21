@@ -15,13 +15,13 @@ import "./reader.css"
 describe("Reader article workspace", () => {
   afterEach(() => vi.unstubAllGlobals())
 
-  it("restores sanitized publisher images and hides a failed image", async () => {
+  it("restores sanitized publisher images and preserves a failed image frame", async () => {
     activateLocale("en")
     const user = userEvent.setup()
     const controller = articleController()
     window.history.replaceState(null, "", "/reader/unread/entry/entry")
 
-    render(
+    const view = render(
       <Providers>
         <ReaderRoutes controller={controller} username="reader" onLogout={vi.fn()} viewportMode="compact" />
       </Providers>,
@@ -30,6 +30,7 @@ describe("Reader article workspace", () => {
     expect(screen.getByRole("heading", { name: "Reading without trackers" })).toBeVisible()
     expect(screen.getByText("Safe original article.")) .toBeVisible()
     const image = document.querySelector<HTMLImageElement>(".reader-article img")!
+    const frame = document.querySelector<HTMLElement>(".reader-article-image-frame")!
     expect(image).toHaveAttribute("src", "/reader-assets/entries/entry/images/0")
     expect(image).toHaveAttribute("loading", "lazy")
     expect(image).toHaveAttribute("decoding", "async")
@@ -37,16 +38,34 @@ describe("Reader article workspace", () => {
     expect(document.body).not.toHaveTextContent("publisher.example/tracker.gif")
     fireEvent.load(image)
     expect(image).toHaveAttribute("data-raindrop-image-state", "loaded")
+    expect(frame).toHaveAttribute("data-raindrop-image-state", "loaded")
+    controller.state = {
+      ...controller.state,
+      scrollAnchorByRoute: { "/reader/unread/entry/entry": 180 },
+    }
+    view.rerender(
+      <Providers>
+        <ReaderRoutes controller={controller} username="reader" onLogout={vi.fn()} viewportMode="compact" />
+      </Providers>,
+    )
+    expect(document.querySelector(".reader-article img")).toBe(image)
+    expect(document.querySelector(".reader-article-image-frame")).toBe(frame)
+    expect(image).toHaveAttribute("data-raindrop-image-state", "loaded")
+    expect(frame).toHaveAttribute("data-raindrop-image-state", "loaded")
     fireEvent.error(image)
     expect(image).not.toHaveAttribute("src")
     expect(image).toHaveAttribute("data-raindrop-image-state", "error")
+    expect(image).toHaveAttribute("hidden")
+    expect(frame).toHaveAttribute("data-raindrop-image-state", "error")
+    expect(frame).toHaveAttribute("role", "img")
+    expect(frame).toHaveAttribute("aria-label", "Rain")
     const navigation = screen.getByRole("toolbar", { name: "Article navigation" })
     expect(navigation.closest(".reader-compact-navigation")).toBeInTheDocument()
     const resetSize = screen.getByRole("button", {
       name: "Reset text size, currently 100%",
     })
     expect(resetSize).toHaveTextContent("100%")
-    expect(resetSize.closest(".reader-article-toolbar")).toBeInTheDocument()
+    expect(resetSize.closest(".reader-reading-float")).toBeInTheDocument()
 
     const original = screen
       .getAllByRole("link", { name: "Open original article" })

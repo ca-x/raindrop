@@ -37,6 +37,7 @@ export interface Subscription {
   titleOverride: string | null
   position: number
   title: string
+  feedUrl: string
   siteUrl: string | null
   unreadCount: number
   refresh: Refresh | null
@@ -138,7 +139,7 @@ export function isCreateSubscriptionResponse(value: unknown): value is CreateSub
 }
 
 export function isSubscription(value: unknown): value is Subscription {
-  return ((isRecord(value) && hasOnlyKeys(value, ["subscriptionId","feedId","categoryId","titleOverride","position","title","siteUrl","unreadCount","refresh"]) && hasOwn(value, "subscriptionId") && ((typeof value["subscriptionId"] === "string" && isUuid(value["subscriptionId"]))) && hasOwn(value, "feedId") && ((typeof value["feedId"] === "string" && isUuid(value["feedId"]))) && hasOwn(value, "categoryId") && ((typeof value["categoryId"] === "string" && isUuid(value["categoryId"])) || value["categoryId"] === null) && hasOwn(value, "titleOverride") && ((typeof value["titleOverride"] === "string" && value["titleOverride"].length <= 200) || value["titleOverride"] === null) && hasOwn(value, "position") && ((typeof value["position"] === "number" && Number.isFinite(value["position"]) && Number.isInteger(value["position"]) && value["position"] >= 0)) && hasOwn(value, "title") && ((typeof value["title"] === "string")) && hasOwn(value, "siteUrl") && ((typeof value["siteUrl"] === "string" && isUri(value["siteUrl"])) || value["siteUrl"] === null) && hasOwn(value, "unreadCount") && ((typeof value["unreadCount"] === "number" && Number.isFinite(value["unreadCount"]) && Number.isInteger(value["unreadCount"]) && value["unreadCount"] >= 0)) && hasOwn(value, "refresh") && (isRefresh(value["refresh"]) || (value["refresh"] === null))))
+  return ((isRecord(value) && hasOnlyKeys(value, ["subscriptionId","feedId","categoryId","titleOverride","position","title","feedUrl","siteUrl","unreadCount","refresh"]) && hasOwn(value, "subscriptionId") && ((typeof value["subscriptionId"] === "string" && isUuid(value["subscriptionId"]))) && hasOwn(value, "feedId") && ((typeof value["feedId"] === "string" && isUuid(value["feedId"]))) && hasOwn(value, "categoryId") && ((typeof value["categoryId"] === "string" && isUuid(value["categoryId"])) || value["categoryId"] === null) && hasOwn(value, "titleOverride") && ((typeof value["titleOverride"] === "string" && value["titleOverride"].length <= 200) || value["titleOverride"] === null) && hasOwn(value, "position") && ((typeof value["position"] === "number" && Number.isFinite(value["position"]) && Number.isInteger(value["position"]) && value["position"] >= 0)) && hasOwn(value, "title") && ((typeof value["title"] === "string")) && hasOwn(value, "feedUrl") && ((typeof value["feedUrl"] === "string" && isUri(value["feedUrl"]))) && hasOwn(value, "siteUrl") && ((typeof value["siteUrl"] === "string" && isUri(value["siteUrl"])) || value["siteUrl"] === null) && hasOwn(value, "unreadCount") && ((typeof value["unreadCount"] === "number" && Number.isFinite(value["unreadCount"]) && Number.isInteger(value["unreadCount"]) && value["unreadCount"] >= 0)) && hasOwn(value, "refresh") && (isRefresh(value["refresh"]) || (value["refresh"] === null))))
 }
 
 export function isRefresh(value: unknown): value is Refresh {

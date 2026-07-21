@@ -82,7 +82,7 @@ it("expires once and quarantines concurrent 401 and ignored-abort completions", 
 
   let reload!: Promise<void>
   let mutation!: Promise<void>
-  let create!: Promise<void>
+  let create!: Promise<CreateSubscriptionResponse | null>
   act(() => {
     reload = result.current.reloadEntries()
     mutation = result.current.toggleRead(entryId)

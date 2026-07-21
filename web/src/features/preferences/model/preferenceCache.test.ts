@@ -14,6 +14,7 @@ const preferences: UserPreferences = {
   layoutDensity: "COMPACT",
   readingFontScale: 110,
   readingFontFamily: "SANS",
+  readingCustomFontId: null,
   readingColorScheme: "SEPIA",
   linkOpenMode: "CURRENT_TAB",
 }
@@ -25,7 +26,7 @@ describe("preference presentation hint", () => {
     writePreferenceHint(preferences)
 
     expect(JSON.parse(localStorage.getItem(PREFERENCE_HINT_KEY) ?? "null")).toEqual({
-      schemaVersion: 2,
+      schemaVersion: 3,
       preferences,
     })
     expect(readPreferenceHint()).toEqual(preferences)
@@ -36,7 +37,7 @@ describe("preference presentation hint", () => {
     ["invalid JSON", "{"],
     ["array", JSON.stringify([])],
     ["missing version", JSON.stringify({ preferences })],
-    ["wrong version", JSON.stringify({ schemaVersion: 3, preferences })],
+    ["wrong version", JSON.stringify({ schemaVersion: 4, preferences })],
     [
       "unknown top-level field",
       JSON.stringify({ schemaVersion: 2, preferences, csrfToken: "must-not-persist" }),
@@ -93,11 +94,12 @@ describe("preference presentation hint", () => {
       layoutDensity: "COMPACT",
       readingFontScale: 110,
       readingFontFamily: "SERIF",
+      readingCustomFontId: null,
       readingColorScheme: "AUTO",
       linkOpenMode: "NEW_TAB",
     })
     expect(JSON.parse(localStorage.getItem(PREFERENCE_HINT_KEY) ?? "null")).toEqual({
-      schemaVersion: 2,
+      schemaVersion: 3,
       preferences: expect.objectContaining({ readingFontFamily: "SERIF" }),
     })
   })

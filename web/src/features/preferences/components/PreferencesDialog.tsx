@@ -5,11 +5,10 @@ import { Tab, TabList } from "@astryxdesign/core/TabList"
 import { useLingui } from "@lingui/react"
 import { useEffect, useRef, useState, type FormEvent } from "react"
 
-import type { UserPreferences } from "../api/preferences.generated"
+import type { UserFont, UserPreferences } from "../api/preferences.generated"
 import type { PreferencesControllerError } from "../model/usePreferencesController"
 import { AiSettingsPanel } from "../../ai/settings/AiSettingsPanel"
 import type { AiSettingsController } from "../../ai/model/useAiSettingsController"
-import { OpmlTransferPanel } from "../../opml/components/OpmlTransferPanel"
 import {
   PersonalPreferencesForm,
   ReadingPreferencesForm,
@@ -20,17 +19,20 @@ interface PreferencesDialogProps {
   initialTab?: PreferencesTab
   account?: { username: string; email: string | null }
   preferences: UserPreferences
+  fonts: UserFont[]
+  fontLimits: { maximumCount: number; maximumBytes: number }
   isSaving: boolean
+  isFontMutating: boolean
   error: PreferencesControllerError | null
   aiController?: AiSettingsController
-  csrfToken: string
   onOpenChange: (isOpen: boolean) => void
   onClearError: () => void
   onSave: (draft: UserPreferences) => Promise<boolean>
-  onSubscriptionsChanged: () => Promise<void> | void
+  onUploadFont: (file: File) => Promise<boolean>
+  onDeleteFont: (fontId: string) => Promise<boolean>
 }
 
-export type PreferencesTab = "personal" | "reading" | "plugins" | "subscriptions"
+export type PreferencesTab = "personal" | "reading" | "plugins"
 
 export function PreferencesDialog(props: PreferencesDialogProps) {
   const { i18n } = useLingui()
@@ -61,6 +63,17 @@ export function PreferencesDialog(props: PreferencesDialogProps) {
   const update = (patch: Partial<UserPreferences>) => {
     setDraft((current) => ({ ...current, ...patch }))
     props.onClearError()
+  }
+  const deleteFont = async (fontId: string) => {
+    const deleted = await props.onDeleteFont(fontId)
+    if (deleted) {
+      setDraft((current) =>
+        current.readingCustomFontId === fontId
+          ? { ...current, readingCustomFontId: null }
+          : current,
+      )
+    }
+    return deleted
   }
   return (
     <Dialog
@@ -99,10 +112,6 @@ export function PreferencesDialog(props: PreferencesDialogProps) {
                 {props.aiController ? (
                   <Tab value="plugins" label={i18n._("preferences.tabPlugins")} />
                 ) : null}
-                <Tab
-                  value="subscriptions"
-                  label={i18n._("preferences.tabSubscriptions")}
-                />
               </TabList>
             </div>
             <div className="reader-preferences-panel">
@@ -120,19 +129,17 @@ export function PreferencesDialog(props: PreferencesDialogProps) {
                   value={draft}
                   isSaving={props.isSaving}
                   error={props.error}
+                  fonts={props.fonts}
+                  fontLimits={props.fontLimits}
+                  isFontMutating={props.isFontMutating}
+                  onUploadFont={props.onUploadFont}
+                  onDeleteFont={deleteFont}
                   onChange={update}
                   onSubmit={submit}
                 />
-              ) : activeTab === "plugins" && props.aiController ? (
-                <div role="tabpanel" aria-label={i18n._("preferences.tabPlugins")}>
-                  <AiSettingsPanel controller={props.aiController} />
-                </div>
               ) : (
-                <div role="tabpanel" aria-label={i18n._("preferences.tabSubscriptions")}>
-                  <OpmlTransferPanel
-                    csrfToken={props.csrfToken}
-                    onImported={props.onSubscriptionsChanged}
-                  />
+                <div role="tabpanel" aria-label={i18n._("preferences.tabPlugins")}>
+                  {props.aiController ? <AiSettingsPanel controller={props.aiController} /> : null}
                 </div>
               )}
             </div>

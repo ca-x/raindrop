@@ -2,7 +2,12 @@ import { act, renderHook, waitFor } from "@testing-library/react"
 import { expect, it, vi } from "vitest"
 
 import type { EntryStateResponse } from "../api/reader.generated"
-import type { Refresh, RefreshState, Subscription } from "../api/subscription.generated"
+import type {
+  CreateSubscriptionResponse,
+  Refresh,
+  RefreshState,
+  Subscription,
+} from "../api/subscription.generated"
 import { ApiClientError } from "../../../shared/api/client"
 import type { ReaderApi } from "./controllerApi"
 import {
@@ -141,7 +146,11 @@ it("adds, refreshes, and deletes subscriptions through CSRF-aware actions", asyn
   )
   await act(async () => result.current.load())
 
-  await act(async () => result.current.addSubscription("https://created.example/feed"))
+  let addResult: CreateSubscriptionResponse | null = null
+  await act(async () => {
+    addResult = await result.current.addSubscription("https://created.example/feed")
+  })
+  expect(addResult).toEqual({ created: true, subscription: created })
   expect(createSubscription).toHaveBeenCalledWith(
     { url: "https://created.example/feed" },
     "csrf-memory",

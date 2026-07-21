@@ -2,18 +2,16 @@ use sea_orm::entity::prelude::*;
 use time::OffsetDateTime;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
-#[sea_orm(table_name = "user_preferences")]
+#[sea_orm(table_name = "user_fonts")]
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
+    pub id: String,
     pub user_id: String,
-    pub locale: String,
-    pub theme_mode: String,
-    pub layout_density: String,
-    pub reading_font_scale: i32,
-    pub reading_font_family: String,
-    pub reading_custom_font_id: Option<String>,
-    pub reading_color_scheme: String,
-    pub link_open_mode: String,
+    pub display_name: String,
+    pub normalized_name: String,
+    pub content_hash: String,
+    pub font_bytes: Vec<u8>,
+    pub byte_size: i32,
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
 }

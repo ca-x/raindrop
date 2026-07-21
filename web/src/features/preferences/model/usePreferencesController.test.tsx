@@ -21,6 +21,7 @@ const serverPreferences: UserPreferences = {
   layoutDensity: "SPACIOUS",
   readingFontScale: 110,
   readingFontFamily: "SERIF",
+  readingCustomFontId: null,
   readingColorScheme: "AUTO",
   linkOpenMode: "NEW_TAB",
 }
@@ -45,6 +46,7 @@ it("loads server preferences without blocking the initialized runtime", async ()
     layoutDensity: "BALANCED",
     readingFontScale: 100,
     readingFontFamily: "SERIF",
+    readingCustomFontId: null,
     readingColorScheme: "AUTO",
     linkOpenMode: "NEW_TAB",
   })
@@ -163,6 +165,13 @@ function RuntimeWrapper({ children }: { children: ReactNode }) {
 function fakeApi(overrides: Partial<PreferencesApi> = {}): PreferencesApi {
   return {
     getPreferences: vi.fn().mockResolvedValue(serverPreferences),
+    listUserFonts: vi.fn().mockResolvedValue({
+      items: [],
+      maximumCount: 8,
+      maximumBytes: 5 * 1024 * 1024,
+    }),
+    uploadUserFont: vi.fn(),
+    deleteUserFont: vi.fn(),
     patchPreferences: vi.fn<
       (
         csrfToken: string,

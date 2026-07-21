@@ -19,6 +19,7 @@ export function defaultPreferences(locale: PreferenceLocale): UserPreferences {
     layoutDensity: "BALANCED",
     readingFontScale: 100,
     readingFontFamily: "SERIF",
+    readingCustomFontId: null,
     readingColorScheme: "AUTO",
     linkOpenMode: "NEW_TAB",
   }

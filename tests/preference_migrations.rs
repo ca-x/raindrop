@@ -2,7 +2,7 @@
 mod support;
 
 use raindrop::db::{
-    entities::{user, user_preference},
+    entities::{user, user_font, user_preference},
     migrate, rollback,
 };
 use sea_orm::{
@@ -59,6 +59,28 @@ async fn preference_schema_contract(database_url: SecretString) {
     assert_schema(&database).await;
     insert_user(&database, USER_A_ID, "preference-a").await;
     insert_user(&database, USER_B_ID, "preference-b").await;
+
+    let large_font = vec![0x5a; 70 * 1024];
+    user_font::ActiveModel {
+        id: Set("00000000-0000-4000-8000-000000000701".to_owned()),
+        user_id: Set(USER_A_ID.to_owned()),
+        display_name: Set("Large Reader Font".to_owned()),
+        normalized_name: Set("large reader font".to_owned()),
+        content_hash: Set("a".repeat(64)),
+        byte_size: Set(i32::try_from(large_font.len()).expect("font fixture size should fit")),
+        font_bytes: Set(large_font.clone()),
+        created_at: Set(CONTRACT_AT),
+        updated_at: Set(CONTRACT_AT),
+    }
+    .insert(&database)
+    .await
+    .expect("font bytes above the MySQL BLOB limit should insert");
+    let stored_font = user_font::Entity::find_by_id("00000000-0000-4000-8000-000000000701")
+        .one(&database)
+        .await
+        .expect("large font should query")
+        .expect("large font should exist");
+    assert_eq!(stored_font.font_bytes, large_font);
 
     preference_model(
         USER_A_ID, "zh-CN", "SYSTEM", "BALANCED", 100, "SERIF", "AUTO", "NEW_TAB",
@@ -127,6 +149,14 @@ async fn preference_schema_contract(database_url: SecretString) {
         0,
         "deleting a user must cascade to preferences"
     );
+    assert_eq!(
+        user_font::Entity::find()
+            .count(&database)
+            .await
+            .expect("fonts should count after owner deletion"),
+        0,
+        "deleting a user must cascade to custom fonts"
+    );
 
     rollback(&database)
         .await
@@ -159,6 +189,7 @@ async fn assert_schema(database: &DatabaseConnection) {
         "layout_density",
         "reading_font_scale",
         "reading_font_family",
+        "reading_custom_font_id",
         "reading_color_scheme",
         "link_open_mode",
         "created_at",
@@ -170,6 +201,31 @@ async fn assert_schema(database: &DatabaseConnection) {
                 .await
                 .unwrap_or_else(|_| panic!("preference column {column} should inspect")),
             "preference column {column} should exist"
+        );
+    }
+    assert!(
+        manager
+            .has_table("user_fonts")
+            .await
+            .expect("custom font table should inspect")
+    );
+    for column in [
+        "id",
+        "user_id",
+        "display_name",
+        "normalized_name",
+        "content_hash",
+        "font_bytes",
+        "byte_size",
+        "created_at",
+        "updated_at",
+    ] {
+        assert!(
+            manager
+                .has_column("user_fonts", column)
+                .await
+                .unwrap_or_else(|_| panic!("custom font column {column} should inspect")),
+            "custom font column {column} should exist"
         );
     }
 }
@@ -192,6 +248,7 @@ fn preference_model(
         layout_density: Set(layout_density.to_owned()),
         reading_font_scale: Set(reading_font_scale),
         reading_font_family: Set(reading_font_family.to_owned()),
+        reading_custom_font_id: Set(None),
         reading_color_scheme: Set(reading_color_scheme.to_owned()),
         link_open_mode: Set(link_open_mode.to_owned()),
         created_at: Set(CONTRACT_AT),

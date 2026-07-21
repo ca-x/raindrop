@@ -15,6 +15,7 @@ pub mod plugin_installation;
 pub mod plugin_kv;
 pub mod rss_counter;
 pub mod subscription;
+pub mod user_font;
 pub mod user_preference;
 
 pub mod bootstrap_state {

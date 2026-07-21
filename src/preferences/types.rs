@@ -1,6 +1,7 @@
 use std::fmt;
 
 use sea_orm::DbErr;
+use uuid::Uuid;
 
 use crate::db::entities::user_preference;
 
@@ -170,6 +171,7 @@ pub struct UserPreferences {
     pub layout_density: LayoutDensity,
     pub reading_font_scale: i32,
     pub reading_font_family: ReadingFontFamily,
+    pub reading_custom_font_id: Option<String>,
     pub reading_color_scheme: ReadingColorScheme,
     pub link_open_mode: LinkOpenMode,
 }
@@ -183,6 +185,7 @@ impl UserPreferences {
             layout_density: LayoutDensity::Balanced,
             reading_font_scale: 100,
             reading_font_family: ReadingFontFamily::Serif,
+            reading_custom_font_id: None,
             reading_color_scheme: ReadingColorScheme::Auto,
             link_open_mode: LinkOpenMode::NewTab,
         }
@@ -192,12 +195,20 @@ impl UserPreferences {
         if !(MIN_READING_FONT_SCALE..=MAX_READING_FONT_SCALE).contains(&model.reading_font_scale) {
             return Err(PreferenceError::CorruptData);
         }
+        if model.reading_custom_font_id.as_deref().is_some_and(|id| {
+            Uuid::parse_str(id)
+                .map(|parsed| parsed.to_string() != id)
+                .unwrap_or(true)
+        }) {
+            return Err(PreferenceError::CorruptData);
+        }
         Ok(Self {
             locale: Locale::from_storage(&model.locale)?,
             theme_mode: ThemeMode::from_storage(&model.theme_mode)?,
             layout_density: LayoutDensity::from_storage(&model.layout_density)?,
             reading_font_scale: model.reading_font_scale,
             reading_font_family: ReadingFontFamily::from_storage(&model.reading_font_family)?,
+            reading_custom_font_id: model.reading_custom_font_id.clone(),
             reading_color_scheme: ReadingColorScheme::from_storage(&model.reading_color_scheme)?,
             link_open_mode: LinkOpenMode::from_storage(&model.link_open_mode)?,
         })
@@ -212,6 +223,10 @@ impl UserPreferences {
             reading_font_family: patch
                 .reading_font_family
                 .unwrap_or(self.reading_font_family),
+            reading_custom_font_id: patch
+                .reading_custom_font_id
+                .clone()
+                .unwrap_or_else(|| self.reading_custom_font_id.clone()),
             reading_color_scheme: patch
                 .reading_color_scheme
                 .unwrap_or(self.reading_color_scheme),
@@ -227,6 +242,7 @@ pub struct UpdateUserPreferences {
     pub layout_density: Option<LayoutDensity>,
     pub reading_font_scale: Option<i32>,
     pub reading_font_family: Option<ReadingFontFamily>,
+    pub reading_custom_font_id: Option<Option<String>>,
     pub reading_color_scheme: Option<ReadingColorScheme>,
     pub link_open_mode: Option<LinkOpenMode>,
 }
@@ -238,6 +254,7 @@ impl UpdateUserPreferences {
             && self.layout_density.is_none()
             && self.reading_font_scale.is_none()
             && self.reading_font_family.is_none()
+            && self.reading_custom_font_id.is_none()
             && self.reading_color_scheme.is_none()
             && self.link_open_mode.is_none()
         {
@@ -247,6 +264,15 @@ impl UpdateUserPreferences {
             !(MIN_READING_FONT_SCALE..=MAX_READING_FONT_SCALE).contains(&scale)
         }) {
             return Err(PreferenceError::InvalidFontScale);
+        }
+        if self.reading_custom_font_id.as_ref().is_some_and(|font_id| {
+            font_id.as_deref().is_some_and(|id| {
+                Uuid::parse_str(id)
+                    .map(|parsed| parsed.to_string() != id)
+                    .unwrap_or(true)
+            })
+        }) {
+            return Err(PreferenceError::InvalidCustomFont);
         }
         Ok(())
     }
@@ -262,6 +288,8 @@ pub enum PreferenceError {
     InvalidPatch,
     #[error("reading font scale is invalid")]
     InvalidFontScale,
+    #[error("reading custom font is invalid")]
+    InvalidCustomFont,
     #[error("preference owner is unavailable")]
     UserUnavailable,
     #[error("preference repository data is corrupt")]
@@ -275,6 +303,7 @@ impl fmt::Debug for PreferenceError {
             Self::InvalidUserId => "PreferenceError::InvalidUserId",
             Self::InvalidPatch => "PreferenceError::InvalidPatch",
             Self::InvalidFontScale => "PreferenceError::InvalidFontScale",
+            Self::InvalidCustomFont => "PreferenceError::InvalidCustomFont",
             Self::UserUnavailable => "PreferenceError::UserUnavailable",
             Self::CorruptData => "PreferenceError::CorruptData",
         })

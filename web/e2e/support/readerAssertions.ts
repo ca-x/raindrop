@@ -53,11 +53,12 @@ export async function expectScrollTop(locator: Locator, expected: number, tolera
 export async function expectHostileContentContained(page: Page): Promise<void> {
   const body = page.locator(".reader-article-body")
   const inert = body.locator('img[data-raindrop-inert-image="0"]')
-  await expect(inert).toHaveAttribute(
-    "src",
-    /^\/reader-assets\/entries\/[0-9a-f-]+\/images\/0$/u,
-  )
+  const imageFrame = body.locator(".reader-article-image-frame").first()
+  await expect(inert).not.toHaveAttribute("src")
+  await expect(inert).toHaveAttribute("data-raindrop-image-state", "error")
   await expect(inert).toHaveAttribute("referrerpolicy", "no-referrer")
+  await expect(imageFrame).toHaveAttribute("data-raindrop-image-state", "error")
+  await expect(imageFrame).toHaveAttribute("role", "img")
   await expect(body).not.toContainText("publisher.invalid/tracker.gif")
   await expect.poll(() => body.evaluate((element) => !element.innerHTML.includes("publisher.invalid/tracker.gif"))).toBe(true)
 
@@ -66,7 +67,7 @@ export async function expectHostileContentContained(page: Page): Promise<void> {
     '[data-fixture="wide-pre"]',
     '[data-fixture="wide-iframe"]',
     '[data-fixture="wide-video"]',
-    'img[data-raindrop-inert-image="0"]',
+    ".reader-article-image-frame",
   ]) {
     await expect.poll(() => body.locator(selector).evaluate((element) => {
       const box = element.getBoundingClientRect()

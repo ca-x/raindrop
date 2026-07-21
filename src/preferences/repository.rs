@@ -1,11 +1,12 @@
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ConnectionTrait, DatabaseBackend, DatabaseConnection,
-    DbBackend, EntityTrait, IntoActiveModel, Statement, TransactionTrait,
+    ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DatabaseBackend,
+    DatabaseConnection, DbBackend, DbErr, EntityTrait, IntoActiveModel, QueryFilter, Statement,
+    TransactionTrait,
 };
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use crate::db::entities::{user, user_preference};
+use crate::db::entities::{user, user_font, user_preference};
 
 use super::{Locale, PreferenceError, UpdateUserPreferences, UserPreferences};
 
@@ -56,6 +57,15 @@ impl PreferenceRepository {
                 None => UserPreferences::defaults(default_locale),
             };
             let updated = current.apply(&patch);
+            if let Some(font_id) = &updated.reading_custom_font_id
+                && user_font::Entity::find_by_id(font_id)
+                    .filter(user_font::Column::UserId.eq(user_id))
+                    .one(&transaction)
+                    .await?
+                    .is_none()
+            {
+                return Err(PreferenceError::InvalidCustomFont);
+            }
             let now = OffsetDateTime::now_utc();
             let model = match stored {
                 Some(stored) => {
@@ -66,6 +76,7 @@ impl PreferenceRepository {
                     active.reading_font_scale = Set(updated.reading_font_scale);
                     active.reading_font_family =
                         Set(updated.reading_font_family.as_str().to_owned());
+                    active.reading_custom_font_id = Set(updated.reading_custom_font_id.clone());
                     active.reading_color_scheme =
                         Set(updated.reading_color_scheme.as_str().to_owned());
                     active.link_open_mode = Set(updated.link_open_mode.as_str().to_owned());
@@ -80,6 +91,7 @@ impl PreferenceRepository {
                         layout_density: Set(updated.layout_density.as_str().to_owned()),
                         reading_font_scale: Set(updated.reading_font_scale),
                         reading_font_family: Set(updated.reading_font_family.as_str().to_owned()),
+                        reading_custom_font_id: Set(updated.reading_custom_font_id.clone()),
                         reading_color_scheme: Set(updated.reading_color_scheme.as_str().to_owned()),
                         link_open_mode: Set(updated.link_open_mode.as_str().to_owned()),
                         created_at: Set(now),
@@ -96,7 +108,10 @@ impl PreferenceRepository {
     }
 }
 
-async fn ensure_active_user<C>(connection: &C, user_id: &str) -> Result<(), PreferenceError>
+pub(super) async fn ensure_active_user<C>(
+    connection: &C,
+    user_id: &str,
+) -> Result<(), PreferenceError>
 where
     C: ConnectionTrait,
 {
@@ -108,7 +123,7 @@ where
     }
 }
 
-async fn lock_active_user<C>(
+pub(super) async fn lock_active_user<C>(
     connection: &C,
     backend: DbBackend,
     user_id: &str,
@@ -154,10 +169,13 @@ where
     Ok(())
 }
 
-async fn finish_transaction<T>(
+pub(super) async fn finish_transaction<T, E>(
     transaction: sea_orm::DatabaseTransaction,
-    result: Result<T, PreferenceError>,
-) -> Result<T, PreferenceError> {
+    result: Result<T, E>,
+) -> Result<T, E>
+where
+    E: From<DbErr>,
+{
     match result {
         Ok(value) => {
             transaction.commit().await?;
@@ -170,7 +188,7 @@ async fn finish_transaction<T>(
     }
 }
 
-fn validate_user_id(value: &str) -> Result<(), PreferenceError> {
+pub(super) fn validate_user_id(value: &str) -> Result<(), PreferenceError> {
     Uuid::parse_str(value)
         .map(|_| ())
         .map_err(|_| PreferenceError::InvalidUserId)

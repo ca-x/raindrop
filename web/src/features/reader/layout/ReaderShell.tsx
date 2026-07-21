@@ -16,9 +16,7 @@ import { EntryQueue } from "../components/EntryQueue"
 import { MarkReadDialog } from "../components/MarkReadDialog"
 import { MutationFeedback } from "../components/MutationFeedback"
 import { SourceTree } from "../components/SourceTree"
-import { SubscriptionDialog } from "../components/SubscriptionDialog"
 import { SubscriptionManagementDialog } from "../components/SubscriptionManagementDialog"
-import { ReaderCategoryDialog } from "../categories/ReaderCategoryDialog"
 import { useReaderHotkeys } from "../keyboard/useReaderHotkeys"
 import { sourceKey, type ReaderSource } from "../model/types"
 import { selectedSourceLabel } from "../model/sourcePresentation"
@@ -52,19 +50,15 @@ interface ReaderShellProps {
 export function ReaderShell(props: ReaderShellProps) {
   const { i18n } = useLingui()
   const [isNavOpen, setIsNavOpen] = useState(false)
-  const [isAddOpen, setIsAddOpen] = useState(false)
-  const [isCategoryOpen, setIsCategoryOpen] = useState(false)
-  const [isSubscriptionManageOpen, setIsSubscriptionManageOpen] = useState(false)
+  const [isManagementOpen, setIsManagementOpen] = useState(false)
   const [isPreferencesOpen, setIsPreferencesOpen] = useState(false)
   const [preferencesInitialTab, setPreferencesInitialTab] =
     useState<PreferencesTab>("personal")
   const [isMarkReadOpen, setIsMarkReadOpen] = useState(false)
   const mobileNavRef = useRef<HTMLDialogElement>(null)
-  const categoryButtonRef = useRef<HTMLButtonElement>(null)
-  const subscriptionManageButtonRef = useRef<HTMLButtonElement>(null)
+  const managementButtonRef = useRef<HTMLButtonElement>(null)
   const preferencesButtonRef = useRef<HTMLButtonElement>(null)
-  const reopenSourcesAfterCategory = useRef(false)
-  const reopenSourcesAfterSubscriptionManage = useRef(false)
+  const reopenSourcesAfterManagement = useRef(false)
   const reopenSourcesAfterPreferences = useRef(false)
   const sources = useResizable({ defaultSize: 240, minSizePx: 200, maxSizePx: 340, autoSaveId: "reader-sources" })
   const queue = useResizable({ defaultSize: 380, minSizePx: 300, maxSizePx: 560, autoSaveId: "reader-queue" })
@@ -94,9 +88,7 @@ export function ReaderShell(props: ReaderShellProps) {
     openEntryId: props.route.entryId,
     isDisabled:
       isNavOpen ||
-      isAddOpen ||
-      isCategoryOpen ||
-      isSubscriptionManageOpen ||
+      isManagementOpen ||
       isPreferencesOpen ||
       isMarkReadOpen ||
       !props.isSourceReady,
@@ -118,34 +110,16 @@ export function ReaderShell(props: ReaderShellProps) {
         setIsNavOpen(false)
         props.onSelectSource(source)
       }}
-      onAdd={() => setIsAddOpen(true)}
       onManage={() => {
-        reopenSourcesAfterCategory.current = props.viewportMode !== "wide"
-        if (reopenSourcesAfterCategory.current) {
+        reopenSourcesAfterManagement.current = props.viewportMode !== "wide"
+        if (reopenSourcesAfterManagement.current) {
           mobileNavRef.current?.close()
           setIsNavOpen(false)
         }
-        setIsCategoryOpen(true)
-      }}
-      onManageSubscription={() => {
-        reopenSourcesAfterSubscriptionManage.current = props.viewportMode !== "wide"
-        if (reopenSourcesAfterSubscriptionManage.current) {
-          mobileNavRef.current?.close()
-          setIsNavOpen(false)
-        }
-        setIsSubscriptionManageOpen(true)
+        setIsManagementOpen(true)
       }}
       onPreferences={() => {
         setPreferencesInitialTab("personal")
-        reopenSourcesAfterPreferences.current = props.viewportMode !== "wide"
-        if (reopenSourcesAfterPreferences.current) {
-          mobileNavRef.current?.close()
-          setIsNavOpen(false)
-        }
-        setIsPreferencesOpen(true)
-      }}
-      onTransferSubscriptions={() => {
-        setPreferencesInitialTab("subscriptions")
         reopenSourcesAfterPreferences.current = props.viewportMode !== "wide"
         if (reopenSourcesAfterPreferences.current) {
           mobileNavRef.current?.close()
@@ -159,8 +133,7 @@ export function ReaderShell(props: ReaderShellProps) {
         setIsNavOpen(false)
         await props.onLogout()
       }}
-      manageButtonRef={categoryButtonRef}
-      manageSubscriptionButtonRef={subscriptionManageButtonRef}
+      manageButtonRef={managementButtonRef}
       preferencesButtonRef={preferencesButtonRef}
       density={toAstryxDensity(
         props.preferencesController.preferences.layoutDensity,
@@ -207,11 +180,21 @@ export function ReaderShell(props: ReaderShellProps) {
       aiOperations={aiOperations}
       linkOpenMode={props.preferencesController.preferences.linkOpenMode}
       readingFontScale={props.preferencesController.preferences.readingFontScale}
+      readingFontFamily={props.preferencesController.preferences.readingFontFamily}
+      readingCustomFontId={props.preferencesController.preferences.readingCustomFontId}
+      fonts={props.preferencesController.fonts}
       isReadingPreferenceSaving={props.preferencesController.isSaving}
       onReadingFontScaleChange={(readingFontScale) =>
         props.preferencesController.save({
           ...props.preferencesController.preferences,
           readingFontScale,
+        })
+      }
+      onReadingFontChange={(readingFontFamily, readingCustomFontId) =>
+        props.preferencesController.save({
+          ...props.preferencesController.preferences,
+          readingFontFamily,
+          readingCustomFontId,
         })
       }
       onUnauthenticated={props.onUnauthenticated}
@@ -259,58 +242,53 @@ export function ReaderShell(props: ReaderShellProps) {
         onOpenSources={() => setIsNavOpen(true)}
         onBack={props.onBack}
       />
-      <SubscriptionDialog
-        isOpen={isAddOpen}
-        mutationError={props.controller.state.errors.mutation}
-        onOpenChange={setIsAddOpen}
-        onClearError={props.controller.clearMutationError}
-        onAdd={props.controller.addSubscription}
-      />
-      <ReaderCategoryDialog
-        controller={props.controller}
-        isOpen={isCategoryOpen}
-        onOpenChange={(open) => {
-          setIsCategoryOpen(open)
-          if (open) return
-          if (reopenSourcesAfterCategory.current) {
-            reopenSourcesAfterCategory.current = false
-            setIsNavOpen(true)
-            requestAnimationFrame(() =>
-              requestAnimationFrame(() => categoryButtonRef.current?.focus()),
-            )
-            return
-          }
-          requestAnimationFrame(() => categoryButtonRef.current?.focus())
-        }}
-        onSelectSource={props.onSelectSource}
-      />
       <SubscriptionManagementDialog
-        isOpen={isSubscriptionManageOpen}
-        subscription={selectedSubscription}
+        isOpen={isManagementOpen}
+        selectedSubscription={selectedSubscription}
+        subscriptions={props.controller.state.subscriptionOrder.map(
+          (id) => props.controller.state.subscriptionsById[id],
+        )}
         categories={props.controller.state.categoryOrder.map(
           (id) => props.controller.state.categoriesById[id],
         )}
         mutationError={props.controller.state.errors.mutation}
         linkOpenMode={props.preferencesController.preferences.linkOpenMode}
+        csrfToken={props.preferencesController.csrfToken}
         onClearError={props.controller.clearMutationError}
+        onAdd={props.controller.addSubscription}
         onUpdate={props.controller.updateSubscription}
         onDelete={async (subscriptionId) => {
           const deleted = await props.controller.deleteSubscription(subscriptionId)
           if (deleted) props.onSelectSource({ kind: "smart", state: "UNREAD" })
           return deleted
         }}
+        onCreateCategory={props.controller.createCategory}
+        onUpdateCategory={(categoryId, title) =>
+          props.controller.updateCategory(categoryId, { title })
+        }
+        onDeleteCategory={async (categoryId) => {
+          const wasActive =
+            props.controller.state.selectedSource.kind === "category" &&
+            props.controller.state.selectedSource.categoryId === categoryId
+          const deleted = await props.controller.deleteCategory(categoryId)
+          if (deleted && wasActive) {
+            props.onSelectSource({ kind: "smart", state: "UNREAD" })
+          }
+          return deleted
+        }}
+        onSubscriptionsChanged={props.controller.load}
         onOpenChange={(open) => {
-          setIsSubscriptionManageOpen(open)
+          setIsManagementOpen(open)
           if (open) return
-          if (reopenSourcesAfterSubscriptionManage.current) {
-            reopenSourcesAfterSubscriptionManage.current = false
+          if (reopenSourcesAfterManagement.current) {
+            reopenSourcesAfterManagement.current = false
             setIsNavOpen(true)
             requestAnimationFrame(() =>
-              requestAnimationFrame(() => subscriptionManageButtonRef.current?.focus()),
+              requestAnimationFrame(() => managementButtonRef.current?.focus()),
             )
             return
           }
-          requestAnimationFrame(() => subscriptionManageButtonRef.current?.focus())
+          requestAnimationFrame(() => managementButtonRef.current?.focus())
         }}
       />
       <PreferencesDialog
@@ -318,13 +296,16 @@ export function ReaderShell(props: ReaderShellProps) {
         initialTab={preferencesInitialTab}
         account={{ username: props.username, email: props.email ?? null }}
         preferences={props.preferencesController.preferences}
+        fonts={props.preferencesController.fonts}
+        fontLimits={props.preferencesController.fontLimits}
         isSaving={props.preferencesController.isSaving}
+        isFontMutating={props.preferencesController.isFontMutating}
         error={props.preferencesController.error}
         aiController={props.aiSettingsController}
-        csrfToken={props.preferencesController.csrfToken}
         onClearError={props.preferencesController.clearError}
         onSave={props.preferencesController.save}
-        onSubscriptionsChanged={props.controller.load}
+        onUploadFont={props.preferencesController.uploadFont}
+        onDeleteFont={props.preferencesController.deleteFont}
         onOpenChange={(open) => {
           setIsPreferencesOpen(open)
           if (open) return
@@ -349,9 +330,7 @@ export function ReaderShell(props: ReaderShellProps) {
       <MutationFeedback
         error={props.controller.state.errors.mutation}
         isDialogOpen={
-          isAddOpen ||
-          isCategoryOpen ||
-          isSubscriptionManageOpen ||
+          isManagementOpen ||
           isPreferencesOpen ||
           isMarkReadOpen
         }

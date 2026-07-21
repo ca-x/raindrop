@@ -603,6 +603,7 @@
           "titleOverride",
           "position",
           "title",
+          "feedUrl",
           "siteUrl",
           "unreadCount",
           "refresh"
@@ -636,6 +637,11 @@
           },
           "title": {
             "type": "string"
+          },
+          "feedUrl": {
+            "description": "Canonical normalized RSS or Atom URL used for feed refreshes.",
+            "type": "string",
+            "format": "uri"
           },
           "siteUrl": {
             "type": [

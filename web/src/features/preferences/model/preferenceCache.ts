@@ -5,8 +5,8 @@ import {
 
 export const PREFERENCE_HINT_KEY = "raindrop.preferences.v1"
 
-interface PreferenceHintV2 {
-  schemaVersion: 2
+interface PreferenceHintV3 {
+  schemaVersion: 3
   preferences: UserPreferences
 }
 
@@ -37,7 +37,7 @@ export function readPreferenceHint(): UserPreferences | null {
 
 export function writePreferenceHint(preferences: UserPreferences): void {
   if (!isUserPreferences(preferences)) return
-  const hint: PreferenceHintV2 = { schemaVersion: 2, preferences }
+  const hint: PreferenceHintV3 = { schemaVersion: 3, preferences }
   try {
     localStorage.setItem(PREFERENCE_HINT_KEY, JSON.stringify(hint))
   } catch {
@@ -53,16 +53,34 @@ export function clearPreferenceHint(): void {
   }
 }
 
-function isPreferenceHint(value: unknown): value is PreferenceHintV2 {
+function isPreferenceHint(value: unknown): value is PreferenceHintV3 {
   return (
     isRecord(value) &&
     hasOnlyKeys(value, ["schemaVersion", "preferences"]) &&
-    value.schemaVersion === 2 &&
+    value.schemaVersion === 3 &&
     isUserPreferences(value.preferences)
   )
 }
 
 function migrateLegacyHint(value: unknown): UserPreferences | null {
+  if (
+    isRecord(value) &&
+    hasOnlyKeys(value, ["schemaVersion", "preferences"]) &&
+    value.schemaVersion === 2 &&
+    isRecord(value.preferences) &&
+    hasOnlyKeys(value.preferences, [
+      "locale",
+      "themeMode",
+      "layoutDensity",
+      "readingFontScale",
+      "readingFontFamily",
+      "readingColorScheme",
+      "linkOpenMode",
+    ])
+  ) {
+    const candidate = { ...value.preferences, readingCustomFontId: null }
+    return isUserPreferences(candidate) ? candidate : null
+  }
   if (
     !isRecord(value) ||
     !hasOnlyKeys(value, ["schemaVersion", "preferences"]) ||
@@ -92,6 +110,7 @@ function migrateLegacyHint(value: unknown): UserPreferences | null {
       value.preferences.layoutDensity as UserPreferences["layoutDensity"],
     readingFontScale: value.preferences.readingFontScale as number,
     readingFontFamily: "SERIF",
+    readingCustomFontId: null,
     readingColorScheme: "AUTO",
     linkOpenMode: "NEW_TAB",
   }

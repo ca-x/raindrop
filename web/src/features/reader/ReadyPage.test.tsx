@@ -62,6 +62,7 @@ describe("ReadyPage lifecycle", () => {
       layoutDensity: "SPACIOUS",
       readingFontScale: 120,
       readingFontFamily: "SANS",
+      readingCustomFontId: null,
       readingColorScheme: "SEPIA",
       linkOpenMode: "CURRENT_TAB",
     }))
@@ -161,9 +162,13 @@ function responseBody(url: string): unknown {
       layoutDensity: "BALANCED",
       readingFontScale: 100,
       readingFontFamily: "SERIF",
+      readingCustomFontId: null,
       readingColorScheme: "AUTO",
       linkOpenMode: "NEW_TAB",
     }
+  }
+  if (url === "/api/v2/preferences/fonts") {
+    return { items: [], maximumCount: 8, maximumBytes: 5_242_880 }
   }
   if (url === `/api/v1/entries/${entryId}`) {
     return {

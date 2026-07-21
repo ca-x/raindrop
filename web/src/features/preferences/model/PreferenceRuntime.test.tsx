@@ -18,6 +18,7 @@ const appliedPreferences: UserPreferences = {
   layoutDensity: "COMPACT",
   readingFontScale: 130,
   readingFontFamily: "SANS",
+  readingCustomFontId: null,
   readingColorScheme: "SEPIA",
   linkOpenMode: "CURRENT_TAB",
 }
@@ -46,6 +47,7 @@ describe("PreferenceRuntime", () => {
       layoutDensity: "BALANCED",
       readingFontScale: 100,
       readingFontFamily: "SERIF",
+      readingCustomFontId: null,
       readingColorScheme: "AUTO",
       linkOpenMode: "NEW_TAB",
     })
@@ -96,7 +98,7 @@ describe("PreferenceRuntime", () => {
       color: "sepia",
     })
     expect(JSON.parse(localStorage.getItem(PREFERENCE_HINT_KEY) ?? "null")).toEqual({
-      schemaVersion: 2,
+      schemaVersion: 3,
       preferences: appliedPreferences,
     })
   })
@@ -139,7 +141,7 @@ describe("theme-bootstrap.js", () => {
     localStorage.setItem(
       PREFERENCE_HINT_KEY,
       JSON.stringify({
-        schemaVersion: 2,
+        schemaVersion: 3,
         preferences: { ...appliedPreferences, csrfToken: "must-not-persist" },
       }),
     )
