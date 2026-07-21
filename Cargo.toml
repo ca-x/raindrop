@@ -40,7 +40,7 @@ reqwest = { version = "0.13.4", default-features = false, features = ["rustls-no
 ring = "=0.17.14"
 rust-embed = "8.12.0"
 rustls = { version = "=0.23.39", default-features = false, features = ["ring"] }
-sea-orm = { version = "1.1.19", default-features = false, features = ["macros", "runtime-tokio-rustls", "sqlx-mysql", "sqlx-postgres", "sqlx-sqlite", "with-time"] }
+sea-orm = { version = "2.0.0", default-features = false, features = ["macros", "runtime-tokio-rustls", "sqlx-mysql", "sqlx-postgres", "sqlx-sqlite", "with-time"] }
 sea-orm-migration = { version = "1.1.19", default-features = false, features = ["runtime-tokio-rustls", "sqlx-mysql", "sqlx-postgres", "sqlx-sqlite"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "1.0.150", features = ["unbounded_depth"] }
