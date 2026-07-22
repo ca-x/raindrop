@@ -87,6 +87,10 @@ export function ReaderShell(props: ReaderShellProps) {
   const aiConfig = props.aiSettingsController?.configEnvelope?.config
   const summaryEnabled = Boolean(aiConfig?.isEnabled && aiConfig.summary.enabled)
   const translationConfig = props.translationController?.config ?? null
+  const sourceLabel = selectedSourceLabel(
+    props.controller.state,
+    (id) => i18n._(id),
+  )
   useReaderHotkeys({
     queueEntryIds,
     cursorEntryId: props.cursorEntryId,
@@ -159,6 +163,7 @@ export function ReaderShell(props: ReaderShellProps) {
   const queuePane = (
     <EntryQueue
       state={props.controller.state}
+      sourceLabel={sourceLabel}
       showMenu={props.viewportMode !== "wide"}
       isCompact={props.viewportMode === "compact"}
       onOpenSources={() => setIsNavOpen(true)}
@@ -385,7 +390,7 @@ export function ReaderShell(props: ReaderShellProps) {
       />
       <MarkReadDialog
         isOpen={isMarkReadOpen}
-        sourceLabel={selectedSourceLabel(props.controller.state, (id) => i18n._(id))}
+        sourceLabel={sourceLabel}
         isLoading={props.controller.isMarkingRead}
         onOpenChange={setIsMarkReadOpen}
         onConfirm={props.controller.markCurrentSourceRead}

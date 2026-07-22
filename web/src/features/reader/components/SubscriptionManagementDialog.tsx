@@ -112,7 +112,10 @@ export function SubscriptionManagementDialog(
                 <Tab value="opml" label="OPML" />
               </TabList>
             </div>
-            <div className="reader-management-panel">
+            <div
+              key={activeTab}
+              className="reader-management-panel reader-panel-transition"
+            >
               {activeTab === "subscriptions" ? (
                 <SubscriptionPanel
                   {...props}

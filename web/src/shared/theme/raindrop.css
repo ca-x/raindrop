@@ -20,7 +20,9 @@
     --color-border-emphasized: light-dark(oklch(0.78 0.02 85), oklch(0.44 0.012 70));
     --radius-control: 10px;
     --radius-container: 14px;
+    --duration-micro: 120ms;
     --duration-fast: 140ms;
+    --duration-normal: 180ms;
     --duration-medium: 240ms;
     --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
     --ease-standard: cubic-bezier(0.32, 0.72, 0, 1);

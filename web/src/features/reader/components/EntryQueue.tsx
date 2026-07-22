@@ -16,6 +16,7 @@ import { RelativeEntryTime } from "./RelativeEntryTime"
 
 interface EntryQueueProps {
   state: ReaderState
+  sourceLabel: string
   showMenu: boolean
   isCompact: boolean
   onOpenSources: () => void
@@ -39,6 +40,7 @@ interface EntryQueueProps {
 
 export function EntryQueue({
   state,
+  sourceLabel,
   showMenu,
   isCompact,
   onOpenSources,
@@ -90,6 +92,8 @@ export function EntryQueue({
   return (
     <div ref={rootRef} className="reader-queue" aria-busy={state.paneStatus.queue === "loading"}>
       <QueueToolbar
+        sourceLabel={sourceLabel}
+        entryCount={queue.length}
         showMenu={showMenu}
         isCompact={isCompact}
         markReadAvailability={markReadAvailability}

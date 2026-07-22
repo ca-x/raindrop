@@ -153,7 +153,10 @@ export function PreferencesDialog(props: PreferencesDialogProps) {
                   />
                 ) : null}
               </nav>
-              <div className="reader-preferences-panel">
+              <div
+                key={activeTab}
+                className="reader-preferences-panel reader-panel-transition"
+              >
                 {activeTab !== "plugins" ? (
                   <div className="reader-settings-panel-intro">
                     <div className="reader-settings-title">

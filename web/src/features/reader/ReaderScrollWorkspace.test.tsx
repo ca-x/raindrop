@@ -21,6 +21,7 @@ describe("Reader scroll anchors", () => {
       <Providers>
         <EntryQueue
           state={readerState("first")}
+          sourceLabel="Unread"
           showMenu={false}
           isCompact={false}
           onOpenSources={vi.fn()}

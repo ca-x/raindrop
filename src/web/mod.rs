@@ -1,4 +1,4 @@
-#[cfg(not(debug_assertions))]
+#[cfg(raindrop_embedded_web)]
 mod assets;
 
 use axum::{
@@ -11,14 +11,14 @@ use crate::api::ApiError;
 
 const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'";
 const HTML_CACHE_CONTROL: &str = "no-cache, no-store, must-revalidate";
-#[cfg(not(debug_assertions))]
+#[cfg(raindrop_embedded_web)]
 const IMMUTABLE_CACHE_CONTROL: &str = "public, max-age=31536000, immutable";
-#[cfg(not(debug_assertions))]
+#[cfg(raindrop_embedded_web)]
 const SHORT_ASSET_CACHE_CONTROL: &str = "public, max-age=3600";
-#[cfg(not(debug_assertions))]
+#[cfg(raindrop_embedded_web)]
 const VITE_HASH_LENGTH: usize = 8;
 
-#[cfg(debug_assertions)]
+#[cfg(not(raindrop_embedded_web))]
 const DEVELOPMENT_PAGE: &str = r#"<!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Raindrop development</title></head>
@@ -45,15 +45,15 @@ pub async fn serve(method: Method, uri: Uri) -> Response {
         );
     }
 
-    #[cfg(debug_assertions)]
+    #[cfg(not(raindrop_embedded_web))]
     let body = Bytes::from_static(DEVELOPMENT_PAGE.as_bytes());
 
-    #[cfg(not(debug_assertions))]
+    #[cfg(raindrop_embedded_web)]
     if is_asset_path(uri.path()) {
         return embedded_asset(method, uri.path());
     }
 
-    #[cfg(not(debug_assertions))]
+    #[cfg(raindrop_embedded_web)]
     let Some(body) = assets::get("index.html").map(embedded_bytes) else {
         return not_found();
     };
@@ -128,7 +128,7 @@ fn is_api_path(path: &str) -> bool {
     path == "/api" || path.starts_with("/api/")
 }
 
-#[cfg(not(debug_assertions))]
+#[cfg(raindrop_embedded_web)]
 fn is_asset_path(path: &str) -> bool {
     path.starts_with("/assets/") || path.starts_with("/brand/") || path == "/favicon.ico"
 }
@@ -188,7 +188,7 @@ fn representation_response(
     response
 }
 
-#[cfg(not(debug_assertions))]
+#[cfg(raindrop_embedded_web)]
 fn embedded_asset(method: Method, path: &str) -> Response {
     let Some(key) = safe_asset_key(path) else {
         return not_found();
@@ -210,7 +210,7 @@ fn embedded_asset(method: Method, path: &str) -> Response {
     )
 }
 
-#[cfg(not(debug_assertions))]
+#[cfg(raindrop_embedded_web)]
 fn embedded_bytes(data: std::borrow::Cow<'static, [u8]>) -> Bytes {
     match data {
         std::borrow::Cow::Borrowed(bytes) => Bytes::from_static(bytes),
@@ -218,7 +218,7 @@ fn embedded_bytes(data: std::borrow::Cow<'static, [u8]>) -> Bytes {
     }
 }
 
-#[cfg(not(debug_assertions))]
+#[cfg(raindrop_embedded_web)]
 fn is_content_hashed_asset(key: &str) -> bool {
     let Some(file_name) = key.strip_prefix("assets/") else {
         return false;
@@ -237,7 +237,7 @@ fn is_content_hashed_asset(key: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
 }
 
-#[cfg(not(debug_assertions))]
+#[cfg(raindrop_embedded_web)]
 fn safe_asset_key(path: &str) -> Option<&str> {
     let key = path.strip_prefix('/')?;
     if key.is_empty()
@@ -254,7 +254,7 @@ fn safe_asset_key(path: &str) -> Option<&str> {
     Some(key)
 }
 
-#[cfg(not(debug_assertions))]
+#[cfg(raindrop_embedded_web)]
 fn content_type(path: &str) -> String {
     let mime = mime_guess::from_path(path).first_or_octet_stream();
     let essence = mime.essence_str();
@@ -279,7 +279,7 @@ fn not_found() -> Response {
     )
 }
 
-#[cfg(all(test, not(debug_assertions)))]
+#[cfg(all(test, raindrop_embedded_web))]
 mod tests {
     use super::is_content_hashed_asset;
 

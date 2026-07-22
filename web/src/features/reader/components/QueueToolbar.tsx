@@ -8,6 +8,8 @@ import { useLingui } from "@lingui/react"
 export type MarkReadAvailability = "hidden" | "disabled" | "enabled"
 
 interface QueueToolbarProps {
+  sourceLabel: string
+  entryCount: number
   showMenu: boolean
   isCompact: boolean
   markReadAvailability: MarkReadAvailability
@@ -51,7 +53,12 @@ export function QueueToolbar(props: QueueToolbarProps) {
           variant="ghost"
         />
       ) : undefined}
-      centerContent={<strong>{i18n._("reader.queue")}</strong>}
+      centerContent={(
+        <div className="reader-queue-heading">
+          <strong title={props.sourceLabel}>{props.sourceLabel}</strong>
+          <span>{i18n._("reader.queueVisibleCount", { count: props.entryCount })}</span>
+        </div>
+      )}
       endContent={
         <>
           <MoreMenu

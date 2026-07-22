@@ -20,6 +20,7 @@ import type {
   UserPreferencesReadingFontFamily,
 } from "../../preferences/api/preferences.generated"
 import { ArticleToolbar, ReadingFloatingToolbar } from "./ReaderToolbar"
+import { RelativeEntryTime } from "./RelativeEntryTime"
 
 interface ArticleReaderProps {
   state: ReaderState
@@ -216,6 +217,15 @@ export function ArticleReader(props: ArticleReaderProps) {
               {translationController.result.title}
             </div>
           ) : null}
+        </div>
+        <div className="reader-article-meta">
+          {detail.author ? <span>{detail.author}</span> : null}
+          {detail.author ? <span aria-hidden="true">·</span> : null}
+          <RelativeEntryTime
+            timestampUs={detail.publishedAtUs ?? detail.sortAtUs}
+            locale={i18n.locale}
+            justNowLabel={i18n._("reader.justNow")}
+          />
         </div>
         <ArticleSelectionPopover
           controller={translationController}

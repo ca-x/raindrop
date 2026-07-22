@@ -7,7 +7,30 @@ const maximumContractBytes = 1024 * 1024
 
 const dockerfile = read("Dockerfile")
 const cargoManifest = read("Cargo.toml")
+const cargoBuildScript = read("build.rs")
+const embeddedWebAssets = read("src/web/assets.rs")
+const webModule = read("src/web/mod.rs")
 const readme = read("README.md")
+requireMatch(
+  cargoBuildScript,
+  /RAINDROP_WEB_BUNDLE_DIGEST/u,
+  "embedded Web bundle digest build input",
+)
+requireMatch(
+  embeddedWebAssets,
+  /env!\("RAINDROP_WEB_BUNDLE_DIGEST"\)/u,
+  "embedded Web assets consume the bundle digest",
+)
+requireMatch(
+  cargoBuildScript,
+  /cargo:rustc-cfg=\{EMBEDDED_WEB_CFG\}/u,
+  "embedded Web build cfg",
+)
+requireMatch(
+  webModule,
+  /cfg\(raindrop_embedded_web\)/u,
+  "embedded Web module uses the build cfg",
+)
 requireAlignedCargoDependencies(
   cargoManifest,
   {

@@ -19,6 +19,17 @@ it("bounds and normalizes publisher summaries for queue rows", () => {
 })
 
 describe("Reader queue actions", () => {
+  it("keeps the active source and visible entry count in the queue heading", () => {
+    activateLocale("en")
+    const state = feedState({
+      queueBySourceKey: { "feed:feed-rust": ["first", "second"] },
+    })
+    renderQueue(state, { sourceLabel: "Planet Rust" })
+
+    expect(screen.getByText("Planet Rust")).toBeVisible()
+    expect(screen.getByText("2 in view")).toBeVisible()
+  })
+
   it("shows Feed search only for Feed sources and submits or clears it", async () => {
     activateLocale("en")
     const user = userEvent.setup()
@@ -144,6 +155,7 @@ function queue(state: ReaderState, overrides: Partial<QueueProps> = {}) {
     <Providers>
       <EntryQueue
         state={state}
+        sourceLabel="Unread"
         showMenu={false}
         isCompact={false}
         onOpenSources={vi.fn()}

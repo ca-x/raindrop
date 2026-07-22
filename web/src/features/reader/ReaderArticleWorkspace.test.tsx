@@ -28,6 +28,11 @@ describe("Reader article workspace", () => {
     )
 
     expect(screen.getByRole("heading", { name: "Reading without trackers" })).toBeVisible()
+    expect(screen.getByText("Mara Voss")).toBeVisible()
+    expect(document.querySelector(".reader-article-meta time")).toHaveAttribute(
+      "datetime",
+      "2023-11-14T22:13:20.000Z",
+    )
     expect(screen.getByText("Safe original article.")) .toBeVisible()
     const image = document.querySelector<HTMLImageElement>(".reader-article img")!
     const frame = document.querySelector<HTMLElement>(".reader-article-image-frame")!
