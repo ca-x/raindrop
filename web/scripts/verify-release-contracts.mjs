@@ -8,6 +8,15 @@ const maximumContractBytes = 1024 * 1024
 const dockerfile = read("Dockerfile")
 const cargoManifest = read("Cargo.toml")
 const readme = read("README.md")
+requireAlignedCargoDependencies(
+  cargoManifest,
+  {
+    wasmprinter: 2,
+    "wit-component": 2,
+    "wit-parser": 1,
+  },
+  "wasm-tools public type dependencies",
+)
 const repositoryUrl = "https://github.com/ca-x/raindrop"
 requireMatch(cargoManifest, new RegExp(escapeRegExp(repositoryUrl), "u"), "Cargo repository URL")
 requireMatch(dockerfile, new RegExp(escapeRegExp(repositoryUrl), "u"), "Docker source URL")
@@ -334,6 +343,27 @@ function requirePinnedActions(source, file) {
   for (const match of source.matchAll(/uses:\s*[^@\s]+@([^\s#]+)/gu)) {
     if (!/^[0-9a-f]{40}$/u.test(match[1])) {
       fail(`unpinned action in ${file}: ${match[0]}`)
+    }
+  }
+}
+
+function requireAlignedCargoDependencies(manifest, dependencies, message) {
+  let alignedVersion
+  for (const [dependency, expectedCount] of Object.entries(dependencies)) {
+    const pattern = new RegExp(
+      `^${escapeRegExp(dependency)}\\s*=\\s*\\{\\s*version\\s*=\\s*"=?([^"]+)"`,
+      "gmu",
+    )
+    const versions = [...manifest.matchAll(pattern)].map((match) => match[1])
+    if (versions.length !== expectedCount) {
+      fail(`${message}: expected ${expectedCount} ${dependency} declarations`)
+    }
+    if (new Set(versions).size !== 1) {
+      fail(`${message}: ${dependency} declarations disagree`)
+    }
+    alignedVersion ??= versions[0]
+    if (versions[0] !== alignedVersion) {
+      fail(`${message}: ${dependency} ${versions[0]} does not match ${alignedVersion}`)
     }
   }
 }
