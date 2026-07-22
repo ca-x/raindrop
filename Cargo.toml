@@ -68,7 +68,7 @@ tower = { version = "0.5.3", features = ["util"] }
 wasmprinter = { version = "=0.254.0", default-features = false, features = ["component-model", "validate"] }
 wat = "=1.254.0"
 wit-component = { version = "=0.253.0", default-features = false, features = ["dummy-module"] }
-wit-parser = { version = "0.253.0", default-features = false, features = ["std"] }
+wit-parser = { version = "0.254.0", default-features = false, features = ["std"] }
 
 [build-dependencies]
 base64 = "0.22.1"
