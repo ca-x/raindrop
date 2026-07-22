@@ -11,6 +11,7 @@ use tokio::sync::Semaphore;
 use crate::{
     api::{self, AccountThrottle, RateLimiter, UserConcurrencyLimiter, UserMutationLimiter},
     auth::SessionService,
+    backups::{BackupRuntimeHandle, BackupTransport},
     content::{provider::ProviderSecretKeyring, worker::ContentRuntimeHandle},
     feeds::{
         FeedRuntime, FeedRuntimeHandle, FeedServiceError, FeedTransport, HttpFeedTransport,
@@ -35,6 +36,8 @@ pub struct AppState {
     entry_image_cache: Arc<Mutex<EntryImageCache>>,
     pub feed_runtime: FeedRuntimeHandle,
     pub content_runtime: ContentRuntimeHandle,
+    pub backup_runtime: BackupRuntimeHandle,
+    pub(crate) backup_transport: Option<Arc<dyn BackupTransport>>,
     pub(crate) provider_keyring: Option<Arc<ProviderSecretKeyring>>,
     pub(crate) translation_deeplx_transport: Arc<dyn DeepLxTransport>,
     pub(crate) translation_openai_transport: Option<Arc<dyn OpenAiTranslationTransport>>,
@@ -45,6 +48,7 @@ pub struct AppState {
     pub subscription_mutation_limiter: UserMutationLimiter,
     pub provider_mutation_limiter: UserMutationLimiter,
     pub content_mutation_limiter: UserMutationLimiter,
+    pub backup_mutation_limiter: UserMutationLimiter,
 }
 
 impl AppState {
@@ -95,6 +99,8 @@ impl AppState {
             entry_image_cache: Arc::new(Mutex::new(EntryImageCache::default())),
             feed_runtime,
             content_runtime,
+            backup_runtime: BackupRuntimeHandle::inert(),
+            backup_transport: None,
             provider_keyring,
             translation_deeplx_transport: Arc::new(ProductionDeepLxTransport),
             translation_openai_transport: None,
@@ -105,7 +111,20 @@ impl AppState {
             subscription_mutation_limiter: UserMutationLimiter::new(),
             provider_mutation_limiter: UserMutationLimiter::new(),
             content_mutation_limiter: UserMutationLimiter::new(),
+            backup_mutation_limiter: UserMutationLimiter::new(),
         }
+    }
+
+    #[must_use]
+    pub fn with_backup_runtime(mut self, backup_runtime: BackupRuntimeHandle) -> Self {
+        self.backup_runtime = backup_runtime;
+        self
+    }
+
+    #[must_use]
+    pub fn with_backup_transport(mut self, transport: Arc<dyn BackupTransport>) -> Self {
+        self.backup_transport = Some(transport);
+        self
     }
 
     #[must_use]
@@ -146,6 +165,13 @@ impl AppState {
         F: Future<Output = Result<T, E>>,
     {
         notify_after_commit(command, || self.feed_runtime.notify()).await
+    }
+
+    pub async fn commit_and_notify_backup_runtime<F, T, E>(&self, command: F) -> Result<T, E>
+    where
+        F: Future<Output = Result<T, E>>,
+    {
+        notify_after_commit(command, || self.backup_runtime.notify()).await
     }
 
     #[must_use]

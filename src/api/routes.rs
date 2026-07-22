@@ -47,6 +47,7 @@ pub fn router() -> Router<AppState> {
         .nest("/api/v1/setup", setup)
         .nest("/api/v1/auth", auth)
         .merge(super::ai::router())
+        .merge(super::backups::router())
         .merge(super::categories::router())
         .merge(super::entries::router())
         .merge(super::entries::media_router())

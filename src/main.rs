@@ -9,7 +9,8 @@ use anyhow::{Context, Result, anyhow};
 use raindrop::{
     app::{AppState, build_router},
     auth::{CreateAdminInput, PasswordService, create_admin},
-    background::BackgroundRuntime,
+    background::{BackgroundRuntime, BackgroundRuntimeError},
+    backups::{BackupRuntime, BackupRuntimeError},
     config::{
         BootstrapMode, ConfigArgs, DatabaseKind, SystemEnv, load,
         load_existing_local_provider_secret_keys, load_or_create_local_provider_secret_keys,
@@ -133,7 +134,39 @@ async fn main() -> Result<()> {
     let (background_runtime, background_handle) =
         BackgroundRuntime::production(setup.clone(), feed_retention, provider_keyring.clone())
             .context("failed to compose Raindrop background runtime")?;
-    let background_runtime_task = tokio::spawn(background_runtime.run());
+    let (backup_runtime, backup_handle) =
+        BackupRuntime::production(setup.clone(), provider_keyring.clone())
+            .context("failed to compose Raindrop backup runtime")?;
+    let background_group_handle = background_handle.clone();
+    let backup_group_handle = backup_handle.clone();
+    let background_runtime_task = tokio::spawn(async move {
+        let mut background_task = tokio::spawn(background_runtime.run());
+        let mut backup_task = tokio::spawn(backup_runtime.run());
+        tokio::select! {
+            result = &mut background_task => {
+                backup_group_handle.shutdown();
+                let backup_result = backup_task.await;
+                match result {
+                    Ok(Ok(())) => backup_result
+                        .map_err(ApplicationRuntimeError::Join)?
+                        .map_err(ApplicationRuntimeError::Backup),
+                    Ok(Err(error)) => Err(ApplicationRuntimeError::Background(error)),
+                    Err(error) => Err(ApplicationRuntimeError::Join(error)),
+                }
+            }
+            result = &mut backup_task => {
+                background_group_handle.shutdown();
+                let background_result = background_task.await;
+                match result {
+                    Ok(Ok(())) => background_result
+                        .map_err(ApplicationRuntimeError::Join)?
+                        .map_err(ApplicationRuntimeError::Background),
+                    Ok(Err(error)) => Err(ApplicationRuntimeError::Backup(error)),
+                    Err(error) => Err(ApplicationRuntimeError::Join(error)),
+                }
+            }
+        }
+    });
     let media_transport: Arc<dyn FeedTransport> = Arc::new(
         HttpFeedTransport::new(FeedUrlPolicy::new(false))
             .context("failed to compose Raindrop media transport")?,
@@ -150,6 +183,7 @@ async fn main() -> Result<()> {
                 background_handle.content(),
                 provider_keyring,
             )
+            .with_backup_runtime(backup_handle.clone())
             .with_media_transport(media_transport),
         )
         .into_make_service_with_connect_info::<std::net::SocketAddr>(),
@@ -158,14 +192,28 @@ async fn main() -> Result<()> {
         let _ = server_shutdown_rx.await;
     });
     let runtime_shutdown = background_handle.clone();
+    let backup_runtime_shutdown = backup_handle.clone();
     coordinate_server_and_background_runtime(
         shutdown_signal(),
-        move || runtime_shutdown.shutdown(),
+        move || {
+            runtime_shutdown.shutdown();
+            backup_runtime_shutdown.shutdown();
+        },
         background_runtime_task,
         server_shutdown_tx,
         server,
     )
     .await
+}
+
+#[derive(Debug, thiserror::Error)]
+enum ApplicationRuntimeError {
+    #[error("background runtime failed")]
+    Background(#[source] BackgroundRuntimeError),
+    #[error("backup runtime failed")]
+    Backup(#[source] BackupRuntimeError),
+    #[error("runtime task failed")]
+    Join(#[source] tokio::task::JoinError),
 }
 
 async fn resolve_provider_secret_keys(

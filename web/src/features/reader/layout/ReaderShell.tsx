@@ -13,6 +13,7 @@ import { toAstryxDensity } from "../../preferences/model/preferenceTypes"
 import type { PreferencesController } from "../../preferences/model/usePreferencesController"
 import type { ProfileController } from "../../profile/model/useProfileController"
 import type { TranslationSettingsController } from "../../translation/model/useTranslationSettingsController"
+import type { BackupController } from "../../backups/model/useBackupController"
 import { ArticleReader } from "../components/ArticleReader"
 import { EntryQueue } from "../components/EntryQueue"
 import { MarkReadDialog } from "../components/MarkReadDialog"
@@ -33,6 +34,7 @@ interface ReaderShellProps {
   profileController?: ProfileController
   aiSettingsController?: AiSettingsController
   translationController?: TranslationSettingsController
+  backupController?: BackupController
   route: ReaderRouteMatch
   isSourceReady: boolean
   username: string
@@ -334,6 +336,8 @@ export function ReaderShell(props: ReaderShellProps) {
           if (deleted) props.onSelectSource({ kind: "smart", state: "UNREAD" })
           return deleted
         }}
+        onRequestMarkRead={() => setIsMarkReadOpen(true)}
+        isMarkingRead={props.controller.isMarkingRead}
         onOpenChange={(open) => {
           setIsSubscriptionEditOpen(open)
           if (open) return
@@ -368,6 +372,7 @@ export function ReaderShell(props: ReaderShellProps) {
         profileFieldErrors={props.profileController?.fieldErrors ?? {}}
         aiController={props.aiSettingsController}
         translationController={props.translationController}
+        backupController={props.backupController}
         onClearError={props.preferencesController.clearError}
         onSave={props.preferencesController.save}
         onSaveProfile={props.profileController?.save ?? (async () => true)}

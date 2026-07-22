@@ -1,8 +1,9 @@
 import { Button } from "@astryxdesign/core/Button"
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog"
+import { Icon } from "@astryxdesign/core/Icon"
 import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout"
 import { useLingui } from "@lingui/react"
-import { useEffect, useRef, useState, type FormEvent } from "react"
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react"
 
 import type { UserFont, UserPreferences } from "../api/preferences.generated"
 import type { PreferencesControllerError } from "../model/usePreferencesController"
@@ -13,6 +14,8 @@ import type {
   ProfileFieldError,
 } from "../../profile/model/useProfileController"
 import type { TranslationSettingsController } from "../../translation/model/useTranslationSettingsController"
+import type { BackupController } from "../../backups/model/useBackupController"
+import { BackupSettingsPanel } from "../../backups/components/BackupSettingsPanel"
 import {
   PersonalPreferencesForm,
   ReadingPreferencesForm,
@@ -34,6 +37,7 @@ interface PreferencesDialogProps {
   profileFieldErrors: Partial<Record<"displayName" | "email", ProfileFieldError>>
   aiController?: AiSettingsController
   translationController?: TranslationSettingsController
+  backupController?: BackupController
   onOpenChange: (isOpen: boolean) => void
   onClearError: () => void
   onClearProfileError: () => void
@@ -43,7 +47,7 @@ interface PreferencesDialogProps {
   onDeleteFont: (fontId: string) => Promise<boolean>
 }
 
-export type PreferencesTab = "personal" | "reading" | "plugins"
+export type PreferencesTab = "personal" | "reading" | "plugins" | "backup" | "about"
 
 export function PreferencesDialog(props: PreferencesDialogProps) {
   const { i18n } = useLingui()
@@ -129,19 +133,21 @@ export function PreferencesDialog(props: PreferencesDialogProps) {
           />
         }
         content={
-          <LayoutContent padding={0} className="reader-preferences-content">
+          <LayoutContent padding={0} isScrollable={false} className="reader-preferences-content">
             <div className="reader-settings-layout">
               <nav className="reader-settings-nav" aria-label={i18n._("preferences.sections")}>
                 <SettingsNavButton
                   isActive={activeTab === "personal"}
                   label={i18n._("preferences.tabPersonal")}
                   description={i18n._("preferences.tabPersonalDescription")}
+                  icon={<PersonalIcon />}
                   onClick={() => setActiveTab("personal")}
                 />
                 <SettingsNavButton
                   isActive={activeTab === "reading"}
                   label={i18n._("preferences.tabReading")}
                   description={i18n._("preferences.tabReadingDescription")}
+                  icon={<ReadingIcon />}
                   onClick={() => setActiveTab("reading")}
                 />
                 {props.aiController && props.translationController ? (
@@ -149,15 +155,32 @@ export function PreferencesDialog(props: PreferencesDialogProps) {
                     isActive={activeTab === "plugins"}
                     label={i18n._("preferences.tabPlugins")}
                     description={i18n._("preferences.tabPluginsDescription")}
+                    icon={<Icon icon="wrench" size="sm" color="inherit" />}
                     onClick={() => setActiveTab("plugins")}
                   />
                 ) : null}
+                {props.backupController ? (
+                  <SettingsNavButton
+                    isActive={activeTab === "backup"}
+                    label={i18n._("preferences.tabBackup")}
+                    description={i18n._("preferences.tabBackupDescription")}
+                    icon={<BackupIcon />}
+                    onClick={() => setActiveTab("backup")}
+                  />
+                ) : null}
+                <SettingsNavButton
+                  isActive={activeTab === "about"}
+                  label={i18n._("preferences.tabAbout")}
+                  description={i18n._("preferences.tabAboutDescription")}
+                  icon={<Icon icon="info" size="sm" color="inherit" />}
+                  onClick={() => setActiveTab("about")}
+                />
               </nav>
               <div
                 key={activeTab}
                 className="reader-preferences-panel reader-panel-transition"
               >
-                {activeTab !== "plugins" ? (
+                {activeTab === "personal" || activeTab === "reading" ? (
                   <div className="reader-settings-panel-intro">
                     <div className="reader-settings-title">
                       {i18n._(
@@ -203,11 +226,15 @@ export function PreferencesDialog(props: PreferencesDialogProps) {
                     onChange={update}
                     onSubmit={submit}
                   />
-                ) : props.aiController && props.translationController ? (
+                ) : activeTab === "plugins" && props.aiController && props.translationController ? (
                   <PluginSettingsPanel
                     aiController={props.aiController}
                     translationController={props.translationController}
                   />
+                ) : activeTab === "backup" && props.backupController ? (
+                  <BackupSettingsPanel controller={props.backupController} />
+                ) : activeTab === "about" ? (
+                  <AboutPanel />
                 ) : null}
               </div>
             </div>
@@ -251,6 +278,7 @@ function SettingsNavButton(props: {
   isActive: boolean
   label: string
   description: string
+  icon: ReactNode
   onClick: () => void
 }) {
   return (
@@ -260,10 +288,39 @@ function SettingsNavButton(props: {
       aria-current={props.isActive ? "page" : undefined}
       onClick={props.onClick}
     >
-      <span className="reader-settings-nav-label">{props.label}</span>
-      <span className="reader-settings-nav-description">{props.description}</span>
+      <span className="reader-settings-nav-icon" aria-hidden="true">{props.icon}</span>
+      <span className="reader-settings-nav-copy">
+        <span className="reader-settings-nav-label">{props.label}</span>
+        <span className="reader-settings-nav-description">{props.description}</span>
+      </span>
     </button>
   )
+}
+
+function AboutPanel() {
+  const { i18n } = useLingui()
+  return (
+    <section className="reader-about-panel">
+      <div className="reader-about-mark" aria-hidden="true">R</div>
+      <div>
+        <div className="reader-settings-title">Raindrop</div>
+        <div className="reader-about-version">v{__RAINDROP_VERSION__}</div>
+      </div>
+      <p className="reader-preference-description">{i18n._("preferences.aboutDescription")}</p>
+    </section>
+  )
+}
+
+function PersonalIcon() {
+  return <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.7"><circle cx="10" cy="6" r="3" /><path d="M4 17c.5-3.2 2.5-5 6-5s5.5 1.8 6 5" strokeLinecap="round" /></svg>
+}
+
+function ReadingIcon() {
+  return <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M3 4.5c2.8-.7 5.1-.2 7 1.4v10c-1.9-1.6-4.2-2.1-7-1.4v-10ZM17 4.5c-2.8-.7-5.1-.2-7 1.4v10c1.9-1.6 4.2-2.1 7-1.4v-10Z" strokeLinejoin="round" /></svg>
+}
+
+function BackupIcon() {
+  return <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M5.5 15.5h9a3 3 0 0 0 .4-6 5 5 0 0 0-9.6-1.4A3.8 3.8 0 0 0 5.5 15.5Z" strokeLinejoin="round" /><path d="M10 8.5v5M8 10.5l2-2 2 2" strokeLinecap="round" strokeLinejoin="round" /></svg>
 }
 
 function normalizedProfile(profile: UserProfile): UserProfile {

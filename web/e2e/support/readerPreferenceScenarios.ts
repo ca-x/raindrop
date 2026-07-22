@@ -169,7 +169,7 @@ export async function verifyCompactPreferences(
   await expectPresentation(page, desired)
   const reopened = await openCompactSettings(page, "zh-CN")
   await expect(reopened.dialog.getByText(
-    "调整界面、阅读与插件设置，不打断当前阅读。",
+    "调整账户、阅读、插件与备份设置，不打断当前阅读。",
   )).toBeVisible()
   await expectDialogContained(reopened.dialog, page)
   await expectNoHorizontalOverflow(page)

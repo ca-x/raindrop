@@ -17,6 +17,7 @@ it("renames, moves, opens, and deletes the selected feed", async () => {
   const onUpdate = vi.fn(async () => true)
   const onDelete = vi.fn(async (_subscriptionId: string) => true)
   const onOpenChange = vi.fn()
+  const onRequestMarkRead = vi.fn()
 
   render(
     <Providers>
@@ -30,6 +31,8 @@ it("renames, moves, opens, and deletes the selected feed", async () => {
         onClearError={vi.fn()}
         onUpdate={onUpdate}
         onDelete={onDelete}
+        onRequestMarkRead={onRequestMarkRead}
+        isMarkingRead={false}
       />
     </Providers>,
   )
@@ -54,6 +57,9 @@ it("renames, moves, opens, and deletes the selected feed", async () => {
   expect(onUpdate).toHaveBeenCalledWith(subscription.subscriptionId, {
     categoryId: null,
   })
+
+  await user.click(within(dialog).getByRole("button", { name: "Mark current source read" }))
+  expect(onRequestMarkRead).toHaveBeenCalledOnce()
 
   await user.click(within(dialog).getByRole("button", { name: "Delete subscription" }))
   const alert = await screen.findByRole("alertdialog", {
@@ -80,6 +86,8 @@ it("uses the current page for a feed site when that preference is selected", () 
         onClearError={vi.fn()}
         onUpdate={vi.fn(async () => true)}
         onDelete={vi.fn(async () => true)}
+        onRequestMarkRead={vi.fn()}
+        isMarkingRead={false}
       />
     </Providers>,
   )

@@ -31,6 +31,8 @@ interface SubscriptionEditDialogProps {
     request: UpdateSubscriptionRequest,
   ) => Promise<boolean>
   onDelete: (subscriptionId: string) => Promise<boolean>
+  onRequestMarkRead: () => void
+  isMarkingRead: boolean
 }
 
 export function SubscriptionEditDialog(props: SubscriptionEditDialogProps) {
@@ -189,6 +191,22 @@ export function SubscriptionEditDialog(props: SubscriptionEditDialogProps) {
                   placement="below"
                   width="100%"
                 />
+                <div className="reader-feed-management-summary">
+                  <div>
+                    <div className="reader-preference-label">
+                      {i18n._("reader.markSubscriptionRead")}
+                    </div>
+                    <div className="reader-preference-description">
+                      {i18n._("reader.markSubscriptionReadDescription")}
+                    </div>
+                  </div>
+                  <Button
+                    label={i18n._("reader.markAllRead")}
+                    onClick={props.onRequestMarkRead}
+                    isLoading={props.isMarkingRead}
+                    variant="secondary"
+                  />
+                </div>
                 <div className="reader-feed-danger-zone">
                   <div>
                     <div className="reader-preference-label">

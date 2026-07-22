@@ -5,6 +5,7 @@ import { useViewportMode } from "../../shared/responsive/useViewportMode"
 import { logout } from "../auth/api"
 import type { SessionResponse } from "../auth/session"
 import { useAiSettingsController } from "../ai/model/useAiSettingsController"
+import { useBackupController } from "../backups/model/useBackupController"
 import { usePreferencesController } from "../preferences/model/usePreferencesController"
 import { useProfileController } from "../profile/model/useProfileController"
 import { useTranslationSettingsController } from "../translation/model/useTranslationSettingsController"
@@ -47,6 +48,10 @@ export function ReadyPage({ session, onLoggedOut }: ReadyPageProps) {
     csrfToken: session.csrfToken,
     onUnauthenticated: onLoggedOut,
   })
+  const backupController = useBackupController({
+    csrfToken: session.csrfToken,
+    onUnauthenticated: onLoggedOut,
+  })
 
   useEffect(() => {
     void controller.load()
@@ -54,11 +59,13 @@ export function ReadyPage({ session, onLoggedOut }: ReadyPageProps) {
     void profileController.load()
     void aiSettingsController.load()
     void translationController.load()
+    void backupController.load()
     return () => {
       preferencesController.cancelLoad()
       profileController.cancel()
       aiSettingsController.cancel()
       translationController.cancel()
+      backupController.cancel()
     }
   }, [
     aiSettingsController.cancel,
@@ -70,6 +77,8 @@ export function ReadyPage({ session, onLoggedOut }: ReadyPageProps) {
     profileController.load,
     translationController.cancel,
     translationController.load,
+    backupController.cancel,
+    backupController.load,
   ])
 
   const signOut = async () => {
@@ -77,6 +86,7 @@ export function ReadyPage({ session, onLoggedOut }: ReadyPageProps) {
     try {
       aiSettingsController.cancel()
       translationController.cancel()
+      backupController.cancel()
       await logout(session.csrfToken)
       preferencesController.clearHint()
       onLoggedOut()
@@ -91,6 +101,7 @@ export function ReadyPage({ session, onLoggedOut }: ReadyPageProps) {
     profileController,
     aiSettingsController,
     translationController,
+    backupController,
     username: session.user.username,
     email: session.user.email,
     onLogout: signOut,

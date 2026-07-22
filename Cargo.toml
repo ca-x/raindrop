@@ -1,6 +1,6 @@
 [package]
 name = "raindrop"
-version = "0.3.9"
+version = "0.4.0"
 edition = "2024"
 rust-version = "1.94"
 license = "MIT"
@@ -17,6 +17,8 @@ anyhow = "1.0.103"
 argon2 = { version = "0.5.3", features = ["std"] }
 async-compression = { version = "0.4.42", default-features = false, features = ["tokio", "gzip", "zlib", "brotli"] }
 async-trait = "0.1.89"
+aws-credential-types = "=1.2.14"
+aws-sigv4 = "=1.4.5"
 axum = { version = "0.8.9", features = ["json", "macros"] }
 base64 = "0.22.1"
 blake3 = "1.8.3"

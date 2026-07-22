@@ -6,6 +6,7 @@ import type { AiSettingsController } from "../../ai/model/useAiSettingsControlle
 import type { PreferencesController } from "../../preferences/model/usePreferencesController"
 import type { ProfileController } from "../../profile/model/useProfileController"
 import type { TranslationSettingsController } from "../../translation/model/useTranslationSettingsController"
+import type { BackupController } from "../../backups/model/useBackupController"
 import { adjacentUnreadSource, type UnreadSourceDirection } from "../model/unreadSourceNavigation"
 import { sourceKey } from "../model/types"
 import type { ReaderController } from "../model/useReaderController"
@@ -23,6 +24,7 @@ interface ReaderRoutesProps {
   profileController?: ProfileController
   aiSettingsController?: AiSettingsController
   translationController?: TranslationSettingsController
+  backupController?: BackupController
   username: string
   onLogout: () => Promise<void>
   onUnauthenticated?: () => void

@@ -115,3 +115,52 @@ it("never deletes an existing subscription when returning to its URL", async () 
   expect(onDelete).not.toHaveBeenCalled()
   expect(within(dialog).getByRole("textbox", { name: /^Feed URL/ })).toBeEnabled()
 })
+
+it("closes after the final successful add step", async () => {
+  activateLocale("en")
+  const user = userEvent.setup()
+  const created = makeSubscription({
+    subscriptionId: "00000000-0000-4000-8000-000000000713",
+    feedUrl: "https://publisher.example/atom.xml",
+    title: "Publisher",
+  })
+  const onOpenChange = vi.fn()
+
+  function Harness() {
+    const [subscriptions, setSubscriptions] = useState<ReturnType<typeof makeSubscription>[]>([])
+    return (
+      <Providers>
+        <SubscriptionManagementDialog
+          isOpen
+          subscriptions={subscriptions}
+          categories={[]}
+          mutationError={null}
+          csrfToken="csrf-memory"
+          onOpenChange={onOpenChange}
+          onClearError={vi.fn()}
+          onAdd={async () => {
+            setSubscriptions([created])
+            return { created: true, subscription: created }
+          }}
+          onUpdate={vi.fn(async () => true)}
+          onDelete={vi.fn(async () => true)}
+          onCreateCategory={vi.fn(async () => true)}
+          onUpdateCategory={vi.fn(async () => true)}
+          onDeleteCategory={vi.fn(async () => true)}
+          onSubscriptionsChanged={vi.fn()}
+        />
+      </Providers>
+    )
+  }
+
+  render(<Harness />)
+  const dialog = screen.getByRole("dialog", { name: "Manage subscriptions" })
+  await user.type(
+    within(dialog).getByRole("textbox", { name: /^Feed URL/ }),
+    created.feedUrl,
+  )
+  await user.click(within(dialog).getByRole("button", { name: "Continue" }))
+  await user.click(within(dialog).getByRole("button", { name: "Finish" }))
+
+  expect(onOpenChange).toHaveBeenCalledWith(false)
+})

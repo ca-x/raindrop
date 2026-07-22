@@ -121,6 +121,7 @@ export function SubscriptionManagementDialog(
                   {...props}
                   pendingSubscription={pendingSubscription}
                   onPendingSubscriptionChange={setPendingSubscription}
+                  onComplete={close}
                 />
               ) : activeTab === "categories" ? (
                 <CategoryPanel {...props} />
@@ -153,6 +154,7 @@ function SubscriptionPanel(
     onPendingSubscriptionChange: (
       pending: PendingSubscriptionSetup | null,
     ) => void
+    onComplete: () => void
   },
 ) {
   const { i18n } = useLingui()
@@ -218,8 +220,7 @@ function SubscriptionPanel(
         )
     setIsOrganizing(false)
     if (!saved) return
-    props.onPendingSubscriptionChange(null)
-    setUrl("")
+    props.onComplete()
   }
 
   const returnToFeedUrl = async () => {

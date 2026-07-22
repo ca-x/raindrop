@@ -1,12 +1,14 @@
 import { Banner } from "@astryxdesign/core/Banner"
 import { Button } from "@astryxdesign/core/Button"
 import { FileInput } from "@astryxdesign/core/FileInput"
+import { IconButton } from "@astryxdesign/core/IconButton"
 import {
   SegmentedControl,
   SegmentedControlItem,
 } from "@astryxdesign/core/SegmentedControl"
 import { Stack } from "@astryxdesign/core/Stack"
 import { TextInput } from "@astryxdesign/core/TextInput"
+import { Tooltip } from "@astryxdesign/core/Tooltip"
 import { useLingui } from "@lingui/react"
 import { useState, type FormEvent, type ReactNode } from "react"
 
@@ -312,17 +314,29 @@ function CustomFontManagement(props: ReadingPreferencesFormProps) {
               <div className="reader-preference-label">{font.displayName}</div>
               <div className="reader-preference-description">{formatBytes(font.byteSize)}</div>
             </div>
-            <Button
-              label={i18n._("preferences.deleteCustomFont", { name: font.displayName })}
-              onClick={() => void props.onDeleteFont(font.fontId)}
-              isDisabled={props.isFontMutating}
-              variant="destructive"
-            />
+            <Tooltip
+              content={i18n._("preferences.deleteFontAction")}
+              delay={180}
+              hasHoverIndication={false}
+            >
+              <IconButton
+                label={i18n._("preferences.deleteCustomFont", { name: font.displayName })}
+                icon={<TrashIcon />}
+                onClick={() => void props.onDeleteFont(font.fontId)}
+                isDisabled={props.isFontMutating}
+                variant="destructive"
+                size="sm"
+              />
+            </Tooltip>
           </div>
         ))}
       </div>
     </PreferenceField>
   )
+}
+
+function TrashIcon() {
+  return <svg aria-hidden="true" viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M4 6h12M8 3h4l1 3H7l1-3ZM6 6l.7 11h6.6L14 6M8.5 9v5M11.5 9v5" strokeLinecap="round" strokeLinejoin="round" /></svg>
 }
 
 function formatBytes(bytes: number): string {

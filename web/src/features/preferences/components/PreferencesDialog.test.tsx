@@ -120,7 +120,7 @@ it("renders the complete settings workflow in Chinese", () => {
   renderDialog()
 
   const dialog = screen.getByRole("dialog", { name: "设置" })
-  expect(within(dialog).getByText("调整界面、阅读与插件设置，不打断当前阅读。")).toBeVisible()
+  expect(within(dialog).getByText("调整账户、阅读、插件与备份设置，不打断当前阅读。")).toBeVisible()
   expect(within(dialog).getByRole("radio", { name: "跟随系统" })).toBeVisible()
   expect(within(dialog).getByRole("radio", { name: "均衡" })).toBeVisible()
   expect(within(dialog).getByRole("button", { name: "保存更改" })).toBeVisible()
@@ -133,6 +133,19 @@ it("keeps subscription transfer out of settings", () => {
 
   expect(within(dialog).queryByRole("button", { name: "Subscriptions" })).not.toBeInTheDocument()
   expect(within(dialog).queryByLabelText("OPML file")).not.toBeInTheDocument()
+})
+
+it("uses icon-assisted navigation and exposes the current build version", async () => {
+  activateLocale("en")
+  const user = userEvent.setup()
+  renderDialog()
+  const dialog = screen.getByRole("dialog", { name: "Settings" })
+  const navigation = within(dialog).getByRole("navigation", { name: "Settings sections" })
+
+  expect(navigation.querySelectorAll("svg").length).toBeGreaterThanOrEqual(3)
+  await user.click(within(navigation).getByRole("button", { name: /^About/ }))
+  expect(within(dialog).getByText("Raindrop")).toBeVisible()
+  expect(within(dialog).getByText("v0.4.0")).toBeVisible()
 })
 
 it("clears a deleted active custom font from the open draft before saving", async () => {
@@ -158,6 +171,9 @@ it("clears a deleted active custom font from the open draft before saving", asyn
   await user.click(
     within(dialog).getByRole("button", { name: "Delete “Reader Serif”" }),
   )
+  expect(
+    within(dialog).getByRole("button", { name: "Delete “Reader Serif”" }),
+  ).not.toHaveTextContent("Reader Serif")
   await user.click(within(dialog).getByRole("button", { name: "Save changes" }))
 
   expect(onDeleteFont).toHaveBeenCalledWith(fontId)

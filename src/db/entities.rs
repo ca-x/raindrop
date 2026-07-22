@@ -1,4 +1,9 @@
 pub mod ai_provider;
+pub mod backup_job;
+pub mod backup_job_target;
+pub mod backup_schedule;
+pub mod backup_schedule_target;
+pub mod backup_target;
 pub mod category;
 pub mod content_artifact;
 pub mod content_job;

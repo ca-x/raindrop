@@ -4,6 +4,7 @@ use sea_orm_migration::prelude::*;
 use super::DbError;
 
 mod ai_providers;
+mod backups;
 mod bootstrap_state;
 mod content_jobs;
 mod organization;
@@ -66,6 +67,7 @@ impl MigratorTrait for Migrator {
             Box::new(profile::AddUserDisplayName),
             Box::new(translation::CreateTranslationConfigs),
             Box::new(translation_progressive::AddDeepLxProgressiveTranslation),
+            Box::new(backups::CreateSubscriptionBackups),
         ]
     }
 }
