@@ -2,6 +2,13 @@
 
 Raindrop 是使用 Rust、Axum、SeaORM 和 React 构建的自托管 RSS 阅读器。它提供安全的 Feed 抓取与正文清洗、分类管理、未读与收藏状态、Feed 内搜索、批量已读、键盘导航、响应式阅读界面，以及 SQLite、PostgreSQL、MySQL 三种数据库支持。生产 Web 界面会嵌入单个 Rust 可执行文件。
 
+## v0.3.8
+
+- DeepLX 全文翻译新增默认开启的渐进模式，标题和段落完成后立即显示；后续请求失败时保留已经完成的译文。
+- 修复来源树全部展开后无法滚动到最后的问题，底部订阅现在可以完整显示和操作。
+- 来源树悬停与选中状态使用不同颜色，嵌套订阅不会继承父级的选中背景。
+- AI Provider 类型明确提供 Claude / Anthropic Messages、OpenAI Responses、OpenAI Chat Completions 和 Google Gemini，新增 Provider 默认使用 OpenAI Responses。
+
 ## v0.3.7
 
 - 选中正文后在选区末端显示轻量翻译按钮；桌面端拖选释放即可操作，移动端复用系统长按选区并在选区稳定后显示 44px 触控按钮。

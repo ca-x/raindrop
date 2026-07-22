@@ -12,7 +12,8 @@ use raindrop::{
         TranslationEngine, TranslationErrorKind, TranslationRepository,
     },
 };
-use sea_orm::{EntityTrait, PaginatorTrait};
+use sea_orm::{ConnectionTrait, DbBackend, EntityTrait, PaginatorTrait, Statement};
+use sea_orm_migration::{SchemaManager, prelude::*};
 use secrecy::{ExposeSecret, SecretString};
 use support::database::{USER_A_ID, USER_B_ID, connect_for_contract, insert_user};
 use tempfile::tempdir;
@@ -40,6 +41,7 @@ async fn deeplx_configuration_is_encrypted_revisioned_and_isolated_per_user() {
     assert_eq!(initial.revision, None);
     assert!(!initial.is_enabled);
     assert!(!initial.deeplx.has_api_key);
+    assert!(initial.deeplx.is_progressive);
 
     let saved = repository
         .save(
@@ -84,6 +86,7 @@ async fn deeplx_configuration_is_encrypted_revisioned_and_isolated_per_user() {
             SaveTranslationConfig {
                 expected_revision: saved.revision,
                 deeplx_display_name: "  Private DeepLX  ".to_owned(),
+                deeplx_is_progressive: false,
                 deeplx_api_key: ApiKeyUpdate::Keep,
                 ..deeplx_config(
                     saved.revision,
@@ -98,6 +101,7 @@ async fn deeplx_configuration_is_encrypted_revisioned_and_isolated_per_user() {
     assert_eq!(renamed.revision, Some(1));
     assert_eq!(renamed.deeplx.display_name, "Private DeepLX");
     assert!(renamed.deeplx.has_api_key);
+    assert!(!renamed.deeplx.is_progressive);
 
     assert_eq!(
         repository
@@ -147,6 +151,76 @@ async fn deeplx_configuration_is_encrypted_revisioned_and_isolated_per_user() {
     );
 }
 
+#[tokio::test]
+async fn progressive_setting_migrates_existing_translation_rows() {
+    let data = tempdir().expect("temporary directory should be created");
+    let database = connect_for_contract(SecretString::from(format!(
+        "sqlite://{}?mode=rwc",
+        data.path().join("translation-upgrade.db").display()
+    )))
+    .await;
+    migrate(&database)
+        .await
+        .expect("baseline translation migrations should apply");
+    insert_user(&database, USER_A_ID, "translation-upgrade").await;
+
+    let manager = SchemaManager::new(&database);
+    manager
+        .alter_table(
+            Table::alter()
+                .table(Alias::new("translation_configs"))
+                .drop_column(Alias::new("deep_lx_is_progressive"))
+                .to_owned(),
+        )
+        .await
+        .expect("upgrade fixture should match the previous translation schema");
+    database
+        .execute_unprepared(
+            "DELETE FROM seaql_migrations WHERE version = 'translation_progressive'",
+        )
+        .await
+        .expect("progressive migration marker should reset");
+    database
+        .execute_unprepared(
+            "INSERT INTO translation_configs (\
+                user_id, engine, display_mode, is_enabled, default_target_locale, \
+                open_ai_provider_id, open_ai_max_output_tokens, open_ai_profile, \
+                open_ai_custom_system_prompt, open_ai_custom_prompt, deep_lx_display_name, \
+                deep_lx_description, deep_lx_base_url, encrypted_deep_lx_api_key, revision, \
+                created_at, updated_at\
+            ) VALUES (\
+                '00000000-0000-4000-8000-000000000001', 'DEEPLX', 'BILINGUAL', TRUE, 'zh-CN', \
+                NULL, 4096, 'GENERAL', NULL, NULL, 'DeepLX', NULL, NULL, NULL, 0, \
+                '2040-02-03T04:05:06Z', '2040-02-03T04:05:06Z'\
+            )",
+        )
+        .await
+        .expect("existing translation row should insert without the new column");
+
+    migrate(&database)
+        .await
+        .expect("progressive translation migration should upgrade the existing schema");
+    assert!(
+        manager
+            .has_column("translation_configs", "deep_lx_is_progressive")
+            .await
+            .expect("progressive column should inspect")
+    );
+    let row = database
+        .query_one(Statement::from_string(
+            DbBackend::Sqlite,
+            "SELECT deep_lx_is_progressive FROM translation_configs \
+             WHERE user_id = '00000000-0000-4000-8000-000000000001'",
+        ))
+        .await
+        .expect("upgraded translation row should query")
+        .expect("upgraded translation row should exist");
+    assert!(
+        row.try_get::<bool>("", "deep_lx_is_progressive")
+            .expect("progressive default should decode")
+    );
+}
+
 fn deeplx_config(
     expected_revision: Option<u64>,
     is_enabled: bool,
@@ -167,6 +241,7 @@ fn deeplx_config(
         deeplx_display_name: "DeepLX".to_owned(),
         deeplx_description: Some("Private translation endpoint".to_owned()),
         deeplx_base_url: base_url.map(str::to_owned),
+        deeplx_is_progressive: true,
         deeplx_api_key: api_key,
     }
 }

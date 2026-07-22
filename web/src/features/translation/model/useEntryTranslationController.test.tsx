@@ -82,6 +82,162 @@ it("does not erase an article failure when contextual actions close", async () =
   expect(result.current.articleError).toBe("TRANSLATE")
 })
 
+it("publishes progressive segments before the article translation completes", async () => {
+  const encoder = new TextEncoder()
+  let stream!: ReadableStreamDefaultController<Uint8Array>
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            stream = controller
+          },
+        }),
+        { headers: { "content-type": "application/x-ndjson" } },
+      ),
+    ),
+  )
+  const { result } = renderHook(() =>
+    useEntryTranslationController(
+      firstEntryId,
+      "csrf-memory",
+      vi.fn(),
+      true,
+    ),
+  )
+
+  let request!: Promise<boolean>
+  act(() => {
+    request = result.current.translate()
+  })
+  await waitFor(() => expect(result.current.isTranslating).toBe(true))
+  act(() => {
+    stream.enqueue(
+      encoder.encode(
+        [
+          progressLine("STARTED", { targetLocale: "zh-CN", totalSegments: 1 }),
+          progressLine("TITLE", {
+            title: "已翻译标题",
+            providerLabel: "DeepLX",
+            detectedSourceLocale: "en",
+            targetLocale: "zh-CN",
+            totalSegments: 1,
+          }),
+          progressLine("SEGMENT", {
+            segment: {
+              index: 0,
+              originalText: "First paragraph",
+              translatedText: "第一段",
+            },
+            completedSegments: 1,
+            totalSegments: 1,
+          }),
+        ].join(""),
+      ),
+    )
+  })
+
+  await waitFor(() =>
+    expect(result.current.result?.segments).toEqual([
+      {
+        index: 0,
+        originalText: "First paragraph",
+        translatedText: "第一段",
+      },
+    ]),
+  )
+  expect(result.current.isTranslating).toBe(true)
+  expect(result.current.completedSegments).toBe(1)
+  expect(result.current.totalSegments).toBe(1)
+
+  act(() => {
+    stream.enqueue(
+      encoder.encode(
+        progressLine("COMPLETED", {
+          completedSegments: 1,
+          totalSegments: 1,
+        }),
+      ),
+    )
+    stream.close()
+  })
+  await act(async () => expect(request).resolves.toBe(true))
+  expect(result.current.isTranslating).toBe(false)
+})
+
+it("keeps completed progressive segments when a later provider call fails", async () => {
+  const encoder = new TextEncoder()
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(
+              encoder.encode(
+                [
+                  progressLine("STARTED", {
+                    targetLocale: "zh-CN",
+                    totalSegments: 2,
+                  }),
+                  progressLine("TITLE", {
+                    title: "已翻译标题",
+                    providerLabel: "DeepLX",
+                    detectedSourceLocale: "en",
+                    targetLocale: "zh-CN",
+                    totalSegments: 2,
+                  }),
+                  progressLine("SEGMENT", {
+                    segment: {
+                      index: 0,
+                      originalText: "First paragraph",
+                      translatedText: "第一段",
+                    },
+                    completedSegments: 1,
+                    totalSegments: 2,
+                  }),
+                  progressLine("ERROR", {
+                    error: {
+                      status: 502,
+                      code: "TRANSLATION_UPSTREAM_ERROR",
+                      message: "The translation provider could not complete the request",
+                    },
+                  }),
+                ].join(""),
+              ),
+            )
+            controller.close()
+          },
+        }),
+        { headers: { "content-type": "application/x-ndjson" } },
+      ),
+    ),
+  )
+  const { result } = renderHook(() =>
+    useEntryTranslationController(
+      firstEntryId,
+      "csrf-memory",
+      vi.fn(),
+      true,
+    ),
+  )
+
+  await act(async () => {
+    await expect(result.current.translate()).resolves.toBe(false)
+  })
+  expect(result.current.result?.segments).toEqual([
+    {
+      index: 0,
+      originalText: "First paragraph",
+      translatedText: "第一段",
+    },
+  ])
+  expect(result.current.completedSegments).toBe(1)
+  expect(result.current.totalSegments).toBe(2)
+  expect(result.current.articleError).toBe("TRANSLATE")
+})
+
 it("ignores a cancelled lookup response that arrives after selection translation", async () => {
   const lookupResponse = deferred<Response>()
   const selectionResponse = deferred<Response>()
@@ -141,4 +297,19 @@ function deferred<T>() {
     reject = rejectPromise
   })
   return { promise, resolve, reject }
+}
+
+function progressLine(kind: string, patch: Record<string, unknown>): string {
+  return `${JSON.stringify({
+    kind,
+    title: null,
+    segment: null,
+    providerLabel: null,
+    detectedSourceLocale: null,
+    targetLocale: null,
+    completedSegments: 0,
+    totalSegments: 0,
+    error: null,
+    ...patch,
+  })}\n`
 }

@@ -4,6 +4,7 @@ import { ApiClientError } from "../../../shared/api/client"
 import {
   lookupTranslation,
   translateEntry,
+  translateEntryProgressively,
   translateSelectedText,
 } from "../api/translation"
 import type {
@@ -20,6 +21,8 @@ export interface EntryTranslationController {
   isTranslating: boolean
   isLookingUp: boolean
   isTranslatingSelection: boolean
+  completedSegments: number
+  totalSegments: number
   articleError: TranslationExecutionError | null
   contextError: TranslationExecutionError | null
   translate: () => Promise<boolean>
@@ -43,6 +46,7 @@ export function useEntryTranslationController(
   entryId: string | null,
   csrfToken: string,
   onUnauthenticated: () => void,
+  isProgressive = false,
 ): EntryTranslationController {
   const [result, setResult] = useState<TranslationResult | null>(null)
   const [lookupResult, setLookupResult] = useState<LookupResult | null>(null)
@@ -51,6 +55,8 @@ export function useEntryTranslationController(
   const [isTranslating, setIsTranslating] = useState(false)
   const [isLookingUp, setIsLookingUp] = useState(false)
   const [isTranslatingSelection, setIsTranslatingSelection] = useState(false)
+  const [completedSegments, setCompletedSegments] = useState(0)
+  const [totalSegments, setTotalSegments] = useState(0)
   const [articleError, setArticleError] =
     useState<TranslationExecutionError | null>(null)
   const [contextError, setContextError] =
@@ -69,6 +75,8 @@ export function useEntryTranslationController(
     setIsTranslating(false)
     setIsLookingUp(false)
     setIsTranslatingSelection(false)
+    setCompletedSegments(0)
+    setTotalSegments(0)
     setResult(null)
     setLookupResult(null)
     setSelectionResult(null)
@@ -94,10 +102,63 @@ export function useEntryTranslationController(
     translateAbort.current = abort
     setIsTranslating(true)
     setArticleError(null)
+    setCompletedSegments(0)
+    setTotalSegments(0)
     try {
+      if (isProgressive) {
+        await translateEntryProgressively(
+          entryId,
+          csrfToken,
+          (event) => {
+            if (translateAbort.current !== abort) return
+            switch (event.kind) {
+              case "STARTED":
+                setResult(null)
+                setTotalSegments(event.totalSegments)
+                break
+              case "TITLE":
+                if (
+                  event.title === null ||
+                  event.providerLabel === null ||
+                  event.targetLocale === null
+                ) {
+                  return
+                }
+                setResult({
+                  title: event.title,
+                  segments: [],
+                  providerLabel: event.providerLabel,
+                  detectedSourceLocale: event.detectedSourceLocale,
+                  targetLocale: event.targetLocale,
+                })
+                break
+              case "SEGMENT":
+                if (event.segment === null) return
+                const segment = event.segment
+                setResult((current) =>
+                  current
+                    ? { ...current, segments: [...current.segments, segment] }
+                    : current,
+                )
+                setCompletedSegments(event.completedSegments)
+                break
+              case "COMPLETED":
+                setCompletedSegments(event.completedSegments)
+                break
+              case "ERROR":
+                break
+            }
+          },
+          abort.signal,
+        )
+        if (translateAbort.current !== abort) return false
+        return true
+      }
       const nextResult = await translateEntry(entryId, csrfToken, abort.signal)
       if (translateAbort.current !== abort) return false
       setResult(nextResult)
+      setCompletedSegments(nextResult.segments.length)
+      setTotalSegments(nextResult.segments.length)
       return true
     } catch (cause) {
       if (translateAbort.current !== abort || isAbortError(cause)) return false
@@ -117,6 +178,7 @@ export function useEntryTranslationController(
     csrfToken,
     entryId,
     isLookingUp,
+    isProgressive,
     isTranslating,
     isTranslatingSelection,
     onUnauthenticated,
@@ -221,12 +283,18 @@ export function useEntryTranslationController(
     isTranslating,
     isLookingUp,
     isTranslatingSelection,
+    completedSegments,
+    totalSegments,
     articleError,
     contextError,
     translate,
     lookup,
     translateSelection,
-    clearTranslation: useCallback(() => setResult(null), []),
+    clearTranslation: useCallback(() => {
+      setResult(null)
+      setCompletedSegments(0)
+      setTotalSegments(0)
+    }, []),
     clearLookup: useCallback(() => setLookupResult(null), []),
     clearSelectionTranslation: useCallback(
       () => setSelectionResult(null),

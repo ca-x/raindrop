@@ -96,6 +96,8 @@ export function ArticleReader(props: ArticleReaderProps) {
     detailMatchesRoute ? detail?.entryId ?? null : null,
     props.csrfToken ?? "",
     props.onUnauthenticated ?? ignoreUnauthenticated,
+    props.translationConfig?.engine === "DEEPLX" &&
+      props.translationConfig.deepLx.isProgressive,
   )
   useLayoutEffect(() => {
     const node = articleRef.current

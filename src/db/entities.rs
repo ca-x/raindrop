@@ -39,6 +39,7 @@ pub mod translation_config {
         pub deep_lx_display_name: String,
         pub deep_lx_description: Option<String>,
         pub deep_lx_base_url: Option<String>,
+        pub deep_lx_is_progressive: bool,
         pub encrypted_deep_lx_api_key: Option<String>,
         pub revision: i64,
         pub created_at: OffsetDateTime,

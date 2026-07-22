@@ -86,6 +86,28 @@ it("keeps the DeepLX API key optional and explicitly removes a saved key", async
   )
 })
 
+it("saves the DeepLX progressive article preference", async () => {
+  activateLocale("en")
+  const user = userEvent.setup()
+  const save = vi.fn().mockResolvedValue(true)
+  renderPanel({ save })
+
+  const progressive = await screen.findByRole("switch", {
+    name: "Progressive article translation",
+  })
+  expect(progressive).toBeChecked()
+  await user.click(progressive)
+  await user.click(
+    screen.getByRole("button", { name: "Save translation settings" }),
+  )
+
+  expect(save).toHaveBeenCalledWith(
+    expect.objectContaining({
+      deepLx: expect.objectContaining({ isProgressive: false }),
+    }),
+  )
+})
+
 function renderPanel({
   config = baseConfig,
   providers = [],
@@ -156,6 +178,7 @@ const baseConfig: TranslationConfig = {
     displayName: "DeepLX",
     description: null,
     baseUrl: null,
+    isProgressive: true,
     hasApiKey: false,
   },
   revision: null,

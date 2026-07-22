@@ -199,13 +199,14 @@ impl TranslationFixture {
             "displayName": "DeepLX",
             "description": "Private translation endpoint",
             "baseUrl": base_url,
+            "isProgressive": true,
         });
         if let Some(api_key) = api_key {
             deep_lx["apiKey"] = json!(api_key);
         }
         self.json_request(
             Method::PUT,
-            "/api/v2/plugins/translation",
+            "/api/v3/plugins/translation",
             Some(json!({
                 "expectedRevision": null,
                 "engine": "DEEPLX",
@@ -303,6 +304,63 @@ async fn translation_config_requires_authentication_csrf_and_strict_json() {
 }
 
 #[tokio::test]
+async fn translation_v2_config_contract_remains_compatible_with_v3_progressive_settings() {
+    let fixture = TranslationFixture::new(true).await;
+    let configured = fixture
+        .json_request(
+            Method::PUT,
+            "/api/v3/plugins/translation",
+            Some(translation_config_body(Value::Null, "DeepLX", Some(false))),
+            Some(UserKind::A),
+            true,
+        )
+        .await;
+    assert_eq!(configured.status, StatusCode::OK, "{}", configured.json());
+    assert_eq!(configured.json()["deepLx"]["isProgressive"], false);
+
+    let updated_from_v2 = fixture
+        .json_request(
+            Method::PUT,
+            "/api/v2/plugins/translation",
+            Some(translation_config_body(
+                configured.json()["revision"].clone(),
+                "Legacy client",
+                None,
+            )),
+            Some(UserKind::A),
+            true,
+        )
+        .await;
+    assert_eq!(
+        updated_from_v2.status,
+        StatusCode::OK,
+        "{}",
+        updated_from_v2.json()
+    );
+    assert!(
+        updated_from_v2.json()["deepLx"]
+            .get("isProgressive")
+            .is_none()
+    );
+    assert_eq!(
+        updated_from_v2.json()["deepLx"]["displayName"],
+        "Legacy client"
+    );
+
+    let current_v3 = fixture
+        .json_request(
+            Method::GET,
+            "/api/v3/plugins/translation",
+            None,
+            Some(UserKind::A),
+            false,
+        )
+        .await;
+    assert_eq!(current_v3.status, StatusCode::OK);
+    assert_eq!(current_v3.json()["deepLx"]["isProgressive"], false);
+}
+
+#[tokio::test]
 async fn deeplx_key_is_not_returned_and_drives_lookup_and_owned_article_translation() {
     let fixture = TranslationFixture::new(true).await;
     let configured = fixture
@@ -310,6 +368,7 @@ async fn deeplx_key_is_not_returned_and_drives_lookup_and_owned_article_translat
         .await;
     assert_eq!(configured.status, StatusCode::OK, "{}", configured.json());
     assert_eq!(configured.json()["deepLx"]["hasApiKey"], true);
+    assert_eq!(configured.json()["deepLx"]["isProgressive"], true);
     assert!(configured.json()["deepLx"].get("apiKey").is_none());
     assert!(!String::from_utf8_lossy(&configured.body).contains("secret-key-sentinel"));
 
@@ -353,6 +412,41 @@ async fn deeplx_key_is_not_returned_and_drives_lookup_and_owned_article_translat
         translated.json()["segments"][0]["translatedText"],
         "translated: Safe content"
     );
+
+    let progressive = fixture
+        .json_request(
+            Method::POST,
+            &format!("/api/v3/plugins/translation/entries/{ENTRY_A_ID}/translate/progressive"),
+            None,
+            Some(UserKind::A),
+            true,
+        )
+        .await;
+    assert_eq!(progressive.status, StatusCode::OK);
+    assert_eq!(
+        progressive
+            .headers
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("application/x-ndjson; charset=utf-8")
+    );
+    assert_sensitive_cache_headers(&progressive);
+    let events = String::from_utf8(progressive.body)
+        .expect("progress events should be UTF-8")
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).expect("progress line should be JSON"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        events
+            .iter()
+            .map(|event| event["kind"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["STARTED", "TITLE", "SEGMENT", "COMPLETED"]
+    );
+    assert_eq!(events[1]["title"], "translated: Entry 2");
+    assert_eq!(events[2]["segment"]["originalText"], "Safe content");
+    assert_eq!(events[2]["completedSegments"], 1);
+    assert_eq!(events[2]["totalSegments"], 1);
 
     let other_configured = fixture.configure_deeplx(UserKind::B, None, None).await;
     assert_eq!(
@@ -437,7 +531,7 @@ async fn selection_translation_uses_the_saved_provider_configuration() {
     let translated = fixture
         .json_request(
             Method::POST,
-            "/api/v2/plugins/translation/translate",
+            "/api/v3/plugins/translation/translate",
             Some(json!({ "text": "  Selected paragraph.  " })),
             Some(UserKind::A),
             true,
@@ -498,6 +592,36 @@ async fn custom_deeplx_private_addresses_are_rejected_before_connection() {
 fn keyring() -> ProviderSecretKeyring {
     let key = SecretString::from(format!("primary:{}", URL_SAFE_NO_PAD.encode([0x51_u8; 32])));
     ProviderSecretKeyring::from_entries(&[key]).expect("translation keyring should construct")
+}
+
+fn translation_config_body(
+    expected_revision: Value,
+    display_name: &str,
+    is_progressive: Option<bool>,
+) -> Value {
+    let mut deep_lx = json!({
+        "displayName": display_name,
+        "description": null,
+        "baseUrl": null,
+    });
+    if let Some(is_progressive) = is_progressive {
+        deep_lx["isProgressive"] = json!(is_progressive);
+    }
+    json!({
+        "expectedRevision": expected_revision,
+        "engine": "DEEPLX",
+        "displayMode": "BILINGUAL",
+        "isEnabled": true,
+        "defaultTargetLocale": "zh-CN",
+        "openAi": {
+            "providerId": null,
+            "maxOutputTokens": 4096,
+            "profile": "GENERAL",
+            "customSystemPrompt": null,
+            "customPrompt": null
+        },
+        "deepLx": deep_lx
+    })
 }
 
 fn session_cookie(session: &raindrop::auth::CreatedSession) -> String {

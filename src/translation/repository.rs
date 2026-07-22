@@ -153,6 +153,10 @@ impl TranslationRepository {
                     Expr::value(deep_lx_base_url),
                 )
                 .col_expr(
+                    translation_config::Column::DeepLxIsProgressive,
+                    Expr::value(input.deeplx_is_progressive),
+                )
+                .col_expr(
                     translation_config::Column::EncryptedDeepLxApiKey,
                     Expr::value(encrypted_api_key),
                 )
@@ -198,6 +202,7 @@ impl TranslationRepository {
                 deep_lx_display_name: Set(deep_lx_display_name),
                 deep_lx_description: Set(deep_lx_description),
                 deep_lx_base_url: Set(deep_lx_base_url),
+                deep_lx_is_progressive: Set(input.deeplx_is_progressive),
                 encrypted_deep_lx_api_key: Set(encrypted_api_key),
                 revision: Set(0),
                 created_at: Set(now),
@@ -278,6 +283,7 @@ fn default_config(user_id: &str) -> TranslationConfig {
             display_name: "DeepLX".to_owned(),
             description: None,
             base_url: None,
+            is_progressive: true,
             has_api_key: false,
         },
         revision: None,
@@ -351,6 +357,7 @@ fn config_from_model(
             display_name: deep_lx_display_name,
             description: deep_lx_description,
             base_url: deep_lx_base_url,
+            is_progressive: model.deep_lx_is_progressive,
             has_api_key: model.encrypted_deep_lx_api_key.is_some(),
         },
         revision: Some(revision),

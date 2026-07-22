@@ -225,6 +225,7 @@ export function configRequest(config: TranslationConfig): PutTranslationConfigRe
       displayName: config.deepLx.displayName,
       description: config.deepLx.description,
       baseUrl: config.deepLx.baseUrl,
+      isProgressive: config.deepLx.isProgressive,
     },
   }
 }

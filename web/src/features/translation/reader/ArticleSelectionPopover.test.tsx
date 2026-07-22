@@ -348,6 +348,8 @@ function createController(
     isTranslating: false,
     isLookingUp: false,
     isTranslatingSelection: false,
+    completedSegments: 0,
+    totalSegments: 0,
     articleError: null,
     contextError: null,
     translate: vi.fn().mockResolvedValue(true),

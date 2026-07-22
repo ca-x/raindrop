@@ -14,12 +14,18 @@
   padding-block-end: env(safe-area-inset-bottom);
 }
 
-.reader-source-tree > [role="tree"] {
-  padding: 0 8px 12px;
+.reader-source-list {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-block-size: 0;
+  overflow: hidden;
 }
 
-.reader-source-tree > [role="tree"] {
+.reader-source-list > [role="tree"] {
+  flex: 1;
   min-block-size: 0;
+  padding: 0 8px 12px;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -66,7 +72,10 @@
   touch-action: manipulation;
 }
 
-.reader-source-tree [role="treeitem"][aria-selected="true"],
+.reader-source-tree
+  [role="treeitem"][aria-selected="true"]
+  > div:last-of-type
+  > div,
 .reader-entry-item[aria-selected="true"] {
   background: var(--color-accent-muted);
   box-shadow: inset 1px 0 0 var(--color-accent);
@@ -419,7 +428,7 @@ html[data-raindrop-reading-color="gray"] .reader-article-plane {
   overscroll-behavior: contain;
 }
 
-.reader-source-tree > [role="tree"],
+.reader-source-list > [role="tree"],
 .reader-queue-scroll,
 .reader-article,
 .reader-ai-sidecar-content,
@@ -430,7 +439,7 @@ html[data-raindrop-reading-color="gray"] .reader-article-plane {
     transparent;
 }
 
-.reader-source-tree > [role="tree"]::-webkit-scrollbar,
+.reader-source-list > [role="tree"]::-webkit-scrollbar,
 .reader-queue-scroll::-webkit-scrollbar,
 .reader-article::-webkit-scrollbar,
 .reader-ai-sidecar-content::-webkit-scrollbar,
@@ -440,7 +449,7 @@ html[data-raindrop-reading-color="gray"] .reader-article-plane {
   block-size: 8px;
 }
 
-.reader-source-tree > [role="tree"]::-webkit-scrollbar-thumb,
+.reader-source-list > [role="tree"]::-webkit-scrollbar-thumb,
 .reader-queue-scroll::-webkit-scrollbar-thumb,
 .reader-article::-webkit-scrollbar-thumb,
 .reader-ai-sidecar-content::-webkit-scrollbar-thumb,
@@ -1844,7 +1853,17 @@ html[data-raindrop-density="spacious"] {
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .reader-source-tree [role="treeitem"]:hover,
+  .reader-source-tree
+    [role="treeitem"]:not([aria-selected="true"])
+    > div:last-of-type
+    > div:hover {
+    background-color: color-mix(
+      in oklch,
+      var(--color-text-primary) 6%,
+      transparent
+    );
+  }
+
   .reader-entry-item:hover {
     background: color-mix(in oklch, var(--color-accent-muted) 54%, transparent);
   }

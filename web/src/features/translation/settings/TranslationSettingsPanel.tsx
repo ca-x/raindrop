@@ -44,6 +44,7 @@ interface Draft {
   deepLxDisplayName: string
   deepLxDescription: string
   deepLxBaseUrl: string
+  deepLxIsProgressive: boolean
   deepLxApiKey: string
   removeDeepLxApiKey: boolean
 }
@@ -436,6 +437,14 @@ function DeepLxFields({
         isDisabled={isDisabled}
         width="100%"
       />
+      <Switch
+        label={i18n._("translation.deepLxProgressive")}
+        description={i18n._("translation.deepLxProgressiveDescription")}
+        value={draft.deepLxIsProgressive}
+        onChange={(deepLxIsProgressive) => onChange({ deepLxIsProgressive })}
+        isDisabled={isDisabled}
+        labelSpacing="spread"
+      />
       <div className="translation-url-example">
         <code>https://api.deeplx.org/{"{{apiKey}}"}/translate</code>
       </div>
@@ -457,6 +466,7 @@ function toDraft(config: TranslationConfig): Draft {
     deepLxDisplayName: config.deepLx.displayName,
     deepLxDescription: config.deepLx.description ?? "",
     deepLxBaseUrl: config.deepLx.baseUrl ?? "",
+    deepLxIsProgressive: config.deepLx.isProgressive,
     deepLxApiKey: "",
     removeDeepLxApiKey: false,
   }
@@ -470,6 +480,7 @@ function toRequest(
     displayName: draft.deepLxDisplayName.trim(),
     description: draft.deepLxDescription.trim() || null,
     baseUrl: draft.deepLxBaseUrl.trim() || null,
+    isProgressive: draft.deepLxIsProgressive,
   }
   if (draft.removeDeepLxApiKey) deepLx.apiKey = null
   else if (draft.deepLxApiKey) deepLx.apiKey = draft.deepLxApiKey

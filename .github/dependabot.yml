@@ -9,3 +9,10 @@ updates:
     directory: "/" # Location of package manifests
     schedule:
       interval: "weekly"
+    ignore:
+      # SeaORM and its migration crate expose shared public types and must be
+      # migrated to a new major version together with the application code.
+      - dependency-name: "sea-orm"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "sea-orm-migration"
+        update-types: ["version-update:semver-major"]

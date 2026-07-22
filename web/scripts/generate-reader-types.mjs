@@ -30,7 +30,7 @@ const artifacts = [
     aliases: {},
   },
   {
-    source: "docs/openapi/translation-v2.json",
+    source: "docs/openapi/translation-v3.json",
     output: "src/features/translation/api/translation.generated.ts",
     aliases: {},
   },

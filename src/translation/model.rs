@@ -109,6 +109,7 @@ pub struct DeepLxSettings {
     pub display_name: String,
     pub description: Option<String>,
     pub base_url: Option<String>,
+    pub is_progressive: bool,
     pub has_api_key: bool,
 }
 
@@ -155,6 +156,7 @@ pub struct SaveTranslationConfig {
     pub deeplx_display_name: String,
     pub deeplx_description: Option<String>,
     pub deeplx_base_url: Option<String>,
+    pub deeplx_is_progressive: bool,
     pub deeplx_api_key: ApiKeyUpdate,
 }
 
@@ -206,6 +208,30 @@ pub struct TranslationSegment {
     pub index: u32,
     pub original_text: String,
     pub translated_text: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TranslationProgress {
+    Started {
+        total_segments: u32,
+        target_locale: String,
+    },
+    Title {
+        title: String,
+        provider_label: String,
+        detected_source_locale: Option<String>,
+        target_locale: String,
+        total_segments: u32,
+    },
+    Segment {
+        segment: TranslationSegment,
+        completed_segments: u32,
+        total_segments: u32,
+    },
+    Completed {
+        completed_segments: u32,
+        total_segments: u32,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -1,0 +1,472 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Raindrop Translation Plugin API",
+    "version": "3.0.0",
+    "description": "User-scoped translation settings and execution for OpenAI-compatible Providers and DeepLX. Credentials are write-only."
+  },
+  "servers": [{ "url": "/" }],
+  "tags": [{ "name": "Translation" }],
+  "paths": {
+    "/api/v3/plugins/translation": {
+      "get": {
+        "tags": ["Translation"],
+        "operationId": "getTranslationConfig",
+        "security": [{ "sessionCookie": [] }],
+        "responses": {
+          "200": { "$ref": "#/components/responses/TranslationConfig" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "500": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "put": {
+        "tags": ["Translation"],
+        "operationId": "putTranslationConfig",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/CsrfToken" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PutTranslationConfigRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/TranslationConfig" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" },
+          "422": { "$ref": "#/components/responses/Error" },
+          "429": { "$ref": "#/components/responses/Error" },
+          "500": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v3/plugins/translation/test": {
+      "post": {
+        "tags": ["Translation"],
+        "operationId": "testTranslationConnection",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/CsrfToken" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/TestTranslationRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/TranslationTest" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" },
+          "422": { "$ref": "#/components/responses/Error" },
+          "429": { "$ref": "#/components/responses/Error" },
+          "502": { "$ref": "#/components/responses/Error" },
+          "504": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v3/plugins/translation/translate": {
+      "post": {
+        "tags": ["Translation"],
+        "operationId": "translateSelectedText",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/CsrfToken" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/TranslateTextRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/TranslationText" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" },
+          "422": { "$ref": "#/components/responses/Error" },
+          "429": { "$ref": "#/components/responses/Error" },
+          "502": { "$ref": "#/components/responses/Error" },
+          "504": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v3/plugins/translation/lookup": {
+      "post": {
+        "tags": ["Translation"],
+        "operationId": "lookupTranslationTerm",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/CsrfToken" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/LookupRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/LookupResult" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" },
+          "422": { "$ref": "#/components/responses/Error" },
+          "429": { "$ref": "#/components/responses/Error" },
+          "502": { "$ref": "#/components/responses/Error" },
+          "504": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v3/plugins/translation/entries/{entryId}/translate": {
+      "post": {
+        "tags": ["Translation"],
+        "operationId": "translateEntry",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/CsrfToken" },
+          {
+            "name": "entryId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" }
+          }
+        ],
+        "responses": {
+          "200": { "$ref": "#/components/responses/TranslationResult" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" },
+          "413": { "$ref": "#/components/responses/Error" },
+          "429": { "$ref": "#/components/responses/Error" },
+          "502": { "$ref": "#/components/responses/Error" },
+          "504": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v3/plugins/translation/entries/{entryId}/translate/progressive": {
+      "post": {
+        "tags": ["Translation"],
+        "operationId": "translateEntryProgressively",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/CsrfToken" },
+          {
+            "name": "entryId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" }
+          }
+        ],
+        "responses": {
+          "200": { "$ref": "#/components/responses/TranslationProgress" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "429": { "$ref": "#/components/responses/Error" },
+          "500": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "sessionCookie": { "type": "apiKey", "in": "cookie", "name": "raindrop_session" }
+    },
+    "parameters": {
+      "CsrfToken": {
+        "name": "x-csrf-token",
+        "in": "header",
+        "required": true,
+        "schema": { "type": "string" }
+      }
+    },
+    "schemas": {
+      "TranslationEngine": { "type": "string", "enum": ["OPENAI", "DEEPLX"] },
+      "TranslationDisplayMode": {
+        "type": "string",
+        "enum": ["TRANSLATION_ONLY", "BILINGUAL", "HOVER", "SIDE_BY_SIDE"]
+      },
+      "AiTranslationProfile": {
+        "type": "string",
+        "enum": ["GENERAL", "TECHNICAL", "LITERARY", "ACADEMIC", "BUSINESS", "SOCIAL_NEWS", "CUSTOM"]
+      },
+      "OpenAiTranslationConfig": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["providerId", "maxOutputTokens", "profile", "customSystemPrompt", "customPrompt"],
+        "properties": {
+          "providerId": { "type": ["string", "null"], "format": "uuid" },
+          "maxOutputTokens": { "type": "integer", "minimum": 256, "maximum": 16384 },
+          "profile": { "$ref": "#/components/schemas/AiTranslationProfile" },
+          "customSystemPrompt": { "type": ["string", "null"], "maxLength": 8192 },
+          "customPrompt": { "type": ["string", "null"], "maxLength": 8192 }
+        }
+      },
+      "DeepLxTranslationConfig": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["displayName", "description", "baseUrl", "isProgressive", "hasApiKey"],
+        "properties": {
+          "displayName": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "description": { "type": ["string", "null"], "maxLength": 500 },
+          "baseUrl": { "type": ["string", "null"], "maxLength": 2048 },
+          "isProgressive": { "type": "boolean" },
+          "hasApiKey": { "type": "boolean" }
+        }
+      },
+      "TranslationConfig": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["engine", "displayMode", "isEnabled", "defaultTargetLocale", "openAi", "deepLx", "revision"],
+        "properties": {
+          "engine": { "$ref": "#/components/schemas/TranslationEngine" },
+          "displayMode": { "$ref": "#/components/schemas/TranslationDisplayMode" },
+          "isEnabled": { "type": "boolean" },
+          "defaultTargetLocale": { "type": "string", "minLength": 2, "maxLength": 35 },
+          "openAi": { "$ref": "#/components/schemas/OpenAiTranslationConfig" },
+          "deepLx": { "$ref": "#/components/schemas/DeepLxTranslationConfig" },
+          "revision": { "type": ["integer", "null"], "minimum": 0 }
+        }
+      },
+      "OpenAiTranslationConfigRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["providerId", "maxOutputTokens", "profile", "customSystemPrompt", "customPrompt"],
+        "properties": {
+          "providerId": { "type": ["string", "null"], "format": "uuid" },
+          "maxOutputTokens": { "type": "integer", "minimum": 256, "maximum": 16384 },
+          "profile": { "$ref": "#/components/schemas/AiTranslationProfile" },
+          "customSystemPrompt": { "type": ["string", "null"], "maxLength": 8192 },
+          "customPrompt": { "type": ["string", "null"], "maxLength": 8192 }
+        }
+      },
+      "DeepLxTranslationConfigRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["displayName", "description", "baseUrl", "isProgressive"],
+        "properties": {
+          "displayName": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "description": { "type": ["string", "null"], "maxLength": 500 },
+          "baseUrl": { "type": ["string", "null"], "maxLength": 2048 },
+          "isProgressive": { "type": "boolean" },
+          "apiKey": { "type": ["string", "null"], "maxLength": 1024 }
+        }
+      },
+      "PutTranslationConfigRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["expectedRevision", "engine", "displayMode", "isEnabled", "defaultTargetLocale", "openAi", "deepLx"],
+        "properties": {
+          "expectedRevision": { "type": ["integer", "null"], "minimum": 0 },
+          "engine": { "$ref": "#/components/schemas/TranslationEngine" },
+          "displayMode": { "$ref": "#/components/schemas/TranslationDisplayMode" },
+          "isEnabled": { "type": "boolean" },
+          "defaultTargetLocale": { "type": "string", "minLength": 2, "maxLength": 35 },
+          "openAi": { "$ref": "#/components/schemas/OpenAiTranslationConfigRequest" },
+          "deepLx": { "$ref": "#/components/schemas/DeepLxTranslationConfigRequest" }
+        }
+      },
+      "TestDeepLxRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["baseUrl"],
+        "properties": {
+          "baseUrl": { "type": ["string", "null"], "maxLength": 2048 },
+          "apiKey": { "type": ["string", "null"], "maxLength": 1024 }
+        }
+      },
+      "TestTranslationRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["engine", "targetLocale", "openAi", "deepLx"],
+        "properties": {
+          "engine": { "$ref": "#/components/schemas/TranslationEngine" },
+          "targetLocale": { "type": "string", "minLength": 2, "maxLength": 35 },
+          "openAi": { "$ref": "#/components/schemas/OpenAiTranslationConfigRequest" },
+          "deepLx": { "$ref": "#/components/schemas/TestDeepLxRequest" }
+        }
+      },
+      "TranslationTestResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["translatedText", "providerLabel", "detectedSourceLocale", "targetLocale"],
+        "properties": {
+          "translatedText": { "type": "string", "minLength": 1, "maxLength": 65536 },
+          "providerLabel": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "detectedSourceLocale": { "type": ["string", "null"], "maxLength": 35 },
+          "targetLocale": { "type": "string", "minLength": 2, "maxLength": 35 }
+        }
+      },
+      "TranslateTextRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["text"],
+        "properties": {
+          "text": { "type": "string", "minLength": 1, "maxLength": 8000 }
+        }
+      },
+      "TranslationTextResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["translatedText", "providerLabel", "detectedSourceLocale", "targetLocale"],
+        "properties": {
+          "translatedText": { "type": "string", "minLength": 1, "maxLength": 65536 },
+          "providerLabel": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "detectedSourceLocale": { "type": ["string", "null"], "maxLength": 35 },
+          "targetLocale": { "type": "string", "minLength": 2, "maxLength": 35 }
+        }
+      },
+      "TranslationSegment": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["index", "originalText", "translatedText"],
+        "properties": {
+          "index": { "type": "integer", "minimum": 0, "maximum": 95 },
+          "originalText": { "type": "string", "minLength": 1, "maxLength": 24000 },
+          "translatedText": { "type": "string", "minLength": 1, "maxLength": 65536 }
+        }
+      },
+      "TranslationResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "segments", "providerLabel", "detectedSourceLocale", "targetLocale"],
+        "properties": {
+          "title": { "type": "string", "minLength": 1, "maxLength": 16384 },
+          "segments": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 96,
+            "items": { "$ref": "#/components/schemas/TranslationSegment" }
+          },
+          "providerLabel": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "detectedSourceLocale": { "type": ["string", "null"], "maxLength": 35 },
+          "targetLocale": { "type": "string", "minLength": 2, "maxLength": 35 }
+        }
+      },
+      "TranslationProgressKind": {
+        "type": "string",
+        "enum": ["STARTED", "TITLE", "SEGMENT", "COMPLETED", "ERROR"]
+      },
+      "TranslationProgressError": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["status", "code", "message"],
+        "properties": {
+          "status": { "type": "integer", "minimum": 400, "maximum": 599 },
+          "code": { "type": "string", "minLength": 1, "maxLength": 100 },
+          "message": { "type": "string", "minLength": 1, "maxLength": 500 }
+        }
+      },
+      "TranslationProgressEvent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "title", "segment", "providerLabel", "detectedSourceLocale", "targetLocale", "completedSegments", "totalSegments", "error"],
+        "properties": {
+          "kind": { "$ref": "#/components/schemas/TranslationProgressKind" },
+          "title": { "type": ["string", "null"], "minLength": 1, "maxLength": 16384 },
+          "segment": {
+            "anyOf": [
+              { "$ref": "#/components/schemas/TranslationSegment" },
+              { "type": "null" }
+            ]
+          },
+          "providerLabel": { "type": ["string", "null"], "minLength": 1, "maxLength": 200 },
+          "detectedSourceLocale": { "type": ["string", "null"], "maxLength": 35 },
+          "targetLocale": { "type": ["string", "null"], "minLength": 2, "maxLength": 35 },
+          "completedSegments": { "type": "integer", "minimum": 0, "maximum": 96 },
+          "totalSegments": { "type": "integer", "minimum": 0, "maximum": 96 },
+          "error": {
+            "anyOf": [
+              { "$ref": "#/components/schemas/TranslationProgressError" },
+              { "type": "null" }
+            ]
+          }
+        }
+      },
+      "LookupRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["text"],
+        "properties": { "text": { "type": "string", "minLength": 1, "maxLength": 200 } }
+      },
+      "LookupExample": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source", "target"],
+        "properties": {
+          "source": { "type": "string", "minLength": 1, "maxLength": 2048 },
+          "target": { "type": "string", "minLength": 1, "maxLength": 2048 }
+        }
+      },
+      "LookupResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["query", "translation", "definition", "examples", "providerLabel", "detectedSourceLocale", "targetLocale"],
+        "properties": {
+          "query": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "translation": { "type": "string", "minLength": 1, "maxLength": 4096 },
+          "definition": { "type": ["string", "null"], "maxLength": 4096 },
+          "examples": { "type": "array", "maxItems": 3, "items": { "$ref": "#/components/schemas/LookupExample" } },
+          "providerLabel": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "detectedSourceLocale": { "type": ["string", "null"], "maxLength": 35 },
+          "targetLocale": { "type": "string", "minLength": 2, "maxLength": 35 }
+        }
+      },
+      "ApiError": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "message", "requestId"],
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string" },
+          "fields": { "type": "object", "additionalProperties": { "type": "string" } },
+          "requestId": { "type": "string", "format": "uuid" }
+        }
+      },
+      "ApiErrorEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["error"],
+        "properties": { "error": { "$ref": "#/components/schemas/ApiError" } }
+      }
+    },
+    "responses": {
+      "TranslationConfig": {
+        "description": "Complete translation plugin configuration without credentials.",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TranslationConfig" } } }
+      },
+      "TranslationTest": {
+        "description": "One bounded translation proving the selected engine can respond.",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TranslationTestResult" } } }
+      },
+      "TranslationText": {
+        "description": "A bounded translation of text selected in the article reader.",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TranslationTextResult" } } }
+      },
+      "TranslationResult": {
+        "description": "Paragraph-addressed translated article content.",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TranslationResult" } } }
+      },
+      "TranslationProgress": {
+        "description": "One NDJSON event per title, translated segment, completion, or public error.",
+        "content": {
+          "application/x-ndjson": {
+            "schema": { "$ref": "#/components/schemas/TranslationProgressEvent" }
+          }
+        }
+      },
+      "LookupResult": {
+        "description": "A bounded word or phrase lookup result.",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LookupResult" } } }
+      },
+      "Error": {
+        "description": "Stable public error envelope.",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiErrorEnvelope" } } }
+      }
+    }
+  }
+}

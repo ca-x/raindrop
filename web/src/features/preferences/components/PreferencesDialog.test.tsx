@@ -259,6 +259,7 @@ function fakeTranslationSettingsController(): TranslationSettingsController {
         displayName: "DeepLX",
         description: null,
         baseUrl: null,
+        isProgressive: true,
         hasApiKey: false,
       },
       revision: null,

@@ -75,6 +75,7 @@ export function CategoryList({ state, onSelect, density, query = "" }: CategoryL
 
   return (
     <TreeList
+      className="reader-source-list"
       density={density}
       header={<span className="reader-pane-label">{i18n._("reader.sources")}</span>}
       items={[

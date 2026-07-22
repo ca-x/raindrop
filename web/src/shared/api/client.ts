@@ -30,14 +30,7 @@ export async function apiRequest(
   if (init.body && !headers.has("content-type")) {
     headers.set("content-type", "application/json")
   }
-  const response = await fetch(path, {
-    ...init,
-    headers,
-    credentials: "same-origin",
-  })
-  if (!response.ok) {
-    throw new ApiClientError(response.status, await readApiError(response))
-  }
+  const response = await apiResponse(path, { ...init, headers })
   if (response.status === 204) {
     return undefined
   }
@@ -46,6 +39,22 @@ export async function apiRequest(
   } catch {
     throw invalidResponseError()
   }
+}
+
+export async function apiResponse(
+  path: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  const headers = new Headers(init.headers)
+  const response = await fetch(path, {
+    ...init,
+    headers,
+    credentials: "same-origin",
+  })
+  if (!response.ok) {
+    throw new ApiClientError(response.status, await readApiError(response))
+  }
+  return response
 }
 
 export interface ApiBlobResponse {
@@ -57,14 +66,7 @@ export async function apiBlobRequest(
   path: string,
   init: RequestInit = {},
 ): Promise<ApiBlobResponse> {
-  const response = await fetch(path, {
-    ...init,
-    headers: new Headers(init.headers),
-    credentials: "same-origin",
-  })
-  if (!response.ok) {
-    throw new ApiClientError(response.status, await readApiError(response))
-  }
+  const response = await apiResponse(path, init)
   return {
     blob: await response.blob(),
     filename: attachmentFilename(response.headers.get("content-disposition")),

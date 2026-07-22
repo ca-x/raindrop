@@ -11,7 +11,8 @@ pub use model::{
     AiTranslationProfile, ApiKeyUpdate, DeepLxDraft, DeepLxSettings, LookupExample, OpenAiSettings,
     SaveTranslationConfig, TestTranslationInput, TranslationConfig, TranslationDisplayMode,
     TranslationEngine, TranslationError, TranslationErrorKind, TranslationLookupResult,
-    TranslationResult, TranslationSegment, TranslationTestResult, TranslationTextResult,
+    TranslationProgress, TranslationResult, TranslationSegment, TranslationTestResult,
+    TranslationTextResult,
 };
 pub use openai::{
     OpenAiLookupInput, OpenAiLookupOutput, OpenAiSourceSegment, OpenAiTranslateBatchInput,

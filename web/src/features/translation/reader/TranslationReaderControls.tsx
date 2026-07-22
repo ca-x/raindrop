@@ -35,7 +35,18 @@ export function TranslationReaderControls(props: Props) {
         startContent={
           <div className="reader-translation-status">
             {props.controller.isTranslating ? (
-              <Spinner label={i18n._("translation.reader.translating")} size="sm" />
+              <Spinner
+                label={i18n._(
+                  props.controller.totalSegments > 0
+                    ? "translation.reader.translatingProgress"
+                    : "translation.reader.translating",
+                  {
+                    completed: props.controller.completedSegments,
+                    total: props.controller.totalSegments,
+                  },
+                )}
+                size="sm"
+              />
             ) : result ? (
               <Text type="supporting" color="secondary">
                 {i18n._("translation.reader.translatedBy", {

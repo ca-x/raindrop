@@ -1,15 +1,18 @@
-use std::sync::Arc;
+use std::{convert::Infallible, sync::Arc};
 
 use axum::{
     Json, Router,
+    body::{Body, Bytes},
     extract::{Path, State},
-    http::StatusCode,
+    http::{StatusCode, header},
     middleware,
+    response::Response,
     routing::{get, post},
 };
+use futures_util::stream;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
-use tokio::sync::OwnedSemaphorePermit;
+use tokio::sync::{OwnedSemaphorePermit, mpsc};
 
 use crate::{
     app::AppState,
@@ -20,20 +23,24 @@ use crate::{
         AiTranslationProfile, ApiKeyUpdate, DeepLxDraft, ProductionOpenAiTranslationTransport,
         SaveTranslationConfig, TestTranslationInput, TranslationConfig, TranslationDisplayMode,
         TranslationEngine, TranslationError, TranslationErrorKind, TranslationLookupResult,
-        TranslationRepository, TranslationResult, TranslationService, TranslationTestResult,
-        TranslationTextResult,
+        TranslationProgress, TranslationRepository, TranslationResult, TranslationService,
+        TranslationTestResult, TranslationTextResult,
     },
 };
 
 use super::{ApiError, ApiJson, RateLimitRejection, routes::sensitive_cache_headers};
 
 pub(super) fn router() -> Router<AppState> {
-    let plugin = Router::new()
-        .route("/", get(get_config).put(put_config))
-        .route("/test", post(test_connection))
-        .route("/translate", post(translate_text))
-        .route("/lookup", post(lookup))
-        .route("/entries/{entry_id}/translate", post(translate_entry))
+    let v2 = translation_execution_router()
+        .route("/", get(get_config_v2).put(put_config_v2))
+        .fallback(translation_not_found)
+        .method_not_allowed_fallback(translation_method_not_allowed);
+    let v3 = translation_execution_router()
+        .route("/", get(get_config_v3).put(put_config_v3))
+        .route(
+            "/entries/{entry_id}/translate/progressive",
+            post(translate_entry_progressive),
+        )
         .fallback(translation_not_found)
         .method_not_allowed_fallback(translation_method_not_allowed);
     Router::new()
@@ -41,8 +48,21 @@ pub(super) fn router() -> Router<AppState> {
             "/api/v2/plugins/translation/",
             axum::routing::any(translation_not_found),
         )
-        .nest("/api/v2/plugins/translation", plugin)
+        .nest("/api/v2/plugins/translation", v2)
+        .route(
+            "/api/v3/plugins/translation/",
+            axum::routing::any(translation_not_found),
+        )
+        .nest("/api/v3/plugins/translation", v3)
         .layer(middleware::map_response(sensitive_cache_headers))
+}
+
+fn translation_execution_router() -> Router<AppState> {
+    Router::new()
+        .route("/test", post(test_connection))
+        .route("/translate", post(translate_text))
+        .route("/lookup", post(lookup))
+        .route("/entries/{entry_id}/translate", post(translate_entry))
 }
 
 async fn translation_not_found() -> ApiError {
@@ -55,13 +75,25 @@ async fn translation_method_not_allowed() -> ApiError {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct TranslationConfigResponse {
+struct TranslationConfigV2Response {
     engine: &'static str,
     display_mode: &'static str,
     is_enabled: bool,
     default_target_locale: String,
     open_ai: OpenAiConfigResponse,
-    deep_lx: DeepLxConfigResponse,
+    deep_lx: DeepLxConfigV2Response,
+    revision: Option<u64>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TranslationConfigV3Response {
+    engine: &'static str,
+    display_mode: &'static str,
+    is_enabled: bool,
+    default_target_locale: String,
+    open_ai: OpenAiConfigResponse,
+    deep_lx: DeepLxConfigV3Response,
     revision: Option<u64>,
 }
 
@@ -77,14 +109,24 @@ struct OpenAiConfigResponse {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct DeepLxConfigResponse {
+struct DeepLxConfigV2Response {
     display_name: String,
     description: Option<String>,
     base_url: Option<String>,
     has_api_key: bool,
 }
 
-impl From<TranslationConfig> for TranslationConfigResponse {
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DeepLxConfigV3Response {
+    display_name: String,
+    description: Option<String>,
+    base_url: Option<String>,
+    is_progressive: bool,
+    has_api_key: bool,
+}
+
+impl From<TranslationConfig> for TranslationConfigV2Response {
     fn from(config: TranslationConfig) -> Self {
         Self {
             engine: config.engine.as_storage(),
@@ -98,10 +140,36 @@ impl From<TranslationConfig> for TranslationConfigResponse {
                 custom_system_prompt: config.open_ai.custom_system_prompt,
                 custom_prompt: config.open_ai.custom_prompt,
             },
-            deep_lx: DeepLxConfigResponse {
+            deep_lx: DeepLxConfigV2Response {
                 display_name: config.deeplx.display_name,
                 description: config.deeplx.description,
                 base_url: config.deeplx.base_url,
+                has_api_key: config.deeplx.has_api_key,
+            },
+            revision: config.revision,
+        }
+    }
+}
+
+impl From<TranslationConfig> for TranslationConfigV3Response {
+    fn from(config: TranslationConfig) -> Self {
+        Self {
+            engine: config.engine.as_storage(),
+            display_mode: config.display_mode.as_storage(),
+            is_enabled: config.is_enabled,
+            default_target_locale: config.default_target_locale,
+            open_ai: OpenAiConfigResponse {
+                provider_id: config.open_ai.provider_id,
+                max_output_tokens: config.open_ai.max_output_tokens,
+                profile: config.open_ai.profile.as_storage(),
+                custom_system_prompt: config.open_ai.custom_system_prompt,
+                custom_prompt: config.open_ai.custom_prompt,
+            },
+            deep_lx: DeepLxConfigV3Response {
+                display_name: config.deeplx.display_name,
+                description: config.deeplx.description,
+                base_url: config.deeplx.base_url,
+                is_progressive: config.deeplx.is_progressive,
                 has_api_key: config.deeplx.has_api_key,
             },
             revision: config.revision,
@@ -174,14 +242,26 @@ impl From<AiTranslationProfileRequest> for AiTranslationProfile {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct PutTranslationConfigRequest {
+struct PutTranslationConfigV2Request {
     expected_revision: Option<u64>,
     engine: TranslationEngineRequest,
     display_mode: TranslationDisplayModeRequest,
     is_enabled: bool,
     default_target_locale: String,
     open_ai: OpenAiConfigRequest,
-    deep_lx: DeepLxConfigRequest,
+    deep_lx: DeepLxConfigV2Request,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PutTranslationConfigV3Request {
+    expected_revision: Option<u64>,
+    engine: TranslationEngineRequest,
+    display_mode: TranslationDisplayModeRequest,
+    is_enabled: bool,
+    default_target_locale: String,
+    open_ai: OpenAiConfigRequest,
+    deep_lx: DeepLxConfigV3Request,
 }
 
 #[derive(Deserialize)]
@@ -196,10 +276,21 @@ struct OpenAiConfigRequest {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct DeepLxConfigRequest {
+struct DeepLxConfigV2Request {
     display_name: String,
     description: Option<String>,
     base_url: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    api_key: Option<Option<String>>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct DeepLxConfigV3Request {
+    display_name: String,
+    description: Option<String>,
+    base_url: Option<String>,
+    is_progressive: bool,
     #[serde(default, deserialize_with = "deserialize_present")]
     api_key: Option<Option<String>>,
 }
@@ -339,6 +430,99 @@ impl From<TranslationResult> for TranslationResponse {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct TranslationProgressResponse {
+    kind: &'static str,
+    title: Option<String>,
+    segment: Option<TranslationSegmentResponse>,
+    provider_label: Option<String>,
+    detected_source_locale: Option<String>,
+    target_locale: Option<String>,
+    completed_segments: u32,
+    total_segments: u32,
+    error: Option<TranslationProgressErrorResponse>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TranslationProgressErrorResponse {
+    status: u16,
+    code: &'static str,
+    message: &'static str,
+}
+
+impl From<TranslationProgress> for TranslationProgressResponse {
+    fn from(progress: TranslationProgress) -> Self {
+        match progress {
+            TranslationProgress::Started {
+                total_segments,
+                target_locale,
+            } => Self {
+                kind: "STARTED",
+                title: None,
+                segment: None,
+                provider_label: None,
+                detected_source_locale: None,
+                target_locale: Some(target_locale),
+                completed_segments: 0,
+                total_segments,
+                error: None,
+            },
+            TranslationProgress::Title {
+                title,
+                provider_label,
+                detected_source_locale,
+                target_locale,
+                total_segments,
+            } => Self {
+                kind: "TITLE",
+                title: Some(title),
+                segment: None,
+                provider_label: Some(provider_label),
+                detected_source_locale,
+                target_locale: Some(target_locale),
+                completed_segments: 0,
+                total_segments,
+                error: None,
+            },
+            TranslationProgress::Segment {
+                segment,
+                completed_segments,
+                total_segments,
+            } => Self {
+                kind: "SEGMENT",
+                title: None,
+                segment: Some(TranslationSegmentResponse {
+                    index: segment.index,
+                    original_text: segment.original_text,
+                    translated_text: segment.translated_text,
+                }),
+                provider_label: None,
+                detected_source_locale: None,
+                target_locale: None,
+                completed_segments,
+                total_segments,
+                error: None,
+            },
+            TranslationProgress::Completed {
+                completed_segments,
+                total_segments,
+            } => Self {
+                kind: "COMPLETED",
+                title: None,
+                segment: None,
+                provider_label: None,
+                detected_source_locale: None,
+                target_locale: None,
+                completed_segments,
+                total_segments,
+                error: None,
+            },
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct LookupResponse {
     query: String,
     translation: String,
@@ -376,10 +560,10 @@ impl From<TranslationLookupResult> for LookupResponse {
     }
 }
 
-async fn get_config(
+async fn get_config_v2(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
-) -> Result<Json<TranslationConfigResponse>, ApiError> {
+) -> Result<Json<TranslationConfigV2Response>, ApiError> {
     let config = service(&state)?
         .get_config(&user.id)
         .await
@@ -387,12 +571,66 @@ async fn get_config(
     Ok(Json(config.into()))
 }
 
-async fn put_config(
+async fn put_config_v2(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
     _csrf: CsrfGuard,
-    ApiJson(request): ApiJson<PutTranslationConfigRequest>,
-) -> Result<Json<TranslationConfigResponse>, ApiError> {
+    ApiJson(request): ApiJson<PutTranslationConfigV2Request>,
+) -> Result<Json<TranslationConfigV2Response>, ApiError> {
+    state
+        .provider_mutation_limiter
+        .check(&user.id)
+        .map_err(map_limiter_rejection)?;
+    let service = service(&state)?;
+    let is_progressive = service
+        .get_config(&user.id)
+        .await
+        .map_err(map_error)?
+        .deeplx
+        .is_progressive;
+    let config = service
+        .save_config(
+            &user.id,
+            SaveTranslationConfig {
+                expected_revision: request.expected_revision,
+                engine: request.engine.into(),
+                display_mode: request.display_mode.into(),
+                is_enabled: request.is_enabled,
+                default_target_locale: request.default_target_locale,
+                open_ai_provider_id: request.open_ai.provider_id,
+                open_ai_max_output_tokens: request.open_ai.max_output_tokens,
+                open_ai_profile: request.open_ai.profile.into(),
+                open_ai_custom_system_prompt: request.open_ai.custom_system_prompt,
+                open_ai_custom_prompt: request.open_ai.custom_prompt,
+                deeplx_display_name: request.deep_lx.display_name,
+                deeplx_description: request.deep_lx.description,
+                deeplx_base_url: request.deep_lx.base_url,
+                deeplx_is_progressive: is_progressive,
+                deeplx_api_key: api_key_update(request.deep_lx.api_key),
+            },
+        )
+        .await
+        .map_err(map_error)?;
+    Ok(Json(config.into()))
+}
+
+async fn get_config_v3(
+    State(state): State<AppState>,
+    CurrentUser(user): CurrentUser,
+) -> Result<Json<TranslationConfigV3Response>, ApiError> {
+    let config = service(&state)?
+        .get_config(&user.id)
+        .await
+        .map_err(map_error)?;
+    Ok(Json(config.into()))
+}
+
+async fn put_config_v3(
+    State(state): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    _csrf: CsrfGuard,
+    ApiJson(request): ApiJson<PutTranslationConfigV3Request>,
+) -> Result<Json<TranslationConfigV3Response>, ApiError> {
     state
         .provider_mutation_limiter
         .check(&user.id)
@@ -414,6 +652,7 @@ async fn put_config(
                 deeplx_display_name: request.deep_lx.display_name,
                 deeplx_description: request.deep_lx.description,
                 deeplx_base_url: request.deep_lx.base_url,
+                deeplx_is_progressive: request.deep_lx.is_progressive,
                 deeplx_api_key: api_key_update(request.deep_lx.api_key),
             },
         )
@@ -468,6 +707,44 @@ async fn translate_entry(
         .await
         .map_err(map_error)?;
     Ok(Json(result.into()))
+}
+
+async fn translate_entry_progressive(
+    State(state): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    _csrf: CsrfGuard,
+    Path(entry_id): Path<String>,
+) -> Result<Response, ApiError> {
+    admit_translation_request(&state, &user.id)?;
+    let permits = acquire_translation_permits(&state, &user.id)?;
+    let service = service(&state)?;
+    let user_id = user.id;
+    let (sender, receiver) = mpsc::channel(8);
+    tokio::spawn(async move {
+        let result = service
+            .translate_entry_progressive(&user_id, &entry_id, sender.clone())
+            .await;
+        if let Err(error) = result {
+            let _ = sender.try_send(Err(error));
+        }
+        drop(permits);
+    });
+    let body_stream = stream::unfold(receiver, |mut receiver| async move {
+        let message = receiver.recv().await?;
+        let response = match message {
+            Ok(progress) => TranslationProgressResponse::from(progress),
+            Err(error) => translation_progress_error(error),
+        };
+        let mut encoded =
+            serde_json::to_vec(&response).expect("translation progress response should serialize");
+        encoded.push(b'\n');
+        Some((Ok::<Bytes, Infallible>(Bytes::from(encoded)), receiver))
+    });
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/x-ndjson; charset=utf-8")
+        .body(Body::from_stream(body_stream))
+        .map_err(|_| ApiError::internal())
 }
 
 async fn translate_text(
@@ -597,6 +874,84 @@ fn map_error(error: TranslationError) -> ApiError {
             "The translation provider could not complete the request",
         ),
         TranslationErrorKind::CorruptData | TranslationErrorKind::Database => ApiError::internal(),
+    }
+}
+
+fn translation_progress_error(error: TranslationError) -> TranslationProgressResponse {
+    let (status, code, message) = match error.kind() {
+        TranslationErrorKind::InvalidInput => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "VALIDATION_ERROR",
+            "The translation request is invalid",
+        ),
+        TranslationErrorKind::NotConfigured => (
+            StatusCode::CONFLICT,
+            "TRANSLATION_NOT_CONFIGURED",
+            "Translation is not configured",
+        ),
+        TranslationErrorKind::Disabled => (
+            StatusCode::CONFLICT,
+            "TRANSLATION_DISABLED",
+            "Translation is disabled",
+        ),
+        TranslationErrorKind::ProviderUnavailable => (
+            StatusCode::CONFLICT,
+            "TRANSLATION_PROVIDER_UNAVAILABLE",
+            "The selected translation provider is unavailable",
+        ),
+        TranslationErrorKind::KeyringUnavailable => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "TRANSLATION_SECRET_UNAVAILABLE",
+            "Translation credentials are unavailable",
+        ),
+        TranslationErrorKind::RevisionConflict => (
+            StatusCode::CONFLICT,
+            "REVISION_CONFLICT",
+            "The resource changed; reload and try again",
+        ),
+        TranslationErrorKind::NotFound => {
+            (StatusCode::NOT_FOUND, "NOT_FOUND", "Resource not found")
+        }
+        TranslationErrorKind::TooLarge => (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "TRANSLATION_INPUT_TOO_LARGE",
+            "The translation input is too large",
+        ),
+        TranslationErrorKind::RateLimited => (
+            StatusCode::TOO_MANY_REQUESTS,
+            "TRANSLATION_RATE_LIMITED",
+            "The translation provider is rate limiting requests",
+        ),
+        TranslationErrorKind::Timeout => (
+            StatusCode::GATEWAY_TIMEOUT,
+            "TRANSLATION_TIMEOUT",
+            "The translation provider did not respond in time",
+        ),
+        TranslationErrorKind::Upstream => (
+            StatusCode::BAD_GATEWAY,
+            "TRANSLATION_UPSTREAM_ERROR",
+            "The translation provider could not complete the request",
+        ),
+        TranslationErrorKind::CorruptData | TranslationErrorKind::Database => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "INTERNAL_ERROR",
+            "An internal error occurred",
+        ),
+    };
+    TranslationProgressResponse {
+        kind: "ERROR",
+        title: None,
+        segment: None,
+        provider_label: None,
+        detected_source_locale: None,
+        target_locale: None,
+        completed_segments: 0,
+        total_segments: 0,
+        error: Some(TranslationProgressErrorResponse {
+            status: status.as_u16(),
+            code,
+            message,
+        }),
     }
 }
 

@@ -13,6 +13,7 @@ mod profile;
 mod reader_preferences;
 mod rss;
 mod translation;
+mod translation_progressive;
 mod user_fonts;
 
 pub async fn migrate(database: &DatabaseConnection) -> Result<(), DbError> {
@@ -64,6 +65,7 @@ impl MigratorTrait for Migrator {
             Box::new(user_fonts::CreateUserFonts),
             Box::new(profile::AddUserDisplayName),
             Box::new(translation::CreateTranslationConfigs),
+            Box::new(translation_progressive::AddDeepLxProgressiveTranslation),
         ]
     }
 }

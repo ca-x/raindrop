@@ -1,6 +1,7 @@
 use std::{future::Future, sync::Arc, time::Duration};
 
 use secrecy::SecretString;
+use tokio::sync::mpsc;
 use tokio::time::timeout;
 
 use crate::{
@@ -15,8 +16,8 @@ use crate::{
 use super::{
     ApiKeyUpdate, SaveTranslationConfig, TestTranslationInput, TranslationConfig,
     TranslationEngine, TranslationError, TranslationErrorKind, TranslationLookupResult,
-    TranslationRepository, TranslationResult, TranslationSegment, TranslationTestResult,
-    TranslationTextResult,
+    TranslationProgress, TranslationRepository, TranslationResult, TranslationSegment,
+    TranslationTestResult, TranslationTextResult,
     deeplx::{
         DeepLxTranslateInput, DeepLxTransport, requires_url_api_key, validate_base_url_template,
     },
@@ -162,11 +163,58 @@ impl TranslationService {
         .await
     }
 
+    pub async fn translate_entry_progressive(
+        &self,
+        user_id: &str,
+        entry_id: &str,
+        progress: mpsc::Sender<Result<TranslationProgress, TranslationError>>,
+    ) -> Result<(), TranslationError> {
+        translation_with_timeout(
+            ENTRY_TRANSLATION_TIMEOUT,
+            self.translate_entry_progressive_inner(user_id, entry_id, progress),
+        )
+        .await
+    }
+
     async fn translate_entry_inner(
         &self,
         user_id: &str,
         entry_id: &str,
     ) -> Result<TranslationResult, TranslationError> {
+        let (config, title, original_segments) =
+            self.entry_translation_source(user_id, entry_id).await?;
+        if config.engine == TranslationEngine::OpenAi {
+            return self
+                .translate_openai_entry(user_id, &config, title, original_segments)
+                .await;
+        }
+        self.translate_deeplx_entry(user_id, &config, title, original_segments, None)
+            .await?
+            .ok_or_else(upstream)
+    }
+
+    async fn translate_entry_progressive_inner(
+        &self,
+        user_id: &str,
+        entry_id: &str,
+        progress: mpsc::Sender<Result<TranslationProgress, TranslationError>>,
+    ) -> Result<(), TranslationError> {
+        let (config, title, original_segments) =
+            self.entry_translation_source(user_id, entry_id).await?;
+        if config.engine != TranslationEngine::DeepLx || !config.deeplx.is_progressive {
+            return Err(TranslationError::new(TranslationErrorKind::InvalidInput));
+        }
+        let _ = self
+            .translate_deeplx_entry(user_id, &config, title, original_segments, Some(&progress))
+            .await?;
+        Ok(())
+    }
+
+    async fn entry_translation_source(
+        &self,
+        user_id: &str,
+        entry_id: &str,
+    ) -> Result<(TranslationConfig, String, Vec<String>), TranslationError> {
         let config = self.enabled_config(user_id).await?;
         let entry = self
             .feeds
@@ -187,13 +235,7 @@ impl TranslationService {
         }
 
         let title = entry.title.unwrap_or_else(|| "Translation".to_owned());
-        if config.engine == TranslationEngine::OpenAi {
-            return self
-                .translate_openai_entry(user_id, &config, title, original_segments)
-                .await;
-        }
-        self.translate_deeplx_entry(user_id, &config, title, original_segments)
-            .await
+        Ok((config, title, original_segments))
     }
 
     async fn translate_deeplx_entry(
@@ -202,7 +244,8 @@ impl TranslationService {
         config: &TranslationConfig,
         title: String,
         original_segments: Vec<String>,
-    ) -> Result<TranslationResult, TranslationError> {
+        progress: Option<&mpsc::Sender<Result<TranslationProgress, TranslationError>>>,
+    ) -> Result<Option<TranslationResult>, TranslationError> {
         let api_key = self.repository.deeplx_api_key(user_id).await?;
         if requires_url_api_key(config.deeplx.base_url.as_deref()) && api_key.is_none() {
             return Err(TranslationError::new(TranslationErrorKind::NotConfigured));
@@ -216,12 +259,35 @@ impl TranslationService {
         {
             return Err(TranslationError::new(TranslationErrorKind::TooLarge));
         }
+        let total_segments = u32::try_from(original_segments.len())
+            .map_err(|_| TranslationError::new(TranslationErrorKind::TooLarge))?;
+        if !emit_progress(
+            progress,
+            TranslationProgress::Started {
+                total_segments,
+                target_locale: config.default_target_locale.clone(),
+            },
+        ) {
+            return Ok(None);
+        }
         let translated_title = self
             .translate_deeplx_text(config, api_key.as_ref(), title, maximum)
             .await?;
         let mut segments = Vec::with_capacity(original_segments.len());
         let mut detected_source_locale = translated_title.detected_source_locale.clone();
         let provider_label = translated_title.provider_label.clone();
+        if !emit_progress(
+            progress,
+            TranslationProgress::Title {
+                title: translated_title.text.clone(),
+                provider_label: provider_label.clone(),
+                detected_source_locale: detected_source_locale.clone(),
+                target_locale: config.default_target_locale.clone(),
+                total_segments,
+            },
+        ) {
+            return Ok(None);
+        }
         for (index, original_text) in original_segments.into_iter().enumerate() {
             let translated = self
                 .translate_deeplx_text(config, api_key.as_ref(), original_text.clone(), maximum)
@@ -229,20 +295,41 @@ impl TranslationService {
             if detected_source_locale.is_none() {
                 detected_source_locale = translated.detected_source_locale;
             }
-            segments.push(TranslationSegment {
+            let segment = TranslationSegment {
                 index: u32::try_from(index)
                     .map_err(|_| TranslationError::new(TranslationErrorKind::TooLarge))?,
                 original_text,
                 translated_text: translated.text,
-            });
+            };
+            segments.push(segment.clone());
+            if !emit_progress(
+                progress,
+                TranslationProgress::Segment {
+                    segment,
+                    completed_segments: u32::try_from(index + 1)
+                        .map_err(|_| TranslationError::new(TranslationErrorKind::TooLarge))?,
+                    total_segments,
+                },
+            ) {
+                return Ok(None);
+            }
         }
-        Ok(TranslationResult {
+        if !emit_progress(
+            progress,
+            TranslationProgress::Completed {
+                completed_segments: total_segments,
+                total_segments,
+            },
+        ) {
+            return Ok(None);
+        }
+        Ok(Some(TranslationResult {
             title: translated_title.text,
             segments,
             provider_label,
             detected_source_locale,
             target_locale: config.default_target_locale.clone(),
-        })
+        }))
     }
 
     async fn translate_openai_entry(
@@ -548,6 +635,16 @@ struct TranslatedText {
     detected_source_locale: Option<String>,
 }
 
+fn emit_progress(
+    sender: Option<&mpsc::Sender<Result<TranslationProgress, TranslationError>>>,
+    event: TranslationProgress,
+) -> bool {
+    match sender {
+        Some(sender) => sender.try_send(Ok(event)).is_ok(),
+        None => true,
+    }
+}
+
 fn normalize_target_locale(value: &str) -> Result<String, TranslationError> {
     normalize_locale(value.trim(), PluginRegistryErrorKind::InvalidConfig)
         .map_err(|_| invalid_input())
@@ -758,6 +855,21 @@ mod tests {
         let oversized = vec!["short".to_owned(); MAX_DEEPLX_ARTICLE_CALLS];
         assert!(deeplx_article_call_count("title", &oversized, 10) > MAX_DEEPLX_ARTICLE_CALLS);
         assert_eq!(deeplx_article_call_count("123456", &[], 3), 2);
+    }
+
+    #[test]
+    fn progressive_emission_stops_for_slow_or_disconnected_consumers() {
+        let (sender, mut receiver) = mpsc::channel(1);
+        let event = TranslationProgress::Started {
+            total_segments: 1,
+            target_locale: "zh-CN".to_owned(),
+        };
+
+        assert!(emit_progress(Some(&sender), event.clone()));
+        assert!(!emit_progress(Some(&sender), event.clone()));
+        assert!(receiver.try_recv().is_ok());
+        drop(receiver);
+        assert!(!emit_progress(Some(&sender), event));
     }
 
     #[tokio::test(start_paused = true)]

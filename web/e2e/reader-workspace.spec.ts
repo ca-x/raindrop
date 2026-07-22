@@ -86,6 +86,73 @@ test("Reader stable snapshot bulk read", async ({ page }, testInfo) => {
   }
 })
 
+test("Expanded source tree keeps hover distinct and reaches the final feed", async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== "reader-1280x800",
+    "The constrained desktop source pane is exercised once in the wide project.",
+  )
+  const overflowServer = await startProductionServer()
+  try {
+    const fixture = await installReaderApiFixture(page)
+    const overflowCount = 18
+    for (let index = 0; index < overflowCount; index += 1) {
+      const suffix = (600 + index).toString(16).padStart(12, "0")
+      const categoryId = `00000000-0000-4000-8000-${suffix}`
+      const feedId = `00000000-0000-4000-9000-${suffix}`
+      const subscriptionId = `00000000-0000-4000-a000-${suffix}`
+      fixture.organization.categories.push({
+        categoryId,
+        title: `Overflow category ${String(index + 1).padStart(2, "0")}`,
+        position: (index + 2) * 1024,
+      })
+      fixture.organization.subscriptions.push({
+        subscriptionId,
+        feedId,
+        categoryId,
+        titleOverride: null,
+        position: 0,
+        title: `Overflow feed ${String(index + 1).padStart(2, "0")}`,
+        feedUrl: `https://overflow-${index + 1}.example/feed.xml`,
+        siteUrl: `https://overflow-${index + 1}.example/`,
+        unreadCount: index + 1,
+        refresh: null,
+      })
+    }
+
+    await completeSetup(page, overflowServer, createCredentials())
+    const sources = page.getByRole("navigation", { name: "Sources" })
+    const tree = sources.locator(".reader-source-list > [role='tree']")
+    await expect.poll(() => tree.evaluate((element) => element.scrollHeight > element.clientHeight))
+      .toBe(true)
+
+    await sources.getByRole("button", { name: "Rust Dispatch" }).click()
+    const selectedRow = sources
+      .getByRole("treeitem", { name: /Rust Dispatch/u })
+      .locator(":scope > div:last-of-type > div")
+    const hoveredRow = sources
+      .getByRole("treeitem", { name: /Engineering/u })
+      .locator(":scope > div:last-of-type > div")
+    await hoveredRow.hover()
+    const [selectedColor, hoverColor] = await Promise.all([
+      selectedRow.evaluate((element) => getComputedStyle(element).backgroundColor),
+      hoveredRow.evaluate((element) => getComputedStyle(element).backgroundColor),
+    ])
+    expect(hoverColor).not.toBe(selectedColor)
+
+    const finalFeed = sources.getByRole("button", { name: "Overflow feed 18" })
+    await tree.evaluate((element) => {
+      element.scrollTop = element.scrollHeight
+    })
+    await expect(finalFeed).toBeInViewport()
+    await finalFeed.click()
+    await expect(page).toHaveURL(/\/reader\/feed\/00000000-0000-4000-9000-/u)
+  } finally {
+    await overflowServer.stop()
+  }
+})
+
 test("Reader refresh observability", async ({ page }, testInfo) => {
   testInfo.setTimeout(60_000)
   const refreshServer = await startProductionServer()
@@ -212,6 +279,33 @@ test("Selected text translation waits for an explicit floating action", async ({
   }
 })
 
+test("DeepLX article translation renders progressive segments", async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== "reader-1280x800",
+    "Progressive article rendering is exercised once in the wide Reader project.",
+  )
+  const progressiveServer = await startProductionServer()
+  try {
+    await installSelectionTranslationFixture(page)
+    await installReaderApiFixture(page)
+    await installProgressiveArticleTranslationStream(page)
+    await completeSetup(page, progressiveServer, createCredentials())
+    await readerRowButton(page, readerIds.firstEntry).click()
+    await expect(page.getByRole("heading", { name: "First quiet article" })).toBeVisible()
+
+    await page.getByRole("button", { name: "Translate article" }).click()
+    await expect(page.getByText("确定性阅读条目 1", { exact: true })).toBeVisible()
+    await expect(page.getByText("Translating 1/2", { exact: true })).toBeVisible()
+    await expect(page.getByText("可滚动段落 1", { exact: true })).not.toBeVisible()
+    await expect(page.getByText("可滚动段落 1", { exact: true })).toBeVisible()
+    await expect(page.getByText("Translated by DeepLX", { exact: true })).toBeVisible()
+  } finally {
+    await progressiveServer.stop()
+  }
+})
+
 async function verifyWide(page: Page, fixture: ReaderApiFixture): Promise<void> {
   await expect(page.getByRole("navigation", { name: "Sources" })).toBeVisible()
   await expect(page.getByRole("region", { name: "Entry queue" })).toBeVisible()
@@ -320,10 +414,10 @@ async function installSelectionTranslationFixture(page: Page): Promise<{
   hasCsrf: boolean
 }> {
   const state = { requests: [] as string[], hasCsrf: false }
-  await page.route("**/api/v2/plugins/translation**", async (route) => {
+  await page.route("**/api/v3/plugins/translation**", async (route) => {
     const request = route.request()
     const url = new URL(request.url())
-    if (url.pathname === "/api/v2/plugins/translation" && request.method() === "GET") {
+    if (url.pathname === "/api/v3/plugins/translation" && request.method() === "GET") {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -343,6 +437,7 @@ async function installSelectionTranslationFixture(page: Page): Promise<{
             displayName: "DeepLX",
             description: null,
             baseUrl: null,
+            isProgressive: true,
             hasApiKey: false,
           },
           revision: 1,
@@ -350,7 +445,7 @@ async function installSelectionTranslationFixture(page: Page): Promise<{
       })
       return
     }
-    if (url.pathname === "/api/v2/plugins/translation/lookup" && request.method() === "POST") {
+    if (url.pathname === "/api/v3/plugins/translation/lookup" && request.method() === "POST") {
       const body = request.postDataJSON() as { text: string }
       state.requests.push(body.text)
       state.hasCsrf = Boolean(request.headers()["x-csrf-token"])
@@ -372,6 +467,77 @@ async function installSelectionTranslationFixture(page: Page): Promise<{
     throw new Error(`unexpected Translation request: ${request.method()} ${url.pathname}`)
   })
   return state
+}
+
+async function installProgressiveArticleTranslationStream(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const originalFetch = window.fetch.bind(window)
+    window.fetch = async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
+      if (!url.endsWith("/translate/progressive")) return originalFetch(input, init)
+      const encoder = new TextEncoder()
+      const event = (kind: string, patch: Record<string, unknown>) =>
+        `${JSON.stringify({
+          kind,
+          title: null,
+          segment: null,
+          providerLabel: null,
+          detectedSourceLocale: null,
+          targetLocale: null,
+          completedSegments: 0,
+          totalSegments: 0,
+          error: null,
+          ...patch,
+        })}\n`
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(encoder.encode([
+              event("STARTED", { targetLocale: "zh-CN", totalSegments: 2 }),
+              event("TITLE", {
+                title: "安静的第一篇文章",
+                providerLabel: "DeepLX",
+                detectedSourceLocale: "en",
+                targetLocale: "zh-CN",
+                totalSegments: 2,
+              }),
+              event("SEGMENT", {
+                segment: {
+                  index: 0,
+                  originalText: "Deterministic Reader entry 1",
+                  translatedText: "确定性阅读条目 1",
+                },
+                completedSegments: 1,
+                totalSegments: 2,
+              }),
+            ].join("")))
+            window.setTimeout(() => {
+              controller.enqueue(encoder.encode([
+                event("SEGMENT", {
+                  segment: {
+                    index: 1,
+                    originalText: "Scrollable paragraph 1",
+                    translatedText: "可滚动段落 1",
+                  },
+                  completedSegments: 2,
+                  totalSegments: 2,
+                }),
+                event("COMPLETED", {
+                  completedSegments: 2,
+                  totalSegments: 2,
+                }),
+              ].join("")))
+              controller.close()
+            }, 1_500)
+          },
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/x-ndjson; charset=utf-8" },
+        },
+      )
+    }
+  })
 }
 
 async function verifyMedium(page: Page, fixture: ReaderApiFixture): Promise<void> {

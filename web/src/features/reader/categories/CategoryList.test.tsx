@@ -53,7 +53,9 @@ it("renders empty categories, categorized feeds, and Uncategorized in one TreeLi
   )
   expect(favicon).toHaveAttribute("loading", "lazy")
   expect(favicon).toHaveAttribute("referrerpolicy", "no-referrer")
-  expect(screen.getByRole("tree").parentElement).toHaveAttribute(
+  const treeRoot = screen.getByRole("tree").parentElement
+  expect(treeRoot).toHaveClass("reader-source-list")
+  expect(treeRoot).toHaveAttribute(
     "data-density",
     "balanced",
   )
