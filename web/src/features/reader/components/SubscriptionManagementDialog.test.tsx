@@ -164,3 +164,55 @@ it("closes after the final successful add step", async () => {
 
   expect(onOpenChange).toHaveBeenCalledWith(false)
 })
+
+it("clears a completed feed URL before another add", async () => {
+  activateLocale("en")
+  const user = userEvent.setup()
+  const created = makeSubscription({
+    subscriptionId: "00000000-0000-4000-8000-000000000714",
+    feedUrl: "https://publisher.example/finished.xml",
+    title: "Publisher",
+  })
+
+  function Harness() {
+    const [isOpen, setIsOpen] = useState(true)
+    const [subscriptions, setSubscriptions] = useState<ReturnType<typeof makeSubscription>[]>([])
+    return (
+      <Providers>
+        <button type="button" onClick={() => setIsOpen(true)}>Open manager</button>
+        <SubscriptionManagementDialog
+          isOpen={isOpen}
+          subscriptions={subscriptions}
+          categories={[]}
+          mutationError={null}
+          csrfToken="csrf-memory"
+          onOpenChange={setIsOpen}
+          onClearError={vi.fn()}
+          onAdd={async () => {
+            setSubscriptions([created])
+            return { created: true, subscription: created }
+          }}
+          onUpdate={vi.fn(async () => true)}
+          onDelete={vi.fn(async () => true)}
+          onCreateCategory={vi.fn(async () => true)}
+          onUpdateCategory={vi.fn(async () => true)}
+          onDeleteCategory={vi.fn(async () => true)}
+          onSubscriptionsChanged={vi.fn()}
+        />
+      </Providers>
+    )
+  }
+
+  render(<Harness />)
+  let dialog = screen.getByRole("dialog", { name: "Manage subscriptions" })
+  await user.type(
+    within(dialog).getByRole("textbox", { name: /^Feed URL/ }),
+    created.feedUrl,
+  )
+  await user.click(within(dialog).getByRole("button", { name: "Continue" }))
+  await user.click(within(dialog).getByRole("button", { name: "Finish" }))
+  await user.click(screen.getByRole("button", { name: "Open manager" }))
+
+  dialog = screen.getByRole("dialog", { name: "Manage subscriptions" })
+  expect(within(dialog).getByRole("textbox", { name: /^Feed URL/ })).toHaveValue("")
+})

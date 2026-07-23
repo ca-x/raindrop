@@ -170,6 +170,12 @@ function SubscriptionPanel(
       )
     : undefined
 
+  useEffect(() => {
+    if (props.isOpen) return
+    setUrl("")
+    setValidationError(null)
+  }, [props.isOpen])
+
   const categoryOptions = [
     { value: uncategorizedValue, label: i18n._("reader.uncategorized") },
     ...props.categories.map((category) => ({
@@ -220,6 +226,8 @@ function SubscriptionPanel(
         )
     setIsOrganizing(false)
     if (!saved) return
+    setUrl("")
+    setValidationError(null)
     props.onComplete()
   }
 

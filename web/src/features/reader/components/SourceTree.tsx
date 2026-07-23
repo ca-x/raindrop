@@ -11,6 +11,7 @@ import type { ReaderSource, ReaderState } from "../model/types"
 import { refreshPresentation } from "../refresh/refreshPresentation"
 import { RefreshStatusSummary } from "../refresh/RefreshStatusSummary"
 import { SourceToolbar } from "./ReaderToolbar"
+import { sourceTreeDensityMetrics } from "./sourceDensity"
 
 interface SourceTreeProps {
   state: ReaderState
@@ -98,7 +99,14 @@ export function SourceTree({
         />
       ) : state.paneStatus.subscriptions === "loading" ? (
         <div className="reader-skeletons" role="status" aria-label={i18n._("reader.loadingSubscriptions")}>
-          {[0, 1, 2].map((index) => <Skeleton key={index} height={44} radius={2} index={index} />)}
+          {[0, 1, 2].map((index) => (
+            <Skeleton
+              key={index}
+              height={sourceTreeDensityMetrics[density].rowBlockSize}
+              radius={2}
+              index={index}
+            />
+          ))}
         </div>
       ) : null}
       {state.subscriptionOrder.length === 0 &&

@@ -6,6 +6,7 @@ import {
 } from "@astryxdesign/core/TreeList"
 import { useLingui } from "@lingui/react"
 
+import { sourceTreeDensityStyle } from "../components/sourceDensity"
 import type { ReaderSource, ReaderState } from "../model/types"
 import { refreshPresentation } from "../refresh/refreshPresentation"
 import { groupSubscriptions, type SubscriptionGroup } from "./groupSubscriptions"
@@ -77,6 +78,7 @@ export function CategoryList({ state, onSelect, density, query = "" }: CategoryL
     <TreeList
       className="reader-source-list"
       density={density}
+      style={sourceTreeDensityStyle(density)}
       header={<span className="reader-pane-label">{i18n._("reader.sources")}</span>}
       items={[
         ...smartItems,

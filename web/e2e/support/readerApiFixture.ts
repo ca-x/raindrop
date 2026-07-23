@@ -60,6 +60,7 @@ interface MarkReadCall {
 
 export interface ReaderPreferenceFixture {
   current: () => UserPreferences
+  setCurrent: (preferences: UserPreferences) => void
   failNextPatch: () => void
   patches: PreferencePatchCall[]
 }
@@ -333,6 +334,7 @@ async function installPreferenceFixture(page: Page): Promise<ReaderPreferenceFix
 
   return {
     current: () => structuredClone(current),
+    setCurrent: (preferences) => { current = structuredClone(preferences) },
     failNextPatch: () => { shouldFailNextPatch = true },
     patches,
   }

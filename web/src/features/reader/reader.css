@@ -15,6 +15,9 @@
 }
 
 .reader-source-list {
+  --reader-source-row-min-block-size: 36px;
+  --reader-source-icon-size: 16px;
+
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -97,12 +100,18 @@
 .reader-source-icon,
 .reader-smart-source-icon {
   display: inline-grid;
-  inline-size: 18px;
-  block-size: 18px;
+  inline-size: var(--reader-source-icon-size);
+  block-size: var(--reader-source-icon-size);
   flex: none;
   place-items: center;
   color: var(--color-icon-secondary);
   font-size: 0.75rem;
+}
+
+.reader-source-icon > svg,
+.reader-smart-source-icon > svg {
+  inline-size: 100%;
+  block-size: 100%;
 }
 
 .reader-source-label {
@@ -116,7 +125,7 @@
 
 .reader-source-tree [data-tree-id^="category:"] > div:last-of-type > div,
 .reader-source-tree [data-tree-id="uncategorized"] > div:last-of-type > div {
-  min-block-size: 44px;
+  min-block-size: var(--reader-source-row-min-block-size);
   align-items: center;
 }
 
@@ -148,8 +157,18 @@
 }
 
 .reader-source-tree [role="treeitem"] > div:last-of-type > div {
-  min-block-size: 44px;
+  min-block-size: var(--reader-source-row-min-block-size);
   align-items: center;
+}
+
+.reader-source-tree .reader-source-list [role="treeitem"] {
+  min-inline-size: 0;
+  min-block-size: var(--reader-source-row-min-block-size);
+}
+
+.reader-source-tree .reader-source-list [role="treeitem"] :where(button, a) {
+  min-inline-size: 0;
+  min-block-size: 0;
 }
 
 .reader-source-tree
@@ -158,7 +177,7 @@
   > div
   > :where(button, a):has(.reader-source-label) {
   min-inline-size: 0;
-  min-block-size: 44px;
+  min-block-size: 0;
   justify-content: center;
 }
 
@@ -2272,6 +2291,35 @@ html[data-raindrop-density="spacious"] {
 }
 
 @media (hover: none), (pointer: coarse) {
+  .reader-source-tree .reader-source-list [role="treeitem"],
+  .reader-source-tree
+    .reader-source-list
+    [role="treeitem"]
+    > div:last-of-type
+    > div {
+    min-block-size: 44px;
+  }
+
+  .reader-source-tree
+    .reader-source-list
+    [role="treeitem"]
+    > div:last-of-type
+    > div {
+    padding-block: 0;
+  }
+
+  .reader-source-tree
+    .reader-source-list
+    [role="treeitem"]
+    :where(button, a),
+  .reader-source-tree
+    [role="treeitem"]
+    > div:last-of-type
+    > div
+    > :where(button, a):has(.reader-source-label) {
+    min-block-size: 44px;
+  }
+
   .reader-reading-dock {
     block-size: max(100px, calc(82px + env(safe-area-inset-bottom)));
   }
@@ -2282,6 +2330,35 @@ html[data-raindrop-density="spacious"] {
 }
 
 @media (max-width: 719px) {
+  .reader-source-tree .reader-source-list [role="treeitem"],
+  .reader-source-tree
+    .reader-source-list
+    [role="treeitem"]
+    > div:last-of-type
+    > div {
+    min-block-size: 44px;
+  }
+
+  .reader-source-tree
+    .reader-source-list
+    [role="treeitem"]
+    > div:last-of-type
+    > div {
+    padding-block: 0;
+  }
+
+  .reader-source-tree
+    .reader-source-list
+    [role="treeitem"]
+    :where(button, a),
+  .reader-source-tree
+    [role="treeitem"]
+    > div:last-of-type
+    > div
+    > :where(button, a):has(.reader-source-label) {
+    min-block-size: 44px;
+  }
+
   .reader-preferences-dialog {
     block-size: calc(100dvh - 16px);
     max-block-size: calc(100dvh - 16px) !important;

@@ -153,6 +153,48 @@ test("Expanded source tree keeps hover distinct and reaches the final feed", asy
   }
 })
 
+test("Source tree respects every layout density", async ({ page }, testInfo) => {
+  test.skip(
+    testInfo.project.name !== "reader-1280x800",
+    "Source density is measured once with a fine pointer in the wide project.",
+  )
+  const densityServer = await startProductionServer()
+  try {
+    const fixture = await installReaderApiFixture(page)
+    await completeSetup(page, densityServer, createCredentials())
+    const sources = page.getByRole("navigation", { name: "Sources" })
+    const tree = sources.locator(".reader-source-list")
+    const feedRow = sources.locator(
+      `[data-tree-id="feed:${readerIds.feedB}"] > div:last-of-type > div`,
+    )
+    const icon = feedRow.locator(".reader-source-icon")
+
+    for (const [layoutDensity, density, rowBlockSize, iconSize] of [
+      ["COMPACT", "compact", 28, 14],
+      ["BALANCED", "balanced", 36, 16],
+      ["SPACIOUS", "spacious", 44, 18],
+    ] as const) {
+      fixture.preferences.setCurrent({
+        ...fixture.preferences.current(),
+        layoutDensity,
+      })
+      await page.evaluate(() => localStorage.clear())
+      await page.reload({ waitUntil: "domcontentloaded" })
+      await expect(tree).toHaveAttribute("data-density", density)
+      await expect.poll(async () => ({
+        rowBlockSize: Math.round(
+          await feedRow.evaluate((element) => element.getBoundingClientRect().height),
+        ),
+        iconSize: Math.round(
+          await icon.evaluate((element) => element.getBoundingClientRect().width),
+        ),
+      })).toEqual({ rowBlockSize, iconSize })
+    }
+  } finally {
+    await densityServer.stop()
+  }
+})
+
 test("Reader refresh observability", async ({ page }, testInfo) => {
   testInfo.setTimeout(60_000)
   const refreshServer = await startProductionServer()
