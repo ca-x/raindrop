@@ -135,11 +135,36 @@ test("Expanded source tree keeps hover distinct and reaches the final feed", asy
       .getByRole("treeitem", { name: /Engineering/u })
       .locator(":scope > div:last-of-type > div")
     await hoveredRow.hover()
-    const [selectedColor, hoverColor] = await Promise.all([
-      selectedRow.evaluate((element) => getComputedStyle(element).backgroundColor),
-      hoveredRow.evaluate((element) => getComputedStyle(element).backgroundColor),
+    const [selectedStyle, hoverStyle] = await Promise.all([
+      selectedRow.evaluate((element) => {
+        const style = getComputedStyle(element)
+        return { background: style.backgroundColor, shadow: style.boxShadow }
+      }),
+      hoveredRow.evaluate((element) => {
+        const style = getComputedStyle(element)
+        return { background: style.backgroundColor, shadow: style.boxShadow }
+      }),
     ])
-    expect(hoverColor).not.toBe(selectedColor)
+    expect(hoverStyle.background).not.toBe(selectedStyle.background)
+    expect(selectedStyle.shadow).not.toBe("none")
+    expect(hoverStyle.shadow).not.toBe("none")
+
+    const queueRows = page.locator(".reader-entry-item")
+    await queueRows.nth(0).getByRole("button").click()
+    await queueRows.nth(1).hover()
+    const [selectedEntryStyle, hoverEntryStyle] = await Promise.all([
+      queueRows.nth(0).evaluate((element) => {
+        const style = getComputedStyle(element)
+        return { background: style.backgroundColor, shadow: style.boxShadow }
+      }),
+      queueRows.nth(1).evaluate((element) => {
+        const style = getComputedStyle(element)
+        return { background: style.backgroundColor, shadow: style.boxShadow }
+      }),
+    ])
+    expect(hoverEntryStyle.background).not.toBe(selectedEntryStyle.background)
+    expect(selectedEntryStyle.shadow).not.toBe("none")
+    expect(hoverEntryStyle.shadow).not.toBe("none")
 
     const finalFeed = sources.getByRole("button", { name: "Overflow feed 18" })
     await tree.evaluate((element) => {
@@ -153,10 +178,10 @@ test("Expanded source tree keeps hover distinct and reaches the final feed", asy
   }
 })
 
-test("Source tree respects every layout density", async ({ page }, testInfo) => {
+test("Reader lists respect every layout density", async ({ page }, testInfo) => {
   test.skip(
     testInfo.project.name !== "reader-1280x800",
-    "Source density is measured once with a fine pointer in the wide project.",
+    "Reader density is measured once with a fine pointer in the wide project.",
   )
   const densityServer = await startProductionServer()
   try {
@@ -168,11 +193,12 @@ test("Source tree respects every layout density", async ({ page }, testInfo) => 
       `[data-tree-id="feed:${readerIds.feedB}"] > div:last-of-type > div`,
     )
     const icon = feedRow.locator(".reader-source-icon")
+    const entryRow = page.locator(".reader-entry-item").first()
 
-    for (const [layoutDensity, density, rowBlockSize, iconSize] of [
-      ["COMPACT", "compact", 28, 14],
-      ["BALANCED", "balanced", 36, 16],
-      ["SPACIOUS", "spacious", 44, 18],
+    for (const [layoutDensity, density, rowBlockSize, iconSize, entryBlockSize] of [
+      ["COMPACT", "compact", 28, 14, 64],
+      ["BALANCED", "balanced", 36, 16, 76],
+      ["SPACIOUS", "spacious", 44, 18, 88],
     ] as const) {
       fixture.preferences.setCurrent({
         ...fixture.preferences.current(),
@@ -188,7 +214,10 @@ test("Source tree respects every layout density", async ({ page }, testInfo) => 
         iconSize: Math.round(
           await icon.evaluate((element) => element.getBoundingClientRect().width),
         ),
-      })).toEqual({ rowBlockSize, iconSize })
+        entryBlockSize: Math.round(
+          await entryRow.evaluate((element) => element.getBoundingClientRect().height),
+        ),
+      })).toEqual({ rowBlockSize, iconSize, entryBlockSize })
     }
   } finally {
     await densityServer.stop()
@@ -360,6 +389,10 @@ async function verifyWide(page: Page, fixture: ReaderApiFixture): Promise<void> 
   await page.keyboard.press("n")
   await expect(readerRow(page, readerIds.firstEntry)).toHaveAttribute("aria-selected", "true")
   await expect(readerRowButton(page, readerIds.firstEntry)).toBeFocused()
+  await expect.poll(() => readerRow(page, readerIds.firstEntry).evaluate((element) => {
+    const style = getComputedStyle(element)
+    return { outlineStyle: style.outlineStyle, outlineWidth: style.outlineWidth }
+  })).toEqual({ outlineStyle: "solid", outlineWidth: "2px" })
   await expect(page).toHaveURL(`${server.baseURL}/reader/unread`)
   expect(fixture.patches).toHaveLength(0)
 

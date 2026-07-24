@@ -120,10 +120,30 @@ it("renders the complete settings workflow in Chinese", () => {
   renderDialog()
 
   const dialog = screen.getByRole("dialog", { name: "设置" })
-  expect(within(dialog).getByText("调整账户、阅读、插件与备份设置，不打断当前阅读。")).toBeVisible()
+  expect(within(dialog).getByText("管理账户、阅读、插件与备份设置。")).toBeVisible()
   expect(within(dialog).getByRole("radio", { name: "跟随系统" })).toBeVisible()
   expect(within(dialog).getByRole("radio", { name: "均衡" })).toBeVisible()
   expect(within(dialog).getByRole("button", { name: "保存更改" })).toBeVisible()
+})
+
+it("uses functional settings descriptions in English", async () => {
+  activateLocale("en")
+  const user = userEvent.setup()
+  renderDialog({
+    aiController: fakeAiSettingsController(),
+    translationController: fakeTranslationSettingsController(),
+  })
+  const dialog = screen.getByRole("dialog", { name: "Settings" })
+
+  expect(within(dialog).getByText("Manage account, reading, plugins, and backups.")).toBeVisible()
+  expect(within(dialog).getByText("Nickname, email, theme, language, and interface density.")).toBeVisible()
+  await user.click(within(dialog).getByRole("button", { name: /^Plugins/ }))
+  expect(within(dialog).getByText("AI Providers, article summaries, and translation.")).toBeVisible()
+  expect(
+    within(dialog).getByText(
+      "Translate full articles and look up words with OpenAI or DeepLX.",
+    ),
+  ).toBeVisible()
 })
 
 it("keeps subscription transfer out of settings", () => {

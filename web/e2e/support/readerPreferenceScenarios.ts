@@ -16,6 +16,8 @@ export async function verifyWidePreferences(
   await trigger.click()
   await page.getByRole("menuitem", { name: "Settings" }).click()
   const dialog = page.getByRole("dialog", { name: "Settings" })
+  await expect(dialog.getByText("Manage account, reading, plugins, and backups.")).toBeVisible()
+  await verifySettingsNavigationStates(dialog, "Personal", "Reading")
   await verifyBackupFormAlignment(dialog)
   await choosePreferences(dialog, {
     locale: "zh-CN",
@@ -71,6 +73,8 @@ export async function verifyWidePreferences(
   await page.getByRole("button", { name: "打开菜单" }).click()
   await page.getByRole("menuitem", { name: "设置" }).click()
   const reopenedSettings = page.getByRole("dialog", { name: "设置" })
+  await expect(reopenedSettings.getByText("管理账户、阅读、插件与备份设置。")).toBeVisible()
+  await verifySettingsNavigationStates(reopenedSettings, "个人", "阅读")
   await reopenedSettings.getByRole("button", { name: /^阅读(?:\s|$)/u }).click()
   await reopenedSettings.getByRole("button", { name: "删除字体“Editorial”" }).click()
   await expect(reopenedSettings.getByText("Editorial", { exact: true })).toHaveCount(0)
@@ -203,13 +207,40 @@ export async function verifyCompactPreferences(
   await expectPresentation(page, desired)
   const reopened = await openCompactSettings(page, "zh-CN")
   await expect(reopened.dialog.getByText(
-    "调整账户、阅读、插件与备份设置，不打断当前阅读。",
+    "管理账户、阅读、插件与备份设置。",
   )).toBeVisible()
   await expectDialogContained(reopened.dialog, page)
   await expectNoHorizontalOverflow(page)
   await reopened.dialog.getByRole("button", { name: "取消" }).click()
   await expect(reopened.sources).toBeVisible()
   await expect(reopened.sources.getByRole("button", { name: "打开菜单" })).toBeFocused()
+}
+
+async function verifySettingsNavigationStates(
+  dialog: Locator,
+  activeLabel: string,
+  hoverLabel: string,
+): Promise<void> {
+  const active = dialog.getByRole("button", {
+    name: new RegExp(`^${activeLabel}(?:\\s|$)`, "u"),
+  })
+  const hovered = dialog.getByRole("button", {
+    name: new RegExp(`^${hoverLabel}(?:\\s|$)`, "u"),
+  })
+  await hovered.hover()
+  const [activeStyle, hoverStyle] = await Promise.all([
+    active.evaluate((element) => {
+      const style = getComputedStyle(element)
+      return { background: style.backgroundColor, shadow: style.boxShadow }
+    }),
+    hovered.evaluate((element) => {
+      const style = getComputedStyle(element)
+      return { background: style.backgroundColor, shadow: style.boxShadow }
+    }),
+  ])
+  expect(activeStyle.background).not.toBe(hoverStyle.background)
+  expect(activeStyle.shadow).not.toBe("none")
+  expect(hoverStyle.shadow).not.toBe("none")
 }
 
 async function choosePreferences(

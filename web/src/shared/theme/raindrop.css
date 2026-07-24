@@ -18,6 +18,24 @@
     --color-on-accent: light-dark(oklch(0.99 0.004 85), oklch(0.18 0.02 250));
     --color-border: light-dark(oklch(0.89 0.012 85), oklch(0.32 0.01 70));
     --color-border-emphasized: light-dark(oklch(0.78 0.02 85), oklch(0.44 0.012 70));
+    --color-interaction-hover: color-mix(in oklch, var(--color-text-primary) 5%, transparent);
+    --color-interaction-pressed: color-mix(in oklch, var(--color-text-primary) 9%, transparent);
+    --color-interaction-selected: color-mix(
+      in oklch,
+      var(--color-accent) 9%,
+      var(--color-background-surface)
+    );
+    --color-interaction-selected-border: color-mix(
+      in oklch,
+      var(--color-accent) 25%,
+      var(--color-border)
+    );
+    --shadow-color: light-dark(oklch(0.18 0.02 255 / 0.13), oklch(0 0 0 / 0.42));
+    --shadow-surface: 0 1px 2px var(--shadow-color), 0 12px 30px -26px var(--shadow-color);
+    --shadow-selected: 0 1px 3px var(--shadow-color), 0 10px 24px -24px var(--shadow-color);
+    --scrollbar-thumb: color-mix(in oklch, var(--color-text-secondary) 28%, transparent);
+    --scrollbar-thumb-hover: color-mix(in oklch, var(--color-text-secondary) 52%, transparent);
+    --scrollbar-thumb-active: color-mix(in oklch, var(--color-text-secondary) 68%, transparent);
     --radius-control: 10px;
     --radius-container: 14px;
     --duration-micro: 120ms;

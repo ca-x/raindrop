@@ -17,6 +17,7 @@ import type {
   UserPreferencesReadingColorScheme,
   UserPreferencesReadingFontFamily,
 } from "../../preferences/api/preferences.generated"
+import { StarIcon } from "./StarIcon"
 
 interface SourceToolbarProps {
   onManage: () => void
@@ -175,8 +176,8 @@ export function ArticleToolbar(props: ArticleToolbarProps) {
           <span className="reader-toolbar-shortcut">
             <ToggleButton
               label={i18n._(props.isStarred ? "reader.unstarEntry" : "reader.starEntry")}
-              icon={<span aria-hidden="true">☆</span>}
-              pressedIcon={<span aria-hidden="true">★</span>}
+              icon={<StarIcon />}
+              pressedIcon={<StarIcon isFilled />}
               isIconOnly
               isPressed={props.isStarred}
               pressedChangeAction={props.onToggleStar}

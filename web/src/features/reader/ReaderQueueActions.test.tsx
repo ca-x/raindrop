@@ -30,6 +30,35 @@ describe("Reader queue actions", () => {
     expect(screen.getByText("2 in view")).toBeVisible()
   })
 
+  it("uses a themed SVG for starred entries", () => {
+    activateLocale("en")
+    const entryId = "starred-entry"
+    const state = feedState({
+      entriesById: {
+        [entryId]: {
+          entryId,
+          feedId: "feed-rust",
+          feedTitle: "Planet Rust",
+          siteUrl: null,
+          title: "Saved article",
+          author: null,
+          summary: null,
+          canonicalUrl: null,
+          publishedAtUs: null,
+          sortAtUs: 1_700_000_000_000_000,
+          isRead: true,
+          isStarred: true,
+        },
+      },
+      queueBySourceKey: { "feed:feed-rust": [entryId] },
+    })
+    renderQueue(state)
+
+    const marker = screen.getByLabelText("Starred entry")
+    expect(marker.querySelector("svg")).not.toBeNull()
+    expect(marker).not.toHaveTextContent("★")
+  })
+
   it("shows Feed search only for Feed sources and submits or clears it", async () => {
     activateLocale("en")
     const user = userEvent.setup()

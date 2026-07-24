@@ -10,9 +10,14 @@ import { useEffect, useLayoutEffect, useRef } from "react"
 
 import { MountTransition } from "../../../shared/motion/MountTransition"
 import { sourceKey, type ReaderState } from "../model/types"
+import {
+  entryQueueDensityMetrics,
+  entryQueueDensityStyle,
+} from "./entryDensity"
 import { FeedSearchInput } from "./FeedSearchInput"
 import { QueueToolbar, type MarkReadAvailability } from "./QueueToolbar"
 import { RelativeEntryTime } from "./RelativeEntryTime"
+import { StarIcon } from "./StarIcon"
 
 interface EntryQueueProps {
   state: ReaderState
@@ -90,7 +95,12 @@ export function EntryQueue({
     row?.scrollIntoView?.({ behavior: "auto", block: "nearest" })
   }, [cursorEntryId, cursorFocusNonce, isRouteReady])
   return (
-    <div ref={rootRef} className="reader-queue" aria-busy={state.paneStatus.queue === "loading"}>
+    <div
+      ref={rootRef}
+      className="reader-queue"
+      aria-busy={state.paneStatus.queue === "loading"}
+      style={entryQueueDensityStyle(density)}
+    >
       <QueueToolbar
         sourceLabel={sourceLabel}
         entryCount={queue.length}
@@ -143,7 +153,14 @@ export function EntryQueue({
         />
       ) : state.paneStatus.queue === "loading" ? (
         <div className="reader-skeletons" role="status" aria-label={i18n._("reader.loadingEntries")}>
-          {[0, 1, 2, 3].map((index) => <Skeleton key={index} height={72} radius={2} index={index} />)}
+          {[0, 1, 2, 3].map((index) => (
+            <Skeleton
+              key={index}
+              height={entryQueueDensityMetrics[density].rowBlockSize}
+              radius={2}
+              index={index}
+            />
+          ))}
         </div>
       ) : queue.length === 0 ? (
         <EmptyState
@@ -184,7 +201,14 @@ export function EntryQueue({
                     <span className="reader-entry-title">
                       {!entry.isRead ? <StatusDot variant="accent" label={i18n._("reader.unreadEntry")} /> : null}
                       <span>{entry.title ?? i18n._("reader.untitled")}</span>
-                      {entry.isStarred ? <span aria-label={i18n._("reader.starredEntry")}>★</span> : null}
+                      {entry.isStarred ? (
+                        <span
+                          className="reader-entry-star"
+                          aria-label={i18n._("reader.starredEntry")}
+                        >
+                          <StarIcon isFilled />
+                        </span>
+                      ) : null}
                     </span>
                   }
                   description={
