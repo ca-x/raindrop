@@ -2119,6 +2119,17 @@ html[data-raindrop-density="spacious"] {
   gap: 14px;
 }
 
+.reader-backup-form-field {
+  display: grid;
+  align-items: flex-end;
+  min-inline-size: 0;
+}
+
+.reader-backup-form-field > * {
+  min-inline-size: 0;
+  inline-size: 100%;
+}
+
 .reader-backup-form-section {
   display: grid;
   gap: 12px;

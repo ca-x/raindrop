@@ -13,6 +13,7 @@ import type { ReaderController } from "../model/useReaderController"
 import { ReaderShell } from "../layout/ReaderShell"
 import {
   parseReaderPath,
+  DEFAULT_READER_PATH,
   pathForEntry,
   pathForSource,
   sameReaderSource,
@@ -88,7 +89,7 @@ export function ReaderRoutes(props: ReaderRoutesProps) {
     if (isSourceReady && cursorEntryId && !queue.includes(cursorEntryId)) setCursorEntryId(null)
   }, [cursorEntryId, isSourceReady, queue])
 
-  if (!route) return <Navigate to="/reader/unread" replace />
+  if (!route) return <Navigate to={DEFAULT_READER_PATH} replace />
   const readerQueuePath = (location.state as { readerQueuePath?: unknown } | null)?.readerQueuePath
   const markOpenedEntryRead = (entryId: string) => {
     const entry = props.controller.state.entriesById[entryId]

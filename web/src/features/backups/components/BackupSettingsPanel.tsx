@@ -312,42 +312,57 @@ function TargetForm(props: {
         />
       </div>
       <div className="reader-backup-form-grid">
-        <TextInput
-          label={i18n._("backup.displayName")}
-          value={displayName}
-          onChange={setDisplayName}
-          width="100%"
-          isRequired
-        />
-        <TextInput
-          label={i18n._("backup.endpoint")}
-          description={i18n._("backup.httpsOnly")}
-          value={endpoint}
-          onChange={setEndpoint}
-          width="100%"
-          isRequired
-        />
+        <BackupFormField>
+          <TextInput
+            label={i18n._("backup.displayName")}
+            value={displayName}
+            onChange={setDisplayName}
+            width="100%"
+            isRequired
+          />
+        </BackupFormField>
+        <BackupFormField>
+          <TextInput
+            label={i18n._("backup.endpoint")}
+            description={i18n._("backup.httpsOnly")}
+            value={endpoint}
+            onChange={setEndpoint}
+            width="100%"
+            isRequired
+          />
+        </BackupFormField>
         {props.kind === "S3" ? (
           <>
-            <TextInput label={i18n._("backup.region")} value={region} onChange={setRegion} width="100%" isRequired />
-            <TextInput label={i18n._("backup.bucket")} value={bucket} onChange={setBucket} width="100%" isRequired />
+            <BackupFormField>
+              <TextInput label={i18n._("backup.region")} value={region} onChange={setRegion} width="100%" isRequired />
+            </BackupFormField>
+            <BackupFormField>
+              <TextInput label={i18n._("backup.bucket")} value={bucket} onChange={setBucket} width="100%" isRequired />
+            </BackupFormField>
           </>
         ) : null}
-        <TextInput
-          label={i18n._("backup.prefix")}
-          description={i18n._("backup.prefixDescription")}
-          value={prefix}
-          onChange={setPrefix}
-          width="100%"
-          isOptional
-        />
-        {props.kind === "S3" ? (
-          <Switch
-            label={i18n._("backup.pathStyle")}
-            description={i18n._("backup.pathStyleDescription")}
-            value={pathStyle}
-            onChange={setPathStyle}
+        <BackupFormField>
+          <TextInput
+            label={i18n._("backup.prefix")}
+            description={i18n._("backup.prefixDescription")}
+            value={prefix}
+            onChange={setPrefix}
+            width="100%"
+            isOptional
           />
+        </BackupFormField>
+        {props.kind === "S3" ? (
+          <BackupFormField>
+            <Switch
+              label={i18n._("backup.pathStyle")}
+              description={i18n._("backup.pathStyleDescription")}
+              value={pathStyle}
+              onChange={setPathStyle}
+              labelPosition="start"
+              labelSpacing="spread"
+              width="100%"
+            />
+          </BackupFormField>
         ) : null}
       </div>
       <section className="reader-backup-form-section">
@@ -360,14 +375,24 @@ function TargetForm(props: {
         <div className="reader-backup-form-grid">
           {props.kind === "S3" ? (
             <>
-              <TextInput label={i18n._("backup.accessKeyId")} value={accessKeyId} onChange={setAccessKeyId} width="100%" isOptional={Boolean(props.target)} isRequired={!props.target} />
-              <TextInput label={i18n._("backup.secretAccessKey")} type="password" value={secretAccessKey} onChange={setSecretAccessKey} width="100%" isOptional={Boolean(props.target)} isRequired={!props.target} />
-              <TextInput label={i18n._("backup.sessionToken")} type="password" value={sessionToken} onChange={setSessionToken} width="100%" isOptional />
+              <BackupFormField>
+                <TextInput label={i18n._("backup.accessKeyId")} value={accessKeyId} onChange={setAccessKeyId} width="100%" isOptional={Boolean(props.target)} isRequired={!props.target} />
+              </BackupFormField>
+              <BackupFormField>
+                <TextInput label={i18n._("backup.secretAccessKey")} type="password" value={secretAccessKey} onChange={setSecretAccessKey} width="100%" isOptional={Boolean(props.target)} isRequired={!props.target} />
+              </BackupFormField>
+              <BackupFormField>
+                <TextInput label={i18n._("backup.sessionToken")} type="password" value={sessionToken} onChange={setSessionToken} width="100%" isOptional />
+              </BackupFormField>
             </>
           ) : (
             <>
-              <TextInput label={i18n._("backup.username")} value={username} onChange={setUsername} width="100%" isOptional={Boolean(props.target)} isRequired={!props.target} />
-              <TextInput label={i18n._("backup.password")} type="password" value={password} onChange={setPassword} width="100%" isOptional={Boolean(props.target)} isRequired={!props.target} />
+              <BackupFormField>
+                <TextInput label={i18n._("backup.username")} value={username} onChange={setUsername} width="100%" isOptional={Boolean(props.target)} isRequired={!props.target} />
+              </BackupFormField>
+              <BackupFormField>
+                <TextInput label={i18n._("backup.password")} type="password" value={password} onChange={setPassword} width="100%" isOptional={Boolean(props.target)} isRequired={!props.target} />
+              </BackupFormField>
             </>
           )}
         </div>
@@ -376,24 +401,28 @@ function TargetForm(props: {
         <div className="reader-preference-label">{i18n._("backup.retention")}</div>
         <div className="reader-preference-description">{i18n._("backup.retentionDescription")}</div>
         <div className="reader-backup-form-grid">
-          <NumberInput
-            label={i18n._("backup.retainCount")}
-            value={retainCount}
-            onChange={setRetainCount}
-            min={1}
-            max={1000}
-            isIntegerOnly
-            hasClear
-          />
-          <NumberInput
-            label={i18n._("backup.retainDays")}
-            value={retainDays}
-            onChange={setRetainDays}
-            min={1}
-            max={3650}
-            isIntegerOnly
-            hasClear
-          />
+          <BackupFormField>
+            <NumberInput
+              label={i18n._("backup.retainCount")}
+              value={retainCount}
+              onChange={setRetainCount}
+              min={1}
+              max={1000}
+              isIntegerOnly
+              hasClear
+            />
+          </BackupFormField>
+          <BackupFormField>
+            <NumberInput
+              label={i18n._("backup.retainDays")}
+              value={retainDays}
+              onChange={setRetainDays}
+              min={1}
+              max={3650}
+              isIntegerOnly
+              hasClear
+            />
+          </BackupFormField>
         </div>
       </section>
       <div className="reader-backup-form-actions">
@@ -402,6 +431,10 @@ function TargetForm(props: {
       </div>
     </form>
   )
+}
+
+function BackupFormField({ children }: { children: ReactNode }) {
+  return <div className="reader-backup-form-field">{children}</div>
 }
 
 function SchedulePanel({ controller }: { controller: BackupController }) {

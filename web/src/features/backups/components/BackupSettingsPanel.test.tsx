@@ -91,6 +91,29 @@ it("lists multiple targets per provider and runs one job across selected S3 and 
   ])
 })
 
+it("uses aligned field slots for both S3 and WebDAV target forms", async () => {
+  activateLocale("en")
+  const user = userEvent.setup()
+  render(
+    <Providers>
+      <BackupSettingsPanel controller={fakeController({ targets: [] })} />
+    </Providers>,
+  )
+
+  await user.click(screen.getByRole("button", { name: "Add S3 target" }))
+  expect((await screen.findByLabelText(/^Name\b/)).closest(".reader-backup-form-field")).not.toBeNull()
+  expect(screen.getByLabelText(/^HTTPS endpoint\b/).closest(".reader-backup-form-field")).not.toBeNull()
+  const pathStyle = screen.getByRole("switch", { name: /Use path-style addressing/ })
+  expect(pathStyle.closest(".astryx-switch-field")).toHaveAttribute("data-label-position", "start")
+  expect(pathStyle.closest(".astryx-switch-field")).toHaveAttribute("data-label-spacing", "spread")
+
+  await user.click(screen.getByRole("button", { name: "Cancel" }))
+  await user.click(screen.getByRole("button", { name: "WebDAV" }))
+  await user.click(screen.getByRole("button", { name: "Add WEBDAV target" }))
+  expect((await screen.findByLabelText(/^Name\b/)).closest(".reader-backup-form-field")).not.toBeNull()
+  expect(screen.getByLabelText(/^HTTPS endpoint\b/).closest(".reader-backup-form-field")).not.toBeNull()
+})
+
 function fakeController(
   overrides: Partial<BackupController> = {},
 ): BackupController {

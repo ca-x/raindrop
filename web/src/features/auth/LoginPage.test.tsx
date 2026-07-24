@@ -13,6 +13,7 @@ describe("Local authentication", () => {
   beforeEach(() => {
     activateLocale("en")
     localStorage.clear()
+    window.history.replaceState(null, "", "/")
     vi.stubGlobal("fetch", fetchMock)
     fetchMock.mockReset()
   })
@@ -51,6 +52,7 @@ describe("Local authentication", () => {
     await user.click(screen.getByRole("button", { name: "Sign in" }))
 
     expect(await screen.findByRole("heading", { name: "No entries here" })).toBeVisible()
+    await waitFor(() => expect(window.location.pathname).toBe("/reader/unread"))
     expect(screen.getByRole("img", { name: "Raindrop" })).toBeVisible()
     expect(screen.queryByText("Raindrop")).not.toBeInTheDocument()
     const storedValues = Array.from(
@@ -105,6 +107,7 @@ describe("Local authentication", () => {
     )
 
     expect(await screen.findByRole("heading", { name: "Welcome back" })).toBeVisible()
+    await waitFor(() => expect(window.location.pathname).toBe("/login"))
     const [path, init] = fetchMock.mock.calls.at(-1) ?? []
     expect(path).toBe("/api/v1/auth/logout")
     expect(new Headers(init?.headers).get("x-csrf-token")).toBe(sessionResponse.csrfToken)

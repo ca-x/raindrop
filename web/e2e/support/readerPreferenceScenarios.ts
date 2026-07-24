@@ -16,6 +16,7 @@ export async function verifyWidePreferences(
   await trigger.click()
   await page.getByRole("menuitem", { name: "Settings" }).click()
   const dialog = page.getByRole("dialog", { name: "Settings" })
+  await verifyBackupFormAlignment(dialog)
   await choosePreferences(dialog, {
     locale: "zh-CN",
     themeMode: "DARK",
@@ -82,6 +83,39 @@ export async function verifyWidePreferences(
   await expectPresentation(page, fixture.preferences.current())
   expect(fixture.preferences.patches).toHaveLength(7)
   await expectNoHorizontalOverflow(page)
+}
+
+async function verifyBackupFormAlignment(dialog: Locator): Promise<void> {
+  await dialog.getByRole("button", { name: /^Backup\b/u }).click()
+  await dialog.getByRole("button", { name: "Add S3 target" }).click()
+  await expectInputRowAligned(dialog, /^Name\b/u, /^HTTPS endpoint\b/u)
+
+  const pathStyle = dialog.getByRole("switch", { name: /Use path-style addressing/u })
+  await expect(pathStyle.locator("xpath=ancestor::*[contains(@class, 'astryx-switch-field')][1]"))
+    .toHaveAttribute("data-label-spacing", "spread")
+
+  await dialog.getByRole("button", { name: "Cancel" }).click()
+  await dialog.getByRole("button", { name: "WebDAV" }).click()
+  await dialog.getByRole("button", { name: "Add WEBDAV target" }).click()
+  await expectInputRowAligned(dialog, /^Name\b/u, /^HTTPS endpoint\b/u)
+  await dialog.getByRole("button", { name: "Cancel" }).click()
+  await dialog.getByRole("button", { name: /^Personal\b/u }).click()
+}
+
+async function expectInputRowAligned(
+  dialog: Locator,
+  leftLabel: RegExp,
+  rightLabel: RegExp,
+): Promise<void> {
+  const [left, right] = await Promise.all([
+    dialog.getByLabel(leftLabel).locator("xpath=..").boundingBox(),
+    dialog.getByLabel(rightLabel).locator("xpath=..").boundingBox(),
+  ])
+  expect(left).not.toBeNull()
+  expect(right).not.toBeNull()
+  expect(Math.abs(left!.y - right!.y)).toBeLessThanOrEqual(1)
+  expect(Math.abs(left!.height - right!.height)).toBeLessThanOrEqual(1)
+  expect(Math.abs(left!.width - right!.width)).toBeLessThanOrEqual(1)
 }
 
 export async function verifyMediumPreferencesFocus(page: Page): Promise<void> {

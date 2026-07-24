@@ -11,6 +11,32 @@ const cargoBuildScript = read("build.rs")
 const embeddedWebAssets = read("src/web/assets.rs")
 const webModule = read("src/web/mod.rs")
 const readme = read("README.md")
+const webPackageManifest = JSON.parse(read("web/package.json"))
+const webPackageLock = JSON.parse(read("web/package-lock.json"))
+const adminOnlySetupE2e = read("web/e2e/admin-only-setup.spec.ts")
+const preferencesDialogTest = read(
+  "web/src/features/preferences/components/PreferencesDialog.test.tsx",
+)
+const cargoPackageSection = cargoManifest.slice(0, cargoManifest.indexOf("\n[workspace]"))
+const cargoVersion = requireCapture(
+  cargoPackageSection,
+  /^version = "([^"]+)"$/mu,
+  "Cargo package version",
+)
+requireEqual(webPackageManifest.version, cargoVersion, "Web package version")
+requireEqual(webPackageLock.version, cargoVersion, "Web lockfile version")
+requireEqual(webPackageLock.packages?.[""]?.version, cargoVersion, "Web root lock package version")
+requireMatch(readme, new RegExp(`^## v${escapeRegExp(cargoVersion)}$`, "mu"), "README current version")
+requireMatch(
+  adminOnlySetupE2e,
+  new RegExp(`version: "${escapeRegExp(cargoVersion)}"`, "u"),
+  "admin setup bootstrap version",
+)
+requireMatch(
+  preferencesDialogTest,
+  new RegExp(`getByText\\("v${escapeRegExp(cargoVersion)}"\\)`, "u"),
+  "About panel version assertion",
+)
 requireMatch(
   cargoBuildScript,
   /RAINDROP_WEB_BUNDLE_DIGEST/u,
@@ -348,6 +374,16 @@ function requireNoMatch(source, pattern, message) {
 function requireCount(source, pattern, expected, message) {
   const actual = [...source.matchAll(pattern)].length
   if (actual !== expected) fail(`${message}: expected ${expected}, received ${actual}`)
+}
+
+function requireCapture(source, pattern, message) {
+  const match = pattern.exec(source)
+  if (!match?.[1]) fail(message)
+  return match[1]
+}
+
+function requireEqual(actual, expected, message) {
+  if (actual !== expected) fail(`${message}: expected ${expected}, received ${String(actual)}`)
 }
 
 function requireAsset(relativePath) {

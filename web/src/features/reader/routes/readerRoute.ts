@@ -7,8 +7,10 @@ export interface ReaderRouteMatch {
   entryId: string | null
 }
 
+export const DEFAULT_READER_PATH = "/reader/unread"
+
 const smartPaths: Record<string, EntryListState> = {
-  "/reader/unread": "UNREAD",
+  [DEFAULT_READER_PATH]: "UNREAD",
   "/reader/all": "ALL",
   "/reader/starred": "STARRED",
 }

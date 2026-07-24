@@ -30,6 +30,7 @@ test("production bundle completes setup, logs in, logs out, and keeps setup clos
 
   await page.reload({ waitUntil: "domcontentloaded" })
   await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible()
+  await expect(page).toHaveURL(`${server.baseURL}/login`)
   await expect(page.getByLabel(/Setup token/u)).toHaveCount(0)
 
   const bootstrap = await page.request.get(`${server.baseURL}/api/v1/bootstrap`)
