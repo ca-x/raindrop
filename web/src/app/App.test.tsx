@@ -58,7 +58,7 @@ describe("App bootstrap routing", () => {
     activateLocale("en")
     window.history.replaceState(null, "", "/reader/all")
     fetchMock
-      .mockResolvedValueOnce(jsonResponse({ status: "READY", version: "0.4.3" }))
+      .mockResolvedValueOnce(jsonResponse({ status: "READY", version: "0.4.4" }))
       .mockResolvedValueOnce(jsonResponse({ error: { code: "AUTHENTICATION_REQUIRED" } }, 401))
       .mockResolvedValueOnce(jsonResponse(sessionResponse))
       .mockResolvedValue(jsonResponse({ items: [] }))

@@ -170,6 +170,7 @@ async fn backup_api_manages_multiple_targets_schedule_and_manual_job_without_dis
     )
     .await;
     for value in [&first, &second, &third] {
+        assert_backup_target_wire(value);
         assert_eq!(value["hasCredentials"], true);
         let serialized = value.to_string();
         assert!(!serialized.contains("sentinel"));
@@ -190,6 +191,8 @@ async fn backup_api_manages_multiple_targets_schedule_and_manual_job_without_dis
         )
         .await;
     assert_eq!(schedule.status(), StatusCode::OK);
+    let schedule_body = response_json(schedule).await;
+    assert!(schedule_body["nextRunAt"].is_string());
 
     let job = fixture
         .request(
@@ -203,6 +206,9 @@ async fn backup_api_manages_multiple_targets_schedule_and_manual_job_without_dis
     let job_body = response_json(job).await;
     assert_eq!(job_body["targetCount"], 3);
     assert_eq!(job_body["targets"].as_array().unwrap().len(), 3);
+    assert!(job_body["createdAt"].is_string());
+    assert!(job_body["startedAt"].is_null());
+    assert!(job_body["completedAt"].is_null());
 
     let test = fixture
         .request(
@@ -222,10 +228,12 @@ async fn backup_api_manages_multiple_targets_schedule_and_manual_job_without_dis
         .request(Method::GET, "/api/v1/backups/targets", None, false)
         .await;
     assert_eq!(list.status(), StatusCode::OK);
-    assert_eq!(
-        response_json(list).await["items"].as_array().unwrap().len(),
-        3
-    );
+    let list_body = response_json(list).await;
+    let listed_targets = list_body["items"].as_array().unwrap();
+    assert_eq!(listed_targets.len(), 3);
+    for value in listed_targets {
+        assert_backup_target_wire(value);
+    }
 }
 
 #[tokio::test]
@@ -258,6 +266,11 @@ async fn response_json(response: axum::response::Response) -> Value {
         .expect("body collect")
         .to_bytes();
     serde_json::from_slice(&bytes).expect("JSON response")
+}
+
+fn assert_backup_target_wire(value: &Value) {
+    assert!(value["createdAt"].is_string());
+    assert!(value["updatedAt"].is_string());
 }
 
 fn keyring() -> ProviderSecretKeyring {

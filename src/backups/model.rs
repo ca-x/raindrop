@@ -271,7 +271,9 @@ pub struct BackupTarget {
     pub retention: RetentionPolicy,
     pub revision: i64,
     pub has_credentials: bool,
+    #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,
 }
 
@@ -281,6 +283,7 @@ pub struct BackupSchedule {
     pub enabled: bool,
     pub interval_hours: u16,
     pub target_ids: Vec<String>,
+    #[serde(with = "time::serde::rfc3339::option")]
     pub next_run_at: Option<OffsetDateTime>,
     pub revision: i64,
 }
@@ -394,7 +397,9 @@ pub struct BackupJobTarget {
     pub status: BackupJobTargetStatus,
     pub byte_size: Option<u64>,
     pub error_code: Option<String>,
+    #[serde(with = "time::serde::rfc3339::option")]
     pub started_at: Option<OffsetDateTime>,
+    #[serde(with = "time::serde::rfc3339::option")]
     pub completed_at: Option<OffsetDateTime>,
 }
 
@@ -406,8 +411,11 @@ pub struct BackupJob {
     pub status: BackupJobStatus,
     pub target_count: u16,
     pub last_error_code: Option<String>,
+    #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339::option")]
     pub started_at: Option<OffsetDateTime>,
+    #[serde(with = "time::serde::rfc3339::option")]
     pub completed_at: Option<OffsetDateTime>,
     pub targets: Vec<BackupJobTarget>,
 }
