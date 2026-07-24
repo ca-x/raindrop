@@ -462,7 +462,7 @@ async function verifyWide(page: Page, fixture: ReaderApiFixture): Promise<void> 
 async function selectQuietWebAndShowSources(page: Page, baseURL: string) {
   const navigation = page.getByRole("navigation", { name: "Sources" })
   if (await navigation.count()) {
-    await navigation.getByRole("button", { name: "Quiet Web" }).click()
+    await navigation.getByRole("button", { name: "Quiet Web", exact: true }).click()
     await expect(page).toHaveURL(`${baseURL}/reader/feed/${readerIds.feedA}`)
     return navigation
   }
@@ -470,7 +470,7 @@ async function selectQuietWebAndShowSources(page: Page, baseURL: string) {
   const openSources = page.getByRole("button", { name: "Open sources" })
   await openSources.click()
   let sources = page.getByRole("dialog", { name: "Sources" })
-  await sources.getByRole("button", { name: "Quiet Web" }).click()
+  await sources.getByRole("button", { name: "Quiet Web", exact: true }).click()
   await expect(page).toHaveURL(`${baseURL}/reader/feed/${readerIds.feedA}`)
   await openSources.click()
   sources = page.getByRole("dialog", { name: "Sources" })
