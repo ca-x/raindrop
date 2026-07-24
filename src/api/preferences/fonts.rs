@@ -213,9 +213,10 @@ async fn font_file(
     let etag = HeaderValue::from_str(&format!("\"{}\"", file.content_hash))
         .map_err(|_| ApiError::internal())?;
     let mut response = Response::new(Body::from(file.bytes));
-    response
-        .headers_mut()
-        .insert(CONTENT_TYPE, HeaderValue::from_static("font/woff2"));
+    response.headers_mut().insert(
+        CONTENT_TYPE,
+        HeaderValue::from_static(file.format.content_type()),
+    );
     response.headers_mut().insert(
         CACHE_CONTROL,
         HeaderValue::from_static("private, max-age=31536000, immutable"),
@@ -238,11 +239,25 @@ fn validate_content_type(headers: &HeaderMap) -> Result<(), ApiError> {
         .map(str::trim);
     if matches!(
         content_type,
-        Some("font/woff2" | "application/font-woff2" | "application/octet-stream")
+        Some(
+            "font/woff2"
+                | "application/font-woff2"
+                | "font/ttf"
+                | "application/x-font-ttf"
+                | "application/x-font-truetype"
+                | "application/x-truetype-font"
+                | "font/otf"
+                | "font/sfnt"
+                | "application/x-font-opentype"
+                | "application/x-font-otf"
+                | "application/font-sfnt"
+                | "application/vnd.ms-opentype"
+                | "application/octet-stream"
+        )
     ) {
         Ok(())
     } else {
-        Err(ApiError::validation().with_field("font", "A WOFF2 font file is required"))
+        Err(ApiError::validation().with_field("font", "A WOFF2, TTF, or OTF font file is required"))
     }
 }
 
@@ -261,7 +276,7 @@ fn map_font_error(error: UserFontError) -> ApiError {
         }
         UserFontError::InvalidSize => font_too_large_error(),
         UserFontError::InvalidFormat => {
-            ApiError::validation().with_field("font", "Font file must be valid WOFF2")
+            ApiError::validation().with_field("font", "Font file must be valid WOFF2, TTF, or OTF")
         }
         UserFontError::Duplicate => ApiError::new(
             StatusCode::CONFLICT,

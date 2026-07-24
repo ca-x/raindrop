@@ -290,7 +290,7 @@ function CustomFontManagement(props: ReadingPreferencesFormProps) {
           isLabelHidden
           value={file}
           onChange={(value) => setFile(value instanceof File ? value : null)}
-          accept=".woff2,font/woff2"
+          accept=".woff2,.ttf,.otf,font/woff2,font/ttf,font/otf"
           maxSize={props.fontLimits.maximumBytes}
           placeholder={i18n._("preferences.chooseCustomFont")}
           isDisabled={props.isFontMutating || props.fonts.length >= props.fontLimits.maximumCount}

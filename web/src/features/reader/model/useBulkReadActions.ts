@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react"
+import { useCallback, useRef, useState } from "react"
 
 import type { MarkEntriesReadRequest } from "../api/reader.generated"
 import { isAbortError, isUnauthenticatedError, readerErrorMessage } from "./controllerErrors"
@@ -27,14 +27,18 @@ export function useBulkReadActions({
   replaceEntries,
 }: BulkReadOptions) {
   const [isMarkingRead, setIsMarkingRead] = useState(false)
-  const markCurrentSourceRead = useCallback(async (): Promise<boolean> => {
-    const state = stateRef.current
-    const request = markReadRequest(state)
-    if (!request || isMarkingRead) return false
+  const isMarkingReadRef = useRef(false)
+  const runMarkRead = useCallback(async (
+    requestFactory: (signal: AbortSignal) => Promise<MarkEntriesReadRequest | null>,
+  ): Promise<boolean> => {
+    if (isMarkingReadRef.current) return false
     const task = session.begin()
     if (!task) return false
+    isMarkingReadRef.current = true
     setIsMarkingRead(true)
     try {
+      const request = await requestFactory(task.controller.signal)
+      if (!request || !session.isCurrent(task)) return false
       await api.markEntriesRead(request, csrfToken, task.controller.signal)
       if (!session.isCurrent(task)) return false
       await Promise.all([reloadSubscriptions(), replaceEntries()])
@@ -50,20 +54,31 @@ export function useBulkReadActions({
       return false
     } finally {
       session.finish(task)
+      isMarkingReadRef.current = false
       setIsMarkingRead(false)
     }
   }, [
     api,
     csrfToken,
     dispatch,
-    isMarkingRead,
     reloadSubscriptions,
     replaceEntries,
     session,
-    stateRef,
   ])
 
-  return { isMarkingRead, markCurrentSourceRead }
+  const markCurrentSourceRead = useCallback(
+    () => runMarkRead(async () => markReadRequest(stateRef.current)),
+    [runMarkRead, stateRef],
+  )
+  const markFeedRead = useCallback(
+    (feedId: string) => runMarkRead(async (signal) => {
+      const page = await api.listEntries({ feedId, state: "ALL", limit: 1, signal })
+      return { snapshotGeneration: page.snapshotGeneration, feedId }
+    }),
+    [api, runMarkRead],
+  )
+
+  return { isMarkingRead, markCurrentSourceRead, markFeedRead }
 }
 
 function markReadRequest(state: ReaderState): MarkEntriesReadRequest | null {

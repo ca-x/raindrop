@@ -43,12 +43,12 @@ export async function uploadUserFont(
   csrfToken: string,
   signal?: AbortSignal,
 ): Promise<UserFont> {
-  const name = file.name.replace(/\.woff2$/iu, "").trim() || file.name
+  const name = file.name.replace(/\.(?:woff2|ttf|otf)$/iu, "").trim() || file.name
   const query = new URLSearchParams({ name })
   const response = await apiRequest(`${PREFERENCES_PATH}/fonts?${query.toString()}`, {
     method: "POST",
     headers: {
-      "content-type": file.type || "font/woff2",
+      "content-type": file.type || fontContentType(file.name),
       "x-csrf-token": csrfToken,
     },
     body: file,
@@ -56,6 +56,12 @@ export async function uploadUserFont(
   })
   if (!isUserFont(response)) throw invalidResponseError()
   return response
+}
+
+function fontContentType(fileName: string): string {
+  if (/\.ttf$/iu.test(fileName)) return "font/ttf"
+  if (/\.otf$/iu.test(fileName)) return "font/otf"
+  return "font/woff2"
 }
 
 export async function deleteUserFont(

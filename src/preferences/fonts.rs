@@ -18,6 +18,24 @@ pub const MAX_USER_FONT_BYTES: usize = 5 * 1024 * 1024;
 pub const MAX_USER_FONTS: u64 = 8;
 const MAX_DECOMPRESSED_FONT_BYTES: usize = 64 * 1024 * 1024;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum UserFontFormat {
+    Woff2,
+    TrueType,
+    OpenType,
+}
+
+impl UserFontFormat {
+    #[must_use]
+    pub const fn content_type(self) -> &'static str {
+        match self {
+            Self::Woff2 => "font/woff2",
+            Self::TrueType => "font/ttf",
+            Self::OpenType => "font/otf",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UserFont {
     pub id: String,
@@ -30,6 +48,7 @@ pub struct UserFont {
 #[derive(Clone, Eq, PartialEq)]
 pub struct UserFontFile {
     pub content_hash: String,
+    pub format: UserFontFormat,
     pub bytes: Vec<u8>,
 }
 
@@ -38,6 +57,7 @@ impl fmt::Debug for UserFontFile {
         formatter
             .debug_struct("UserFontFile")
             .field("content_hash", &self.content_hash)
+            .field("format", &self.format)
             .field("bytes", &format_args!("[{} bytes]", self.bytes.len()))
             .finish()
     }
@@ -99,7 +119,7 @@ impl UserFontRepository {
     ) -> Result<UserFont, UserFontError> {
         validate_user_id(user_id).map_err(|_| UserFontError::InvalidUserId)?;
         let (display_name, normalized_name) = normalize_display_name(display_name)?;
-        validate_woff2(bytes)?;
+        validate_font(bytes)?;
         let content_hash = blake3::hash(bytes).to_hex().to_string();
         let transaction = self.database.begin().await?;
         let backend = self.database.get_database_backend();
@@ -161,14 +181,16 @@ impl UserFontRepository {
             .one(&self.database)
             .await?
             .map(|font| {
+                let format = validate_stored_font(&font.font_bytes);
                 if font.font_bytes.len() != usize::try_from(font.byte_size).unwrap_or_default()
-                    || validate_woff2_header(&font.font_bytes).is_err()
+                    || format.is_err()
                     || blake3::hash(&font.font_bytes).to_hex().as_str() != font.content_hash
                 {
                     return Err(UserFontError::CorruptData);
                 }
                 Ok(UserFontFile {
                     content_hash: font.content_hash,
+                    format: format.expect("stored font format was checked"),
                     bytes: font.font_bytes,
                 })
             })
@@ -236,10 +258,46 @@ fn normalize_display_name(value: &str) -> Result<(String, String), UserFontError
     Ok((display_name.to_owned(), normalized_name))
 }
 
-fn validate_woff2(bytes: &[u8]) -> Result<(), UserFontError> {
+fn validate_font(bytes: &[u8]) -> Result<UserFontFormat, UserFontError> {
     if bytes.is_empty() || bytes.len() > MAX_USER_FONT_BYTES {
         return Err(UserFontError::InvalidSize);
     }
+    match bytes.get(..4) {
+        Some(b"wOF2") => validate_woff2(bytes),
+        Some(b"\0\x01\0\0" | b"true") => {
+            validate_sfnt(bytes)?;
+            Ok(UserFontFormat::TrueType)
+        }
+        Some(b"OTTO") => {
+            validate_sfnt(bytes)?;
+            Ok(UserFontFormat::OpenType)
+        }
+        _ => Err(UserFontError::InvalidFormat),
+    }
+}
+
+fn validate_stored_font(bytes: &[u8]) -> Result<UserFontFormat, UserFontError> {
+    if bytes.is_empty() || bytes.len() > MAX_USER_FONT_BYTES {
+        return Err(UserFontError::InvalidSize);
+    }
+    match bytes.get(..4) {
+        Some(b"wOF2") => {
+            validate_woff2_header(bytes)?;
+            Ok(UserFontFormat::Woff2)
+        }
+        Some(b"\0\x01\0\0" | b"true") => {
+            validate_sfnt(bytes)?;
+            Ok(UserFontFormat::TrueType)
+        }
+        Some(b"OTTO") => {
+            validate_sfnt(bytes)?;
+            Ok(UserFontFormat::OpenType)
+        }
+        _ => Err(UserFontError::InvalidFormat),
+    }
+}
+
+fn validate_woff2(bytes: &[u8]) -> Result<UserFontFormat, UserFontError> {
     validate_woff2_header(bytes)?;
     let decoded = wuff::decompress_woff2_with_custom_brotli(bytes, &mut decompress_brotli)
         .map_err(|_| UserFontError::InvalidFormat)?;
@@ -252,7 +310,7 @@ fn validate_woff2(bytes: &[u8]) -> Result<(), UserFontError> {
     {
         return Err(UserFontError::InvalidFormat);
     }
-    Ok(())
+    Ok(UserFontFormat::Woff2)
 }
 
 fn validate_woff2_header(bytes: &[u8]) -> Result<(), UserFontError> {
@@ -268,6 +326,59 @@ fn validate_woff2_header(bytes: &[u8]) -> Result<(), UserFontError> {
         || total_sfnt_size == 0
         || total_sfnt_size > MAX_DECOMPRESSED_FONT_BYTES
     {
+        return Err(UserFontError::InvalidFormat);
+    }
+    Ok(())
+}
+
+fn validate_sfnt(bytes: &[u8]) -> Result<(), UserFontError> {
+    let table_count = usize::from(read_u16(bytes, 4)?);
+    if table_count == 0 || table_count > 256 {
+        return Err(UserFontError::InvalidFormat);
+    }
+    let directory_end = 12_usize
+        .checked_add(
+            table_count
+                .checked_mul(16)
+                .ok_or(UserFontError::InvalidFormat)?,
+        )
+        .ok_or(UserFontError::InvalidFormat)?;
+    if directory_end > bytes.len() {
+        return Err(UserFontError::InvalidFormat);
+    }
+
+    let mut has_cmap = false;
+    let mut has_head = false;
+    let mut has_maxp = false;
+    for index in 0..table_count {
+        let record = 12 + index * 16;
+        let tag = bytes
+            .get(record..record + 4)
+            .ok_or(UserFontError::InvalidFormat)?;
+        if !tag.iter().all(|byte| (0x20..=0x7e).contains(byte)) {
+            return Err(UserFontError::InvalidFormat);
+        }
+        let offset = usize::try_from(read_u32(bytes, record + 8)?)
+            .map_err(|_| UserFontError::InvalidFormat)?;
+        let length = usize::try_from(read_u32(bytes, record + 12)?)
+            .map_err(|_| UserFontError::InvalidFormat)?;
+        let end = offset
+            .checked_add(length)
+            .ok_or(UserFontError::InvalidFormat)?;
+        if offset < directory_end || end > bytes.len() {
+            return Err(UserFontError::InvalidFormat);
+        }
+        match tag {
+            b"cmap" => has_cmap = length > 0,
+            b"head" => {
+                has_head = length >= 16
+                    && read_u32(bytes, offset + 12).is_ok_and(|magic| magic == 0x5f0f_3cf5);
+            }
+            b"maxp" => has_maxp = length >= 6,
+            _ => {}
+        }
+    }
+    if !has_cmap || !has_head || !has_maxp {
         return Err(UserFontError::InvalidFormat);
     }
     Ok(())

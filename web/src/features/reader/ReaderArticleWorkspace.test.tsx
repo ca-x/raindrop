@@ -447,6 +447,7 @@ function articleController(): ReaderController {
     mergePendingEntries: vi.fn(),
     isMarkingRead: false,
     markCurrentSourceRead: vi.fn().mockResolvedValue(true),
+    markFeedRead: vi.fn().mockResolvedValue(true),
     nextUnreadSource: vi.fn().mockResolvedValue(undefined),
     previousUnreadSource: vi.fn().mockResolvedValue(undefined),
     toggleRead: vi.fn().mockResolvedValue(undefined),

@@ -89,7 +89,7 @@ function applyCustomReadingFont(fontId: string | null): void {
   const family = `RaindropCustom_${fontId.replaceAll("-", "")}`
   const style = document.createElement("style")
   style.id = styleId
-  style.textContent = `@font-face{font-family:"${family}";src:url("/api/v2/preferences/fonts/${fontId}/file") format("woff2");font-display:swap;}`
+  style.textContent = `@font-face{font-family:"${family}";src:url("/api/v2/preferences/fonts/${fontId}/file");font-display:swap;}`
   document.head.append(style)
   root.dataset.raindropReadingCustomFont = fontId
   root.style.setProperty("--raindrop-custom-reading-font", `"${family}"`)

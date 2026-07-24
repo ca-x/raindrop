@@ -317,6 +317,40 @@
   white-space: nowrap;
 }
 
+.reader-feed-end-content,
+.reader-source-mark-read {
+  display: inline-flex;
+  align-items: center;
+}
+
+.reader-feed-end-content {
+  gap: 2px;
+}
+
+.reader-source-mark-read {
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.reader-source-list
+  [role="treeitem"]
+  > div:last-of-type
+  > div:hover
+  .reader-source-mark-read,
+.reader-source-list
+  [role="treeitem"]
+  > div:last-of-type
+  > div:focus-within
+  .reader-source-mark-read {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .reader-source-mark-read {
+    opacity: 1;
+  }
+}
+
 .reader-source-status > span:last-child,
 .reader-category-unread-count {
   min-inline-size: 1.7rem;

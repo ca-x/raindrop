@@ -16,6 +16,8 @@ import { sourceTreeDensityMetrics } from "./sourceDensity"
 interface SourceTreeProps {
   state: ReaderState
   onSelect: (source: ReaderSource) => void
+  onRequestMarkRead?: (feedId: string, title: string) => void
+  isMarkingRead?: boolean
   onManage: () => void
   onEditSubscription: () => void
   onPreferences: () => void
@@ -30,6 +32,8 @@ interface SourceTreeProps {
 export function SourceTree({
   state,
   onSelect,
+  onRequestMarkRead,
+  isMarkingRead = false,
   onManage,
   onEditSubscription,
   onPreferences,
@@ -87,6 +91,8 @@ export function SourceTree({
       <CategoryList
         state={state}
         onSelect={onSelect}
+        onRequestMarkRead={onRequestMarkRead}
+        isMarkingRead={isMarkingRead}
         density={density}
         query={sourceQuery}
       />

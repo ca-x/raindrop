@@ -26,6 +26,7 @@ export interface ReaderController {
   mergePendingEntries: () => void
   isMarkingRead: boolean
   markCurrentSourceRead: () => Promise<boolean>
+  markFeedRead: (feedId: string) => Promise<boolean>
   nextUnreadSource: () => Promise<void>
   previousUnreadSource: () => Promise<void>
   toggleRead: (entryId: string) => Promise<void>

@@ -1,4 +1,6 @@
+import { IconButton } from "@astryxdesign/core/IconButton"
 import { StatusDot } from "@astryxdesign/core/StatusDot"
+import { Tooltip } from "@astryxdesign/core/Tooltip"
 import {
   TreeList,
   type TreeListDensity,
@@ -14,11 +16,20 @@ import { groupSubscriptions, type SubscriptionGroup } from "./groupSubscriptions
 interface CategoryListProps {
   state: ReaderState
   onSelect: (source: ReaderSource) => void
+  onRequestMarkRead?: (feedId: string, title: string) => void
+  isMarkingRead?: boolean
   density: TreeListDensity
   query?: string
 }
 
-export function CategoryList({ state, onSelect, density, query = "" }: CategoryListProps) {
+export function CategoryList({
+  state,
+  onSelect,
+  onRequestMarkRead,
+  isMarkingRead = false,
+  density,
+  query = "",
+}: CategoryListProps) {
   const { i18n } = useLingui()
   const categories = state.categoryOrder.map((id) => state.categoriesById[id])
   const subscriptions = state.subscriptionOrder.map((id) => state.subscriptionsById[id])
@@ -58,7 +69,14 @@ export function CategoryList({ state, onSelect, density, query = "" }: CategoryL
         </span>
       ),
       endContent: <UnreadCount count={group.unreadCount} />,
-      children: feedItems(group, state, onSelect, (id) => i18n._(id)),
+      children: feedItems(
+        group,
+        state,
+        onSelect,
+        onRequestMarkRead,
+        isMarkingRead,
+        (id, values) => i18n._(id, values),
+      ),
     }),
   )
   const uncategorized: TreeListItemData = {
@@ -71,7 +89,14 @@ export function CategoryList({ state, onSelect, density, query = "" }: CategoryL
       </span>
     ),
     endContent: <UnreadCount count={groups.uncategorized.unreadCount} />,
-    children: feedItems(groups.uncategorized, state, onSelect, (id) => i18n._(id)),
+    children: feedItems(
+      groups.uncategorized,
+      state,
+      onSelect,
+      onRequestMarkRead,
+      isMarkingRead,
+      (id, values) => i18n._(id, values),
+    ),
   }
 
   return (
@@ -95,7 +120,9 @@ function feedItems(
   group: SubscriptionGroup,
   state: ReaderState,
   onSelect: (source: ReaderSource) => void,
-  translate: (id: string) => string,
+  onRequestMarkRead: ((feedId: string, title: string) => void) | undefined,
+  isMarkingRead: boolean,
+  translate: (id: string, values?: Record<string, string>) => string,
 ): TreeListItemData[] {
   return group.subscriptions.map((subscription) => {
     const status = refreshPresentation(subscription.refresh)
@@ -108,17 +135,57 @@ function feedItems(
       onClick: () => onSelect({ kind: "feed", feedId: subscription.feedId }),
       startContent: <FeedSourceIcon subscriptionId={subscription.subscriptionId} />,
       endContent: (
-        <span className="reader-source-status">
-          <StatusDot
-            variant={status.tone}
-            label={translate(status.label)}
-            isPulsing={status.isPulsing}
-          />
-          <span>{subscription.unreadCount}</span>
+        <span className="reader-feed-end-content">
+          {onRequestMarkRead ? (
+            <Tooltip
+              content={translate("reader.quickMarkFeedRead")}
+              delay={180}
+              hasHoverIndication={false}
+            >
+              <span className="reader-source-mark-read">
+                <IconButton
+                  label={translate("reader.quickMarkFeedReadLabel", {
+                    title: subscription.title,
+                  })}
+                  icon={<MarkReadIcon />}
+                  onClick={() => onRequestMarkRead(subscription.feedId, subscription.title)}
+                  isDisabled={isMarkingRead || subscription.unreadCount === 0}
+                  variant="ghost"
+                  size="sm"
+                />
+              </span>
+            </Tooltip>
+          ) : null}
+          <span className="reader-source-status">
+            <StatusDot
+              variant={status.tone}
+              label={translate(status.label)}
+              isPulsing={status.isPulsing}
+            />
+            <span>{subscription.unreadCount}</span>
+          </span>
         </span>
       ),
     }
   })
+}
+
+function MarkReadIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 18 18"
+      width="18"
+      height="18"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="m3.5 9.2 3.1 3.1 7.9-7.9" />
+    </svg>
+  )
 }
 
 function filterGroups(

@@ -251,6 +251,59 @@ it("marks the visible snapshot read then reloads subscriptions and entries", asy
   ).toBe(0)
 })
 
+it("marks an unselected feed read from a fresh feed snapshot", async () => {
+  const subscription = makeSubscription({ unreadCount: 3 })
+  const listSubscriptions = vi
+    .fn()
+    .mockResolvedValueOnce({ items: [subscription], nextCursor: null })
+    .mockResolvedValueOnce({
+      items: [{ ...subscription, unreadCount: 0 }],
+      nextCursor: null,
+    })
+  const listEntries = vi
+    .fn()
+    .mockResolvedValueOnce({
+      items: [makeEntry()],
+      nextCursor: null,
+      snapshotGeneration: 5,
+    })
+    .mockResolvedValueOnce({
+      items: [makeEntry()],
+      nextCursor: null,
+      snapshotGeneration: 9,
+    })
+    .mockResolvedValueOnce({
+      items: [],
+      nextCursor: null,
+      snapshotGeneration: 9,
+    })
+  const markEntriesRead = vi.fn(async () => undefined)
+  const { result } = renderHook(() =>
+    useReaderController({
+      csrfToken: "csrf-memory",
+      onUnauthenticated: vi.fn(),
+      api: makeApi({ listSubscriptions, listEntries, markEntriesRead }),
+    }),
+  )
+
+  await act(async () => result.current.load())
+  await act(async () => {
+    await expect(result.current.markFeedRead(subscription.feedId)).resolves.toBe(true)
+  })
+
+  expect(listEntries).toHaveBeenNthCalledWith(2, {
+    feedId: subscription.feedId,
+    state: "ALL",
+    limit: 1,
+    signal: expect.any(AbortSignal),
+  })
+  expect(markEntriesRead).toHaveBeenCalledWith(
+    { snapshotGeneration: 9, feedId: subscription.feedId },
+    "csrf-memory",
+    expect.any(AbortSignal),
+  )
+})
+
 function makeApi(overrides: Partial<ReaderApi> = {}): ReaderApi {
   return {
     listCategories: vi.fn(async () => ({ items: [] })),

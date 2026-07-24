@@ -707,6 +707,45 @@ async fn custom_fonts_are_private_validated_and_clear_the_active_selection_on_de
 }
 
 #[tokio::test]
+async fn ttf_and_otf_fonts_are_accepted_and_served_with_matching_types() {
+    let fixture = PreferenceFixture::new().await;
+    for (name, magic, content_type) in [
+        ("Reader%20Sans", *b"\0\x01\0\0", "font/ttf"),
+        ("Reader%20Display", *b"OTTO", "font/otf"),
+    ] {
+        let bytes = valid_sfnt_fixture(magic, name.as_bytes()[0]);
+        let uploaded = fixture
+            .font_request(
+                Method::POST,
+                &format!("/api/v2/preferences/fonts?name={name}"),
+                bytes.clone(),
+                UserKind::A,
+                true,
+                content_type,
+            )
+            .await;
+        assert_eq!(uploaded.status, StatusCode::CREATED);
+        let font_id = uploaded.json()["fontId"]
+            .as_str()
+            .expect("uploaded font id should be present")
+            .to_owned();
+        let file = fixture
+            .font_request(
+                Method::GET,
+                &format!("/api/v2/preferences/fonts/{font_id}/file"),
+                Vec::new(),
+                UserKind::A,
+                false,
+                content_type,
+            )
+            .await;
+        assert_eq!(file.status, StatusCode::OK);
+        assert_eq!(file.headers[CONTENT_TYPE], content_type);
+        assert_eq!(file.body, bytes);
+    }
+}
+
+#[tokio::test]
 async fn font_upload_requires_csrf_and_enforces_the_per_user_quota() {
     let fixture = PreferenceFixture::new().await;
     let missing_csrf = fixture
@@ -823,6 +862,42 @@ fn valid_woff2_fixture(private_value: u32) -> Vec<u8> {
     bytes[40..44].copy_from_slice(&private_offset.to_be_bytes());
     bytes[44..48].copy_from_slice(&4_u32.to_be_bytes());
     bytes
+}
+
+fn valid_sfnt_fixture(magic: [u8; 4], private_value: u8) -> Vec<u8> {
+    const DIRECTORY_END: usize = 60;
+    const HEAD_OFFSET: usize = 60;
+    const HEAD_LENGTH: usize = 16;
+    const MAXP_OFFSET: usize = 76;
+    const MAXP_LENGTH: usize = 8;
+    const CMAP_OFFSET: usize = 84;
+    const CMAP_LENGTH: usize = 4;
+    let mut bytes = vec![0_u8; CMAP_OFFSET + CMAP_LENGTH];
+    bytes[..4].copy_from_slice(&magic);
+    bytes[4..6].copy_from_slice(&3_u16.to_be_bytes());
+    write_sfnt_record(&mut bytes, 0, *b"head", HEAD_OFFSET, HEAD_LENGTH);
+    write_sfnt_record(&mut bytes, 1, *b"maxp", MAXP_OFFSET, MAXP_LENGTH);
+    write_sfnt_record(&mut bytes, 2, *b"cmap", CMAP_OFFSET, CMAP_LENGTH);
+    bytes[HEAD_OFFSET + 12..HEAD_OFFSET + 16].copy_from_slice(&0x5f0f_3cf5_u32.to_be_bytes());
+    bytes[MAXP_OFFSET..MAXP_OFFSET + 4].copy_from_slice(&0x0001_0000_u32.to_be_bytes());
+    bytes[MAXP_OFFSET + 4] = private_value;
+    assert_eq!(DIRECTORY_END, HEAD_OFFSET);
+    bytes
+}
+
+fn write_sfnt_record(bytes: &mut [u8], index: usize, tag: [u8; 4], offset: usize, length: usize) {
+    let record = 12 + index * 16;
+    bytes[record..record + 4].copy_from_slice(&tag);
+    bytes[record + 8..record + 12].copy_from_slice(
+        &u32::try_from(offset)
+            .expect("fixture offset should fit")
+            .to_be_bytes(),
+    );
+    bytes[record + 12..record + 16].copy_from_slice(
+        &u32::try_from(length)
+            .expect("fixture length should fit")
+            .to_be_bytes(),
+    );
 }
 
 #[tokio::test]

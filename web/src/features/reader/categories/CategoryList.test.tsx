@@ -140,3 +140,29 @@ it("filters subscriptions without hiding the smart views", () => {
   expect(screen.queryByText("Design Notes")).not.toBeInTheDocument()
   expect(screen.getByRole("button", { name: "Unread" })).toBeVisible()
 })
+
+it("offers a per-feed quick mark-read action without selecting the feed", async () => {
+  activateLocale("en")
+  const user = userEvent.setup()
+  const onSelect = vi.fn()
+  const onRequestMarkRead = vi.fn()
+  const subscription = makeSubscription({ unreadCount: 7 })
+  render(
+    <Providers>
+      <CategoryList
+        state={{
+          ...initialReaderState,
+          subscriptionsById: { [subscription.subscriptionId]: subscription },
+          subscriptionOrder: [subscription.subscriptionId],
+        }}
+        onSelect={onSelect}
+        onRequestMarkRead={onRequestMarkRead}
+        density="balanced"
+      />
+    </Providers>,
+  )
+
+  await user.click(screen.getByRole("button", { name: "Mark all from Example Feed read" }))
+  expect(onRequestMarkRead).toHaveBeenCalledWith(subscription.feedId, subscription.title)
+  expect(onSelect).not.toHaveBeenCalled()
+})

@@ -28,6 +28,10 @@ import type { ReaderController } from "../model/useReaderController"
 import { pathForEntry, type ReaderRouteMatch } from "../routes/readerRoute"
 import { ReaderWorkspacePanels } from "./ReaderWorkspacePanels"
 
+type MarkReadTarget =
+  | { kind: "current"; label: string }
+  | { kind: "feed"; feedId: string; label: string }
+
 interface ReaderShellProps {
   controller: ReaderController
   preferencesController: PreferencesController
@@ -62,7 +66,7 @@ export function ReaderShell(props: ReaderShellProps) {
   const [isPreferencesOpen, setIsPreferencesOpen] = useState(false)
   const [preferencesInitialTab, setPreferencesInitialTab] =
     useState<PreferencesTab>("personal")
-  const [isMarkReadOpen, setIsMarkReadOpen] = useState(false)
+  const [markReadTarget, setMarkReadTarget] = useState<MarkReadTarget | null>(null)
   const mobileNavRef = useRef<HTMLDialogElement>(null)
   const managementButtonRef = useRef<HTMLButtonElement>(null)
   const editSubscriptionButtonRef = useRef<HTMLButtonElement>(null)
@@ -70,6 +74,7 @@ export function ReaderShell(props: ReaderShellProps) {
   const reopenSourcesAfterManagement = useRef(false)
   const reopenSourcesAfterSubscriptionEdit = useRef(false)
   const reopenSourcesAfterPreferences = useRef(false)
+  const reopenSourcesAfterMarkRead = useRef(false)
   const sources = useResizable({ defaultSize: 240, minSizePx: 200, maxSizePx: 340, autoSaveId: "reader-sources" })
   const queue = useResizable({ defaultSize: 380, minSizePx: 300, maxSizePx: 560, autoSaveId: "reader-queue" })
   const accountLabel = props.profileController?.profile.displayName || props.username
@@ -102,7 +107,7 @@ export function ReaderShell(props: ReaderShellProps) {
       isManagementOpen ||
       isSubscriptionEditOpen ||
       isPreferencesOpen ||
-      isMarkReadOpen ||
+      markReadTarget !== null ||
       !props.isSourceReady,
     isUnread: (entryId) => {
       const entry = props.controller.state.entriesById[entryId] ?? props.controller.state.detailsById[entryId]
@@ -122,6 +127,15 @@ export function ReaderShell(props: ReaderShellProps) {
         setIsNavOpen(false)
         props.onSelectSource(source)
       }}
+      onRequestMarkRead={(feedId, label) => {
+        reopenSourcesAfterMarkRead.current = props.viewportMode !== "wide"
+        if (reopenSourcesAfterMarkRead.current) {
+          mobileNavRef.current?.close()
+          setIsNavOpen(false)
+        }
+        setMarkReadTarget({ kind: "feed", feedId, label })
+      }}
+      isMarkingRead={props.controller.isMarkingRead}
       onManage={() => {
         reopenSourcesAfterManagement.current = props.viewportMode !== "wide"
         if (reopenSourcesAfterManagement.current) {
@@ -180,7 +194,7 @@ export function ReaderShell(props: ReaderShellProps) {
       onSearchFeed={props.controller.searchFeed}
       onNextUnreadSource={props.onNextUnreadSource}
       onPreviousUnreadSource={props.onPreviousUnreadSource}
-      onRequestMarkRead={() => setIsMarkReadOpen(true)}
+      onRequestMarkRead={() => setMarkReadTarget({ kind: "current", label: sourceLabel })}
       isMarkingRead={props.controller.isMarkingRead}
       onMergePending={props.controller.mergePendingEntries}
       onMergedEntryFocus={props.onCursorChange}
@@ -336,7 +350,7 @@ export function ReaderShell(props: ReaderShellProps) {
           if (deleted) props.onSelectSource({ kind: "smart", state: "UNREAD" })
           return deleted
         }}
-        onRequestMarkRead={() => setIsMarkReadOpen(true)}
+        onRequestMarkRead={() => setMarkReadTarget({ kind: "current", label: sourceLabel })}
         isMarkingRead={props.controller.isMarkingRead}
         onOpenChange={(open) => {
           setIsSubscriptionEditOpen(open)
@@ -394,11 +408,22 @@ export function ReaderShell(props: ReaderShellProps) {
         }}
       />
       <MarkReadDialog
-        isOpen={isMarkReadOpen}
-        sourceLabel={sourceLabel}
+        isOpen={markReadTarget !== null}
+        sourceLabel={markReadTarget?.label ?? sourceLabel}
         isLoading={props.controller.isMarkingRead}
-        onOpenChange={setIsMarkReadOpen}
-        onConfirm={props.controller.markCurrentSourceRead}
+        onOpenChange={(open) => {
+          if (open) return
+          setMarkReadTarget(null)
+          if (reopenSourcesAfterMarkRead.current) {
+            reopenSourcesAfterMarkRead.current = false
+            setIsNavOpen(true)
+          }
+        }}
+        onConfirm={() =>
+          markReadTarget?.kind === "feed"
+            ? props.controller.markFeedRead(markReadTarget.feedId)
+            : props.controller.markCurrentSourceRead()
+        }
       />
       <MutationFeedback
         error={props.controller.state.errors.mutation}
@@ -406,7 +431,7 @@ export function ReaderShell(props: ReaderShellProps) {
           isManagementOpen ||
           isSubscriptionEditOpen ||
           isPreferencesOpen ||
-          isMarkReadOpen
+          markReadTarget !== null
         }
         onClear={props.controller.clearMutationError}
       />
