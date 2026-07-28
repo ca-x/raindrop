@@ -20,7 +20,7 @@ async-trait = "0.1.89"
 aws-credential-types = "=1.2.14"
 aws-sigv4 = "=1.4.5"
 axum = { version = "0.8.9", features = ["json", "macros"] }
-base64 = "0.22.1"
+base64 = "0.23.0"
 blake3 = "1.8.3"
 brotli-decompressor = "5.0.3"
 cookie = "0.18.1"
@@ -73,7 +73,7 @@ wit-component = { version = "=0.254.0", default-features = false, features = ["d
 wit-parser = { version = "0.254.0", default-features = false, features = ["std"] }
 
 [build-dependencies]
-base64 = "0.22.1"
+base64 = "0.23.0"
 ring = "=0.17.14"
 serde_json = { version = "1.0.150", features = ["unbounded_depth"] }
 wasmprinter = { version = "=0.254.0", default-features = false, features = ["component-model", "validate"] }
