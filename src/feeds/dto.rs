@@ -69,6 +69,7 @@ where
 
 #[derive(Clone, Eq, PartialEq)]
 pub struct UpdateSubscription {
+    pub feed_url: Option<String>,
     pub category_id: PatchValue<String>,
     pub title_override: PatchValue<String>,
     pub position: Option<i64>,
@@ -76,7 +77,8 @@ pub struct UpdateSubscription {
 
 impl UpdateSubscription {
     pub(crate) fn normalize(mut self) -> Result<Self, SubscriptionPatchError> {
-        if self.category_id.is_missing()
+        if self.feed_url.is_none()
+            && self.category_id.is_missing()
             && self.title_override.is_missing()
             && self.position.is_none()
         {
@@ -114,6 +116,7 @@ impl fmt::Debug for UpdateSubscription {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("UpdateSubscription")
+            .field("feed_url", &self.feed_url.as_ref().map(|_| "[REDACTED]"))
             .field("category_id", &self.category_id)
             .field(
                 "title_override",

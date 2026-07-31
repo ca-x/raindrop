@@ -80,6 +80,32 @@ describe("Reader workspace", () => {
     await waitFor(() => expect(controller.selectSource).toHaveBeenCalledWith({ kind: "feed", feedId: "feed-rust" }))
   })
 
+  it("replaces a stale feed route after its subscription changes identity", async () => {
+    const controller = fakeController({
+      paneStatus: { ...initialReaderState.paneStatus, subscriptions: "ready" },
+      selectedSource: { kind: "smart", state: "UNREAD" },
+      retiredFeedIds: { "old-feed": true },
+    })
+    window.history.replaceState(null, "", "/reader/feed/old-feed")
+
+    render(
+      <Providers>
+        <ReaderRoutes
+          controller={controller}
+          username="reader"
+          onLogout={vi.fn()}
+          viewportMode="wide"
+        />
+      </Providers>,
+    )
+
+    await waitFor(() => expect(window.location.pathname).toBe("/reader/unread"))
+    expect(controller.selectSource).not.toHaveBeenCalledWith({
+      kind: "feed",
+      feedId: "old-feed",
+    })
+  })
+
   it("selects an entry through its canonical detail route", async () => {
     const user = userEvent.setup()
     const controller = fakeController({
@@ -225,8 +251,7 @@ describe("Reader workspace", () => {
     const editDialog = screen.getByRole("dialog", {
       name: "Edit current subscription",
     })
-    expect(within(editDialog).getByRole("link", { name: "https://planet-rust.example/feed.xml" })).toHaveAttribute(
-      "href",
+    expect(within(editDialog).getByRole("textbox", { name: /^Feed URL/ })).toHaveValue(
       "https://planet-rust.example/feed.xml",
     )
     expect(within(editDialog).getByRole("link", { name: "https://planet-rust.example" })).toHaveAttribute(

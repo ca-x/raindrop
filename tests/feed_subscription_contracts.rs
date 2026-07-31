@@ -1265,10 +1265,12 @@ async fn sqlite_subscription_patch_assigns_clears_and_hides_category_ownership()
             USER_A_ID,
             SUBSCRIPTION_A_ID,
             UpdateSubscription {
+                feed_url: None,
                 category_id: PatchValue::Value(owned_category.category_id.clone()),
                 title_override: PatchValue::Value("Focused title".to_owned()),
                 position: Some(512),
             },
+            None,
         )
         .await
         .expect("owned subscription patch should execute")
@@ -1287,10 +1289,12 @@ async fn sqlite_subscription_patch_assigns_clears_and_hides_category_ownership()
             USER_A_ID,
             SUBSCRIPTION_A_ID,
             UpdateSubscription {
+                feed_url: None,
                 category_id: PatchValue::Value(foreign_category.category_id),
                 title_override: PatchValue::Missing,
                 position: None,
             },
+            None,
         )
         .await
         .expect("foreign category lookup should remain typed");
@@ -1312,10 +1316,12 @@ async fn sqlite_subscription_patch_assigns_clears_and_hides_category_ownership()
                 USER_A_ID,
                 SUBSCRIPTION_B_ID,
                 UpdateSubscription {
+                    feed_url: None,
                     category_id: PatchValue::Null,
                     title_override: PatchValue::Null,
                     position: Some(1024),
                 },
+                None,
             )
             .await
             .expect("foreign subscription lookup should remain typed")
@@ -1328,10 +1334,12 @@ async fn sqlite_subscription_patch_assigns_clears_and_hides_category_ownership()
             USER_A_ID,
             SUBSCRIPTION_A_ID,
             UpdateSubscription {
+                feed_url: None,
                 category_id: PatchValue::Null,
                 title_override: PatchValue::Null,
                 position: None,
             },
+            None,
         )
         .await
         .expect("clear patch should execute")
@@ -1340,6 +1348,47 @@ async fn sqlite_subscription_patch_assigns_clears_and_hides_category_ownership()
     assert!(cleared.title_override.is_none());
     assert_eq!(cleared.title, "Shared feed");
     assert_eq!(cleared.position, 512);
+
+    let replacement_url = "https://replacement.example.test/feed.xml";
+    let normalized = FeedUrlPolicy::new(false)
+        .normalize(replacement_url)
+        .expect("replacement URL should normalize");
+    let replaced = fixture
+        .repository
+        .update_subscription_for_user(
+            USER_A_ID,
+            SUBSCRIPTION_A_ID,
+            UpdateSubscription {
+                feed_url: Some(replacement_url.to_owned()),
+                category_id: PatchValue::Missing,
+                title_override: PatchValue::Missing,
+                position: None,
+            },
+            Some(&normalized),
+        )
+        .await
+        .expect("feed URL replacement should execute")
+        .expect("owned subscription should replace its Feed");
+    assert_eq!(replaced.subscription_id, SUBSCRIPTION_A_ID);
+    assert_ne!(replaced.feed_id, support::database::FEED_ID);
+    assert_eq!(replaced.feed_url, replacement_url);
+    assert_eq!(replaced.position, 512);
+    assert!(replaced.refresh.is_some());
+    assert_eq!(
+        entry_state::Entity::find()
+            .filter(entry_state::Column::UserId.eq(USER_A_ID))
+            .filter(entry_state::Column::FeedId.eq(support::database::FEED_ID))
+            .count(&fixture.database)
+            .await
+            .expect("old Feed states should count"),
+        0
+    );
+    let shared_feed = feed::Entity::find_by_id(support::database::FEED_ID)
+        .one(&fixture.database)
+        .await
+        .expect("shared Feed should query")
+        .expect("shared Feed should remain for the other subscriber");
+    assert!(shared_feed.orphaned_at.is_none());
 }
 
 #[tokio::test]

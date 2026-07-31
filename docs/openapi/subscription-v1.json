@@ -519,6 +519,13 @@
         "additionalProperties": false,
         "minProperties": 1,
         "properties": {
+          "feedUrl": {
+            "description": "Omit to preserve the current Feed URL. Replacing it keeps the subscription metadata, uses the target Feed's available content, and queues a refresh when needed.",
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https://[^/?#@]+(?:[/?#].*)?$",
+            "maxLength": 4096
+          },
           "categoryId": {
             "description": "Omit to preserve the current category; null moves the subscription to Uncategorized.",
             "type": [

@@ -13,7 +13,7 @@ use uuid::Uuid;
 use super::lifecycle::is_unique_violation;
 use super::query::{RepositoryError, validate_uuid};
 use super::repository::{
-    find_active_run, find_run_by_idempotency, idempotent_result, lock_feed_for_queue,
+    LockedFeed, find_active_run, find_run_by_idempotency, idempotent_result, lock_feed_for_queue,
     queue_run_statement, try_lock_feed_for_queue,
 };
 use super::{
@@ -44,6 +44,11 @@ struct SubscriptionCursorV1 {
 pub(super) struct RefreshContext {
     pub fetch_url: String,
     pub consecutive_failures: i64,
+}
+
+enum UpdateSubscriptionAttempt {
+    Complete(Option<SubscriptionListItemDto>),
+    Retry,
 }
 
 #[derive(thiserror::Error)]
@@ -222,44 +227,16 @@ impl FeedRepository {
                 ))
                 .await?;
 
-            let database_now = database_now_in(&transaction, backend).await?;
-            let needs_refresh =
-                feed_is_new || feed.last_success_at.is_none() || feed.next_fetch_at <= database_now;
-            if needs_refresh {
-                let idempotency_key = format!("subscribe:{subscription_id}");
-                let request = QueueRefreshRequest {
-                    feed_id: feed_id.clone(),
-                    requested_by_user_id: Some(user_id.to_owned()),
-                    trigger: RefreshTrigger::Subscribe,
-                    idempotency_key,
-                };
-                if let Some(existing) = find_run_by_idempotency(
-                    &transaction,
-                    backend,
-                    &feed_id,
-                    &request.idempotency_key,
-                )
-                .await?
-                {
-                    let _ = idempotent_result(existing, &request)?;
-                } else if find_active_run(&transaction, backend, &feed_id)
-                    .await?
-                    .is_none()
-                {
-                    if count_active_user_refresh_runs(&transaction, backend, user_id).await?
-                        >= MAX_ACTIVE_USER_REFRESH_RUNS
-                    {
-                        return Err(RefreshRepositoryError::ActiveRefreshLimit);
-                    }
-                    transaction
-                        .execute(queue_run_statement(
-                            backend,
-                            &Uuid::new_v4().to_string(),
-                            &request,
-                        ))
-                        .await?;
-                }
-            }
+            queue_subscribe_refresh_if_due(
+                &transaction,
+                backend,
+                user_id,
+                &feed_id,
+                &feed,
+                feed_is_new,
+                format!("subscribe:{subscription_id}"),
+            )
+            .await?;
             let subscription =
                 subscription_for_user_from(&transaction, backend, user_id, &subscription_id)
                     .await
@@ -505,7 +482,43 @@ impl FeedRepository {
         user_id: &str,
         subscription_id: &str,
         input: UpdateSubscription,
+        normalized_feed_url: Option<&NormalizedFeedUrl>,
     ) -> Result<Option<SubscriptionListItemDto>, RefreshRepositoryError> {
+        if input.feed_url.is_some() != normalized_feed_url.is_some() {
+            return Err(RefreshRepositoryError::InvalidRequest);
+        }
+        for attempt in 0..3 {
+            match self
+                .update_subscription_for_user_once(
+                    user_id,
+                    subscription_id,
+                    input.clone(),
+                    normalized_feed_url,
+                )
+                .await
+            {
+                Ok(UpdateSubscriptionAttempt::Retry) if attempt < 2 => {}
+                Ok(UpdateSubscriptionAttempt::Retry) => {
+                    return Err(RefreshRepositoryError::CorruptData);
+                }
+                Ok(UpdateSubscriptionAttempt::Complete(result)) => return Ok(result),
+                Err(RefreshRepositoryError::Database(error))
+                    if normalized_feed_url.is_some()
+                        && attempt < 2
+                        && is_unique_violation(&error) => {}
+                Err(error) => return Err(error),
+            }
+        }
+        Err(RefreshRepositoryError::CorruptData)
+    }
+
+    async fn update_subscription_for_user_once(
+        &self,
+        user_id: &str,
+        subscription_id: &str,
+        input: UpdateSubscription,
+        normalized_feed_url: Option<&NormalizedFeedUrl>,
+    ) -> Result<UpdateSubscriptionAttempt, RefreshRepositoryError> {
         let backend = self.connection().get_database_backend();
         let transaction = self.connection().begin().await?;
         let result = async {
@@ -515,8 +528,9 @@ impl FeedRepository {
                 .one(&transaction)
                 .await?;
             let Some(stored) = stored else {
-                return Ok(None);
+                return Ok(UpdateSubscriptionAttempt::Complete(None));
             };
+            let old_feed_id = stored.feed_id.clone();
             if let PatchValue::Value(category_id) = &input.category_id
                 && category::Entity::find_by_id(category_id)
                     .filter(category::Column::UserId.eq(user_id))
@@ -524,9 +538,100 @@ impl FeedRepository {
                     .await?
                     .is_none()
             {
-                return Ok(None);
+                return Ok(UpdateSubscriptionAttempt::Complete(None));
             }
+
+            let mut target_feed_id = old_feed_id.clone();
+            let mut target_feed_is_new = false;
+            if let (Some(source_url), Some(normalized)) =
+                (input.feed_url.as_deref(), normalized_feed_url)
+            {
+                match find_feed_by_hash(&transaction, backend, normalized.url_hash())
+                    .await
+                    .map_err(map_subscription_command_error)?
+                {
+                    Some((feed_id, stored_url)) => {
+                        if stored_url != normalized.complete() {
+                            return Err(RefreshRepositoryError::IdentityHashCollision);
+                        }
+                        target_feed_id = feed_id;
+                    }
+                    None => {
+                        target_feed_id = Uuid::new_v4().to_string();
+                        transaction
+                            .execute(insert_feed_statement(
+                                backend,
+                                &target_feed_id,
+                                source_url,
+                                normalized,
+                            ))
+                            .await?;
+                        target_feed_is_new = true;
+                    }
+                }
+            }
+
+            let feed_changed = target_feed_id != old_feed_id;
+            let target_feed = if input.feed_url.is_some() {
+                let mut feed_ids = vec![old_feed_id.clone(), target_feed_id.clone()];
+                feed_ids.sort();
+                feed_ids.dedup();
+                let mut target = None;
+                for feed_id in feed_ids {
+                    let Some(locked) =
+                        try_lock_feed_for_queue(&transaction, backend, &feed_id).await?
+                    else {
+                        if feed_changed && feed_id == target_feed_id && !target_feed_is_new {
+                            return Ok(UpdateSubscriptionAttempt::Retry);
+                        }
+                        return Err(RefreshRepositoryError::CorruptData);
+                    };
+                    if feed_id == target_feed_id {
+                        target = Some(locked);
+                    }
+                }
+                Some(target.ok_or(RefreshRepositoryError::CorruptData)?)
+            } else {
+                None
+            };
+
+            if feed_changed {
+                let target_feed = target_feed
+                    .as_ref()
+                    .ok_or(RefreshRepositoryError::CorruptData)?;
+                if target_feed.is_disabled {
+                    return Err(RefreshRepositoryError::FeedDisabled);
+                }
+                if find_subscription(&transaction, backend, user_id, &target_feed_id)
+                    .await
+                    .map_err(map_subscription_command_error)?
+                    .is_some()
+                {
+                    return Err(RefreshRepositoryError::DuplicateSubscription);
+                }
+                transaction
+                    .execute(delete_entry_states_statement(
+                        backend,
+                        user_id,
+                        &old_feed_id,
+                    ))
+                    .await?;
+            }
+
             let mut active = stored.into_active_model();
+            if feed_changed {
+                let target_feed = target_feed
+                    .as_ref()
+                    .ok_or(RefreshRepositoryError::CorruptData)?;
+                let initial_frontier = target_feed
+                    .entry_sequence_head
+                    .saturating_sub(INITIAL_VISIBLE_ENTRY_COUNT)
+                    .max(0);
+                active.feed_id = Set(target_feed_id.clone());
+                active.start_sequence = Set(initial_frontier);
+                active.read_through_sequence = Set(initial_frontier);
+                active.state_revision = Set(0);
+            }
             match input.category_id {
                 PatchValue::Missing => {}
                 PatchValue::Null => active.category_id = Set(None),
@@ -544,12 +649,43 @@ impl FeedRepository {
             }
             active.updated_at = Set(database_now_in(&transaction, backend).await?);
             active.update(&transaction).await?;
+
+            if feed_changed {
+                let target_feed = target_feed
+                    .as_ref()
+                    .ok_or(RefreshRepositoryError::CorruptData)?;
+                let cleared = transaction
+                    .execute(clear_orphaned_statement(backend, &target_feed_id))
+                    .await?;
+                if cleared.rows_affected() != 1 {
+                    return Err(RefreshRepositoryError::CorruptData);
+                }
+                if count_feed_subscriptions(&transaction, backend, &old_feed_id).await? == 0 {
+                    let orphaned = transaction
+                        .execute(mark_feed_orphaned_statement(backend, &old_feed_id))
+                        .await?;
+                    if orphaned.rows_affected() != 1 {
+                        return Err(RefreshRepositoryError::CorruptData);
+                    }
+                }
+
+                queue_subscribe_refresh_if_due(
+                    &transaction,
+                    backend,
+                    user_id,
+                    &target_feed_id,
+                    target_feed,
+                    target_feed_is_new,
+                    format!("subscription-url:{}", Uuid::new_v4()),
+                )
+                .await?;
+            }
             let projection =
                 subscription_for_user_from(&transaction, backend, user_id, subscription_id)
                     .await
                     .map_err(map_projection_command_error)?
                     .ok_or(RefreshRepositoryError::CorruptData)?;
-            Ok(Some(projection))
+            Ok(UpdateSubscriptionAttempt::Complete(Some(projection)))
         }
         .await;
         match result {
@@ -1302,6 +1438,57 @@ where
     Ok(count)
 }
 
+async fn queue_subscribe_refresh_if_due<C>(
+    connection: &C,
+    backend: DbBackend,
+    user_id: &str,
+    feed_id: &str,
+    feed: &LockedFeed,
+    feed_is_new: bool,
+    idempotency_key: String,
+) -> Result<(), RefreshRepositoryError>
+where
+    C: ConnectionTrait,
+{
+    let database_now = database_now_in(connection, backend).await?;
+    let needs_refresh =
+        feed_is_new || feed.last_success_at.is_none() || feed.next_fetch_at <= database_now;
+    if !needs_refresh {
+        return Ok(());
+    }
+    let request = QueueRefreshRequest {
+        feed_id: feed_id.to_owned(),
+        requested_by_user_id: Some(user_id.to_owned()),
+        trigger: RefreshTrigger::Subscribe,
+        idempotency_key,
+    };
+    if let Some(existing) =
+        find_run_by_idempotency(connection, backend, feed_id, &request.idempotency_key).await?
+    {
+        let _ = idempotent_result(existing, &request)?;
+        return Ok(());
+    }
+    if find_active_run(connection, backend, feed_id)
+        .await?
+        .is_some()
+    {
+        return Ok(());
+    }
+    if count_active_user_refresh_runs(connection, backend, user_id).await?
+        >= MAX_ACTIVE_USER_REFRESH_RUNS
+    {
+        return Err(RefreshRepositoryError::ActiveRefreshLimit);
+    }
+    connection
+        .execute(queue_run_statement(
+            backend,
+            &Uuid::new_v4().to_string(),
+            &request,
+        ))
+        .await?;
+    Ok(())
+}
+
 async fn count_feed_subscriptions<C>(
     connection: &C,
     backend: DbBackend,
@@ -1473,6 +1660,15 @@ fn delete_subscription_statement(
         sql,
         [subscription_id.into(), user_id.into(), feed_id.into()],
     )
+}
+
+fn delete_entry_states_statement(backend: DbBackend, user_id: &str, feed_id: &str) -> Statement {
+    let sql = if backend == DatabaseBackend::Postgres {
+        "DELETE FROM entry_states WHERE user_id = $1 AND feed_id = $2"
+    } else {
+        "DELETE FROM entry_states WHERE user_id = ? AND feed_id = ?"
+    };
+    Statement::from_sql_and_values(backend, sql, [user_id.into(), feed_id.into()])
 }
 
 fn mark_feed_orphaned_statement(backend: DbBackend, feed_id: &str) -> Statement {

@@ -7,6 +7,7 @@ import {
   type TreeListItemData,
 } from "@astryxdesign/core/TreeList"
 import { useLingui } from "@lingui/react"
+import { type DragEvent, useRef, useState } from "react"
 
 import { sourceTreeDensityStyle } from "../components/sourceDensity"
 import type { ReaderSource, ReaderState } from "../model/types"
@@ -17,23 +18,122 @@ interface CategoryListProps {
   state: ReaderState
   onSelect: (source: ReaderSource) => void
   onRequestMarkRead?: (feedId: string, title: string) => void
+  onMoveSubscription?: (
+    subscriptionId: string,
+    categoryId: string | null,
+  ) => Promise<boolean>
   isMarkingRead?: boolean
   density: TreeListDensity
   query?: string
+}
+
+interface DraggedSubscription {
+  subscriptionId: string
+  categoryId: string | null
+  title: string
 }
 
 export function CategoryList({
   state,
   onSelect,
   onRequestMarkRead,
+  onMoveSubscription,
   isMarkingRead = false,
   density,
   query = "",
 }: CategoryListProps) {
   const { i18n } = useLingui()
+  const draggedSubscriptionRef = useRef<DraggedSubscription | null>(null)
+  const [draggedSubscriptionId, setDraggedSubscriptionId] = useState<string | null>(null)
+  const [dropTargetCategoryId, setDropTargetCategoryId] = useState<string | null | undefined>()
+  const [pendingCategoryId, setPendingCategoryId] = useState<string | null | undefined>()
+  const [moveAnnouncement, setMoveAnnouncement] = useState("")
   const categories = state.categoryOrder.map((id) => state.categoriesById[id])
   const subscriptions = state.subscriptionOrder.map((id) => state.subscriptionsById[id])
   const groups = filterGroups(groupSubscriptions(categories, subscriptions), query)
+  const dragSubscription = (
+    event: DragEvent<HTMLElement>,
+    subscription: DraggedSubscription,
+  ) => {
+    draggedSubscriptionRef.current = subscription
+    setDraggedSubscriptionId(subscription.subscriptionId)
+    setDropTargetCategoryId(undefined)
+    setMoveAnnouncement("")
+    event.dataTransfer.setData("text/plain", subscription.subscriptionId)
+    event.dataTransfer.effectAllowed = "move"
+  }
+  const finishDragging = () => {
+    draggedSubscriptionRef.current = null
+    setDraggedSubscriptionId(null)
+    setDropTargetCategoryId(undefined)
+  }
+  const canDropInto = (categoryId: string | null) => {
+    const dragged = draggedSubscriptionRef.current
+    return Boolean(
+      dragged && dragged.categoryId !== categoryId && pendingCategoryId === undefined,
+    )
+  }
+  const dragOverCategory = (
+    event: DragEvent<HTMLElement>,
+    categoryId: string | null,
+  ) => {
+    if (!canDropInto(categoryId)) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = "move"
+    setDropTargetCategoryId(categoryId)
+  }
+  const leaveCategory = (event: DragEvent<HTMLElement>, categoryId: string | null) => {
+    if (
+      event.relatedTarget instanceof Node &&
+      event.currentTarget.contains(event.relatedTarget)
+    ) {
+      return
+    }
+    setDropTargetCategoryId((current) => current === categoryId ? undefined : current)
+  }
+  const dropIntoCategory = async (
+    event: DragEvent<HTMLElement>,
+    categoryId: string | null,
+  ) => {
+    const dragged = draggedSubscriptionRef.current
+    if (!dragged || !canDropInto(categoryId) || !onMoveSubscription) return
+    event.preventDefault()
+    finishDragging()
+    setPendingCategoryId(categoryId)
+    let saved = false
+    try {
+      saved = await onMoveSubscription(dragged.subscriptionId, categoryId)
+    } catch {
+      saved = false
+    } finally {
+      setPendingCategoryId(undefined)
+      const categoryTitle = categoryId === null
+        ? i18n._("reader.uncategorized")
+        : state.categoriesById[categoryId]?.title ?? i18n._("reader.uncategorized")
+      setMoveAnnouncement(
+        saved
+          ? i18n._("reader.feedMoved", {
+              title: dragged.title,
+              category: categoryTitle,
+            })
+          : i18n._("reader.feedMoveFailed", { title: dragged.title }),
+      )
+    }
+  }
+  const categoryLabel = (categoryId: string | null, title: string) => (
+    <span
+      className="reader-source-label reader-category-drop-label"
+      data-drop-zone={onMoveSubscription ? "true" : undefined}
+      data-drop-target={dropTargetCategoryId === categoryId ? "true" : undefined}
+      data-drop-pending={pendingCategoryId === categoryId ? "true" : undefined}
+      onDragEnter={(event) => dragOverCategory(event, categoryId)}
+      onDragOver={(event) => dragOverCategory(event, categoryId)}
+      onDragLeave={(event) => leaveCategory(event, categoryId)}
+      onDrop={(event) => void dropIntoCategory(event, categoryId)}
+    >
+      {title}
+    </span>
+  )
   const smartItems: TreeListItemData[] = [
     ["UNREAD", "reader.unread"],
     ["ALL", "reader.all"],
@@ -56,7 +156,7 @@ export function CategoryList({
   const categoryItems = groups.categorized.map(
     (group): TreeListItemData => ({
       id: `category:${group.category!.categoryId}`,
-      label: <span className="reader-source-label">{group.category!.title}</span>,
+      label: categoryLabel(group.category!.categoryId, group.category!.title),
       isSelected:
         state.selectedSource.kind === "category" &&
         state.selectedSource.categoryId === group.category!.categoryId,
@@ -76,12 +176,17 @@ export function CategoryList({
         onRequestMarkRead,
         isMarkingRead,
         (id, values) => i18n._(id, values),
+        onMoveSubscription && pendingCategoryId === undefined
+          ? dragSubscription
+          : undefined,
+        finishDragging,
+        draggedSubscriptionId,
       ),
     }),
   )
   const uncategorized: TreeListItemData = {
     id: "uncategorized",
-    label: <span className="reader-source-label">{i18n._("reader.uncategorized")}</span>,
+    label: categoryLabel(null, i18n._("reader.uncategorized")),
     isExpanded: true,
     startContent: (
       <span className="reader-smart-source-icon" aria-hidden="true">
@@ -96,23 +201,31 @@ export function CategoryList({
       onRequestMarkRead,
       isMarkingRead,
       (id, values) => i18n._(id, values),
+      onMoveSubscription && pendingCategoryId === undefined ? dragSubscription : undefined,
+      finishDragging,
+      draggedSubscriptionId,
     ),
   }
 
   return (
-    <TreeList
-      className="reader-source-list"
-      density={density}
-      style={sourceTreeDensityStyle(density)}
-      header={<span className="reader-pane-label">{i18n._("reader.sources")}</span>}
-      items={[
-        ...smartItems,
-        ...categoryItems,
-        ...(groups.uncategorized.subscriptions.length > 0 || !query.trim()
-          ? [uncategorized]
-          : []),
-      ]}
-    />
+    <>
+      <TreeList
+        className="reader-source-list"
+        density={density}
+        style={sourceTreeDensityStyle(density)}
+        header={<span className="reader-pane-label">{i18n._("reader.sources")}</span>}
+        items={[
+          ...smartItems,
+          ...categoryItems,
+          ...(groups.uncategorized.subscriptions.length > 0 || !query.trim()
+            ? [uncategorized]
+            : []),
+        ]}
+      />
+      <span className="reader-visually-hidden" role="status" aria-live="polite">
+        {moveAnnouncement}
+      </span>
+    </>
   )
 }
 
@@ -123,12 +236,33 @@ function feedItems(
   onRequestMarkRead: ((feedId: string, title: string) => void) | undefined,
   isMarkingRead: boolean,
   translate: (id: string, values?: Record<string, string>) => string,
+  onDragStart: (
+    (event: DragEvent<HTMLElement>, subscription: DraggedSubscription) => void
+  ) | undefined,
+  onDragEnd: () => void,
+  draggedSubscriptionId: string | null,
 ): TreeListItemData[] {
   return group.subscriptions.map((subscription) => {
     const status = refreshPresentation(subscription.refresh)
     return {
       id: `feed:${subscription.feedId}`,
-      label: <span className="reader-source-label">{subscription.title}</span>,
+      label: (
+        <span
+          className="reader-source-label reader-feed-drag-label"
+          draggable={Boolean(onDragStart)}
+          data-dragging={
+            draggedSubscriptionId === subscription.subscriptionId ? "true" : undefined
+          }
+          onDragStart={(event) => onDragStart?.(event, {
+            subscriptionId: subscription.subscriptionId,
+            categoryId: subscription.categoryId,
+            title: subscription.title,
+          })}
+          onDragEnd={onDragEnd}
+        >
+          {subscription.title}
+        </span>
+      ),
       isSelected:
         state.selectedSource.kind === "feed" &&
         state.selectedSource.feedId === subscription.feedId,

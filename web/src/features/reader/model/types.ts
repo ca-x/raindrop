@@ -34,6 +34,7 @@ export interface ReaderState {
   categoryOrder: string[]
   subscriptionsById: Record<string, Subscription>
   subscriptionOrder: string[]
+  retiredFeedIds: Record<string, true>
   entriesById: Record<string, EntryListItemResponse>
   queueBySourceKey: Partial<Record<SourceKey, string[]>>
   detailsById: Record<string, EntryDetailResponse>

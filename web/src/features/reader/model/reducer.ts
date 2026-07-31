@@ -81,6 +81,7 @@ export const initialReaderState: ReaderState = {
   categoryOrder: [],
   subscriptionsById: {},
   subscriptionOrder: [],
+  retiredFeedIds: {},
   entriesById: {},
   queueBySourceKey: {},
   detailsById: {},

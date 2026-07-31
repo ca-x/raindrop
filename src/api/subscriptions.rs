@@ -143,6 +143,8 @@ struct RefreshSubscriptionRequest {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct UpdateSubscriptionRequest {
+    #[serde(default, deserialize_with = "deserialize_present")]
+    feed_url: Option<String>,
     #[serde(default)]
     category_id: PatchValue<String>,
     #[serde(default)]
@@ -451,16 +453,17 @@ async fn update_subscription(
         .subscription_mutation_limiter
         .check(&user.id)
         .map_err(map_limiter_rejection)?;
-    let subscription = command_service(&state)?
-        .update_subscription(
+    let subscription = state
+        .commit_and_notify_feed_runtime(command_service(&state)?.update_subscription(
             &user.id,
             &subscription_id,
             UpdateSubscription {
+                feed_url: request.feed_url,
                 category_id: request.category_id,
                 title_override: request.title_override,
                 position: request.position,
             },
-        )
+        ))
         .await
         .map_err(map_feed_service_error)?;
     Ok(Json(subscription.try_into()?))
@@ -596,6 +599,7 @@ fn map_refresh_repository_error(error: RefreshRepositoryError) -> ApiError {
             rate_limited_without_retry()
         }
         RefreshRepositoryError::IdempotencyConflict
+        | RefreshRepositoryError::DuplicateSubscription
         | RefreshRepositoryError::FeedDisabled
         | RefreshRepositoryError::IdentityHashCollision => conflict_error(),
         RefreshRepositoryError::RefreshInProgress { operation_id } => ApiError::new(

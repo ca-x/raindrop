@@ -1552,6 +1552,12 @@ fn frozen_schema_manifest() -> Value {
             "additionalProperties": false,
             "minProperties": 1,
             "properties": {
+                "feedUrl": {
+                    "type": "string",
+                    "format": "uri",
+                    "pattern": HTTPS_FEED_URL_PATTERN,
+                    "maxLength": 4096
+                },
                 "categoryId": {
                     "type": ["string", "null"],
                     "format": "uuid"

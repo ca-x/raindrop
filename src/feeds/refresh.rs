@@ -175,6 +175,8 @@ pub enum RefreshRepositoryError {
     IdempotencyConflict,
     #[error("subscription limit has been reached")]
     SubscriptionLimit,
+    #[error("the user is already subscribed to the target feed")]
+    DuplicateSubscription,
     #[error("active user refresh limit has been reached")]
     ActiveRefreshLimit,
     #[error("another refresh is already in progress")]
@@ -227,6 +229,7 @@ impl fmt::Debug for RefreshRepositoryError {
             Self::InvalidRequest => "RefreshRepositoryError::InvalidRequest",
             Self::IdempotencyConflict => "RefreshRepositoryError::IdempotencyConflict",
             Self::SubscriptionLimit => "RefreshRepositoryError::SubscriptionLimit",
+            Self::DuplicateSubscription => "RefreshRepositoryError::DuplicateSubscription",
             Self::ActiveRefreshLimit => "RefreshRepositoryError::ActiveRefreshLimit",
             Self::RefreshInProgress { .. } => {
                 "RefreshRepositoryError::RefreshInProgress([REDACTED])"

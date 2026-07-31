@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { expect, it, vi } from "vitest"
 
@@ -165,4 +165,48 @@ it("offers a per-feed quick mark-read action without selecting the feed", async 
   await user.click(screen.getByRole("button", { name: "Mark all from Example Feed read" }))
   expect(onRequestMarkRead).toHaveBeenCalledWith(subscription.feedId, subscription.title)
   expect(onSelect).not.toHaveBeenCalled()
+})
+
+it("moves a feed to a category when its tree row is dropped", async () => {
+  activateLocale("en")
+  const onMoveSubscription = vi.fn(async () => true)
+  const subscription = makeSubscription()
+  render(
+    <Providers>
+      <CategoryList
+        state={{
+          ...initialReaderState,
+          categoriesById: { [categoryId]: makeCategory() },
+          categoryOrder: [categoryId],
+          subscriptionsById: { [subscription.subscriptionId]: subscription },
+          subscriptionOrder: [subscription.subscriptionId],
+        }}
+        onSelect={vi.fn()}
+        onMoveSubscription={onMoveSubscription}
+        density="balanced"
+      />
+    </Providers>,
+  )
+
+  const feedLabel = screen.getByText(subscription.title)
+  const categoryLabel = screen.getByText("Technology")
+  const dataTransfer = {
+    effectAllowed: "none",
+    dropEffect: "none",
+    setData: vi.fn(),
+  }
+
+  expect(feedLabel).toHaveAttribute("draggable", "true")
+  fireEvent.dragStart(feedLabel, { dataTransfer })
+  fireEvent.dragOver(categoryLabel, { dataTransfer })
+  expect(categoryLabel).toHaveAttribute("data-drop-target", "true")
+  fireEvent.drop(categoryLabel, { dataTransfer })
+
+  await waitFor(() => {
+    expect(onMoveSubscription).toHaveBeenCalledWith(subscription.subscriptionId, categoryId)
+  })
+  expect(await screen.findByText("Moved Example Feed to Technology.")).toHaveAttribute(
+    "role",
+    "status",
+  )
 })

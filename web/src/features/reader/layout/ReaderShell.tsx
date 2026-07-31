@@ -135,6 +135,9 @@ export function ReaderShell(props: ReaderShellProps) {
         }
         setMarkReadTarget({ kind: "feed", feedId, label })
       }}
+      onMoveSubscription={(subscriptionId, categoryId) =>
+        props.controller.updateSubscription(subscriptionId, { categoryId })
+      }
       isMarkingRead={props.controller.isMarkingRead}
       onManage={() => {
         reopenSourcesAfterManagement.current = props.viewportMode !== "wide"

@@ -231,3 +231,40 @@ it("rolls back one unread delta after a stale reload during a pending mutation",
   expect(state.entriesById[entryId]?.isRead).toBe(false)
   expect(state.subscriptionsById[subscriptionId]?.unreadCount).toBe(3)
 })
+
+it("clears the previous feed view when a subscription changes Feed identity", () => {
+  const subscription = makeSubscription()
+  const previousSource = { kind: "feed", feedId: subscription.feedId } as const
+  const previousKey = sourceKey(previousSource)
+  const replacement = makeSubscription({
+    feedId: "00000000-0000-4000-8000-000000000102",
+    feedUrl: "https://publisher.example/replacement.xml",
+  })
+  const state = readerReducer(
+    {
+      ...initialReaderState,
+      subscriptionsById: { [subscriptionId]: subscription },
+      subscriptionOrder: [subscriptionId],
+      selectedSource: previousSource,
+      selectedEntryId: entryId,
+      feedSearchQuery: "rust",
+      queueBySourceKey: { [previousKey]: [entryId] },
+      pendingNewEntriesBySource: { [previousKey]: [entryId] },
+      pendingNewEntryCountBySource: { [previousKey]: 1 },
+      snapshotGenerationBySource: { [previousKey]: 2 },
+      pendingSnapshotGenerationBySource: { [previousKey]: 3 },
+    },
+    { type: "subscriptionUpserted", subscription: replacement },
+  )
+
+  expect(state.subscriptionsById[subscriptionId]).toEqual(replacement)
+  expect(state.queueBySourceKey[previousKey]).toBeUndefined()
+  expect(state.pendingNewEntriesBySource[previousKey]).toBeUndefined()
+  expect(state.pendingNewEntryCountBySource[previousKey]).toBeUndefined()
+  expect(state.snapshotGenerationBySource[previousKey]).toBeUndefined()
+  expect(state.pendingSnapshotGenerationBySource[previousKey]).toBeUndefined()
+  expect(state.retiredFeedIds[subscription.feedId]).toBe(true)
+  expect(state.selectedSource).toEqual({ kind: "smart", state: "UNREAD" })
+  expect(state.selectedEntryId).toBeNull()
+  expect(state.feedSearchQuery).toBe("")
+})

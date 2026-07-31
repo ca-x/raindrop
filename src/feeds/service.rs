@@ -81,8 +81,19 @@ impl FeedCommandService {
         let input = input
             .normalize()
             .map_err(FeedServiceError::SubscriptionPatch)?;
+        let normalized_feed_url = input
+            .feed_url
+            .as_deref()
+            .map(|url| self.url_policy.normalize(url))
+            .transpose()
+            .map_err(FeedServiceError::Url)?;
         self.repository
-            .update_subscription_for_user(user_id, subscription_id, input)
+            .update_subscription_for_user(
+                user_id,
+                subscription_id,
+                input,
+                normalized_feed_url.as_ref(),
+            )
             .await
             .map_err(FeedServiceError::RefreshRepository)?
             .ok_or(FeedServiceError::Unauthorized)

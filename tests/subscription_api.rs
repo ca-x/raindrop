@@ -630,6 +630,118 @@ async fn subscription_patch_assigns_clears_and_hides_category_ownership() {
 }
 
 #[tokio::test]
+async fn subscription_patch_replaces_the_feed_url_without_replacing_subscription_metadata() {
+    let fixture = SubscriptionApiFixture::new().await;
+    let created = fixture
+        .post_with_csrf(
+            "/api/v1/subscriptions",
+            json!({ "url": "https://old-feed.example/rss.xml" }),
+            UserKind::A,
+        )
+        .await;
+    let created_body = response_json(created).await;
+    let subscription_id = created_body["subscription"]["subscriptionId"]
+        .as_str()
+        .expect("created subscription ID should be a string")
+        .to_owned();
+    let old_feed_id = created_body["subscription"]["feedId"]
+        .as_str()
+        .expect("created feed ID should be a string")
+        .to_owned();
+
+    let categories = CategoryRepository::new(fixture.database.clone());
+    let category = categories
+        .create(
+            USER_A_ID,
+            CreateCategory {
+                title: "Technology".to_owned(),
+            },
+        )
+        .await
+        .expect("category should create");
+    let (_, csrf) = fixture.credentials(UserKind::A);
+    let patch_body = json!({
+        "feedUrl": "https://new-feed.example/rss.xml",
+        "categoryId": category.category_id,
+        "titleOverride": "Daily"
+    })
+    .to_string();
+    let updated = fixture
+        .request_mutation(
+            Method::PATCH,
+            &format!("/api/v1/subscriptions/{subscription_id}"),
+            Some(&patch_body),
+            UserKind::A,
+            &[csrf],
+            &["http://subscriptions.test"],
+            Some("subscriptions.test"),
+        )
+        .await;
+
+    assert_eq!(updated.status(), StatusCode::OK);
+    let updated = response_json(updated).await;
+    assert_eq!(updated["subscriptionId"], subscription_id);
+    assert_ne!(updated["feedId"], old_feed_id);
+    assert_eq!(updated["feedUrl"], "https://new-feed.example/rss.xml");
+    assert_eq!(updated["categoryId"], category.category_id);
+    assert_eq!(updated["titleOverride"], "Daily");
+    assert_eq!(updated["title"], "Daily");
+    assert_eq!(updated["refresh"]["state"], "PENDING");
+}
+
+#[tokio::test]
+async fn subscription_patch_rejects_replacing_a_feed_with_an_existing_subscription() {
+    let fixture = SubscriptionApiFixture::new().await;
+    let source = fixture
+        .post_with_csrf(
+            "/api/v1/subscriptions",
+            json!({ "url": "https://source-feed.example/rss.xml" }),
+            UserKind::A,
+        )
+        .await;
+    let source = response_json(source).await;
+    let subscription_id = source["subscription"]["subscriptionId"]
+        .as_str()
+        .expect("source subscription ID should exist")
+        .to_owned();
+    let target_url = "https://target-feed.example/rss.xml";
+    let target = fixture
+        .post_with_csrf(
+            "/api/v1/subscriptions",
+            json!({ "url": target_url }),
+            UserKind::A,
+        )
+        .await;
+    assert_eq!(target.status(), StatusCode::CREATED);
+
+    let (_, csrf) = fixture.credentials(UserKind::A);
+    let response = fixture
+        .request_mutation(
+            Method::PATCH,
+            &format!("/api/v1/subscriptions/{subscription_id}"),
+            Some(&json!({ "feedUrl": target_url }).to_string()),
+            UserKind::A,
+            &[csrf],
+            &["http://subscriptions.test"],
+            Some("subscriptions.test"),
+        )
+        .await;
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    assert_eq!(response_json(response).await["error"]["code"], "CONFLICT");
+
+    let unchanged = fixture
+        .get(
+            &format!("/api/v1/subscriptions/{subscription_id}"),
+            UserKind::A,
+        )
+        .await;
+    assert_eq!(
+        response_json(unchanged).await["feedUrl"],
+        "https://source-feed.example/rss.xml"
+    );
+}
+
+#[tokio::test]
 async fn subscription_routes_require_active_session() {
     let fixture = SubscriptionApiFixture::new().await;
     for (method, uri, body) in [
@@ -891,6 +1003,9 @@ async fn subscription_requests_reject_invalid_query_path_body_and_url() {
     let overlong_multibyte_title = "界".repeat(67);
     let invalid_patch_bodies = [
         "{}".to_owned(),
+        r#"{"feedUrl":null}"#.to_owned(),
+        r#"{"feedUrl":"http://feed.example/rss.xml"}"#.to_owned(),
+        r#"{"feedUrl":"https://user:password@feed.example/rss.xml"}"#.to_owned(),
         r#"{"position":null}"#.to_owned(),
         r#"{"position":-1}"#.to_owned(),
         r#"{"position":"0"}"#.to_owned(),

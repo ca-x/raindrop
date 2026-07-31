@@ -57,8 +57,16 @@ export function ReaderRoutes(props: ReaderRoutesProps) {
 
   useEffect(() => {
     if (!route || sameReaderSource(route.source, props.controller.state.selectedSource)) return
+    const routeFeedId = route.source.kind === "feed" ? route.source.feedId : null
+    if (
+      routeFeedId &&
+      props.controller.state.retiredFeedIds[routeFeedId]
+    ) {
+      navigate(pathForSource(props.controller.state.selectedSource), { replace: true })
+      return
+    }
     void props.controller.selectSource(route.source)
-  }, [props.controller, route?.sourcePath])
+  }, [navigate, props.controller, route?.sourcePath])
 
   useEffect(() => {
     if (!route) return

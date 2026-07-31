@@ -17,6 +17,10 @@ interface SourceTreeProps {
   state: ReaderState
   onSelect: (source: ReaderSource) => void
   onRequestMarkRead?: (feedId: string, title: string) => void
+  onMoveSubscription: (
+    subscriptionId: string,
+    categoryId: string | null,
+  ) => Promise<boolean>
   isMarkingRead?: boolean
   onManage: () => void
   onEditSubscription: () => void
@@ -33,6 +37,7 @@ export function SourceTree({
   state,
   onSelect,
   onRequestMarkRead,
+  onMoveSubscription,
   isMarkingRead = false,
   onManage,
   onEditSubscription,
@@ -92,6 +97,7 @@ export function SourceTree({
         state={state}
         onSelect={onSelect}
         onRequestMarkRead={onRequestMarkRead}
+        onMoveSubscription={onMoveSubscription}
         isMarkingRead={isMarkingRead}
         density={density}
         query={sourceQuery}

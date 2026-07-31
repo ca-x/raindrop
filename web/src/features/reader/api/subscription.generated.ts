@@ -7,10 +7,12 @@ export interface CreateSubscriptionRequest {
 }
 
 export type UpdateSubscriptionRequest = {
+  feedUrl?: string
   categoryId?: string | null
   titleOverride?: string | null
   position?: number
 } & (
+  | { feedUrl: string }
   | { categoryId: string | null }
   | { titleOverride: string | null }
   | { position: number }
@@ -123,7 +125,7 @@ export function isCreateSubscriptionRequest(value: unknown): value is CreateSubs
 }
 
 export function isUpdateSubscriptionRequest(value: unknown): value is UpdateSubscriptionRequest {
-  return ((isRecord(value) && hasOnlyKeys(value, ["categoryId","titleOverride","position"]) && Object.keys(value).length >= 1 && (!hasOwn(value, "categoryId") || ((typeof value["categoryId"] === "string" && isUuid(value["categoryId"])) || value["categoryId"] === null)) && (!hasOwn(value, "titleOverride") || ((typeof value["titleOverride"] === "string" && value["titleOverride"].length <= 200) || value["titleOverride"] === null)) && (!hasOwn(value, "position") || ((typeof value["position"] === "number" && Number.isFinite(value["position"]) && Number.isInteger(value["position"]) && value["position"] >= 0)))))
+  return ((isRecord(value) && hasOnlyKeys(value, ["feedUrl","categoryId","titleOverride","position"]) && Object.keys(value).length >= 1 && (!hasOwn(value, "feedUrl") || ((typeof value["feedUrl"] === "string" && value["feedUrl"].length <= 4096 && new RegExp("^https://[^/?#@]+(?:[/?#].*)?$").test(value["feedUrl"]) && isUri(value["feedUrl"])))) && (!hasOwn(value, "categoryId") || ((typeof value["categoryId"] === "string" && isUuid(value["categoryId"])) || value["categoryId"] === null)) && (!hasOwn(value, "titleOverride") || ((typeof value["titleOverride"] === "string" && value["titleOverride"].length <= 200) || value["titleOverride"] === null)) && (!hasOwn(value, "position") || ((typeof value["position"] === "number" && Number.isFinite(value["position"]) && Number.isInteger(value["position"]) && value["position"] >= 0)))))
 }
 
 export function isRefreshSubscriptionRequest(value: unknown): value is RefreshSubscriptionRequest {

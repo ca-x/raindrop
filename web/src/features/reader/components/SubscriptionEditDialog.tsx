@@ -15,6 +15,7 @@ import type {
   Subscription,
   UpdateSubscriptionRequest,
 } from "../api/subscription.generated"
+import { isCreateSubscriptionRequest } from "../api/subscription.generated"
 
 const uncategorizedValue = "__uncategorized__"
 
@@ -37,7 +38,9 @@ interface SubscriptionEditDialogProps {
 
 export function SubscriptionEditDialog(props: SubscriptionEditDialogProps) {
   const { i18n } = useLingui()
+  const [feedUrl, setFeedUrl] = useState("")
   const [titleOverride, setTitleOverride] = useState("")
+  const [feedUrlError, setFeedUrlError] = useState<string | null>(null)
   const [categoryId, setCategoryId] = useState(uncategorizedValue)
   const [isSaving, setIsSaving] = useState(false)
   const [isAssigning, setIsAssigning] = useState(false)
@@ -47,8 +50,10 @@ export function SubscriptionEditDialog(props: SubscriptionEditDialogProps) {
 
   useEffect(() => {
     if (!props.isOpen || !subscription) return
+    setFeedUrl(subscription.feedUrl)
     setTitleOverride(subscription.titleOverride ?? "")
     setCategoryId(subscription.categoryId ?? uncategorizedValue)
+    setFeedUrlError(null)
   }, [props.isOpen, subscription])
 
   const close = () => {
@@ -56,16 +61,30 @@ export function SubscriptionEditDialog(props: SubscriptionEditDialogProps) {
     props.onOpenChange(false)
   }
 
-  const saveTitle = async (event: FormEvent<HTMLFormElement>) => {
+  const saveFeed = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!subscription) return
+    const nextFeedUrl = feedUrl.trim()
+    if (!isCreateSubscriptionRequest({ url: nextFeedUrl })) {
+      setFeedUrlError(i18n._("reader.feedUrlInvalid"))
+      return
+    }
+    const nextTitleOverride = titleOverride.trim() || null
+    const feedUrlChanged = nextFeedUrl !== subscription.feedUrl
+    const titleChanged = nextTitleOverride !== subscription.titleOverride
+    if (!feedUrlChanged && !titleChanged) return
+    const request: UpdateSubscriptionRequest = feedUrlChanged
+      ? titleChanged
+        ? { feedUrl: nextFeedUrl, titleOverride: nextTitleOverride }
+        : { feedUrl: nextFeedUrl }
+      : { titleOverride: nextTitleOverride }
+    setFeedUrlError(null)
     props.onClearError()
     setIsSaving(true)
-    const saved = await props.onUpdate(subscription.subscriptionId, {
-      titleOverride: titleOverride.trim() || null,
-    })
+    const saved = await props.onUpdate(subscription.subscriptionId, request)
     setIsSaving(false)
-    if (!saved) setTitleOverride(subscription.titleOverride ?? "")
+    if (!saved) return
+    if (feedUrlChanged) close()
   }
 
   const assign = async (value: string) => {
@@ -138,28 +157,24 @@ export function SubscriptionEditDialog(props: SubscriptionEditDialogProps) {
             ) : null}
             {subscription ? (
               <div className="reader-subscription-edit-stack">
-                <dl className="reader-feed-addresses">
-                  <div>
-                    <dt>{i18n._("reader.feedUrl")}</dt>
-                    <dd>
-                      <a href={subscription.feedUrl} target={linkTarget} rel={linkRel}>
-                        {subscription.feedUrl}
-                      </a>
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>{i18n._("reader.websiteUrl")}</dt>
-                    <dd>
-                      {subscription.siteUrl ? (
-                        <a href={subscription.siteUrl} target={linkTarget} rel={linkRel}>
-                          {subscription.siteUrl}
-                        </a>
-                      ) : i18n._("reader.feedSiteUnavailable")}
-                    </dd>
-                  </div>
-                </dl>
-                <form onSubmit={saveTitle} noValidate>
+                <form onSubmit={saveFeed} noValidate>
                   <FormLayout>
+                    <TextInput
+                      label={i18n._("reader.feedUrl")}
+                      description={i18n._("reader.feedUrlEditDescription")}
+                      value={feedUrl}
+                      onChange={(value) => {
+                        setFeedUrl(value)
+                        setFeedUrlError(null)
+                        if (props.mutationError) props.onClearError()
+                      }}
+                      placeholder="https://example.com/feed.xml"
+                      status={feedUrlError
+                        ? { type: "error", message: feedUrlError }
+                        : undefined}
+                      isRequired
+                      width="100%"
+                    />
                     <TextInput
                       label={i18n._("reader.feedCustomTitle")}
                       description={i18n._("reader.feedCustomTitleDescription")}
@@ -174,13 +189,26 @@ export function SubscriptionEditDialog(props: SubscriptionEditDialogProps) {
                         type="submit"
                         isLoading={isSaving}
                         isDisabled={
-                          titleOverride.trim() === (subscription.titleOverride ?? "")
+                          feedUrl.trim() === subscription.feedUrl &&
+                          (titleOverride.trim() || null) === subscription.titleOverride
                         }
                         variant="primary"
                       />
                     </div>
                   </FormLayout>
                 </form>
+                <dl className="reader-feed-addresses">
+                  <div>
+                    <dt>{i18n._("reader.websiteUrl")}</dt>
+                    <dd>
+                      {subscription.siteUrl ? (
+                        <a href={subscription.siteUrl} target={linkTarget} rel={linkRel}>
+                          {subscription.siteUrl}
+                        </a>
+                      ) : i18n._("reader.feedSiteUnavailable")}
+                    </dd>
+                  </div>
+                </dl>
                 <Selector
                   label={i18n._("reader.feedCategory")}
                   options={categoryOptions}

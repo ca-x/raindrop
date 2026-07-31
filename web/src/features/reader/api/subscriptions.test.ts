@@ -113,7 +113,12 @@ it("sends in-memory CSRF tokens for every subscription mutation", async () => {
   await createSubscription({ url: "https://example.com/feed.xml" }, "csrf-memory")
   await updateSubscription(
     subscription.subscriptionId,
-    { categoryId: null, titleOverride: "Focused", position: 1024 },
+    {
+      feedUrl: "https://example.com/new-feed.xml",
+      categoryId: null,
+      titleOverride: "Focused",
+      position: 1024,
+    },
     "csrf-memory",
   )
   await deleteSubscription(subscription.subscriptionId, "csrf-memory")
@@ -129,6 +134,7 @@ it("sends in-memory CSRF tokens for every subscription mutation", async () => {
     "POST",
   ])
   expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+    feedUrl: "https://example.com/new-feed.xml",
     categoryId: null,
     titleOverride: "Focused",
     position: 1024,
