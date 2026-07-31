@@ -273,6 +273,7 @@ impl ResourceLimiter for RuntimeLimits {
 struct GuestCpuBudget {
     remaining: Duration,
     entered_at: Option<Instant>,
+    terminal_error: Option<PluginRuntimeError>,
 }
 
 impl GuestCpuBudget {
@@ -280,6 +281,7 @@ impl GuestCpuBudget {
         Self {
             remaining,
             entered_at: None,
+            terminal_error: None,
         }
     }
 
@@ -292,30 +294,34 @@ impl GuestCpuBudget {
         hook: CallHook,
         now: Instant,
     ) -> Result<Option<u64>, PluginRuntimeError> {
+        if let Some(error) = self.terminal_error {
+            return Err(error);
+        }
         if hook.exiting_host() {
             if self.remaining.is_zero() || self.entered_at.is_some() {
-                return Err(PluginRuntimeError::new(
-                    PluginRuntimeErrorKind::GuestTimeout,
-                ));
+                return self.fail(PluginRuntimeErrorKind::GuestTimeout);
             }
             self.entered_at = Some(now);
             Ok(Some(Self::ticks(self.remaining)))
         } else {
-            let entered_at = self
-                .entered_at
-                .take()
-                .ok_or_else(|| PluginRuntimeError::new(PluginRuntimeErrorKind::GuestTrap))?;
+            let Some(entered_at) = self.entered_at.take() else {
+                return self.fail(PluginRuntimeErrorKind::GuestTrap);
+            };
             self.remaining = self
                 .remaining
                 .saturating_sub(now.duration_since(entered_at));
             if self.remaining.is_zero() {
-                Err(PluginRuntimeError::new(
-                    PluginRuntimeErrorKind::GuestTimeout,
-                ))
+                self.fail(PluginRuntimeErrorKind::GuestTimeout)
             } else {
                 Ok(None)
             }
         }
+    }
+
+    fn fail(&mut self, kind: PluginRuntimeErrorKind) -> Result<Option<u64>, PluginRuntimeError> {
+        let error = PluginRuntimeError::new(kind);
+        self.terminal_error = Some(error);
+        Err(error)
     }
 
     fn ticks(remaining: Duration) -> u64 {
@@ -904,6 +910,32 @@ mod tests {
         assert_eq!(budget.remaining, Duration::from_millis(1850));
     }
 
+    #[test]
+    fn guest_cpu_budget_preserves_timeout_during_wasmtime_cleanup() {
+        let start = Instant::now();
+        let mut budget = GuestCpuBudget::new(EPOCH_TICK);
+        assert_eq!(
+            budget
+                .transition_at(CallHook::CallingWasm, start)
+                .expect("guest entry"),
+            Some(1),
+        );
+        assert_eq!(
+            budget
+                .transition_at(CallHook::CallingHost, start + EPOCH_TICK)
+                .expect_err("the exhausted guest budget must time out")
+                .kind(),
+            PluginRuntimeErrorKind::GuestTimeout,
+        );
+        assert_eq!(
+            budget
+                .transition_at(CallHook::ReturningFromWasm, start + EPOCH_TICK)
+                .expect_err("Wasmtime cleanup must preserve the timeout")
+                .kind(),
+            PluginRuntimeErrorKind::GuestTimeout,
+        );
+    }
+
     #[tokio::test]
     async fn epoch_ticker_interrupts_guest_before_fuel_when_policy_is_lowered() {
         let runtime = PluginRuntime::new().expect("runtime should construct");
@@ -922,9 +954,11 @@ mod tests {
             .call_async(&mut store, ())
             .await
             .expect_err("epoch should interrupt the loop");
+        let error_chain = format!("{error:#}");
         assert_eq!(
             classify_guest_error(error).kind(),
-            PluginRuntimeErrorKind::GuestTimeout
+            PluginRuntimeErrorKind::GuestTimeout,
+            "unexpected Wasmtime error chain: {error_chain}",
         );
     }
 
