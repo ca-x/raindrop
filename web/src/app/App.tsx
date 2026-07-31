@@ -4,7 +4,7 @@ import { Center } from "@astryxdesign/core/Center"
 import { Spinner } from "@astryxdesign/core/Spinner"
 import { useLingui } from "@lingui/react"
 import { useCallback, useState } from "react"
-import { Navigate, useLocation } from "react-router-dom"
+import { Navigate, useLocation } from "react-router"
 
 import { LoginPage } from "../features/auth/LoginPage"
 import type { SessionResponse } from "../features/auth/session"

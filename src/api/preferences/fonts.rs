@@ -152,7 +152,7 @@ async fn list_fonts(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
 ) -> Result<Json<UserFontListResponse>, ApiError> {
-    let items = repository(&state)?
+    let items = query_repository(&state)?
         .list(&user.id)
         .await
         .map_err(map_font_error)?
@@ -172,7 +172,7 @@ async fn upload_font(
     ApiQuery(params): ApiQuery<UploadFontParams>,
     FontBytes(body): FontBytes,
 ) -> Result<impl IntoResponse, ApiError> {
-    let font = repository(&state)?
+    let font = command_repository(&state)?
         .create(&user.id, &params.name, &body)
         .await
         .map_err(map_font_error)?;
@@ -189,7 +189,7 @@ async fn delete_font(
         .preferences_mutation_limiter
         .check(&user.id)
         .map_err(map_limiter_rejection)?;
-    let deleted = repository(&state)?
+    let deleted = command_repository(&state)?
         .delete(&user.id, &font_id)
         .await
         .map_err(map_font_error)?;
@@ -205,7 +205,7 @@ async fn font_file(
     CurrentUser(user): CurrentUser,
     Path(font_id): Path<String>,
 ) -> Result<Response, ApiError> {
-    let file = repository(&state)?
+    let file = query_repository(&state)?
         .file(&user.id, &font_id)
         .await
         .map_err(map_font_error)?
@@ -261,7 +261,15 @@ fn validate_content_type(headers: &HeaderMap) -> Result<(), ApiError> {
     }
 }
 
-fn repository(state: &AppState) -> Result<UserFontRepository, ApiError> {
+fn query_repository(state: &AppState) -> Result<UserFontRepository, ApiError> {
+    state
+        .setup
+        .reader_database()
+        .map(UserFontRepository::new)
+        .map_err(|_| ApiError::internal())
+}
+
+fn command_repository(state: &AppState) -> Result<UserFontRepository, ApiError> {
     state
         .setup
         .database()

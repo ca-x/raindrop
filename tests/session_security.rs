@@ -239,12 +239,21 @@ async fn current_user_throttles_last_seen_writes_to_fifteen_minutes() {
         .await
         .expect("request should complete");
     assert_eq!(response.status(), StatusCode::OK);
-    let refreshed = session::Entity::find_by_id(&before.token_hash)
-        .one(&database)
-        .await
-        .expect("session lookup should work")
-        .expect("session should exist");
-    assert!(refreshed.last_seen_at > stale_time);
+    tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        loop {
+            let refreshed = session::Entity::find_by_id(&before.token_hash)
+                .one(&database)
+                .await
+                .expect("session lookup should work")
+                .expect("session should exist");
+            if refreshed.last_seen_at > stale_time {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("last-seen refresh should finish in the background");
 }
 
 #[derive(Clone)]

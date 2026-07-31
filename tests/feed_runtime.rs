@@ -19,9 +19,10 @@ use raindrop::{
         migrate, rollback,
     },
     feeds::{
-        FeedCommandService, FeedExecutor, FeedFetchError, FeedRepository, FeedRetentionPolicy,
-        FeedRuntime, FeedTransport, FeedUrlPolicy, FetchOutcome, FetchRequest, JitterSource,
-        QueueRefreshRequest, QueueSubscriptionRefresh, RefreshStatus, RefreshTrigger,
+        ClaimRequest, FeedCommandService, FeedExecutor, FeedFetchError, FeedRepository,
+        FeedRetentionPolicy, FeedRuntime, FeedServiceError, FeedTransport, FeedUrlPolicy,
+        FetchOutcome, FetchRequest, JitterSource, QueueRefreshRequest, QueueSubscriptionRefresh,
+        RefreshStatus, RefreshTrigger, coordinate_attempt_for_test,
     },
     setup::{SetupCompleteInput, SetupService},
 };
@@ -616,6 +617,71 @@ async fn heartbeat_extends_lease_before_deadline() {
     task.await
         .expect("runtime task should join")
         .expect("heartbeat runtime should stop cleanly");
+}
+
+#[tokio::test]
+async fn heartbeat_does_not_deadlock_an_attempt_holding_the_primary_connection() {
+    let (_data, database) = ready_runtime_database("heartbeat-primary-connection").await;
+    insert_queued_run(
+        &database,
+        FIRST_RUNTIME_RUN_ID,
+        FEED_ID,
+        "runtime:heartbeat-primary-connection",
+    )
+    .await;
+    let repository = FeedRepository::new(database.clone());
+    let claim = repository
+        .claim_due(ClaimRequest {
+            owner: "heartbeat-primary-connection".to_owned(),
+            lease_duration: Duration::from_secs(60),
+        })
+        .await
+        .expect("heartbeat claim should not fail")
+        .expect("heartbeat run should be claimable");
+    let transaction = database
+        .begin()
+        .await
+        .expect("persistence transaction should begin");
+    transaction
+        .execute(Statement::from_string(
+            DatabaseBackend::Sqlite,
+            "UPDATE rss_counters SET value = value WHERE key = 'generation'".to_owned(),
+        ))
+        .await
+        .expect("persistence transaction should hold the primary connection");
+    let attempt_started = Arc::new(Notify::new());
+    let observed_start = Arc::clone(&attempt_started);
+    let heartbeat_started = Arc::new(Notify::new());
+    let observed_heartbeat = Arc::clone(&heartbeat_started);
+    let (finish_tx, finish_rx) = tokio::sync::oneshot::channel();
+    let task = tokio::spawn(async move {
+        let attempt = async move {
+            observed_start.notify_one();
+            finish_rx
+                .await
+                .expect("persistence completion should be released");
+            transaction
+                .rollback()
+                .await
+                .expect("persistence transaction should roll back");
+            Err(FeedServiceError::CorruptFeed)
+        };
+        coordinate_attempt_for_test(&repository, attempt, claim, observed_heartbeat).await;
+    });
+
+    attempt_started.notified().await;
+    tokio::time::pause();
+    tokio::time::advance(Duration::from_secs(20)).await;
+    heartbeat_started.notified().await;
+    finish_tx
+        .send(())
+        .expect("persistence attempt should still be running");
+    tokio::time::resume();
+
+    tokio::time::timeout(Duration::from_secs(1), task)
+        .await
+        .expect("persistence completion should win while heartbeat waits for the database")
+        .expect("heartbeat coordination task should join");
 }
 
 #[tokio::test]

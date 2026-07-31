@@ -966,33 +966,35 @@ async fn sqlite_concurrent_resubscribe_clears_orphan() {
     );
 }
 
+#[cfg(debug_assertions)]
 #[tokio::test]
 async fn sqlite_subscribe_outcome_uses_the_locked_transaction_snapshot() {
     let fixture = SubscriptionFixture::new().await;
-    fixture
-        .database
-        .execute_unprepared(&format!(
-            "CREATE TRIGGER slow_atomic_subscribe_user_lock
-             AFTER UPDATE OF is_disabled ON users
-             WHEN NEW.id = '{USER_B_ID}'
-             BEGIN
-                 SELECT length(randomblob(50000000));
-             END"
-        ))
-        .await
-        .expect("subscription lock trigger should install");
     let first = fixture.repository.clone();
     let delete_database = fixture.database.clone();
     let normalized = FeedUrlPolicy::new(false)
         .normalize(SHARED_FEED_URL)
         .unwrap();
+    let locked = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    let subscribe_locked = Arc::clone(&locked);
+    let subscribe_release = Arc::clone(&release);
     let subscribe = tokio::spawn(async move {
         first
-            .subscribe(USER_B_ID, SHARED_FEED_URL, &normalized)
+            .subscribe_after_user_lock(
+                USER_B_ID,
+                SHARED_FEED_URL,
+                &normalized,
+                subscribe_locked,
+                subscribe_release,
+            )
             .await
     });
-    tokio::time::sleep(StdDuration::from_millis(10)).await;
+    locked.notified().await;
+    let delete_started = Arc::new(tokio::sync::Notify::new());
+    let unsubscribe_started = Arc::clone(&delete_started);
     let unsubscribe = tokio::spawn(async move {
+        unsubscribe_started.notify_one();
         delete_database
             .execute_unprepared(&format!(
                 "DELETE FROM subscriptions
@@ -1000,6 +1002,8 @@ async fn sqlite_subscribe_outcome_uses_the_locked_transaction_snapshot() {
             ))
             .await
     });
+    delete_started.notified().await;
+    release.notify_one();
     let (outcome, unsubscribed) = tokio::time::timeout(StdDuration::from_secs(10), async {
         tokio::join!(subscribe, unsubscribe)
     })

@@ -128,10 +128,9 @@ async fn import_opml(
 ) -> Result<axum::Json<OpmlImportResponse>, ApiError> {
     let mode = ImportMode::parse(params.mode.as_deref())?;
     let document = OpmlDocument::parse(&body).map_err(map_opml_error)?;
-    let repository = repository(&state)?;
     let response = match mode {
         ImportMode::Preview => OpmlImportResponse::preview(
-            repository
+            query_repository(&state)?
                 .preview_opml(&user.id, &document)
                 .await
                 .map_err(map_opml_error)?,
@@ -142,7 +141,9 @@ async fn import_opml(
                 .check(&user.id)
                 .map_err(super::map_limiter_rejection)?;
             let imported = state
-                .commit_and_notify_feed_runtime(repository.import_opml(&user.id, &document))
+                .commit_and_notify_feed_runtime(
+                    command_repository(&state)?.import_opml(&user.id, &document),
+                )
                 .await
                 .map_err(map_opml_error)?;
             OpmlImportResponse::imported(imported)
@@ -155,7 +156,7 @@ async fn export_opml(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
 ) -> Result<Response, ApiError> {
-    let document = repository(&state)?
+    let document = query_repository(&state)?
         .export_opml(&user.id)
         .await
         .map_err(map_opml_error)?;
@@ -175,7 +176,15 @@ async fn export_opml(
         .into_response())
 }
 
-fn repository(state: &AppState) -> Result<FeedRepository, ApiError> {
+fn query_repository(state: &AppState) -> Result<FeedRepository, ApiError> {
+    state
+        .setup
+        .reader_database()
+        .map(FeedRepository::new)
+        .map_err(|_| ApiError::internal())
+}
+
+fn command_repository(state: &AppState) -> Result<FeedRepository, ApiError> {
     state
         .setup
         .database()

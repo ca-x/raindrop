@@ -127,7 +127,7 @@ test("Expanded source tree keeps hover distinct and reaches the final feed", asy
     await expect.poll(() => tree.evaluate((element) => element.scrollHeight > element.clientHeight))
       .toBe(true)
 
-    await sources.getByRole("button", { name: "Rust Dispatch" }).click()
+    await sources.getByRole("button", { name: "Rust Dispatch", exact: true }).click()
     const selectedRow = sources
       .getByRole("treeitem", { name: /Rust Dispatch/u })
       .locator(":scope > div:last-of-type > div")
@@ -166,7 +166,10 @@ test("Expanded source tree keeps hover distinct and reaches the final feed", asy
     expect(selectedEntryStyle.shadow).not.toBe("none")
     expect(hoverEntryStyle.shadow).not.toBe("none")
 
-    const finalFeed = sources.getByRole("button", { name: "Overflow feed 18" })
+    const finalFeed = sources.getByRole("button", {
+      name: "Overflow feed 18",
+      exact: true,
+    })
     await tree.evaluate((element) => {
       element.scrollTop = element.scrollHeight
     })

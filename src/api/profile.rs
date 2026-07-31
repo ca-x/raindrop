@@ -71,7 +71,10 @@ async fn get_profile(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
 ) -> Result<Json<ProfileResponse>, ApiError> {
-    let database = state.setup.database().map_err(|_| ApiError::internal())?;
+    let database = state
+        .setup
+        .reader_database()
+        .map_err(|_| ApiError::internal())?;
     let profile = load_user_profile(&database, &user.id)
         .await
         .map_err(map_profile_error)?;

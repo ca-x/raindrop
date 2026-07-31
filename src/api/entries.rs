@@ -321,7 +321,15 @@ impl From<EnclosureDto> for EnclosureResponse {
     }
 }
 
-fn repository(state: &AppState) -> Result<FeedRepository, ApiError> {
+fn reader_repository(state: &AppState) -> Result<FeedRepository, ApiError> {
+    state
+        .setup
+        .reader_database()
+        .map(FeedRepository::new)
+        .map_err(|_| ApiError::internal())
+}
+
+fn writer_repository(state: &AppState) -> Result<FeedRepository, ApiError> {
     state
         .setup
         .database()
@@ -334,7 +342,7 @@ async fn list_entries(
     CurrentUser(user): CurrentUser,
     ApiQuery(params): ApiQuery<ListEntriesParams>,
 ) -> Result<Json<EntryPageResponse>, ApiError> {
-    let page = repository(&state)?
+    let page = reader_repository(&state)?
         .list_for_user(&user.id, params.into_query())
         .await
         .map_err(map_repository_error)?;
@@ -346,7 +354,7 @@ async fn get_entry(
     CurrentUser(user): CurrentUser,
     Path(entry_id): Path<String>,
 ) -> Result<Json<EntryDetailResponse>, ApiError> {
-    let detail = repository(&state)?
+    let detail = reader_repository(&state)?
         .get_detail_for_user(&user.id, &entry_id)
         .await
         .map_err(map_repository_error)?
@@ -365,7 +373,7 @@ async fn get_entry_image(
         .ok()
         .filter(|index| index.to_string() == image_index)
         .ok_or_else(ApiError::not_found)?;
-    let repository = repository(&state)?;
+    let repository = reader_repository(&state)?;
     let source_url =
         if let Some(source) = state.cached_entry_image_source(&user.id, &entry_id, image_index) {
             if !repository
@@ -416,7 +424,7 @@ async fn patch_entry_state(
     if request.is_read.is_none() && request.is_starred.is_none() {
         return Err(ApiError::validation());
     }
-    let state = repository(&state)?
+    let state = writer_repository(&state)?
         .update_state_for_user(
             &user.id,
             &entry_id,
@@ -438,7 +446,7 @@ async fn mark_entries_read(
     ApiJson(request): ApiJson<MarkEntriesReadRequest>,
 ) -> Result<StatusCode, ApiError> {
     let (scope, snapshot_generation) = request.into_scope()?;
-    repository(&state)?
+    writer_repository(&state)?
         .mark_read_for_user(&user.id, scope, snapshot_generation)
         .await
         .map_err(map_repository_error)?;

@@ -21,7 +21,7 @@ use crate::{
         validate_create_admin_input,
     },
     config::DatabaseKind,
-    db::{DatabaseConfig, DbError, connect, migrate},
+    db::{DatabaseConfig, DbError, connect, connect_reader, migrate},
 };
 
 #[derive(Clone)]
@@ -81,6 +81,17 @@ impl SetupService {
         public_url: Option<Url>,
         database: DatabaseConnection,
     ) -> Self {
+        Self::admin_only_with_reader(data_dir, token, public_url, database.clone(), database)
+    }
+
+    #[must_use]
+    pub fn admin_only_with_reader(
+        data_dir: impl AsRef<Path>,
+        token: SecretString,
+        public_url: Option<Url>,
+        database: DatabaseConnection,
+        reader_database: DatabaseConnection,
+    ) -> Self {
         let data_dir = data_dir.as_ref().to_owned();
         Self {
             inner: Arc::new(SetupInner {
@@ -90,7 +101,7 @@ impl SetupService {
                 public_url,
                 mode: AtomicU8::new(MODE_ADMIN_ONLY),
                 completion: Mutex::new(()),
-                sessions: SessionService::new(database),
+                sessions: SessionService::with_reader(database, reader_database),
                 fail_directory_sync: AtomicBool::new(false),
                 fail_after_durable_boundary: AtomicBool::new(false),
             }),
@@ -103,11 +114,31 @@ impl SetupService {
         public_url: Option<Url>,
         database: DatabaseConnection,
     ) -> Result<Self, SetupError> {
+        Self::from_configured_databases(data_dir, token, public_url, database.clone(), database)
+            .await
+    }
+
+    pub async fn from_configured_databases(
+        data_dir: impl AsRef<Path>,
+        token: SecretString,
+        public_url: Option<Url>,
+        database: DatabaseConnection,
+        reader_database: DatabaseConnection,
+    ) -> Result<Self, SetupError> {
         match inspect_bootstrap_state(&database).await? {
-            ConfiguredBootstrapState::Empty => {
-                Ok(Self::admin_only(data_dir, token, public_url, database))
-            }
-            ConfiguredBootstrapState::Ready => Ok(Self::ready(data_dir, public_url, database)),
+            ConfiguredBootstrapState::Empty => Ok(Self::admin_only_with_reader(
+                data_dir,
+                token,
+                public_url,
+                database,
+                reader_database,
+            )),
+            ConfiguredBootstrapState::Ready => Ok(Self::ready_with_reader(
+                data_dir,
+                public_url,
+                database,
+                reader_database,
+            )),
             ConfiguredBootstrapState::Inconsistent => Err(SetupError::InconsistentBootstrap),
         }
     }
@@ -118,6 +149,16 @@ impl SetupService {
         public_url: Option<Url>,
         database: DatabaseConnection,
     ) -> Self {
+        Self::ready_with_reader(data_dir, public_url, database.clone(), database)
+    }
+
+    #[must_use]
+    pub fn ready_with_reader(
+        data_dir: impl AsRef<Path>,
+        public_url: Option<Url>,
+        database: DatabaseConnection,
+        reader_database: DatabaseConnection,
+    ) -> Self {
         let data_dir = data_dir.as_ref().to_owned();
         Self {
             inner: Arc::new(SetupInner {
@@ -127,7 +168,7 @@ impl SetupService {
                 public_url,
                 mode: AtomicU8::new(MODE_READY),
                 completion: Mutex::new(()),
-                sessions: SessionService::new(database),
+                sessions: SessionService::with_reader(database, reader_database),
                 fail_directory_sync: AtomicBool::new(false),
                 fail_after_durable_boundary: AtomicBool::new(false),
             }),
@@ -165,6 +206,13 @@ impl SetupService {
         self.inner
             .sessions
             .database()
+            .map_err(|_| SetupError::NotReady)
+    }
+
+    pub fn reader_database(&self) -> Result<DatabaseConnection, SetupError> {
+        self.inner
+            .sessions
+            .reader_database()
             .map_err(|_| SetupError::NotReady)
     }
 
@@ -211,7 +259,10 @@ impl SetupService {
         validate_create_admin_input(&admin_input).map_err(SetupError::CreateAdmin)?;
         prepare_data_dir(&self.inner.data_dir)?;
 
-        let database = connect_database(input.database_url.expose_secret()).await?;
+        let database_config = DatabaseConfig::new(input.database_url.clone());
+        let database = connect(&database_config)
+            .await
+            .map_err(SetupError::Database)?;
         migrate(&database).await.map_err(SetupError::Database)?;
         match inspect_bootstrap_state(&database).await? {
             ConfiguredBootstrapState::Empty => {}
@@ -220,6 +271,9 @@ impl SetupService {
                 return Err(SetupError::InconsistentBootstrap);
             }
         }
+        let reader_database = connect_reader(&database_config, &database)
+            .await
+            .map_err(SetupError::Database)?;
 
         let mut temporary = self.write_temporary_config(&input.database_url)?;
         let inject_directory_sync_failure =
@@ -251,7 +305,9 @@ impl SetupService {
             return Err(temporary.cleanup_after_failure(failure));
         }
         temporary.disarm();
-        self.inner.sessions.attach_database(database.clone());
+        self.inner
+            .sessions
+            .attach_databases(database.clone(), reader_database);
         self.inner.mode.store(MODE_ADMIN_ONLY, Ordering::Release);
         if self
             .inner

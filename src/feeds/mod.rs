@@ -68,6 +68,9 @@ pub use refresh::{
 };
 pub use repository::FeedRepository;
 pub use retention::{FeedRetentionError, FeedRetentionPolicy};
+#[cfg(debug_assertions)]
+#[doc(hidden)]
+pub use runtime::coordinate_attempt_for_test;
 pub use runtime::{FeedRuntime, FeedRuntimeHandle};
 pub use schedule::{JitterSource, RefreshResult, RefreshSchedule, RetryAfter, ScheduleOutcome};
 pub use service::{FeedCommandService, FeedExecutor, FeedServiceError};

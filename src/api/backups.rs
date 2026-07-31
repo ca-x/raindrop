@@ -188,7 +188,7 @@ async fn list_targets(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
 ) -> Result<Json<TargetListResponse>, ApiError> {
-    let items = repository(&state)?
+    let items = query_repository(&state)?
         .list_targets(&user.id)
         .await
         .map_err(map_backup_error)?;
@@ -203,7 +203,7 @@ async fn create_target(
 ) -> Result<Response, ApiError> {
     admit_mutation(&state, &user.id)?;
     let target = state
-        .commit_and_notify_backup_runtime(repository(&state)?.create_target(
+        .commit_and_notify_backup_runtime(command_repository(&state)?.create_target(
             &user.id,
             CreateBackupTarget {
                 display_name: request.display_name,
@@ -229,7 +229,7 @@ async fn update_target(
 ) -> Result<Json<BackupTarget>, ApiError> {
     admit_mutation(&state, &user.id)?;
     let target = state
-        .commit_and_notify_backup_runtime(repository(&state)?.update_target(
+        .commit_and_notify_backup_runtime(command_repository(&state)?.update_target(
             &user.id,
             &target_id,
             UpdateBackupTarget {
@@ -253,7 +253,9 @@ async fn delete_target(
 ) -> Result<StatusCode, ApiError> {
     admit_mutation(&state, &user.id)?;
     state
-        .commit_and_notify_backup_runtime(repository(&state)?.delete_target(&user.id, &target_id))
+        .commit_and_notify_backup_runtime(
+            command_repository(&state)?.delete_target(&user.id, &target_id),
+        )
         .await
         .map_err(map_backup_error)?;
     Ok(StatusCode::NO_CONTENT)
@@ -266,7 +268,7 @@ async fn test_target(
     ApiPath(target_id): ApiPath<String>,
 ) -> Result<Json<TestTargetResponse>, ApiError> {
     admit_mutation(&state, &user.id)?;
-    let target = repository(&state)?
+    let target = command_repository(&state)?
         .execution_target_for_test(&user.id, &target_id)
         .await
         .map_err(map_backup_error)?;
@@ -281,7 +283,7 @@ async fn get_schedule(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
 ) -> Result<Json<BackupSchedule>, ApiError> {
-    repository(&state)?
+    query_repository(&state)?
         .get_schedule(&user.id)
         .await
         .map(Json)
@@ -296,7 +298,7 @@ async fn put_schedule(
 ) -> Result<Json<BackupSchedule>, ApiError> {
     admit_mutation(&state, &user.id)?;
     state
-        .commit_and_notify_backup_runtime(repository(&state)?.put_schedule(
+        .commit_and_notify_backup_runtime(command_repository(&state)?.put_schedule(
             &user.id,
             request.enabled,
             request.interval_hours,
@@ -316,7 +318,7 @@ async fn create_job(
     admit_mutation(&state, &user.id)?;
     let job = state
         .commit_and_notify_backup_runtime(
-            repository(&state)?.enqueue_manual(&user.id, &request.target_ids),
+            command_repository(&state)?.enqueue_manual(&user.id, &request.target_ids),
         )
         .await
         .map_err(map_backup_error)?;
@@ -338,7 +340,7 @@ async fn list_jobs(
                 .map_err(|_| ApiError::validation().with_field("since", "Timestamp is invalid"))
         })
         .transpose()?;
-    let items = repository(&state)?
+    let items = query_repository(&state)?
         .list_jobs(&user.id, since, query.limit.unwrap_or(50))
         .await
         .map_err(map_backup_error)?;
@@ -350,14 +352,22 @@ async fn get_job(
     CurrentUser(user): CurrentUser,
     ApiPath(job_id): ApiPath<String>,
 ) -> Result<Json<BackupJob>, ApiError> {
-    repository(&state)?
+    query_repository(&state)?
         .get_job(&user.id, &job_id)
         .await
         .map(Json)
         .map_err(map_backup_error)
 }
 
-fn repository(state: &AppState) -> Result<BackupRepository, ApiError> {
+fn query_repository(state: &AppState) -> Result<BackupRepository, ApiError> {
+    state
+        .setup
+        .reader_database()
+        .map(|database| BackupRepository::new(database, state.provider_keyring()))
+        .map_err(|_| ApiError::internal())
+}
+
+fn command_repository(state: &AppState) -> Result<BackupRepository, ApiError> {
     state
         .setup
         .database()

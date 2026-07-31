@@ -331,12 +331,21 @@ fn command_service(state: &AppState) -> Result<FeedCommandService, ApiError> {
         .map_err(|_| ApiError::internal())
 }
 
+fn query_service(state: &AppState) -> Result<FeedCommandService, ApiError> {
+    state
+        .setup
+        .reader_database()
+        .map(FeedRepository::new)
+        .map(FeedCommandService::new)
+        .map_err(|_| ApiError::internal())
+}
+
 async fn subscription_favicon(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
     ApiPath(subscription_id): ApiPath<String>,
 ) -> Result<Response, ApiError> {
-    let subscription = command_service(&state)?
+    let subscription = query_service(&state)?
         .get_subscription(&user.id, &subscription_id)
         .await
         .map_err(map_favicon_subscription_error)?
@@ -380,7 +389,7 @@ async fn list_subscriptions(
     CurrentUser(user): CurrentUser,
     ApiQuery(params): ApiQuery<ListSubscriptionsParams>,
 ) -> Result<Json<SubscriptionPageResponse>, ApiError> {
-    let page = command_service(&state)?
+    let page = query_service(&state)?
         .list_subscriptions(&user.id, params.into_query())
         .await
         .map_err(map_feed_service_error)?;
@@ -433,7 +442,7 @@ async fn get_subscription(
     CurrentUser(user): CurrentUser,
     ApiPath(subscription_id): ApiPath<String>,
 ) -> Result<Json<SubscriptionResponse>, ApiError> {
-    let subscription = command_service(&state)?
+    let subscription = query_service(&state)?
         .get_subscription(&user.id, &subscription_id)
         .await
         .map_err(map_feed_service_error)?

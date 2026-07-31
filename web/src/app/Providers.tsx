@@ -4,7 +4,7 @@ import { Theme } from "@astryxdesign/core/theme"
 import { neutralTheme } from "@astryxdesign/theme-neutral/built"
 import { I18nProvider } from "@lingui/react"
 import { forwardRef, type AnchorHTMLAttributes, type ReactNode } from "react"
-import { BrowserRouter, Link } from "react-router-dom"
+import { BrowserRouter, Link } from "react-router"
 
 import {
   PreferenceRuntimeProvider,

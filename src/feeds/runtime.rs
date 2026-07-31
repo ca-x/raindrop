@@ -66,6 +66,7 @@ struct TerminalReadyHook {
     ready: Arc<Notify>,
     release: Arc<Notify>,
     heartbeat_attempts: Arc<std::sync::atomic::AtomicUsize>,
+    heartbeat_started: Option<Arc<Notify>>,
 }
 
 #[cfg(debug_assertions)]
@@ -126,6 +127,7 @@ where
             ready,
             release,
             heartbeat_attempts,
+            heartbeat_started: None,
         }));
         self
     }
@@ -414,40 +416,89 @@ async fn coordinate_attempt<A>(
         tokio::select! {
             biased;
             result = &mut attempt => {
-                if let Err(error) = result {
-                    let lease_lost = matches!(
-                        &error,
-                        FeedServiceError::RefreshRepository(RefreshRepositoryError::LeaseLost)
-                    );
-                    let database_error = matches!(
-                        &error,
-                        FeedServiceError::RefreshRepository(RefreshRepositoryError::Database(_))
-                    );
-                    tracing::warn!(?error, database_error, "feed runtime attempt failed");
-                    if lease_lost {
-                        recover_after_lease_loss(repository, notify).await;
-                    }
+                finish_attempt(repository, notify, result).await;
+                return;
+            }
+            () = &mut heartbeat => {}
+        }
+
+        #[cfg(debug_assertions)]
+        if let Some(hook) = terminal_ready_hook.as_ref() {
+            hook.heartbeat_attempts
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if let Some(started) = hook.heartbeat_started.as_ref() {
+                started.notify_one();
+            }
+        }
+        let extended = {
+            let extension = repository.extend_lease(&claim, LEASE_DURATION);
+            tokio::pin!(extension);
+            tokio::select! {
+                biased;
+                result = &mut attempt => {
+                    finish_attempt(repository, notify, result).await;
+                    return;
+                }
+                extended = &mut extension => extended,
+            }
+        };
+        match extended {
+            Ok(updated) => claim = updated,
+            Err(error) => {
+                let lease_lost = matches!(error, RefreshRepositoryError::LeaseLost);
+                tracing::warn!(?error, "feed runtime heartbeat failed");
+                if lease_lost {
+                    recover_after_lease_loss(repository, notify).await;
                 }
                 return;
             }
-            () = &mut heartbeat => {
-                #[cfg(debug_assertions)]
-                if let Some(hook) = terminal_ready_hook.as_ref() {
-                    hook.heartbeat_attempts
-                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                }
-                match repository.extend_lease(&claim, LEASE_DURATION).await {
-                    Ok(extended) => claim = extended,
-                    Err(error) => {
-                        let lease_lost = matches!(error, RefreshRepositoryError::LeaseLost);
-                        tracing::warn!(?error, "feed runtime heartbeat failed");
-                        if lease_lost {
-                            recover_after_lease_loss(repository, notify).await;
-                        }
-                        return;
-                    }
-                }
-            }
+        }
+    }
+}
+
+#[cfg(debug_assertions)]
+#[doc(hidden)]
+pub async fn coordinate_attempt_for_test<A>(
+    repository: &FeedRepository,
+    attempt: A,
+    claim: super::RefreshClaim,
+    heartbeat_started: Arc<Notify>,
+) where
+    A: Future<Output = Result<super::RefreshDto, FeedServiceError>>,
+{
+    coordinate_attempt(
+        repository,
+        attempt,
+        claim,
+        &Notify::new(),
+        Some(Arc::new(TerminalReadyHook {
+            ready: Arc::new(Notify::new()),
+            release: Arc::new(Notify::new()),
+            heartbeat_attempts: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            heartbeat_started: Some(heartbeat_started),
+        })),
+        false,
+    )
+    .await;
+}
+
+async fn finish_attempt(
+    repository: &FeedRepository,
+    notify: &Notify,
+    result: Result<super::RefreshDto, FeedServiceError>,
+) {
+    if let Err(error) = result {
+        let lease_lost = matches!(
+            &error,
+            FeedServiceError::RefreshRepository(RefreshRepositoryError::LeaseLost)
+        );
+        let database_error = matches!(
+            &error,
+            FeedServiceError::RefreshRepository(RefreshRepositoryError::Database(_))
+        );
+        tracing::warn!(?error, database_error, "feed runtime attempt failed");
+        if lease_lost {
+            recover_after_lease_loss(repository, notify).await;
         }
     }
 }

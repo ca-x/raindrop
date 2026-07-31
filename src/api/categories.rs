@@ -117,7 +117,7 @@ async fn list_categories(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
 ) -> Result<Json<CategoryListResponse>, ApiError> {
-    let items = repository(&state)?
+    let items = query_repository(&state)?
         .list(&user.id)
         .await
         .map_err(map_category_error)?
@@ -137,7 +137,7 @@ async fn create_category(
         .organization_mutation_limiter
         .check(&user.id)
         .map_err(map_limiter_rejection)?;
-    let category = repository(&state)?
+    let category = command_repository(&state)?
         .create(
             &user.id,
             CreateCategory {
@@ -168,7 +168,7 @@ async fn update_category(
         .organization_mutation_limiter
         .check(&user.id)
         .map_err(map_limiter_rejection)?;
-    let category = repository(&state)?
+    let category = command_repository(&state)?
         .update(
             &user.id,
             &category_id,
@@ -193,14 +193,22 @@ async fn delete_category(
         .organization_mutation_limiter
         .check(&user.id)
         .map_err(map_limiter_rejection)?;
-    repository(&state)?
+    command_repository(&state)?
         .delete(&user.id, &category_id)
         .await
         .map_err(map_category_error)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
-fn repository(state: &AppState) -> Result<CategoryRepository, ApiError> {
+fn query_repository(state: &AppState) -> Result<CategoryRepository, ApiError> {
+    state
+        .setup
+        .reader_database()
+        .map(CategoryRepository::new)
+        .map_err(|_| ApiError::internal())
+}
+
+fn command_repository(state: &AppState) -> Result<CategoryRepository, ApiError> {
     state
         .setup
         .database()

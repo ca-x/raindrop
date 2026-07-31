@@ -17,7 +17,7 @@ use raindrop::{
         new_setup_token,
     },
     content::provider::ProviderSecretKeyring,
-    db::{DatabaseConfig, connect, entities::ai_provider, migrate},
+    db::{DatabaseConfig, connect, connect_reader, entities::ai_provider, migrate},
     feeds::{FeedTransport, FeedUrlPolicy, HttpFeedTransport},
     setup::SetupService,
 };
@@ -66,18 +66,23 @@ async fn main() -> Result<()> {
         BootstrapMode::Ready => {
             let database_url =
                 database_url.context("ready configuration is missing RAINDROP_DATABASE_URL")?;
-            let database = connect(&DatabaseConfig::new(database_url))
+            let database_config = DatabaseConfig::new(database_url);
+            let database = connect(&database_config)
                 .await
                 .context("failed to connect to the configured database")?;
             migrate(&database)
                 .await
                 .context("failed to migrate the configured database")?;
+            let reader_database = connect_reader(&database_config, &database)
+                .await
+                .context("failed to connect the Reader database pool")?;
             let token = new_setup_token();
-            let mut setup = SetupService::from_configured_database(
+            let mut setup = SetupService::from_configured_databases(
                 data_dir.clone(),
                 token.clone(),
                 public_url.clone(),
                 database.clone(),
+                reader_database.clone(),
             )
             .await
             .context("failed to inspect configured bootstrap state")?;
@@ -95,11 +100,12 @@ async fn main() -> Result<()> {
                 )
                 .await
                 .context("failed to create the bootstrap administrator")?;
-                setup = SetupService::from_configured_database(
+                setup = SetupService::from_configured_databases(
                     data_dir.clone(),
                     token.clone(),
                     public_url,
                     database,
+                    reader_database,
                 )
                 .await
                 .context(

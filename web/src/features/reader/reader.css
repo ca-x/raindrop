@@ -359,7 +359,11 @@
 
 .reader-source-mark-read {
   opacity: 0;
-  transition: opacity 120ms ease;
+  transition: opacity var(--duration-micro) var(--ease-out);
+}
+
+.reader-source-status {
+  transition: opacity var(--duration-micro) var(--ease-out);
 }
 
 .reader-source-list
@@ -373,6 +377,28 @@
   > div:focus-within
   .reader-source-mark-read {
   opacity: 1;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .reader-source-mark-read {
+    position: absolute;
+    inset-block-start: 50%;
+    inset-inline-end: 8px;
+    transform: translateY(-50%);
+  }
+
+  .reader-source-list
+    [role="treeitem"]
+    > div:last-of-type
+    > div:hover
+    .reader-source-status,
+  .reader-source-list
+    [role="treeitem"]
+    > div:last-of-type
+    > div:focus-within
+    .reader-source-status {
+    opacity: 0;
+  }
 }
 
 @media (hover: none) {

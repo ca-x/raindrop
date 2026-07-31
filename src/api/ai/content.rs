@@ -363,7 +363,7 @@ async fn get_entry_ai(
     ApiQuery(query): ApiQuery<EntryAiQuery>,
 ) -> Result<Json<EntryAiResponse>, ApiError> {
     validate_canonical_uuid(&entry_id, "entryId")?;
-    let overview = ai_service(&state)?
+    let overview = query_ai_service(&state)?
         .overview(&user.id, &entry_id, query.translation_locale.as_deref())
         .await
         .map_err(map_service_error)?;
@@ -382,7 +382,7 @@ async fn enqueue_entry_ai(
         .content_mutation_limiter
         .check(&user.id)
         .map_err(map_limiter_rejection)?;
-    let outcome = ai_service(&state)?
+    let outcome = command_ai_service(&state)?
         .enqueue(
             &user.id,
             &entry_id,
@@ -401,7 +401,7 @@ async fn get_ai_job(
     ApiPath(job_id): ApiPath<String>,
 ) -> Result<Json<AiJobResponse>, ApiError> {
     validate_canonical_uuid(&job_id, "jobId")?;
-    let job = content_repository(&state)?
+    let job = query_content_repository(&state)?
         .get_job(&user.id, &job_id)
         .await
         .map_err(map_repository_error)?;
@@ -414,7 +414,7 @@ async fn get_ai_result(
     ApiPath(job_id): ApiPath<String>,
 ) -> Result<Json<AiArtifactResponse>, ApiError> {
     validate_canonical_uuid(&job_id, "jobId")?;
-    let repository = content_repository(&state)?;
+    let repository = query_content_repository(&state)?;
     let job = repository
         .get_job(&user.id, &job_id)
         .await
@@ -451,7 +451,7 @@ async fn retry_ai_job(
         .content_mutation_limiter
         .check(&user.id)
         .map_err(map_limiter_rejection)?;
-    let outcome = ai_service(&state)?
+    let outcome = command_ai_service(&state)?
         .retry(&user.id, &job_id, &request.idempotency_key)
         .await
         .map_err(map_service_error)?;
@@ -475,7 +475,19 @@ fn enqueue_response(outcome: EnqueueResult) -> Result<Response, ApiError> {
         .into_response())
 }
 
-fn ai_service(state: &AppState) -> Result<AiContentService, ApiError> {
+fn query_ai_service(state: &AppState) -> Result<AiContentService, ApiError> {
+    let database = state
+        .setup
+        .reader_database()
+        .map_err(|_| ApiError::internal())?;
+    Ok(AiContentService::new(
+        database,
+        state.provider_keyring(),
+        state.content_runtime.clone(),
+    ))
+}
+
+fn command_ai_service(state: &AppState) -> Result<AiContentService, ApiError> {
     let database = state.setup.database().map_err(|_| ApiError::internal())?;
     Ok(AiContentService::new(
         database,
@@ -484,10 +496,10 @@ fn ai_service(state: &AppState) -> Result<AiContentService, ApiError> {
     ))
 }
 
-fn content_repository(state: &AppState) -> Result<ContentRepository, ApiError> {
+fn query_content_repository(state: &AppState) -> Result<ContentRepository, ApiError> {
     state
         .setup
-        .database()
+        .reader_database()
         .map(ContentRepository::new)
         .map_err(|_| ApiError::internal())
 }

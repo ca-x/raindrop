@@ -317,7 +317,7 @@ async fn list_providers(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
 ) -> Result<Json<ProviderListResponse>, ApiError> {
-    let items = repository(&state)?
+    let items = query_repository(&state)?
         .list_for_user(&user.id)
         .await
         .map_err(map_provider_error)?
@@ -340,7 +340,7 @@ async fn get_provider(
     ApiPath(provider_id): ApiPath<String>,
 ) -> Result<Json<ProviderResponse>, ApiError> {
     validate_canonical_uuid(&provider_id)?;
-    let provider = repository(&state)?
+    let provider = query_repository(&state)?
         .get_visible_for_user(&provider_id, &user.id)
         .await
         .map_err(map_provider_error)?;
@@ -357,7 +357,7 @@ async fn create_provider(
         .provider_mutation_limiter
         .check(&user.id)
         .map_err(map_limiter_rejection)?;
-    let repository = repository(&state)?;
+    let repository = command_repository(&state)?;
     if repository
         .count_user_owned(&user.id)
         .await
@@ -403,14 +403,22 @@ async fn update_provider(
         .check(&user.id)
         .map_err(map_limiter_rejection)?;
     let scope = ProviderScope::user(user.id).map_err(map_provider_error)?;
-    let provider = repository(&state)?
+    let provider = command_repository(&state)?
         .update(&provider_id, &scope, request.into_domain())
         .await
         .map_err(map_provider_error)?;
     Ok(Json(ProviderResponse::from_metadata(provider)?))
 }
 
-fn repository(state: &AppState) -> Result<ProviderRepository, ApiError> {
+fn query_repository(state: &AppState) -> Result<ProviderRepository, ApiError> {
+    state
+        .setup
+        .reader_database()
+        .map(|database| ProviderRepository::new(database, state.provider_keyring()))
+        .map_err(|_| ApiError::internal())
+}
+
+fn command_repository(state: &AppState) -> Result<ProviderRepository, ApiError> {
     state
         .setup
         .database()

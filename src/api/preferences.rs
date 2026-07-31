@@ -333,7 +333,7 @@ async fn get_user_preferences(
     user_id: &str,
     headers: &HeaderMap,
 ) -> Result<UserPreferences, ApiError> {
-    repository(state)?
+    query_repository(state)?
         .get(user_id, default_locale(headers))
         .await
         .map_err(map_preference_error)
@@ -349,13 +349,21 @@ async fn update_user_preferences(
         .preferences_mutation_limiter
         .check(user_id)
         .map_err(map_limiter_rejection)?;
-    repository(state)?
+    command_repository(state)?
         .update(user_id, default_locale(headers), request)
         .await
         .map_err(map_preference_error)
 }
 
-fn repository(state: &AppState) -> Result<PreferenceRepository, ApiError> {
+fn query_repository(state: &AppState) -> Result<PreferenceRepository, ApiError> {
+    state
+        .setup
+        .reader_database()
+        .map(PreferenceRepository::new)
+        .map_err(|_| ApiError::internal())
+}
+
+fn command_repository(state: &AppState) -> Result<PreferenceRepository, ApiError> {
     state
         .setup
         .database()

@@ -3,11 +3,12 @@ use std::sync::{Arc, RwLock};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use rand_core::{OsRng, RngCore};
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter,
-    sea_query::Expr,
+    ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DatabaseBackend,
+    DatabaseConnection, DbErr, EntityTrait, QueryFilter, sea_query::Expr,
 };
 use secrecy::{ExposeSecret, SecretString};
 use time::{Duration, OffsetDateTime};
+use tokio::sync::Semaphore;
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::db::entities::session;
@@ -20,36 +21,61 @@ const CSRF_DERIVATION_CONTEXT: &str = "raindrop.browser.csrf-token.v1";
 
 #[derive(Clone)]
 pub struct SessionService {
-    database: Arc<RwLock<Option<DatabaseConnection>>>,
+    databases: Arc<RwLock<Option<SessionDatabases>>>,
+    last_seen_update_slot: Arc<Semaphore>,
+}
+
+#[derive(Clone)]
+struct SessionDatabases {
+    primary: DatabaseConnection,
+    reader: DatabaseConnection,
 }
 
 impl SessionService {
     #[must_use]
     pub fn new(database: DatabaseConnection) -> Self {
+        Self::with_reader(database.clone(), database)
+    }
+
+    #[must_use]
+    pub fn with_reader(primary: DatabaseConnection, reader: DatabaseConnection) -> Self {
         Self {
-            database: Arc::new(RwLock::new(Some(database))),
+            databases: Arc::new(RwLock::new(Some(SessionDatabases { primary, reader }))),
+            last_seen_update_slot: Arc::new(Semaphore::new(1)),
         }
     }
 
     #[must_use]
     pub fn unavailable() -> Self {
         Self {
-            database: Arc::new(RwLock::new(None)),
+            databases: Arc::new(RwLock::new(None)),
+            last_seen_update_slot: Arc::new(Semaphore::new(1)),
         }
     }
 
-    pub(crate) fn attach_database(&self, database: DatabaseConnection) {
+    pub(crate) fn attach_databases(&self, primary: DatabaseConnection, reader: DatabaseConnection) {
         *self
-            .database
+            .databases
             .write()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(database);
+            .unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Some(SessionDatabases { primary, reader });
     }
 
     pub(crate) fn database(&self) -> Result<DatabaseConnection, SessionError> {
-        self.database
+        self.databases
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone()
+            .as_ref()
+            .map(|databases| databases.primary.clone())
+            .ok_or(SessionError::Unavailable)
+    }
+
+    pub(crate) fn reader_database(&self) -> Result<DatabaseConnection, SessionError> {
+        self.databases
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .map(|databases| databases.reader.clone())
             .ok_or(SessionError::Unavailable)
     }
 
@@ -112,10 +138,10 @@ impl SessionService {
         &self,
         cookie_token: &SecretString,
     ) -> Result<AuthenticatedSession, SessionError> {
-        let database = self.database()?;
+        let reader = self.reader_database()?;
         let token_hash = hash_token(cookie_token);
         let stored = session::Entity::find_by_id(&token_hash)
-            .one(&database)
+            .one(&reader)
             .await
             .map_err(SessionError::Database)?
             .ok_or(SessionError::Invalid)?;
@@ -123,7 +149,7 @@ impl SessionService {
         if stored.expires_at <= now {
             return Err(SessionError::Expired);
         }
-        let user = load_user_by_id(&database, &stored.user_id)
+        let user = load_user_by_id(&reader, &stored.user_id)
             .await
             .map_err(SessionError::Database)?
             .ok_or(SessionError::Invalid)?;
@@ -131,13 +157,29 @@ impl SessionService {
             return Err(SessionError::Disabled);
         }
         if stored.last_seen_at <= now - LAST_SEEN_WRITE_INTERVAL {
-            session::Entity::update_many()
-                .col_expr(session::Column::LastSeenAt, Expr::value(now))
-                .filter(session::Column::TokenHash.eq(&token_hash))
-                .filter(session::Column::LastSeenAt.lte(now - LAST_SEEN_WRITE_INTERVAL))
-                .exec(&database)
-                .await
-                .map_err(SessionError::Database)?;
+            let database = self.database()?;
+            if database.get_database_backend() == DatabaseBackend::Sqlite {
+                if let Ok(permit) = Arc::clone(&self.last_seen_update_slot).try_acquire_owned() {
+                    tokio::spawn(async move {
+                        let _permit = permit;
+                        if refresh_last_seen(
+                            &database,
+                            &token_hash,
+                            now,
+                            now - LAST_SEEN_WRITE_INTERVAL,
+                        )
+                        .await
+                        .is_err()
+                        {
+                            tracing::warn!("session last-seen refresh failed");
+                        }
+                    });
+                }
+            } else {
+                refresh_last_seen(&database, &token_hash, now, now - LAST_SEEN_WRITE_INTERVAL)
+                    .await
+                    .map_err(SessionError::Database)?;
+            }
         }
 
         Ok(AuthenticatedSession {
@@ -146,6 +188,21 @@ impl SessionService {
             expires_at: stored.expires_at,
         })
     }
+}
+
+async fn refresh_last_seen(
+    database: &DatabaseConnection,
+    token_hash: &str,
+    now: OffsetDateTime,
+    stale_before: OffsetDateTime,
+) -> Result<(), DbErr> {
+    session::Entity::update_many()
+        .col_expr(session::Column::LastSeenAt, Expr::value(now))
+        .filter(session::Column::TokenHash.eq(token_hash))
+        .filter(session::Column::LastSeenAt.lte(stale_before))
+        .exec(database)
+        .await?;
+    Ok(())
 }
 
 #[derive(Debug)]

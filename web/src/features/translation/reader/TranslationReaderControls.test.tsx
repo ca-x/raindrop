@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { Link, Route, Routes } from "react-router-dom"
+import { Link, Route, Routes } from "react-router"
 import { expect, it, vi } from "vitest"
 
 import { Providers } from "../../../app/Providers"

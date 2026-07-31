@@ -47,7 +47,7 @@ pub(super) struct RefreshContext {
 }
 
 enum UpdateSubscriptionAttempt {
-    Complete(Option<SubscriptionListItemDto>),
+    Complete(Box<Option<SubscriptionListItemDto>>),
     Retry,
 }
 
@@ -91,7 +91,7 @@ impl FeedRepository {
         if source_url.is_empty() || source_url.len() > 4_096 {
             return Err(RefreshRepositoryError::InvalidRequest);
         }
-        self.subscribe_command(user_id, source_url, normalized, None)
+        self.subscribe_command(user_id, source_url, normalized, None, None)
             .await
     }
 
@@ -109,8 +109,38 @@ impl FeedRepository {
         if source_url.is_empty() || source_url.len() > 4_096 {
             return Err(RefreshRepositoryError::InvalidRequest);
         }
-        self.subscribe_command(user_id, source_url, normalized, Some((scanned, release)))
-            .await
+        self.subscribe_command(
+            user_id,
+            source_url,
+            normalized,
+            Some((scanned, release)),
+            None,
+        )
+        .await
+    }
+
+    #[cfg(debug_assertions)]
+    #[doc(hidden)]
+    pub async fn subscribe_after_user_lock(
+        &self,
+        user_id: &str,
+        source_url: &str,
+        normalized: &NormalizedFeedUrl,
+        locked: std::sync::Arc<tokio::sync::Notify>,
+        release: std::sync::Arc<tokio::sync::Notify>,
+    ) -> Result<SubscribeOutcome, RefreshRepositoryError> {
+        validate_uuid(user_id).map_err(|()| RefreshRepositoryError::InvalidRequest)?;
+        if source_url.is_empty() || source_url.len() > 4_096 {
+            return Err(RefreshRepositoryError::InvalidRequest);
+        }
+        self.subscribe_command(
+            user_id,
+            source_url,
+            normalized,
+            None,
+            Some((locked, release)),
+        )
+        .await
     }
 
     async fn subscribe_command(
@@ -119,6 +149,10 @@ impl FeedRepository {
         source_url: &str,
         normalized: &NormalizedFeedUrl,
         mut scan_hook: Option<(
+            std::sync::Arc<tokio::sync::Notify>,
+            std::sync::Arc<tokio::sync::Notify>,
+        )>,
+        mut user_lock_hook: Option<(
             std::sync::Arc<tokio::sync::Notify>,
             std::sync::Arc<tokio::sync::Notify>,
         )>,
@@ -136,7 +170,13 @@ impl FeedRepository {
                 release.notified().await;
             }
             match self
-                .subscribe_command_once(user_id, source_url, normalized, candidate)
+                .subscribe_command_once(
+                    user_id,
+                    source_url,
+                    normalized,
+                    candidate,
+                    user_lock_hook.take(),
+                )
                 .await
             {
                 Ok(Some(outcome)) => return Ok(outcome),
@@ -155,11 +195,19 @@ impl FeedRepository {
         source_url: &str,
         normalized: &NormalizedFeedUrl,
         candidate: Option<(String, String)>,
+        user_lock_hook: Option<(
+            std::sync::Arc<tokio::sync::Notify>,
+            std::sync::Arc<tokio::sync::Notify>,
+        )>,
     ) -> Result<Option<SubscribeOutcome>, RefreshRepositoryError> {
         let backend = self.connection().get_database_backend();
         let transaction = self.connection().begin().await?;
         let result = async {
             lock_active_user(&transaction, backend, user_id).await?;
+            if let Some((locked, release)) = user_lock_hook {
+                locked.notify_one();
+                release.notified().await;
+            }
             let (feed_id, feed_is_new) = match candidate {
                 Some((feed_id, stored_url)) => {
                     if stored_url != normalized.complete() {
@@ -501,7 +549,7 @@ impl FeedRepository {
                 Ok(UpdateSubscriptionAttempt::Retry) => {
                     return Err(RefreshRepositoryError::CorruptData);
                 }
-                Ok(UpdateSubscriptionAttempt::Complete(result)) => return Ok(result),
+                Ok(UpdateSubscriptionAttempt::Complete(result)) => return Ok(*result),
                 Err(RefreshRepositoryError::Database(error))
                     if normalized_feed_url.is_some()
                         && attempt < 2
@@ -528,7 +576,7 @@ impl FeedRepository {
                 .one(&transaction)
                 .await?;
             let Some(stored) = stored else {
-                return Ok(UpdateSubscriptionAttempt::Complete(None));
+                return Ok(UpdateSubscriptionAttempt::Complete(Box::new(None)));
             };
             let old_feed_id = stored.feed_id.clone();
             if let PatchValue::Value(category_id) = &input.category_id
@@ -538,7 +586,7 @@ impl FeedRepository {
                     .await?
                     .is_none()
             {
-                return Ok(UpdateSubscriptionAttempt::Complete(None));
+                return Ok(UpdateSubscriptionAttempt::Complete(Box::new(None)));
             }
 
             let mut target_feed_id = old_feed_id.clone();
@@ -685,7 +733,9 @@ impl FeedRepository {
                     .await
                     .map_err(map_projection_command_error)?
                     .ok_or(RefreshRepositoryError::CorruptData)?;
-            Ok(UpdateSubscriptionAttempt::Complete(Some(projection)))
+            Ok(UpdateSubscriptionAttempt::Complete(Box::new(Some(
+                projection,
+            ))))
         }
         .await;
         match result {

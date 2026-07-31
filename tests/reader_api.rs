@@ -1,9 +1,12 @@
 #[allow(dead_code)]
 mod support;
 
-use std::sync::{
-    Arc,
-    atomic::{AtomicUsize, Ordering},
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::Duration,
 };
 
 use async_trait::async_trait;
@@ -20,7 +23,7 @@ use raindrop::{
     app::{AppState, build_router},
     auth::build_session_cookie,
     db::{
-        DatabaseConfig, connect,
+        DatabaseConfig, connect, connect_reader,
         entities::{category, entry, entry_state, feed, rss_counter, session, subscription, user},
         migrate,
     },
@@ -28,8 +31,9 @@ use raindrop::{
     setup::SetupService,
 };
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ColumnTrait, DatabaseConnection, EntityTrait,
-    IntoActiveModel, QueryFilter,
+    ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DatabaseBackend,
+    DatabaseConnection, EntityTrait, IntoActiveModel, QueryFilter, Statement, TransactionTrait,
+    sea_query::Expr,
 };
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::{Value, json};
@@ -92,7 +96,8 @@ impl ReaderFixture {
             "sqlite://{}?mode=rwc",
             data.path().join("reader-api.db").display()
         );
-        let database = connect(&DatabaseConfig::new(SecretString::from(database_url)))
+        let database_config = DatabaseConfig::new(SecretString::from(database_url));
+        let database = connect(&database_config)
             .await
             .expect("reader database should connect");
         migrate(&database)
@@ -187,7 +192,11 @@ impl ReaderFixture {
         .await
         .expect("ingestion generation should update");
 
-        let setup = SetupService::ready(data.path(), None, database.clone());
+        let reader_database = connect_reader(&database_config, &database)
+            .await
+            .expect("Reader database pool should connect");
+        let setup =
+            SetupService::ready_with_reader(data.path(), None, database.clone(), reader_database);
         let user_a_session = setup
             .sessions()
             .create(USER_A_ID)
@@ -860,6 +869,97 @@ async fn reader_list_defaults_to_unread_and_returns_a_user_bound_cursor() {
         )
         .await;
     assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
+async fn reader_queries_remain_available_while_sqlite_writers_are_queued() {
+    let fixture = ReaderFixture::new().await;
+    session::Entity::update_many()
+        .col_expr(
+            session::Column::LastSeenAt,
+            Expr::value(OffsetDateTime::now_utc() - time::Duration::minutes(16)),
+        )
+        .exec(&fixture.database)
+        .await
+        .expect("Reader sessions should require a last-seen refresh");
+    let transaction = fixture
+        .database
+        .begin()
+        .await
+        .expect("reader transaction should begin");
+    transaction
+        .execute(Statement::from_string(
+            DatabaseBackend::Sqlite,
+            "UPDATE rss_counters SET value = value WHERE key = 'generation'".to_owned(),
+        ))
+        .await
+        .expect("reader transaction should hold the SQLite write lock");
+
+    let (started_tx, mut started_rx) = tokio::sync::mpsc::channel(3);
+    let mut waiting_writers = Vec::new();
+    for _ in 0..3 {
+        let database = fixture.database.clone();
+        let started_tx = started_tx.clone();
+        waiting_writers.push(tokio::spawn(async move {
+            started_tx
+                .send(())
+                .await
+                .expect("reader test should observe the queued writer");
+            let transaction = database
+                .begin()
+                .await
+                .expect("waiting writer should acquire the primary connection after it is free");
+            transaction
+                .execute(Statement::from_string(
+                    DatabaseBackend::Sqlite,
+                    "UPDATE rss_counters SET value = value WHERE key = 'generation'".to_owned(),
+                ))
+                .await
+                .expect("waiting writer should resume after the write lock is released");
+            transaction
+                .rollback()
+                .await
+                .expect("waiting writer should roll back");
+        }));
+    }
+    drop(started_tx);
+    for _ in 0..3 {
+        started_rx
+            .recv()
+            .await
+            .expect("every waiting writer should be queued");
+    }
+
+    for path in [
+        "/api/v1/auth/session",
+        "/api/v2/preferences",
+        "/api/v2/preferences/fonts",
+        "/api/v2/profile",
+        "/api/v1/categories",
+        "/api/v1/subscriptions",
+        "/api/v1/entries?state=UNREAD",
+        "/api/v1/ai/providers",
+        "/api/v1/ai/config",
+        "/api/v3/plugins/translation",
+        "/api/v1/backups/targets",
+        "/api/v1/backups/schedule",
+        "/api/v1/backups/jobs",
+    ] {
+        let response = tokio::time::timeout(
+            Duration::from_secs(1),
+            fixture.request(Method::GET, path, None, UserKind::A),
+        )
+        .await
+        .unwrap_or_else(|_| panic!("Reader query should not wait for SQLite writers: {path}"));
+        assert_eq!(response.status(), StatusCode::OK, "Reader query: {path}");
+    }
+    transaction
+        .rollback()
+        .await
+        .expect("reader transaction should roll back");
+    for writer in waiting_writers {
+        writer.await.expect("waiting writer task should finish");
+    }
 }
 
 #[tokio::test]

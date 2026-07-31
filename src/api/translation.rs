@@ -564,7 +564,7 @@ async fn get_config_v2(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
 ) -> Result<Json<TranslationConfigV2Response>, ApiError> {
-    let config = service(&state)?
+    let config = query_service(&state)?
         .get_config(&user.id)
         .await
         .map_err(map_error)?;
@@ -581,7 +581,7 @@ async fn put_config_v2(
         .provider_mutation_limiter
         .check(&user.id)
         .map_err(map_limiter_rejection)?;
-    let service = service(&state)?;
+    let service = command_service(&state)?;
     let is_progressive = service
         .get_config(&user.id)
         .await
@@ -618,7 +618,7 @@ async fn get_config_v3(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
 ) -> Result<Json<TranslationConfigV3Response>, ApiError> {
-    let config = service(&state)?
+    let config = query_service(&state)?
         .get_config(&user.id)
         .await
         .map_err(map_error)?;
@@ -635,7 +635,7 @@ async fn put_config_v3(
         .provider_mutation_limiter
         .check(&user.id)
         .map_err(map_limiter_rejection)?;
-    let config = service(&state)?
+    let config = command_service(&state)?
         .save_config(
             &user.id,
             SaveTranslationConfig {
@@ -672,7 +672,7 @@ async fn test_connection(
         .check(&user.id)
         .map_err(map_limiter_rejection)?;
     let _permits = acquire_translation_permits(&state, &user.id)?;
-    let result = service(&state)?
+    let result = command_service(&state)?
         .test_connection(
             &user.id,
             TestTranslationInput {
@@ -702,7 +702,7 @@ async fn translate_entry(
 ) -> Result<Json<TranslationResponse>, ApiError> {
     admit_translation_request(&state, &user.id)?;
     let _permits = acquire_translation_permits(&state, &user.id)?;
-    let result = service(&state)?
+    let result = command_service(&state)?
         .translate_entry(&user.id, &entry_id)
         .await
         .map_err(map_error)?;
@@ -717,7 +717,7 @@ async fn translate_entry_progressive(
 ) -> Result<Response, ApiError> {
     admit_translation_request(&state, &user.id)?;
     let permits = acquire_translation_permits(&state, &user.id)?;
-    let service = service(&state)?;
+    let service = command_service(&state)?;
     let user_id = user.id;
     let (sender, receiver) = mpsc::channel(8);
     tokio::spawn(async move {
@@ -755,7 +755,7 @@ async fn translate_text(
 ) -> Result<Json<TranslationTextResponse>, ApiError> {
     admit_translation_request(&state, &user.id)?;
     let _permits = acquire_translation_permits(&state, &user.id)?;
-    let result = service(&state)?
+    let result = command_service(&state)?
         .translate_text(&user.id, &request.text)
         .await
         .map_err(map_error)?;
@@ -770,7 +770,7 @@ async fn lookup(
 ) -> Result<Json<LookupResponse>, ApiError> {
     admit_translation_request(&state, &user.id)?;
     let _permits = acquire_translation_permits(&state, &user.id)?;
-    let result = service(&state)?
+    let result = command_service(&state)?
         .lookup(&user.id, &request.text)
         .await
         .map_err(map_error)?;
@@ -800,8 +800,23 @@ fn acquire_translation_permits(
     Ok((user_permit, global_permit))
 }
 
-fn service(state: &AppState) -> Result<TranslationService, ApiError> {
+fn query_service(state: &AppState) -> Result<TranslationService, ApiError> {
+    let database = state
+        .setup
+        .reader_database()
+        .map_err(|_| ApiError::internal())?;
+    build_service(state, database)
+}
+
+fn command_service(state: &AppState) -> Result<TranslationService, ApiError> {
     let database = state.setup.database().map_err(|_| ApiError::internal())?;
+    build_service(state, database)
+}
+
+fn build_service(
+    state: &AppState,
+    database: sea_orm::DatabaseConnection,
+) -> Result<TranslationService, ApiError> {
     let keyring = state.provider_keyring();
     let providers = ProviderRepository::new(database.clone(), keyring.clone());
     let openai = if let Some(transport) = state.translation_openai_transport() {

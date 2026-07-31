@@ -176,7 +176,7 @@ async fn get_config(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
 ) -> Result<Json<AiConfigEnvelope>, ApiError> {
-    let (registry, _) = repositories(&state)?;
+    let registry = query_repository(&state)?;
     let plugin_state = load_plugin_state(&registry).await?;
     let config = if matches!(plugin_state, PublicPluginState::Unavailable) {
         None
@@ -205,7 +205,7 @@ async fn put_config(
         .content_mutation_limiter
         .check(&user.id)
         .map_err(map_limiter_rejection)?;
-    let (registry, providers) = repositories(&state)?;
+    let (registry, providers) = command_repositories(&state)?;
     let plugin_state = load_plugin_state(&registry).await?;
     if !plugin_state.is_ready() {
         return Err(ai_unavailable());
@@ -285,7 +285,15 @@ async fn put_config(
     }))
 }
 
-fn repositories(
+fn query_repository(state: &AppState) -> Result<PluginRegistryRepository, ApiError> {
+    state
+        .setup
+        .reader_database()
+        .map(PluginRegistryRepository::new)
+        .map_err(|_| ApiError::internal())
+}
+
+fn command_repositories(
     state: &AppState,
 ) -> Result<(PluginRegistryRepository, ProviderRepository), ApiError> {
     let database = state.setup.database().map_err(|_| ApiError::internal())?;
