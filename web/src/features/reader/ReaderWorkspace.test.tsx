@@ -83,6 +83,7 @@ describe("Reader workspace", () => {
   it("replaces a stale feed route after its subscription changes identity", async () => {
     const controller = fakeController({
       paneStatus: { ...initialReaderState.paneStatus, subscriptions: "ready" },
+      subscriptionsAuthoritative: true,
       selectedSource: { kind: "smart", state: "UNREAD" },
       retiredFeedIds: { "old-feed": true },
     })
@@ -103,6 +104,66 @@ describe("Reader workspace", () => {
     expect(controller.selectSource).not.toHaveBeenCalledWith({
       kind: "feed",
       feedId: "old-feed",
+    })
+    expect(controller.selectSource).toHaveBeenCalledWith({
+      kind: "smart",
+      state: "UNREAD",
+    })
+  })
+
+  it("loads unread when an authoritative response removes the current category", async () => {
+    const controller = fakeController({
+      paneStatus: { ...initialReaderState.paneStatus, subscriptions: "ready" },
+      subscriptionsAuthoritative: true,
+      selectedSource: { kind: "category", categoryId: "removed-category" },
+    })
+    window.history.replaceState(null, "", "/reader/category/removed-category")
+
+    render(
+      <Providers>
+        <ReaderRoutes
+          controller={controller}
+          username="reader"
+          onLogout={vi.fn()}
+          viewportMode="wide"
+        />
+      </Providers>,
+    )
+
+    await waitFor(() => expect(window.location.pathname).toBe("/reader/unread"))
+    expect(controller.selectSource).toHaveBeenCalledWith({
+      kind: "smart",
+      state: "UNREAD",
+    })
+  })
+
+  it("keeps an uncached deep-linked feed until subscriptions are authoritative", async () => {
+    const controller = fakeController({
+      paneStatus: { ...initialReaderState.paneStatus, subscriptions: "ready" },
+      subscriptionsAuthoritative: false,
+      selectedSource: { kind: "smart", state: "UNREAD" },
+    })
+    window.history.replaceState(null, "", "/reader/feed/new-on-another-device")
+
+    render(
+      <Providers>
+        <ReaderRoutes
+          controller={controller}
+          username="reader"
+          onLogout={vi.fn()}
+          viewportMode="wide"
+        />
+      </Providers>,
+    )
+
+    await waitFor(() => expect(controller.selectSource).toHaveBeenCalledWith({
+      kind: "feed",
+      feedId: "new-on-another-device",
+    }))
+    expect(window.location.pathname).toBe("/reader/feed/new-on-another-device")
+    expect(controller.selectSource).not.toHaveBeenCalledWith({
+      kind: "smart",
+      state: "UNREAD",
     })
   })
 
@@ -165,6 +226,7 @@ describe("Reader workspace", () => {
     const user = userEvent.setup()
     const controller = fakeController({
       selectedSource: { kind: "feed", feedId: "feed-rust" },
+      subscriptionsAuthoritative: true,
       subscriptionsById: {
         subscription: {
           subscriptionId: "subscription",
@@ -201,6 +263,7 @@ describe("Reader workspace", () => {
     const user = userEvent.setup()
     const controller = fakeController({
       selectedSource: { kind: "feed", feedId: "feed-rust" },
+      subscriptionsAuthoritative: true,
       subscriptionsById: {
         subscription: {
           subscriptionId: "subscription",
@@ -454,6 +517,7 @@ describe("Reader workspace", () => {
     const user = userEvent.setup()
     const controller = fakeController({
       selectedSource: { kind: "feed", feedId: "feed-rust" },
+      subscriptionsAuthoritative: true,
       subscriptionsById: {
         subscription: {
           subscriptionId: "subscription",
@@ -498,6 +562,44 @@ describe("Reader workspace", () => {
       name: "Edit current subscription",
     })
     await waitFor(() => expect(restoredTrigger).toHaveFocus())
+  })
+
+  it("does not expose subscription editing from a partial cached subscription", async () => {
+    const controller = fakeController({
+      selectedSource: { kind: "feed", feedId: "feed-rust" },
+      subscriptionsAuthoritative: false,
+      subscriptionsById: {
+        subscription: {
+          subscriptionId: "subscription",
+          feedId: "feed-rust",
+          categoryId: null,
+          titleOverride: null,
+          position: 0,
+          title: "Planet Rust",
+          unreadCount: 7,
+          refresh: null,
+        },
+      },
+      subscriptionOrder: ["subscription"],
+      paneStatus: { subscriptions: "ready", queue: "ready", detail: "idle" },
+    })
+    window.history.replaceState(null, "", "/reader/feed/feed-rust")
+
+    render(
+      <Providers>
+        <ReaderRoutes
+          controller={controller}
+          username="reader"
+          onLogout={vi.fn()}
+          viewportMode="wide"
+        />
+      </Providers>,
+    )
+
+    expect(screen.queryByRole("button", {
+      name: "Edit current subscription",
+    })).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Refresh Planet Rust" })).toBeVisible()
   })
 
   it("reopens mobile sources and restores MoreMenu focus after settings", async () => {

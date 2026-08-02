@@ -21,14 +21,31 @@ import {
 } from "./testFixtures"
 import { useReaderController } from "./useReaderController"
 
+const userId = "11111111-1111-4111-8111-111111111111"
+
 it("optimistically toggles read and lets the validated server response win", async () => {
   const response = deferred<EntryStateResponse>()
-  const patchEntryState = vi.fn(() => response.promise)
+  let serverEntry = makeEntry()
+  let serverDetail = makeDetail()
+  const patchEntryState = vi.fn(() => response.promise.then((state) => {
+    serverEntry = { ...serverEntry, ...state }
+    serverDetail = { ...serverDetail, ...state }
+    return state
+  }))
   const { result } = renderHook(() =>
     useReaderController({
       csrfToken: "csrf-memory",
       onUnauthenticated: vi.fn(),
-      api: makeApi({ patchEntryState }),
+      api: makeApi({
+        patchEntryState,
+        listEntries: vi.fn(async () => ({
+          ownerUserId: userId,
+          items: [serverEntry],
+          nextCursor: null,
+          snapshotGeneration: 1,
+        })),
+        getEntry: vi.fn(async () => serverDetail),
+      }),
     }),
   )
   await act(async () => result.current.load())
@@ -59,6 +76,45 @@ it("optimistically toggles read and lets the validated server response win", asy
     isStarred: true,
   })
   expect(result.current.state.subscriptionsById[subscriptionId]?.unreadCount).toBe(3)
+})
+
+it("reconciles an entry mutation incrementally without collapsing the reading queue", async () => {
+  const listEntries = vi
+    .fn()
+    .mockResolvedValueOnce({
+      ownerUserId: userId,
+      items: [makeEntry()],
+      nextCursor: null,
+      snapshotGeneration: 1,
+    })
+    .mockResolvedValue({
+      ownerUserId: userId,
+      items: [],
+      nextCursor: null,
+      snapshotGeneration: 1,
+    })
+  const { result } = renderHook(() =>
+    useReaderController({
+      csrfToken: "csrf-memory",
+      onUnauthenticated: vi.fn(),
+      api: makeApi({
+        listEntries,
+        patchEntryState: vi.fn(async () => ({
+          entryId,
+          isRead: true,
+          isStarred: false,
+        })),
+      }),
+    }),
+  )
+  await act(async () => result.current.load())
+
+  await act(async () => result.current.toggleRead(entryId))
+  await waitFor(() => expect(listEntries).toHaveBeenCalledTimes(2))
+
+  expect(result.current.state.queueBySourceKey["smart:UNREAD"]).toEqual([entryId])
+  expect(result.current.state.entriesById[entryId]?.isRead).toBe(true)
+  expect(result.current.state.paneStatus.queue).toBe("ready")
 })
 
 it("rolls back a forbidden mutation and preserves its stable API message", async () => {
@@ -119,17 +175,42 @@ it("adds, refreshes, and deletes subscriptions through CSRF-aware actions", asyn
   })
   const refresh = makeRefresh("PENDING")
   const completedRefresh = makeRefresh("READY")
-  const createSubscription = vi.fn(async () => ({
-    created: true,
-    subscription: created,
+  let subscriptions = [makeSubscription()]
+  const listSubscriptions = vi.fn(async () => ({
+    ownerUserId: userId,
+    items: [...subscriptions],
+    nextCursor: null,
   }))
-  const refreshSubscription = vi.fn(async () => refresh)
-  const getSubscription = vi.fn(async () => makeSubscription({
-    ...created,
-    unreadCount: 4,
-    refresh: completedRefresh,
-  }))
-  const deleteSubscription = vi.fn(async () => undefined)
+  const createSubscription = vi.fn(async () => {
+    subscriptions = [...subscriptions, created]
+    return { created: true, subscription: created }
+  })
+  const refreshSubscription = vi.fn(async () => {
+    subscriptions = subscriptions.map((subscription) =>
+      subscription.subscriptionId === created.subscriptionId
+        ? { ...subscription, refresh }
+        : subscription,
+    )
+    return refresh
+  })
+  const getSubscription = vi.fn(async () => {
+    const completed = makeSubscription({
+      ...created,
+      unreadCount: 4,
+      refresh: completedRefresh,
+    })
+    subscriptions = subscriptions.map((subscription) =>
+      subscription.subscriptionId === created.subscriptionId
+        ? completed
+        : subscription,
+    )
+    return completed
+  })
+  const deleteSubscription = vi.fn(async () => {
+    subscriptions = subscriptions.filter(
+      (subscription) => subscription.subscriptionId !== created.subscriptionId,
+    )
+  })
   const requestId = "00000000-0000-4000-8000-000000000901"
   const { result } = renderHook(() =>
     useReaderController({
@@ -139,6 +220,7 @@ it("adds, refreshes, and deletes subscriptions through CSRF-aware actions", asyn
       api: makeApi({
         createSubscription,
         getSubscription,
+        listSubscriptions,
         refreshSubscription,
         deleteSubscription,
       }),
@@ -189,16 +271,51 @@ it("creates, updates, deletes, and assigns categories through the shared Reader 
   const createdCategory = makeCategory()
   const renamedCategory = makeCategory({ title: "Science", position: 512 })
   const categorizedSubscription = makeSubscription({ categoryId })
-  const createCategory = vi.fn(async () => createdCategory)
-  const updateCategory = vi.fn(async () => renamedCategory)
-  const deleteCategory = vi.fn(async () => undefined)
-  const updateSubscription = vi.fn(async () => categorizedSubscription)
+  let categories: ReturnType<typeof makeCategory>[] = []
+  let subscriptions = [makeSubscription()]
+  const listCategories = vi.fn(async () => ({
+    ownerUserId: userId,
+    items: [...categories],
+  }))
+  const listSubscriptions = vi.fn(async () => ({
+    ownerUserId: userId,
+    items: [...subscriptions],
+    nextCursor: null,
+  }))
+  const createCategory = vi.fn(async () => {
+    categories = [...categories, createdCategory]
+    return createdCategory
+  })
+  const updateCategory = vi.fn(async () => {
+    categories = categories.map((category) =>
+      category.categoryId === categoryId ? renamedCategory : category,
+    )
+    return renamedCategory
+  })
+  const deleteCategory = vi.fn(async () => {
+    categories = categories.filter((category) => category.categoryId !== categoryId)
+    subscriptions = subscriptions.map((subscription) =>
+      subscription.categoryId === categoryId
+        ? { ...subscription, categoryId: null }
+        : subscription,
+    )
+  })
+  const updateSubscription = vi.fn(async () => {
+    subscriptions = subscriptions.map((subscription) =>
+      subscription.subscriptionId === subscriptionId
+        ? categorizedSubscription
+        : subscription,
+    )
+    return categorizedSubscription
+  })
   const { result } = renderHook(() =>
     useReaderController({
       csrfToken: "csrf-memory",
       onUnauthenticated: vi.fn(),
       api: makeApi({
         createCategory,
+        listCategories,
+        listSubscriptions,
         updateCategory,
         deleteCategory,
         updateSubscription,
@@ -253,14 +370,32 @@ it("reconciles provisional subscription metadata after create refresh completes"
   const provisional = makeSubscription({ title: "www.ithome.com", unreadCount: 0, refresh: pending })
   const resolved = makeSubscription({ title: "IT之家", unreadCount: 60, refresh: ready })
   const poll = deferred<Subscription>()
-  const getSubscription = vi.fn(() => poll.promise)
+  let subscriptions = [makeSubscription()]
+  const listSubscriptions = vi.fn(async () => ({
+    ownerUserId: userId,
+    items: [...subscriptions],
+    nextCursor: null,
+  }))
+  const getSubscription = vi.fn(() => poll.promise.then((subscription) => {
+    subscriptions = subscriptions.map((current) =>
+      current.subscriptionId === subscription.subscriptionId
+        ? subscription
+        : current,
+    )
+    return subscription
+  }))
+  const createSubscription = vi.fn(async () => {
+    subscriptions = [...subscriptions, provisional]
+    return { created: true, subscription: provisional }
+  })
   const { result } = renderHook(() =>
     useReaderController({
       csrfToken: "csrf-memory",
       onUnauthenticated: vi.fn(),
       api: makeApi({
-        createSubscription: vi.fn(async () => ({ created: true, subscription: provisional })),
+        createSubscription,
         getSubscription,
+        listSubscriptions,
       }),
     }),
   )
@@ -286,10 +421,19 @@ it("reconciles provisional subscription metadata after create refresh completes"
 it("aborts an in-flight refresh poll when its subscription is deleted", async () => {
   const pending = makeRefresh("PENDING")
   const poll = deferred<Subscription>()
+  let subscriptions = [makeSubscription()]
   let pollSignal: AbortSignal | undefined
   const getSubscription = vi.fn((_subscriptionId: string, signal?: AbortSignal) => {
     pollSignal = signal
     return poll.promise
+  })
+  const listSubscriptions = vi.fn(async () => ({
+    ownerUserId: userId,
+    items: [...subscriptions],
+    nextCursor: null,
+  }))
+  const deleteSubscription = vi.fn(async () => {
+    subscriptions = []
   })
   const { result } = renderHook(() =>
     useReaderController({
@@ -297,8 +441,9 @@ it("aborts an in-flight refresh poll when its subscription is deleted", async ()
       onUnauthenticated: vi.fn(),
       api: makeApi({
         getSubscription,
+        listSubscriptions,
         refreshSubscription: vi.fn(async () => pending),
-        deleteSubscription: vi.fn(async () => undefined),
+        deleteSubscription,
       }),
     }),
   )
@@ -355,11 +500,12 @@ it("continues polling pending refreshes and stops at the first terminal subscrip
 
 function makeApi(overrides: Partial<ReaderApi> = {}): ReaderApi {
   return {
-    listCategories: vi.fn(async () => ({ items: [] })),
+    listCategories: vi.fn(async () => ({ ownerUserId: userId, items: [] })),
     createCategory: vi.fn(),
     updateCategory: vi.fn(),
     deleteCategory: vi.fn(),
     listSubscriptions: vi.fn(async () => ({
+      ownerUserId: userId,
       items: [makeSubscription()],
       nextCursor: null,
     })),
@@ -369,6 +515,7 @@ function makeApi(overrides: Partial<ReaderApi> = {}): ReaderApi {
     refreshSubscription: vi.fn(),
     updateSubscription: vi.fn(),
     listEntries: vi.fn(async () => ({
+      ownerUserId: userId,
       items: [makeEntry()],
       nextCursor: null,
       snapshotGeneration: 1,

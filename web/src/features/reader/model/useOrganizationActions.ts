@@ -16,6 +16,7 @@ interface OrganizationActionOptions {
   csrfToken: string
   dispatch: (action: ReaderAction) => void
   session: ReaderSession
+  onOrganizationChanged: () => void
 }
 
 export function useOrganizationActions({
@@ -23,6 +24,7 @@ export function useOrganizationActions({
   csrfToken,
   dispatch,
   session,
+  onOrganizationChanged,
 }: OrganizationActionOptions) {
   const runAction = useCallback(
     async <T,>(
@@ -36,6 +38,7 @@ export function useOrganizationActions({
         const value = await request(task.controller.signal)
         if (!session.isCurrent(task)) return false
         dispatch(success(value))
+        onOrganizationChanged()
         return true
       } catch (error) {
         if (isAbortError(error) || !session.isCurrent(task)) return false
@@ -49,7 +52,7 @@ export function useOrganizationActions({
         session.finish(task)
       }
     },
-    [dispatch, session],
+    [dispatch, onOrganizationChanged, session],
   )
 
   const createCategory = useCallback(

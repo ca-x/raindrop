@@ -20,12 +20,17 @@ const userId = "11111111-1111-4111-8111-111111111111"
 afterEach(() => vi.useRealTimers())
 
 it("hydrates cached Reader rows before delayed requests and reconciles to the server result", async () => {
-  const categories = deferred<{ items: ReturnType<typeof makeCategory>[] }>()
+  const categories = deferred<{
+    ownerUserId: string
+    items: ReturnType<typeof makeCategory>[]
+  }>()
   const subscriptions = deferred<{
+    ownerUserId: string
     items: ReturnType<typeof makeSubscription>[]
     nextCursor: null
   }>()
   const entries = deferred<{
+    ownerUserId: string
     items: ReturnType<typeof makeEntry>[]
     nextCursor: null
     snapshotGeneration: number
@@ -68,8 +73,9 @@ it("hydrates cached Reader rows before delayed requests and reconciles to the se
 
   const freshSubscriptionId = "00000000-0000-4000-8000-000000000202"
   const freshEntryId = "00000000-0000-4000-8000-000000000302"
-  categories.resolve({ items: [] })
+  categories.resolve({ ownerUserId: userId, items: [] })
   subscriptions.resolve({
+    ownerUserId: userId,
     items: [makeSubscription({
       subscriptionId: freshSubscriptionId,
       title: "Fresh feed",
@@ -78,6 +84,7 @@ it("hydrates cached Reader rows before delayed requests and reconciles to the se
     nextCursor: null,
   })
   entries.resolve({
+    ownerUserId: userId,
     items: [makeEntry({ entryId: freshEntryId, title: "Fresh entry", isRead: true })],
     nextCursor: null,
     snapshotGeneration: 8,
@@ -93,11 +100,71 @@ it("hydrates cached Reader rows before delayed requests and reconciles to the se
   })
 })
 
-it("serializes best-effort cache writes so a newer state cannot be overwritten", async () => {
+it("does not let a pre-mutation revalidation response undo a committed cached entry change", async () => {
+  const entries = deferred<{
+    ownerUserId: string
+    items: ReturnType<typeof makeEntry>[]
+    nextCursor: null
+    snapshotGeneration: number
+  }>()
+  const cachedEntry = makeEntry({ title: "Cached entry", isRead: false })
+  const cache: ReaderCache = {
+    load: vi.fn(async () => cacheSnapshot(makeSubscription(), cachedEntry)),
+    save: vi.fn(async () => undefined),
+    clear: vi.fn(async () => undefined),
+  }
+  const listEntries = vi
+    .fn()
+    .mockImplementationOnce(() => entries.promise)
+    .mockResolvedValue({
+      ownerUserId: userId,
+      items: [makeEntry({ title: "Cached entry", isRead: true })],
+      nextCursor: null,
+      snapshotGeneration: 8,
+    })
+  const api = makeApi({
+    listEntries,
+    patchEntryState: vi.fn(async () => ({
+      entryId: cachedEntry.entryId,
+      isRead: true,
+      isStarred: false,
+    })),
+  })
+  const { result } = renderHook(() =>
+    useReaderController({
+      csrfToken: "csrf-memory",
+      userId,
+      cache,
+      onUnauthenticated: vi.fn(),
+      api,
+    }),
+  )
+
+  let load!: Promise<void>
+  act(() => { load = result.current.load() })
+  await act(async () => { await Promise.resolve() })
+  await act(async () => result.current.toggleRead(cachedEntry.entryId))
+  entries.resolve({
+    ownerUserId: userId,
+    items: [makeEntry({ title: "Stale server entry", isRead: false })],
+    nextCursor: null,
+    snapshotGeneration: 7,
+  })
+  await act(async () => load)
+
+  expect(result.current.state.entriesById[cachedEntry.entryId]?.isRead).toBe(true)
+  expect(result.current.state.entriesById[cachedEntry.entryId]?.title).toBe("Cached entry")
+})
+
+it("serializes cache writes and coalesces pending updates to the latest state", async () => {
   vi.useFakeTimers()
   const firstSave = deferred<void>()
   const save = vi
-    .fn<(userId: string, snapshot: ReaderCacheSnapshot) => Promise<void>>()
+    .fn<(
+      userId: string,
+      snapshot: ReaderCacheSnapshot,
+      options?: { markValidated?: boolean },
+    ) => Promise<void>>()
     .mockImplementationOnce(() => firstSave.promise)
     .mockResolvedValue(undefined)
   const cache: ReaderCache = {
@@ -112,12 +179,14 @@ it("serializes best-effort cache writes so a newer state cannot be overwritten",
       cache,
       onUnauthenticated: vi.fn(),
       api: makeApi({
-        listCategories: vi.fn(async () => ({ items: [makeCategory()] })),
+        listCategories: vi.fn(async () => ({ ownerUserId: userId, items: [makeCategory()] })),
         listSubscriptions: vi.fn(async () => ({
+          ownerUserId: userId,
           items: [makeSubscription()],
           nextCursor: null,
         })),
         listEntries: vi.fn(async () => ({
+          ownerUserId: userId,
           items: [makeEntry()],
           nextCursor: null,
           snapshotGeneration: 1,
@@ -130,7 +199,10 @@ it("serializes best-effort cache writes so a newer state cannot be overwritten",
   await act(async () => vi.advanceTimersByTimeAsync(100))
   expect(save).toHaveBeenCalledTimes(1)
   expect(JSON.stringify(save.mock.calls[0])).not.toContain("csrf-memory")
+  expect(save.mock.calls[0]?.[2]).toEqual({ markValidated: true })
 
+  act(() => result.current.recordScrollAnchor("/reader/unread", 128))
+  await act(async () => vi.advanceTimersByTimeAsync(100))
   act(() => result.current.recordScrollAnchor("/reader/unread", 256))
   await act(async () => vi.advanceTimersByTimeAsync(100))
   expect(save).toHaveBeenCalledTimes(1)
@@ -141,19 +213,168 @@ it("serializes best-effort cache writes so a newer state cannot be overwritten",
   expect(save.mock.calls[1]?.[1].scrollAnchorByRoute).toEqual({
     "/reader/unread": 256,
   })
+  expect(save.mock.calls[1]?.[2]).toBeUndefined()
+})
+
+it("clears cache without waiting for an in-flight save and drops queued writes", async () => {
+  vi.useFakeTimers()
+  const firstSave = deferred<void>()
+  const save = vi.fn<ReaderCache["save"]>(() => firstSave.promise)
+  const clear = vi.fn(async () => undefined)
+  const cache: ReaderCache = {
+    load: vi.fn(async () => null),
+    save,
+    clear,
+  }
+  const { result } = renderHook(() =>
+    useReaderController({
+      csrfToken: "csrf-memory",
+      userId,
+      cache,
+      onUnauthenticated: vi.fn(),
+      api: makeApi(),
+    }),
+  )
+  await act(async () => result.current.load())
+  expect(save).toHaveBeenCalledOnce()
+
+  act(() => result.current.recordScrollAnchor("/reader/unread", 256))
+  await act(async () => vi.advanceTimersByTimeAsync(100))
+  expect(save).toHaveBeenCalledOnce()
+
+  await act(async () => result.current.clearCache())
+  expect(clear).toHaveBeenCalledOnce()
+
+  firstSave.resolve()
+  await act(async () => { await Promise.resolve() })
+  expect(save).toHaveBeenCalledOnce()
+})
+
+it("does not create a cold cache until both authoritative panes validate", async () => {
+  vi.useFakeTimers()
+  const cache: ReaderCache = {
+    load: vi.fn(async () => null),
+    save: vi.fn(async () => undefined),
+    clear: vi.fn(async () => undefined),
+  }
+  const { result } = renderHook(() =>
+    useReaderController({
+      csrfToken: "csrf-memory",
+      userId,
+      cache,
+      onUnauthenticated: vi.fn(),
+      api: makeApi({
+        listCategories: vi.fn(async () => ({ ownerUserId: userId, items: [] })),
+        listSubscriptions: vi.fn(async () => ({
+          ownerUserId: userId,
+          items: [makeSubscription()],
+          nextCursor: null,
+        })),
+        listEntries: vi.fn(async () => { throw new Error("offline") }),
+      }),
+    }),
+  )
+
+  await act(async () => result.current.load())
+  await act(async () => vi.advanceTimersByTimeAsync(200))
+
+  expect(cache.save).not.toHaveBeenCalled()
+})
+
+it("does not advance cached freshness when background validation fails", async () => {
+  vi.useFakeTimers()
+  const save = vi.fn<ReaderCache["save"]>(async () => undefined)
+  const cache: ReaderCache = {
+    load: vi.fn(async () => cacheSnapshot()),
+    save,
+    clear: vi.fn(async () => undefined),
+  }
+  const { result } = renderHook(() =>
+    useReaderController({
+      csrfToken: "csrf-memory",
+      userId,
+      cache,
+      onUnauthenticated: vi.fn(),
+      api: makeApi({
+        listCategories: vi.fn(async () => ({ ownerUserId: userId, items: [makeCategory()] })),
+        listSubscriptions: vi.fn(async () => ({
+          ownerUserId: userId,
+          items: [makeSubscription()],
+          nextCursor: null,
+        })),
+        listEntries: vi.fn(async () => { throw new Error("offline") }),
+      }),
+    }),
+  )
+
+  await act(async () => result.current.load())
+  await act(async () => vi.advanceTimersByTimeAsync(200))
+
+  expect(save).toHaveBeenCalled()
+  expect(save.mock.calls.every((call) => call[2] === undefined)).toBe(true)
+})
+
+it("does not persist an optimistic entry mutation before confirmation", async () => {
+  vi.useFakeTimers()
+  const mutation = deferred<{
+    entryId: string
+    isRead: boolean
+    isStarred: boolean
+  }>()
+  const save = vi.fn(async () => undefined)
+  const cache: ReaderCache = {
+    load: vi.fn(async () => cacheSnapshot()),
+    save,
+    clear: vi.fn(async () => undefined),
+  }
+  const { result } = renderHook(() =>
+    useReaderController({
+      csrfToken: "csrf-memory",
+      userId,
+      cache,
+      onUnauthenticated: vi.fn(),
+      api: makeApi({
+        listCategories: vi.fn(async () => ({ ownerUserId: userId, items: [makeCategory()] })),
+        listSubscriptions: vi.fn(async () => ({
+          ownerUserId: userId,
+          items: [makeSubscription()],
+          nextCursor: null,
+        })),
+        listEntries: vi.fn(async () => ({
+          ownerUserId: userId,
+          items: [makeEntry()],
+          nextCursor: null,
+          snapshotGeneration: 1,
+        })),
+        patchEntryState: vi.fn(() => mutation.promise),
+      }),
+    }),
+  )
+  await act(async () => result.current.load())
+  await act(async () => vi.advanceTimersByTimeAsync(100))
+  save.mockClear()
+
+  let pending!: Promise<void>
+  act(() => { pending = result.current.toggleRead(entryId) })
+  await act(async () => vi.advanceTimersByTimeAsync(200))
+  expect(save).not.toHaveBeenCalled()
+
+  mutation.resolve({ entryId, isRead: true, isStarred: false })
+  await act(async () => pending)
 })
 
 it("loads every subscription page and the selected source through injected clients", async () => {
   const subscription = makeSubscription()
   const category = makeCategory()
   const entry = makeEntry()
-  const listCategories = vi.fn(async () => ({ items: [category] }))
+  const listCategories = vi.fn(async () => ({ ownerUserId: userId, items: [category] }))
   const listSubscriptions = vi.fn(async ({ cursor }: ListSubscriptionsOptions = {}) =>
     cursor === undefined
-      ? { items: [subscription], nextCursor: "next" }
-      : { items: [], nextCursor: null },
+      ? { ownerUserId: userId, items: [subscription], nextCursor: "next" }
+      : { ownerUserId: userId, items: [], nextCursor: null },
   )
   const listEntries = vi.fn(async () => ({
+    ownerUserId: userId,
     items: [entry],
     nextCursor: null,
     snapshotGeneration: 1,
@@ -232,11 +453,13 @@ it("discovers stored entries without reordering until merge and selects feed sou
   const listEntries = vi
     .fn()
     .mockResolvedValueOnce({
+      ownerUserId: userId,
       items: [makeEntry()],
       nextCursor: null,
       snapshotGeneration: 1,
     })
     .mockResolvedValueOnce({
+      ownerUserId: userId,
       items: [
         makeEntry({ entryId: newEntryId, sortAtUs: 2 }),
         makeEntry({ title: "Updated stored entity" }),
@@ -245,11 +468,13 @@ it("discovers stored entries without reordering until merge and selects feed sou
       snapshotGeneration: 2,
     })
     .mockResolvedValueOnce({
+      ownerUserId: userId,
       items: [makeEntry()],
       nextCursor: null,
       snapshotGeneration: 3,
     })
     .mockResolvedValueOnce({
+      ownerUserId: userId,
       items: [makeEntry()],
       nextCursor: null,
       snapshotGeneration: 4,
@@ -258,7 +483,14 @@ it("discovers stored entries without reordering until merge and selects feed sou
     useReaderController({
       csrfToken: "csrf-memory",
       onUnauthenticated: vi.fn(),
-      api: makeApi({ listEntries }),
+      api: makeApi({
+        listEntries,
+        listSubscriptions: vi.fn(async () => ({
+          ownerUserId: userId,
+          items: [makeSubscription()],
+          nextCursor: null,
+        })),
+      }),
     }),
   )
   const unread = { kind: "smart", state: "UNREAD" } as const
@@ -296,6 +528,7 @@ it("discovers stored entries without reordering until merge and selects feed sou
 
 it("searches only the selected Feed and clears search on source change", async () => {
   const listEntries = vi.fn(async () => ({
+    ownerUserId: userId,
     items: [makeEntry()],
     nextCursor: null,
     snapshotGeneration: 5,
@@ -332,19 +565,22 @@ it("marks the visible snapshot read then reloads subscriptions and entries", asy
   const subscription = makeSubscription({ unreadCount: 3 })
   const listSubscriptions = vi
     .fn()
-    .mockResolvedValueOnce({ items: [subscription], nextCursor: null })
+    .mockResolvedValueOnce({ ownerUserId: userId, items: [subscription], nextCursor: null })
     .mockResolvedValueOnce({
+      ownerUserId: userId,
       items: [{ ...subscription, unreadCount: 0 }],
       nextCursor: null,
     })
   const listEntries = vi
     .fn()
     .mockResolvedValueOnce({
+      ownerUserId: userId,
       items: [makeEntry()],
       nextCursor: null,
       snapshotGeneration: 7,
     })
     .mockResolvedValueOnce({
+      ownerUserId: userId,
       items: [],
       nextCursor: null,
       snapshotGeneration: 7,
@@ -384,24 +620,28 @@ it("marks an unselected feed read from a fresh feed snapshot", async () => {
   const subscription = makeSubscription({ unreadCount: 3 })
   const listSubscriptions = vi
     .fn()
-    .mockResolvedValueOnce({ items: [subscription], nextCursor: null })
+    .mockResolvedValueOnce({ ownerUserId: userId, items: [subscription], nextCursor: null })
     .mockResolvedValueOnce({
+      ownerUserId: userId,
       items: [{ ...subscription, unreadCount: 0 }],
       nextCursor: null,
     })
   const listEntries = vi
     .fn()
     .mockResolvedValueOnce({
+      ownerUserId: userId,
       items: [makeEntry()],
       nextCursor: null,
       snapshotGeneration: 5,
     })
     .mockResolvedValueOnce({
+      ownerUserId: userId,
       items: [makeEntry()],
       nextCursor: null,
       snapshotGeneration: 9,
     })
     .mockResolvedValueOnce({
+      ownerUserId: userId,
       items: [],
       nextCursor: null,
       snapshotGeneration: 9,
@@ -435,17 +675,22 @@ it("marks an unselected feed read from a fresh feed snapshot", async () => {
 
 function makeApi(overrides: Partial<ReaderApi> = {}): ReaderApi {
   return {
-    listCategories: vi.fn(async () => ({ items: [] })),
+    listCategories: vi.fn(async () => ({ ownerUserId: userId, items: [] })),
     createCategory: vi.fn(),
     updateCategory: vi.fn(),
     deleteCategory: vi.fn(),
-    listSubscriptions: vi.fn(async () => ({ items: [], nextCursor: null })),
+    listSubscriptions: vi.fn(async () => ({
+      ownerUserId: userId,
+      items: [],
+      nextCursor: null,
+    })),
     getSubscription: vi.fn(),
     createSubscription: vi.fn(),
     deleteSubscription: vi.fn(),
     refreshSubscription: vi.fn(),
     updateSubscription: vi.fn(),
     listEntries: vi.fn(async () => ({
+      ownerUserId: userId,
       items: [],
       nextCursor: null,
       snapshotGeneration: 0,

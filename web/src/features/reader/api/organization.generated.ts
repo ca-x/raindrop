@@ -9,6 +9,7 @@ export interface Category {
 }
 
 export interface CategoryList {
+  ownerUserId: string
   items: Category[]
 }
 
@@ -68,7 +69,7 @@ export function isCategory(value: unknown): value is Category {
 }
 
 export function isCategoryList(value: unknown): value is CategoryList {
-  return ((isRecord(value) && hasOnlyKeys(value, ["items"]) && hasOwn(value, "items") && ((Array.isArray(value["items"]) && value["items"].length <= 250 && value["items"].every((item1) => isCategory(item1))))))
+  return ((isRecord(value) && hasOnlyKeys(value, ["ownerUserId","items"]) && hasOwn(value, "ownerUserId") && ((typeof value["ownerUserId"] === "string" && isUuid(value["ownerUserId"]))) && hasOwn(value, "items") && ((Array.isArray(value["items"]) && value["items"].length <= 250 && value["items"].every((item1) => isCategory(item1))))))
 }
 
 export function isCreateCategoryRequest(value: unknown): value is CreateCategoryRequest {

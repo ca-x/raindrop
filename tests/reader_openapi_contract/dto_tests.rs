@@ -6,7 +6,7 @@ fn reader_openapi_freezes_entry_dto_shapes() {
     assert_shape(
         &document,
         "EntryPageResponse",
-        &["items", "nextCursor", "snapshotGeneration"],
+        &["ownerUserId", "items", "nextCursor", "snapshotGeneration"],
     );
     assert_shape(
         &document,

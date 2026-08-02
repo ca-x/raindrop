@@ -12,19 +12,27 @@ import {
 } from "./testFixtures"
 import { useReaderController } from "./useReaderController"
 
+const userId = "11111111-1111-4111-8111-111111111111"
+
 it("keeps optimistic state through stale controller reloads without double-counting success", async () => {
   const response = deferred<EntryStateResponse>()
-  const patchEntryState = vi.fn(() => response.promise)
+  let committed = false
+  const patchEntryState = vi.fn(() => response.promise.then((state) => {
+    committed = true
+    return state
+  }))
   const listSubscriptions = vi.fn(async () => ({
-    items: [makeSubscription({ unreadCount: 3 })],
+    ownerUserId: userId,
+    items: [makeSubscription({ unreadCount: committed ? 2 : 3 })],
     nextCursor: null,
   }))
   const listEntries = vi.fn(async () => ({
-    items: [makeEntry({ isRead: false })],
+    ownerUserId: userId,
+    items: [makeEntry({ isRead: committed })],
     nextCursor: null,
     snapshotGeneration: 1,
   }))
-  const getEntry = vi.fn(async () => makeDetail({ isRead: false }))
+  const getEntry = vi.fn(async () => makeDetail({ isRead: committed }))
   const { result } = renderHook(() =>
     useReaderController({
       csrfToken: "csrf-memory",
@@ -55,17 +63,22 @@ it("keeps optimistic state through stale controller reloads without double-count
 
 function makeApi(overrides: Partial<ReaderApi> = {}): ReaderApi {
   return {
-    listCategories: vi.fn(async () => ({ items: [] })),
+    listCategories: vi.fn(async () => ({ ownerUserId: userId, items: [] })),
     createCategory: vi.fn(),
     updateCategory: vi.fn(),
     deleteCategory: vi.fn(),
-    listSubscriptions: vi.fn(async () => ({ items: [makeSubscription()], nextCursor: null })),
+    listSubscriptions: vi.fn(async () => ({
+      ownerUserId: userId,
+      items: [makeSubscription()],
+      nextCursor: null,
+    })),
     getSubscription: vi.fn(),
     createSubscription: vi.fn(),
     deleteSubscription: vi.fn(),
     refreshSubscription: vi.fn(),
     updateSubscription: vi.fn(),
     listEntries: vi.fn(async () => ({
+      ownerUserId: userId,
       items: [makeEntry()],
       nextCursor: null,
       snapshotGeneration: 1,

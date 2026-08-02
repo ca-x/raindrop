@@ -29,6 +29,7 @@ afterEach(() => {
 })
 
 const requestId = "00000000-0000-4000-8000-000000000901"
+const ownerUserId = "11111111-1111-4111-8111-111111111111"
 const subscription = {
   subscriptionId: "00000000-0000-4000-8000-000000000201",
   feedId: "00000000-0000-4000-8000-000000000101",
@@ -41,7 +42,7 @@ const subscription = {
   unreadCount: 3,
   refresh: null,
 }
-const subscriptionPage = { items: [subscription], nextCursor: null }
+const subscriptionPage = { ownerUserId, items: [subscription], nextCursor: null }
 const refresh = {
   operationId: "00000000-0000-4000-8000-000000000801",
   state: "PENDING",
@@ -72,7 +73,8 @@ it("lists subscriptions with validated paging and query parameters", async () =>
 })
 
 it.each([
-  ["non-array page", () => listSubscriptions(), { items: {}, nextCursor: null }],
+  ["missing owner", () => listSubscriptions(), { items: [], nextCursor: null }],
+  ["non-array page", () => listSubscriptions(), { ownerUserId, items: {}, nextCursor: null }],
   [
     "wrong subscription field",
     () => getSubscription(subscription.subscriptionId),
@@ -204,6 +206,7 @@ it("generates both artifacts deterministically and detects missing or edited out
   expect(original).toContain("export type RefreshResponse = Refresh")
   expect(original).toContain("export type ApiErrorEnvelope = ErrorEnvelope")
   expect(original).toContain("export function isSubscriptionPageResponse")
+  expect(original).toContain("ownerUserId: string")
   expect(original).toContain("items: Subscription[]")
   expect(original).toContain("feedUrl: string")
   expect(original).toContain("siteUrl: string | null")

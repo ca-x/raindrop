@@ -35,6 +35,7 @@ export interface ReaderOrganizationFixture {
   subscriptions: Subscription[]
   categoryCalls: CategoryCall[]
   subscriptionPatches: SubscriptionPatchCall[]
+  ownerUserId: () => Promise<string>
   feedIdsForCategory: (categoryId: string) => Set<string>
   setRefreshState: (subscriptionId: string, state: RefreshFixtureState) => void
 }
@@ -66,9 +67,16 @@ export async function installReaderOrganizationFixture(
   const categoryCalls: CategoryCall[] = []
   const subscriptionPatches: SubscriptionPatchCall[] = []
   const refreshPolls = new Map<string, Refresh[]>()
+  const ownerUserId = createOwnerUserIdResolver(page)
 
   await page.route("**/api/v1/categories**", async (route) => {
-    await handleCategories(route, categories, subscriptions, categoryCalls)
+    await handleCategories(
+      route,
+      categories,
+      subscriptions,
+      categoryCalls,
+      ownerUserId,
+    )
   })
   await page.route("**/api/v1/subscriptions**", async (route) => {
     await handleSubscriptions(
@@ -77,6 +85,7 @@ export async function installReaderOrganizationFixture(
       subscriptions,
       subscriptionPatches,
       refreshPolls,
+      ownerUserId,
     )
   })
 
@@ -85,6 +94,7 @@ export async function installReaderOrganizationFixture(
     subscriptions,
     categoryCalls,
     subscriptionPatches,
+    ownerUserId,
     feedIdsForCategory: (categoryId) =>
       new Set(
         subscriptions
@@ -105,12 +115,13 @@ async function handleCategories(
   categories: Category[],
   subscriptions: Subscription[],
   calls: CategoryCall[],
+  ownerUserId: () => Promise<string>,
 ): Promise<void> {
   const request = route.request()
   const url = new URL(request.url())
   const method = request.method()
   if (url.pathname === "/api/v1/categories" && method === "GET") {
-    await json(route, { items: categories })
+    await json(route, { ownerUserId: await ownerUserId(), items: categories })
     return
   }
   if (url.pathname === "/api/v1/categories" && method === "POST") {
@@ -163,12 +174,17 @@ async function handleSubscriptions(
   subscriptions: Subscription[],
   patches: SubscriptionPatchCall[],
   refreshPolls: Map<string, Refresh[]>,
+  ownerUserId: () => Promise<string>,
 ): Promise<void> {
   const request = route.request()
   const url = new URL(request.url())
   const method = request.method()
   if (url.pathname === "/api/v1/subscriptions" && method === "GET") {
-    await json(route, { items: subscriptions, nextCursor: null })
+    await json(route, {
+      ownerUserId: await ownerUserId(),
+      items: subscriptions,
+      nextCursor: null,
+    })
     return
   }
   const refreshMatch = /^\/api\/v1\/subscriptions\/([^/]+)\/refresh$/u.exec(url.pathname)
@@ -286,6 +302,32 @@ function requireCsrf(headers: Record<string, string>): string {
   const csrf = headers["x-csrf-token"]
   if (!csrf) throw new Error("organization mutation omitted CSRF")
   return csrf
+}
+
+function createOwnerUserIdResolver(page: Page): () => Promise<string> {
+  let pending: Promise<string> | null = null
+  return () => {
+    pending ??= (async () => {
+      const response = await page.request.get(
+        new URL("/api/v1/auth/session", page.url()).toString(),
+      )
+      if (!response.ok()) throw new Error("Reader fixture could not resolve its session owner")
+      const body: unknown = await response.json()
+      if (
+        typeof body !== "object" ||
+        body === null ||
+        !("user" in body) ||
+        typeof body.user !== "object" ||
+        body.user === null ||
+        !("id" in body.user) ||
+        typeof body.user.id !== "string"
+      ) {
+        throw new Error("Reader fixture received an invalid session owner")
+      }
+      return body.user.id
+    })()
+    return pending
+  }
 }
 
 async function notFound(route: Route): Promise<void> {

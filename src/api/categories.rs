@@ -92,6 +92,7 @@ where
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct CategoryListResponse {
+    owner_user_id: String,
     items: Vec<CategoryResponse>,
 }
 
@@ -124,7 +125,10 @@ async fn list_categories(
         .into_iter()
         .map(Into::into)
         .collect();
-    Ok(Json(CategoryListResponse { items }))
+    Ok(Json(CategoryListResponse {
+        owner_user_id: user.id,
+        items,
+    }))
 }
 
 async fn create_category(

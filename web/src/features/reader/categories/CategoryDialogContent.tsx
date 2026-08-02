@@ -9,16 +9,16 @@ import { useLingui } from "@lingui/react"
 import type { FormEventHandler } from "react"
 
 import type { Category } from "../api/organization.generated"
-import type { Subscription } from "../api/subscription.generated"
+import type { ReaderSubscription } from "../model/types"
 
 export const uncategorizedValue = "__uncategorized__"
 
 interface CategoryDialogContentProps {
   categories: Category[]
-  subscriptions: Subscription[]
+  subscriptions: ReaderSubscription[]
   selectedCategory?: Category
   selectedCategoryId: string | null
-  selectedSubscription?: Subscription
+  selectedSubscription?: ReaderSubscription
   newTitle: string
   editTitle: string
   assignment: string

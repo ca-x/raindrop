@@ -171,13 +171,24 @@ function mockReaderWorkspace(
 ) {
   fetchMock.mockImplementation((input) => {
     const path = String(input)
-    if (path === "/api/v1/categories") return Promise.resolve(jsonResponse({ items: [] }))
+    if (path === "/api/v1/categories") {
+      return Promise.resolve(jsonResponse({ ownerUserId: sessionResponse.user.id, items: [] }))
+    }
     if (path.startsWith("/api/v1/subscriptions")) {
-      return Promise.resolve(jsonResponse({ items: [], nextCursor: null }))
+      return Promise.resolve(jsonResponse({
+        ownerUserId: sessionResponse.user.id,
+        items: [],
+        nextCursor: null,
+      }))
     }
     if (path.startsWith("/api/v1/entries")) {
       return Promise.resolve(
-        jsonResponse({ items: [], nextCursor: null, snapshotGeneration: 1 }),
+        jsonResponse({
+          ownerUserId: sessionResponse.user.id,
+          items: [],
+          nextCursor: null,
+          snapshotGeneration: 1,
+        }),
       )
     }
     if (path === "/api/v2/preferences") {

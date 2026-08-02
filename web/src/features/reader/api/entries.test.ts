@@ -18,6 +18,7 @@ afterEach(() => vi.unstubAllGlobals())
 const entryId = "00000000-0000-4000-8000-000000000301"
 const feedId = "00000000-0000-4000-8000-000000000101"
 const categoryId = "00000000-0000-4000-8000-000000000501"
+const ownerUserId = "11111111-1111-4111-8111-111111111111"
 const entry = {
   entryId,
   feedId,
@@ -32,7 +33,7 @@ const entry = {
   isRead: false,
   isStarred: false,
 }
-const entryPage = { items: [entry], nextCursor: null, snapshotGeneration: 1 }
+const entryPage = { ownerUserId, items: [entry], nextCursor: null, snapshotGeneration: 1 }
 const detail = { ...entry, contentHtml: "<p>Safe</p>", inertImages: [], enclosures: [] }
 const entryState = { entryId, isRead: true, isStarred: false }
 
@@ -79,8 +80,17 @@ const invalidGlobalSearch: ListEntriesOptions = { search: "rss" }
 void invalidGlobalSearch
 
 it.each([
+  [
+    "missing page owner",
+    () => listEntries(),
+    { items: [entry], nextCursor: null, snapshotGeneration: 1 },
+  ],
   ["non-array page", () => listEntries(), { ...entryPage, items: {} }],
-  ["missing page field", () => listEntries(), { items: [entry], nextCursor: null }],
+  [
+    "missing page field",
+    () => listEntries(),
+    { ownerUserId, items: [entry], nextCursor: null },
+  ],
   ["wrong detail content", () => getEntry(entryId), { ...detail, contentHtml: 7 }],
   ["internal detail field", () => getEntry(entryId), { ...detail, storageKey: "secret" }],
   [

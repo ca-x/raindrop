@@ -121,14 +121,16 @@ impl From<EntryStateParam> for EntryListState {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct EntryPageResponse {
+    owner_user_id: String,
     items: Vec<EntryListItemResponse>,
     next_cursor: Option<String>,
     snapshot_generation: i64,
 }
 
-impl From<crate::feeds::EntryPage> for EntryPageResponse {
-    fn from(page: crate::feeds::EntryPage) -> Self {
+impl From<(String, crate::feeds::EntryPage)> for EntryPageResponse {
+    fn from((owner_user_id, page): (String, crate::feeds::EntryPage)) -> Self {
         Self {
+            owner_user_id,
             items: page.items.into_iter().map(Into::into).collect(),
             next_cursor: page.next_cursor,
             snapshot_generation: page.snapshot_generation,
@@ -346,7 +348,7 @@ async fn list_entries(
         .list_for_user(&user.id, params.into_query())
         .await
         .map_err(map_repository_error)?;
-    Ok(Json(page.into()))
+    Ok(Json((user.id, page).into()))
 }
 
 async fn get_entry(

@@ -19,6 +19,7 @@ export interface MarkEntriesReadRequest {
 }
 
 export interface EntryPageResponse {
+  ownerUserId: string
   items: EntryListItemResponse[]
   nextCursor: string | null
   snapshotGeneration: number
@@ -131,7 +132,7 @@ export function isMarkEntriesReadRequest(value: unknown): value is MarkEntriesRe
 }
 
 export function isEntryPageResponse(value: unknown): value is EntryPageResponse {
-  return ((isRecord(value) && hasOnlyKeys(value, ["items","nextCursor","snapshotGeneration"]) && hasOwn(value, "items") && ((Array.isArray(value["items"]) && value["items"].every((item1) => isEntryListItemResponse(item1)))) && hasOwn(value, "nextCursor") && ((typeof value["nextCursor"] === "string") || value["nextCursor"] === null) && hasOwn(value, "snapshotGeneration") && ((typeof value["snapshotGeneration"] === "number" && Number.isFinite(value["snapshotGeneration"]) && Number.isInteger(value["snapshotGeneration"]) && value["snapshotGeneration"] >= 0))))
+  return ((isRecord(value) && hasOnlyKeys(value, ["ownerUserId","items","nextCursor","snapshotGeneration"]) && hasOwn(value, "ownerUserId") && ((typeof value["ownerUserId"] === "string" && isUuid(value["ownerUserId"]))) && hasOwn(value, "items") && ((Array.isArray(value["items"]) && value["items"].every((item1) => isEntryListItemResponse(item1)))) && hasOwn(value, "nextCursor") && ((typeof value["nextCursor"] === "string") || value["nextCursor"] === null) && hasOwn(value, "snapshotGeneration") && ((typeof value["snapshotGeneration"] === "number" && Number.isFinite(value["snapshotGeneration"]) && Number.isInteger(value["snapshotGeneration"]) && value["snapshotGeneration"] >= 0))))
 }
 
 export function isEntryListItemResponse(value: unknown): value is EntryListItemResponse {

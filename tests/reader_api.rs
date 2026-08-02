@@ -854,6 +854,7 @@ async fn reader_list_defaults_to_unread_and_returns_a_user_bound_cursor() {
     assert_eq!(response.status(), StatusCode::OK);
     assert_sensitive_cache_headers(&response);
     let body = response_json(response).await;
+    assert_eq!(body["ownerUserId"], USER_A_ID);
     assert_eq!(body["items"].as_array().unwrap().len(), 1);
     assert_eq!(body["items"][0]["isRead"], false);
     assert!(body["nextCursor"].is_string());

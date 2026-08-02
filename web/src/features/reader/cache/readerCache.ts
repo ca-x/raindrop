@@ -4,10 +4,16 @@ import {
   type EntryListItemResponse,
 } from "../api/reader.generated"
 import { isCategory, type Category } from "../api/organization.generated"
-import { isSubscription, type Subscription } from "../api/subscription.generated"
-import { sourceKey, type ReaderSource, type ReaderState } from "../model/types"
+import { isSubscription } from "../api/subscription.generated"
+import {
+  sourceKey,
+  type CachedReaderSubscription,
+  type ReaderSource,
+  type ReaderState,
+  type ReaderSubscription,
+} from "../model/types"
 
-const CACHE_SCHEMA_VERSION = 1
+const CACHE_SCHEMA_VERSION = 2
 const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000
 const CACHE_FUTURE_SKEW_MS = 5 * 60 * 1_000
 const CACHE_MAX_SERIALIZED_BYTES = 2 * 1024 * 1024
@@ -17,15 +23,17 @@ const CACHE_MAX_ENTRIES = 100
 const CACHE_MAX_SCROLL_ANCHORS = 32
 const CACHE_MAX_SUMMARY_CHARACTERS = 512
 const CACHE_DATABASE_NAME = "raindrop-reader-cache"
-const CACHE_DATABASE_VERSION = 1
+const CACHE_DATABASE_VERSION = 2
 const CACHE_STORE_NAME = "snapshots"
 const CACHE_ACTIVE_KEY = "active"
+const CACHE_CONTROL_CHANNEL = "raindrop-reader-cache-control"
+const CACHE_CONTROL_STORAGE_KEY = "raindrop-reader-cache-cleared"
 
 export interface ReaderCacheSnapshot {
   categories: Category[]
-  subscriptions: Subscription[]
+  subscriptions: CachedReaderSubscription[]
   source: ReaderSource
-  entries: EntryListItemResponse[]
+  entries: ReaderCacheEntry[]
   queue: string[]
   snapshotGeneration: number | null
   scrollAnchorByRoute: Record<string, number>
@@ -37,16 +45,44 @@ export interface ReaderCacheStorage {
   clear(): Promise<void>
 }
 
+interface ReaderCacheCoordination {
+  subscribe(onCleared: () => void): void
+  notifyCleared(): void
+}
+
 export interface ReaderCache {
   load(userId: string): Promise<ReaderCacheSnapshot | null>
-  save(userId: string, snapshot: ReaderCacheSnapshot): Promise<void>
+  save(
+    userId: string,
+    snapshot: ReaderCacheSnapshot,
+    options?: { markValidated?: boolean },
+  ): Promise<void>
   clear(): Promise<void>
 }
+
+type ReaderCacheEntry = Pick<
+  EntryListItemResponse,
+  | "entryId"
+  | "feedId"
+  | "feedTitle"
+  | "title"
+  | "author"
+  | "summary"
+  | "publishedAtUs"
+  | "sortAtUs"
+  | "isRead"
+  | "isStarred"
+>
 
 interface ReaderCacheEnvelope {
   schemaVersion: typeof CACHE_SCHEMA_VERSION
   ownerUserId: string
-  savedAtMs: number
+  validatedAtMs: number
+  snapshot: ReaderCacheSnapshot
+}
+
+interface DecodedReaderCacheEnvelope {
+  validatedAtMs: number
   snapshot: ReaderCacheSnapshot
 }
 
@@ -63,42 +99,98 @@ interface RawReaderCacheSnapshot {
 export function createReaderCache(
   storage: ReaderCacheStorage,
   now: () => number = Date.now,
+  coordination?: ReaderCacheCoordination,
 ): ReaderCache {
-  const clear = async () => {
+  let activeOwnerUserId: string | null = null
+  let activeValidatedAtMs: number | null = null
+  let writesDisabled = false
+  let cacheEpoch = 0
+  const forgetActiveSnapshot = () => {
+    activeOwnerUserId = null
+    activeValidatedAtMs = null
+  }
+  const deleteStored = async () => {
+    forgetActiveSnapshot()
     try {
       await storage.clear()
     } catch {
       // Reader cache is an optional acceleration path.
     }
   }
+  const clear = async () => {
+    writesDisabled = true
+    cacheEpoch += 1
+    forgetActiveSnapshot()
+    coordination?.notifyCleared()
+    await deleteStored()
+  }
+  coordination?.subscribe(() => {
+    writesDisabled = true
+    cacheEpoch += 1
+    forgetActiveSnapshot()
+    void deleteStored()
+  })
 
   return {
     async load(userId) {
+      writesDisabled = false
+      const loadEpoch = cacheEpoch
       let stored: unknown
       try {
         stored = await storage.read()
       } catch {
         return null
       }
-      if (stored === null || stored === undefined) return null
-      const snapshot = decodeEnvelope(stored, userId, now())
-      if (snapshot) return snapshot
-      await clear()
+      if (writesDisabled || loadEpoch !== cacheEpoch) return null
+      if (stored === null || stored === undefined) {
+        forgetActiveSnapshot()
+        return null
+      }
+      const decoded = decodeEnvelope(stored, userId, now())
+      if (decoded) {
+        activeOwnerUserId = userId
+        activeValidatedAtMs = decoded.validatedAtMs
+        return decoded.snapshot
+      }
+      await deleteStored()
       return null
     },
 
-    async save(userId, snapshot) {
+    async save(userId, snapshot, options) {
+      if (writesDisabled) return
+      const writeEpoch = cacheEpoch
+      const nowMs = now()
+      const validatedAtMs =
+        options?.markValidated ||
+          activeOwnerUserId !== userId ||
+          activeValidatedAtMs === null
+          ? nowMs
+          : activeValidatedAtMs
       const envelope: ReaderCacheEnvelope = {
         schemaVersion: CACHE_SCHEMA_VERSION,
         ownerUserId: userId,
-        savedAtMs: now(),
-        snapshot,
+        validatedAtMs,
+        snapshot: sanitizeSnapshot(snapshot),
       }
-      if (!decodeEnvelope(envelope, userId, envelope.savedAtMs)) return
+      if (!decodeEnvelope(envelope, userId, nowMs)) {
+        await deleteStored()
+        return
+      }
       try {
         await storage.write(envelope)
+        if (writesDisabled || writeEpoch !== cacheEpoch) {
+          await deleteStored()
+          return
+        }
+        activeOwnerUserId = userId
+        activeValidatedAtMs = validatedAtMs
       } catch {
-        // Quota and browser policy failures must not affect reading.
+        // Never leave an older projection behind after a failed replacement.
+        await deleteStored()
+        if (!writesDisabled && writeEpoch === cacheEpoch) {
+          activeOwnerUserId = userId
+          activeValidatedAtMs = validatedAtMs
+        }
       }
     },
 
@@ -106,16 +198,28 @@ export function createReaderCache(
   }
 }
 
-export const browserReaderCache = createReaderCache(createIndexedDbStorage())
+export const browserReaderCache = createReaderCache(
+  createIndexedDbStorage(),
+  Date.now,
+  createBrowserCacheCoordination(),
+)
 
 export function readerCacheSnapshot(state: ReaderState): ReaderCacheSnapshot | null {
-  if (state.paneStatus.subscriptions !== "ready") return null
+  if (
+    state.paneStatus.subscriptions !== "ready" ||
+    state.paneStatus.queue !== "ready"
+  ) return null
+  if (state.feedSearchQuery !== "") return null
+  if (Object.keys(state.optimisticMutationsById).length > 0) return null
   const categories = state.categoryOrder
     .map((id) => state.categoriesById[id])
     .filter((category): category is Category => category !== undefined)
   const subscriptions = state.subscriptionOrder
     .map((id) => state.subscriptionsById[id])
-    .filter((subscription): subscription is Subscription => subscription !== undefined)
+    .filter(
+      (subscription): subscription is ReaderSubscription =>
+        subscription !== undefined,
+    )
   if (
     categories.length !== state.categoryOrder.length ||
     subscriptions.length !== state.subscriptionOrder.length
@@ -126,27 +230,19 @@ export function readerCacheSnapshot(state: ReaderState): ReaderCacheSnapshot | n
   const key = sourceKey(state.selectedSource)
   const storedQueue = state.queueBySourceKey[key]
   const storedGeneration = state.snapshotGenerationBySource[key]
-  let entries: EntryListItemResponse[] = []
-  let queue: string[] = []
-  let snapshotGeneration: number | null = null
-  if (storedQueue !== undefined && storedGeneration !== undefined) {
-    queue = storedQueue.slice(0, CACHE_MAX_ENTRIES)
-    const projected = queue.map((entryId) => state.entriesById[entryId])
-    if (projected.some((entry) => entry === undefined)) return null
-    entries = projected.map((entry) => ({
-      ...entry!,
-      summary: boundedSummary(entry!.summary),
-    }))
-    snapshotGeneration = storedGeneration
-  }
+  if (storedQueue === undefined || storedGeneration === undefined) return null
+  const queue = storedQueue.slice(0, CACHE_MAX_ENTRIES)
+  const projected = queue.map((entryId) => state.entriesById[entryId])
+  if (projected.some((entry) => entry === undefined)) return null
+  const entries = projected.map((entry) => cacheEntry(entry!))
 
   return {
     categories,
-    subscriptions,
+    subscriptions: subscriptions.map(cacheSubscription),
     source: state.selectedSource,
     entries,
     queue,
-    snapshotGeneration,
+    snapshotGeneration: storedGeneration,
     scrollAnchorByRoute: Object.fromEntries(
       Object.entries(state.scrollAnchorByRoute).slice(-CACHE_MAX_SCROLL_ANCHORS),
     ),
@@ -157,17 +253,17 @@ function decodeEnvelope(
   value: unknown,
   expectedOwnerUserId: string,
   nowMs: number,
-): ReaderCacheSnapshot | null {
+): DecodedReaderCacheEnvelope | null {
   try {
     if (
       !isRecord(value) ||
-      !hasExactKeys(value, ["schemaVersion", "ownerUserId", "savedAtMs", "snapshot"]) ||
+      !hasExactKeys(value, ["schemaVersion", "ownerUserId", "validatedAtMs", "snapshot"]) ||
       value.schemaVersion !== CACHE_SCHEMA_VERSION ||
       value.ownerUserId !== expectedOwnerUserId ||
       !isUuid(value.ownerUserId) ||
-      !isNonNegativeInteger(value.savedAtMs) ||
-      value.savedAtMs > nowMs + CACHE_FUTURE_SKEW_MS ||
-      nowMs - value.savedAtMs > CACHE_MAX_AGE_MS ||
+      !isNonNegativeInteger(value.validatedAtMs) ||
+      value.validatedAtMs > nowMs + CACHE_FUTURE_SKEW_MS ||
+      nowMs - value.validatedAtMs > CACHE_MAX_AGE_MS ||
       !isShallowSnapshot(value.snapshot)
     ) {
       return null
@@ -176,7 +272,9 @@ function decodeEnvelope(
     if (new TextEncoder().encode(serialized).byteLength > CACHE_MAX_SERIALIZED_BYTES) {
       return null
     }
-    return isReaderCacheSnapshot(value.snapshot) ? value.snapshot : null
+    return isReaderCacheSnapshot(value.snapshot)
+      ? { validatedAtMs: value.validatedAtMs, snapshot: value.snapshot }
+      : null
   } catch {
     return null
   }
@@ -212,9 +310,9 @@ function isReaderCacheSnapshot(
 ): value is ReaderCacheSnapshot {
   if (
     !value.categories.every(isCategory) ||
-    !value.subscriptions.every(isSubscription) ||
+    !value.subscriptions.every(isReaderCacheSubscription) ||
     !isReaderSource(value.source) ||
-    !value.entries.every(isEntryListItemResponse) ||
+    !value.entries.every(isReaderCacheEntry) ||
     !value.queue.every((entryId) => typeof entryId === "string" && isUuid(entryId)) ||
     !isSnapshotGeneration(value.snapshotGeneration) ||
     !isScrollAnchors(value.scrollAnchorByRoute)
@@ -223,9 +321,9 @@ function isReaderCacheSnapshot(
   }
 
   const categories = value.categories as Category[]
-  const subscriptions = value.subscriptions as Subscription[]
+  const subscriptions = value.subscriptions as CachedReaderSubscription[]
   const source = value.source as ReaderSource
-  const entries = value.entries as EntryListItemResponse[]
+  const entries = value.entries as ReaderCacheEntry[]
   const queue = value.queue as string[]
 
   if (
@@ -270,6 +368,88 @@ function isReaderCacheSnapshot(
     if (source.kind === "feed") return entry.feedId === source.feedId
     return visibleFeedIds.has(entry.feedId)
   })
+}
+
+function sanitizeSnapshot(snapshot: ReaderCacheSnapshot): ReaderCacheSnapshot {
+  return {
+    categories: snapshot.categories.map((category) => ({
+      categoryId: category.categoryId,
+      title: category.title,
+      position: category.position,
+    })),
+    subscriptions: snapshot.subscriptions.map(cacheSubscription),
+    source: { ...snapshot.source },
+    entries: snapshot.entries.map(cacheEntry),
+    queue: [...snapshot.queue],
+    snapshotGeneration: snapshot.snapshotGeneration,
+    scrollAnchorByRoute: { ...snapshot.scrollAnchorByRoute },
+  }
+}
+
+function cacheSubscription(
+  subscription: CachedReaderSubscription,
+): CachedReaderSubscription {
+  return {
+    subscriptionId: subscription.subscriptionId,
+    feedId: subscription.feedId,
+    categoryId: subscription.categoryId,
+    titleOverride: subscription.titleOverride,
+    position: subscription.position,
+    title: subscription.title,
+    unreadCount: subscription.unreadCount,
+    refresh: subscription.refresh,
+  }
+}
+
+function cacheEntry(entry: ReaderCacheEntry): ReaderCacheEntry {
+  return {
+    entryId: entry.entryId,
+    feedId: entry.feedId,
+    feedTitle: entry.feedTitle,
+    title: entry.title,
+    author: entry.author,
+    summary: boundedSummary(entry.summary),
+    publishedAtUs: entry.publishedAtUs,
+    sortAtUs: entry.sortAtUs,
+    isRead: entry.isRead,
+    isStarred: entry.isStarred,
+  }
+}
+
+function isReaderCacheSubscription(value: unknown): value is CachedReaderSubscription {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, [
+      "subscriptionId",
+      "feedId",
+      "categoryId",
+      "titleOverride",
+      "position",
+      "title",
+      "unreadCount",
+      "refresh",
+    ]) &&
+    isSubscription({ ...value, feedUrl: "https://cache.invalid/", siteUrl: null })
+  )
+}
+
+function isReaderCacheEntry(value: unknown): value is ReaderCacheEntry {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, [
+      "entryId",
+      "feedId",
+      "feedTitle",
+      "title",
+      "author",
+      "summary",
+      "publishedAtUs",
+      "sortAtUs",
+      "isRead",
+      "isStarred",
+    ]) &&
+    isEntryListItemResponse({ ...value, siteUrl: null, canonicalUrl: null })
+  )
 }
 
 function isReaderSource(value: unknown): value is ReaderSource {
@@ -335,6 +515,11 @@ function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]): 
 }
 
 function createIndexedDbStorage(): ReaderCacheStorage {
+  void openCacheDatabase()
+    .then((database) => database.close())
+    .catch(() => {
+      // Cache migration is best effort and must not delay authentication.
+    })
   return {
     read: () => withIndexedDbStore("readonly", (store) => store.get(CACHE_ACTIVE_KEY)),
     write: async (value) => {
@@ -342,6 +527,41 @@ function createIndexedDbStorage(): ReaderCacheStorage {
     },
     clear: async () => {
       await withIndexedDbStore("readwrite", (store) => store.delete(CACHE_ACTIVE_KEY))
+    },
+  }
+}
+
+function createBrowserCacheCoordination(): ReaderCacheCoordination | undefined {
+  if (typeof window === "undefined") return undefined
+  const listeners = new Set<() => void>()
+  const notifyListeners = () => {
+    for (const listener of listeners) listener()
+  }
+  const channel = typeof window.BroadcastChannel === "function"
+    ? new window.BroadcastChannel(CACHE_CONTROL_CHANNEL)
+    : null
+  if (channel) channel.onmessage = notifyListeners
+  window.addEventListener("storage", (event) => {
+    if (event.key === CACHE_CONTROL_STORAGE_KEY) notifyListeners()
+  })
+  return {
+    subscribe(onCleared) {
+      listeners.add(onCleared)
+    },
+    notifyCleared() {
+      try {
+        channel?.postMessage("clear")
+      } catch {
+        // Cross-tab invalidation remains best effort when the channel is denied.
+      }
+      try {
+        window.localStorage.setItem(
+          CACHE_CONTROL_STORAGE_KEY,
+          globalThis.crypto?.randomUUID?.() ?? String(Date.now()),
+        )
+      } catch {
+        // IndexedDB cleanup still applies in the current tab.
+      }
     },
   }
 }
@@ -378,13 +598,26 @@ function openCacheDatabase(): Promise<IDBDatabase> {
       return
     }
     const request = globalThis.indexedDB.open(CACHE_DATABASE_NAME, CACHE_DATABASE_VERSION)
+    let rejectedAsBlocked = false
     request.onupgradeneeded = () => {
-      if (!request.result.objectStoreNames.contains(CACHE_STORE_NAME)) {
-        request.result.createObjectStore(CACHE_STORE_NAME)
+      if (request.result.objectStoreNames.contains(CACHE_STORE_NAME)) {
+        request.result.deleteObjectStore(CACHE_STORE_NAME)
       }
+      request.result.createObjectStore(CACHE_STORE_NAME)
     }
-    request.onsuccess = () => resolve(request.result)
+    request.onsuccess = () => {
+      const database = request.result
+      database.onversionchange = () => database.close()
+      if (rejectedAsBlocked) {
+        database.close()
+        return
+      }
+      resolve(database)
+    }
     request.onerror = () => reject(request.error ?? new Error("Reader cache database failed"))
-    request.onblocked = () => reject(new Error("Reader cache database is blocked"))
+    request.onblocked = () => {
+      rejectedAsBlocked = true
+      reject(new Error("Reader cache database is blocked"))
+    }
   })
 }

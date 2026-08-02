@@ -207,9 +207,14 @@ function renderApp() {
 
 function mockReaderWorkspace() {
   fetchMock
-    .mockResolvedValueOnce(jsonResponse({ items: [] }))
-    .mockResolvedValueOnce(jsonResponse({ items: [], nextCursor: null }))
-    .mockResolvedValueOnce(jsonResponse({ items: [], nextCursor: null, snapshotGeneration: 1 }))
+    .mockResolvedValueOnce(jsonResponse({ ownerUserId: publicUser.id, items: [] }))
+    .mockResolvedValueOnce(jsonResponse({ ownerUserId: publicUser.id, items: [], nextCursor: null }))
+    .mockResolvedValueOnce(jsonResponse({
+      ownerUserId: publicUser.id,
+      items: [],
+      nextCursor: null,
+      snapshotGeneration: 1,
+    }))
 }
 
 async function replace(user: ReturnType<typeof userEvent.setup>, label: RegExp, value: string) {

@@ -17,6 +17,7 @@ interface EntryMutationOptions {
   dispatch: (action: ReaderAction) => void
   stateRef: { current: ReaderState }
   session: ReaderSession
+  onMutationSettled: () => void
 }
 
 export function useEntryMutations({
@@ -25,6 +26,7 @@ export function useEntryMutations({
   dispatch,
   stateRef,
   session,
+  onMutationSettled,
 }: EntryMutationOptions) {
   const nextMutationId = useRef(0)
 
@@ -37,6 +39,7 @@ export function useEntryMutations({
       if (!task) return
       const mutationId = ++nextMutationId.current
       const value = !entity[field]
+      let shouldRevalidate = false
       dispatch({ type: "entryMutationStarted", mutationId, entryId, field, value })
       try {
         const request = field === "isRead" ? { isRead: value } : { isStarred: value }
@@ -49,6 +52,7 @@ export function useEntryMutations({
         if (!session.isCurrent(task)) return
         if (response.entryId !== entryId) throw invalidResponseError()
         dispatch({ type: "entryMutationSucceeded", mutationId, state: response })
+        shouldRevalidate = true
       } catch (error) {
         if (isAbortError(error)) return
         if (!session.isCurrent(task)) return
@@ -58,11 +62,13 @@ export function useEntryMutations({
           mutationId,
           error: readerErrorMessage(error),
         })
+        shouldRevalidate = true
       } finally {
         session.finish(task)
+        if (shouldRevalidate && session.active()) onMutationSettled()
       }
     },
-    [api, csrfToken, dispatch, session, stateRef],
+    [api, csrfToken, dispatch, onMutationSettled, session, stateRef],
   )
 
   return {

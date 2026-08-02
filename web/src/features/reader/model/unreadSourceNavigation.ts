@@ -1,5 +1,4 @@
-import type { Subscription } from "../api/subscription.generated"
-import type { ReaderSource, ReaderState } from "./types"
+import type { ReaderSource, ReaderState, ReaderSubscription } from "./types"
 
 export type UnreadSourceDirection = 1 | -1
 
@@ -25,7 +24,7 @@ export function adjacentUnreadSource(
     : fallback
 }
 
-function renderedSubscriptions(state: ReaderState): Subscription[] {
+function renderedSubscriptions(state: ReaderState): ReaderSubscription[] {
   const subscriptions = state.subscriptionOrder.map((id) => state.subscriptionsById[id])
   return [
     ...state.categoryOrder.flatMap((categoryId) =>
@@ -37,7 +36,7 @@ function renderedSubscriptions(state: ReaderState): Subscription[] {
 
 function startIndex(
   state: ReaderState,
-  ordered: Subscription[],
+  ordered: ReaderSubscription[],
   direction: UnreadSourceDirection,
 ): number {
   const selected = state.selectedSource

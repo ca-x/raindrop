@@ -233,7 +233,7 @@ test("Expanded source tree keeps hover distinct and reaches the final feed", asy
 
 async function activeReaderCacheRecord(page: Page): Promise<unknown> {
   return page.evaluate(() => new Promise((resolve, reject) => {
-    const open = indexedDB.open("raindrop-reader-cache", 1)
+    const open = indexedDB.open("raindrop-reader-cache", 2)
     open.onerror = () => reject(open.error)
     open.onsuccess = () => {
       const database = open.result

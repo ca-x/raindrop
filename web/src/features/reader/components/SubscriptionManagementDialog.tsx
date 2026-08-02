@@ -20,9 +20,12 @@ import {
 import {
   isCreateSubscriptionRequest,
   type CreateSubscriptionResponse,
-  type Subscription,
   type UpdateSubscriptionRequest,
 } from "../api/subscription.generated"
+import {
+  isAuthoritativeSubscription,
+  type ReaderSubscription,
+} from "../model/types"
 
 const uncategorizedValue = "__uncategorized__"
 
@@ -37,7 +40,7 @@ interface PendingSubscriptionSetup {
 
 interface SubscriptionManagementDialogProps {
   isOpen: boolean
-  subscriptions: Subscription[]
+  subscriptions: ReaderSubscription[]
   categories: Category[]
   mutationError: string | null
   csrfToken: string
@@ -163,11 +166,14 @@ function SubscriptionPanel(
   const [isAdding, setIsAdding] = useState(false)
   const [isOrganizing, setIsOrganizing] = useState(false)
   const [isDiscarding, setIsDiscarding] = useState(false)
-  const addedSubscription = props.pendingSubscription
+  const pendingCandidate = props.pendingSubscription
     ? props.subscriptions.find(
         (candidate) =>
           candidate.subscriptionId === props.pendingSubscription?.subscriptionId,
       )
+    : undefined
+  const addedSubscription = pendingCandidate && isAuthoritativeSubscription(pendingCandidate)
+    ? pendingCandidate
     : undefined
 
   useEffect(() => {

@@ -7,6 +7,8 @@ import { GENERIC_READER_ERROR } from "./controllerErrors"
 import { entryId, makeDetail, makeEntry } from "./testFixtures"
 import { useReaderController } from "./useReaderController"
 
+const userId = "11111111-1111-4111-8111-111111111111"
+
 afterEach(() => vi.unstubAllGlobals())
 
 it("surfaces a malformed entry page as a presentation-safe queue error", async () => {
@@ -114,17 +116,18 @@ it("keeps the visible queue and surfaces a safe bulk-read error", async () => {
 
 function makeApi(overrides: Partial<ReaderApi> = {}): ReaderApi {
   return {
-    listCategories: vi.fn(async () => ({ items: [] })),
+    listCategories: vi.fn(async () => ({ ownerUserId: userId, items: [] })),
     createCategory: vi.fn(),
     updateCategory: vi.fn(),
     deleteCategory: vi.fn(),
-    listSubscriptions: vi.fn(async () => ({ items: [], nextCursor: null })),
+    listSubscriptions: vi.fn(async () => ({ ownerUserId: userId, items: [], nextCursor: null })),
     getSubscription: vi.fn(),
     createSubscription: vi.fn(),
     deleteSubscription: vi.fn(),
     refreshSubscription: vi.fn(),
     updateSubscription: vi.fn(),
     listEntries: vi.fn(async () => ({
+      ownerUserId: userId,
       items: [makeEntry()],
       nextCursor: null,
       snapshotGeneration: 1,

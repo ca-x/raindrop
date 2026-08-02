@@ -10,7 +10,7 @@ import {
   isUpdateCategoryRequest,
   type Category,
 } from "../api/organization.generated"
-import type { Subscription } from "../api/subscription.generated"
+import type { ReaderSubscription } from "../model/types"
 import {
   CategoryDialogContent,
   uncategorizedValue,
@@ -19,8 +19,8 @@ import {
 interface CategoryDialogProps {
   isOpen: boolean
   categories: Category[]
-  subscriptions: Subscription[]
-  selectedSubscription?: Subscription
+  subscriptions: ReaderSubscription[]
+  selectedSubscription?: ReaderSubscription
   mutationError: string | null
   onOpenChange: (isOpen: boolean) => void
   onClearError: () => void

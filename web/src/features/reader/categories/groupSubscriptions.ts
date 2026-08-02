@@ -1,15 +1,15 @@
 import type { Category } from "../api/organization.generated"
-import type { Subscription } from "../api/subscription.generated"
+import type { ReaderSubscription } from "../model/types"
 
 export interface SubscriptionGroup {
   category: Category | null
-  subscriptions: Subscription[]
+  subscriptions: ReaderSubscription[]
   unreadCount: number
 }
 
 export function groupSubscriptions(
   categories: Category[],
-  subscriptions: Subscription[],
+  subscriptions: ReaderSubscription[],
 ): { categorized: SubscriptionGroup[]; uncategorized: SubscriptionGroup } {
   const groups = new Map(
     categories.map((category) => [

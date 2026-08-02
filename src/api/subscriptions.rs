@@ -164,15 +164,17 @@ where
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SubscriptionPageResponse {
+    owner_user_id: String,
     items: Vec<SubscriptionResponse>,
     next_cursor: Option<String>,
 }
 
-impl TryFrom<SubscriptionPage> for SubscriptionPageResponse {
+impl TryFrom<(String, SubscriptionPage)> for SubscriptionPageResponse {
     type Error = ApiError;
 
-    fn try_from(page: SubscriptionPage) -> Result<Self, Self::Error> {
+    fn try_from((owner_user_id, page): (String, SubscriptionPage)) -> Result<Self, Self::Error> {
         Ok(Self {
+            owner_user_id,
             items: page
                 .items
                 .into_iter()
@@ -393,7 +395,7 @@ async fn list_subscriptions(
         .list_subscriptions(&user.id, params.into_query())
         .await
         .map_err(map_feed_service_error)?;
-    Ok(Json(page.try_into()?))
+    Ok(Json((user.id, page).try_into()?))
 }
 
 async fn create_subscription(

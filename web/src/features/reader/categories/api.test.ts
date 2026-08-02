@@ -14,12 +14,14 @@ const category = {
   title: "Technology",
   position: 1024,
 }
+const ownerUserId = "11111111-1111-4111-8111-111111111111"
 
 it("lists categories through the generated strict response validator", async () => {
-  const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ items: [category] }))
+  const response = { ownerUserId, items: [category] }
+  const fetchMock = vi.fn().mockResolvedValue(jsonResponse(response))
   vi.stubGlobal("fetch", fetchMock)
 
-  await expect(listCategories()).resolves.toEqual({ items: [category] })
+  await expect(listCategories()).resolves.toEqual(response)
   expect(fetchMock).toHaveBeenCalledWith(
     "/api/v1/categories",
     expect.objectContaining({ credentials: "same-origin" }),
@@ -27,10 +29,11 @@ it("lists categories through the generated strict response validator", async () 
 })
 
 it.each([
-  ["non-array list", { items: {} }],
-  ["unknown category field", { items: [{ ...category, normalizedTitle: "technology" }] }],
-  ["invalid category position", { items: [{ ...category, position: -1 }] }],
-  ["too many categories", { items: Array.from({ length: 251 }, () => category) }],
+  ["missing owner", { items: [category] }],
+  ["non-array list", { ownerUserId, items: {} }],
+  ["unknown category field", { ownerUserId, items: [{ ...category, normalizedTitle: "technology" }] }],
+  ["invalid category position", { ownerUserId, items: [{ ...category, position: -1 }] }],
+  ["too many categories", { ownerUserId, items: Array.from({ length: 251 }, () => category) }],
 ])("rejects a malformed 2xx %s response", async (_name, body) => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(body)))
   await expect(listCategories()).rejects.toMatchObject({

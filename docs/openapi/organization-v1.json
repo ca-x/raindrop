@@ -265,9 +265,14 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
+          "ownerUserId",
           "items"
         ],
         "properties": {
+          "ownerUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
           "items": {
             "type": "array",
             "maxItems": 250,

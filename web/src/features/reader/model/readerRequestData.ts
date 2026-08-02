@@ -1,5 +1,5 @@
 import type { ListEntriesOptions } from "../api/entries"
-import type { Category } from "../api/organization.generated"
+import type { CategoryList } from "../api/organization.generated"
 import type { Subscription } from "../api/subscription.generated"
 import type { ReaderApi } from "./controllerApi"
 import { sourceKey, type ReaderSource } from "./types"
@@ -29,22 +29,54 @@ export function sameSource(left: ReaderSource, right: ReaderSource): boolean {
 export async function loadCategories(
   api: ReaderApi,
   signal: AbortSignal,
-): Promise<Category[]> {
-  return (await api.listCategories(signal)).items
+  expectedOwnerUserId?: string,
+): Promise<CategoryList> {
+  const categories = await api.listCategories(signal)
+  if (
+    expectedOwnerUserId !== undefined &&
+    categories.ownerUserId !== expectedOwnerUserId
+  ) {
+    throw new ReaderResponseOwnerMismatchError()
+  }
+  return categories
+}
+
+export interface LoadedSubscriptions {
+  ownerUserId: string
+  items: Subscription[]
+}
+
+export class ReaderResponseOwnerMismatchError extends Error {
+  constructor() {
+    super("Reader response owner does not match the active session")
+    this.name = "ReaderResponseOwnerMismatchError"
+  }
 }
 
 export async function loadAllSubscriptions(
   api: ReaderApi,
   signal: AbortSignal,
   current: () => boolean,
-): Promise<Subscription[]> {
+  expectedOwnerUserId?: string,
+): Promise<LoadedSubscriptions> {
   const subscriptions: Subscription[] = []
+  let ownerUserId: string | null = null
   let cursor: string | undefined
   do {
     const page = await api.listSubscriptions({ cursor, signal })
-    if (!current()) return subscriptions
+    if (!current()) {
+      return { ownerUserId: ownerUserId ?? page.ownerUserId, items: subscriptions }
+    }
+    if (
+      (expectedOwnerUserId !== undefined &&
+        expectedOwnerUserId !== page.ownerUserId) ||
+      (ownerUserId !== null && ownerUserId !== page.ownerUserId)
+    ) {
+      throw new ReaderResponseOwnerMismatchError()
+    }
+    ownerUserId = page.ownerUserId
     subscriptions.push(...page.items)
     cursor = page.nextCursor ?? undefined
   } while (cursor !== undefined)
-  return subscriptions
+  return { ownerUserId: ownerUserId!, items: subscriptions }
 }

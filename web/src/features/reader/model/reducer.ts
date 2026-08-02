@@ -38,7 +38,11 @@ export type ReaderAction =
       categories: Category[]
     }
   | { type: "subscriptionsFailed"; generation: number; error: string }
-  | { type: "subscriptionUpserted"; subscription: Subscription }
+  | {
+      type: "subscriptionUpserted"
+      subscription: Subscription
+      invalidateQueue?: boolean
+    }
   | { type: "subscriptionDeleted"; subscriptionId: string }
   | { type: "subscriptionRefreshUpdated"; subscriptionId: string; refresh: Refresh }
   | { type: "categoryUpserted"; category: Category }
@@ -84,6 +88,7 @@ export const initialReaderState: ReaderState = {
   categoryOrder: [],
   subscriptionsById: {},
   subscriptionOrder: [],
+  subscriptionsAuthoritative: false,
   retiredFeedIds: {},
   entriesById: {},
   queueBySourceKey: {},
@@ -122,35 +127,53 @@ export function readerReducer(state: ReaderState, action: ReaderAction): ReaderS
       )
     case "subscriptionsFailed":
       return failSubscriptions(state, action.generation, action.error)
-    case "subscriptionUpserted":
-      return upsertSubscription(state, action.subscription)
+    case "subscriptionUpserted": {
+      const previous = state.subscriptionsById[action.subscription.subscriptionId]
+      const membershipChanged =
+        previous === undefined ||
+        previous.feedId !== action.subscription.feedId ||
+        previous.categoryId !== action.subscription.categoryId
+      const next = upsertSubscription(state, action.subscription)
+      return action.invalidateQueue === false && !membershipChanged
+        ? next
+        : invalidateOrganizationReads(next)
+    }
     case "subscriptionDeleted":
-      return deleteSubscriptionState(state, action.subscriptionId)
+      return invalidateOrganizationReads(deleteSubscriptionState(state, action.subscriptionId))
     case "subscriptionRefreshUpdated":
       return updateSubscriptionRefresh(state, action.subscriptionId, action.refresh)
     case "categoryUpserted":
-      return upsertCategory(state, action.category)
+      return invalidateSubscriptionReads(upsertCategory(state, action.category))
     case "categoryDeleted":
-      return deleteCategoryState(state, action.categoryId)
-    case "sourceSelected":
+      return invalidateOrganizationReads(deleteCategoryState(state, action.categoryId))
+    case "sourceSelected": {
+      const base = state.feedSearchQuery === ""
+        ? state
+        : discardSelectedFeedQueue(state)
       return {
-        ...state,
+        ...base,
         selectedSource: action.source,
         selectedEntryId: null,
         feedSearchQuery: "",
       }
-    case "feedSearchChanged":
-      return { ...state, feedSearchQuery: action.query, selectedEntryId: null }
+    }
+    case "feedSearchChanged": {
+      const base = action.query === state.feedSearchQuery
+        ? state
+        : discardSelectedFeedQueue(state)
+      return { ...base, feedSearchQuery: action.query, selectedEntryId: null }
+    }
     case "entrySelected":
       return { ...state, selectedEntryId: action.entryId }
-    case "scrollAnchorRecorded":
+    case "scrollAnchorRecorded": {
+      const scrollAnchorByRoute = { ...state.scrollAnchorByRoute }
+      delete scrollAnchorByRoute[action.route]
+      scrollAnchorByRoute[action.route] = action.offset
       return {
         ...state,
-        scrollAnchorByRoute: {
-          ...state.scrollAnchorByRoute,
-          [action.route]: action.offset,
-        },
+        scrollAnchorByRoute,
       }
+    }
     case "sourceRequested": {
       const key = sourceKey(action.source)
       const hasCachedQueue = Object.prototype.hasOwnProperty.call(
@@ -249,7 +272,7 @@ export function readerReducer(state: ReaderState, action: ReaderAction): ReaderS
         errors: { ...state.errors, detail: action.error },
       }
     case "entryMutationStarted":
-      return startEntryMutation(state, action)
+      return startEntryMutation(invalidateEntryReads(state), action)
     case "entryMutationSucceeded":
       return succeedEntryMutation(state, action.mutationId, action.state)
     case "entryMutationFailed":
@@ -265,6 +288,54 @@ export function readerReducer(state: ReaderState, action: ReaderAction): ReaderS
         paneStatus: { subscriptions: "idle", queue: "idle", detail: "idle" },
         errors: { subscriptions: null, queue: null, detail: null, mutation: null },
       }
+  }
+}
+
+function invalidateOrganizationReads(state: ReaderState): ReaderState {
+  return {
+    ...state,
+    requestGenerationByPane: {
+      ...state.requestGenerationByPane,
+      subscriptions: state.requestGenerationByPane.subscriptions + 1,
+      queue: state.requestGenerationByPane.queue + 1,
+    },
+  }
+}
+
+function invalidateSubscriptionReads(state: ReaderState): ReaderState {
+  return {
+    ...state,
+    requestGenerationByPane: {
+      ...state.requestGenerationByPane,
+      subscriptions: state.requestGenerationByPane.subscriptions + 1,
+    },
+  }
+}
+
+function invalidateEntryReads(state: ReaderState): ReaderState {
+  return {
+    ...state,
+    requestGenerationByPane: {
+      ...state.requestGenerationByPane,
+      queue: state.requestGenerationByPane.queue + 1,
+      detail: state.requestGenerationByPane.detail + 1,
+    },
+  }
+}
+
+function discardSelectedFeedQueue(state: ReaderState): ReaderState {
+  if (state.selectedSource.kind !== "feed") return state
+  const key = sourceKey(state.selectedSource)
+  return {
+    ...state,
+    queueBySourceKey: withoutKey(state.queueBySourceKey, key),
+    pendingNewEntriesBySource: withoutKey(state.pendingNewEntriesBySource, key),
+    pendingNewEntryCountBySource: withoutKey(state.pendingNewEntryCountBySource, key),
+    snapshotGenerationBySource: withoutKey(state.snapshotGenerationBySource, key),
+    pendingSnapshotGenerationBySource: withoutKey(
+      state.pendingSnapshotGenerationBySource,
+      key,
+    ),
   }
 }
 

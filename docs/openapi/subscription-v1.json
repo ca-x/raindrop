@@ -566,10 +566,15 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
+          "ownerUserId",
           "items",
           "nextCursor"
         ],
         "properties": {
+          "ownerUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
           "items": {
             "type": "array",
             "items": {

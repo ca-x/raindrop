@@ -8,8 +8,9 @@ export function hydrateReaderCacheState(
   const categoriesById = Object.fromEntries(
     cached.categories.map((category) => [category.categoryId, category]),
   )
+  const subscriptions = cached.subscriptions
   const subscriptionsById = Object.fromEntries(
-    cached.subscriptions.map((subscription) => [subscription.subscriptionId, subscription]),
+    subscriptions.map((subscription) => [subscription.subscriptionId, subscription]),
   )
   const matchingSource = sourceKey(cached.source) === sourceKey(state.selectedSource)
   const hasQueue = matchingSource && cached.snapshotGeneration !== null
@@ -20,9 +21,10 @@ export function hydrateReaderCacheState(
       categoriesById,
       categoryOrder: cached.categories.map((category) => category.categoryId),
       subscriptionsById,
-      subscriptionOrder: cached.subscriptions.map(
+      subscriptionOrder: subscriptions.map(
         (subscription) => subscription.subscriptionId,
       ),
+      subscriptionsAuthoritative: false,
       scrollAnchorByRoute: {
         ...state.scrollAnchorByRoute,
         ...cached.scrollAnchorByRoute,
@@ -38,12 +40,16 @@ export function hydrateReaderCacheState(
     categoriesById,
     categoryOrder: cached.categories.map((category) => category.categoryId),
     subscriptionsById,
-    subscriptionOrder: cached.subscriptions.map(
+    subscriptionOrder: subscriptions.map(
       (subscription) => subscription.subscriptionId,
     ),
+    subscriptionsAuthoritative: false,
     entriesById: {
       ...state.entriesById,
-      ...Object.fromEntries(cached.entries.map((entry) => [entry.entryId, entry])),
+      ...Object.fromEntries(cached.entries.map((entry) => [
+        entry.entryId,
+        { ...entry, siteUrl: null, canonicalUrl: null },
+      ])),
     },
     queueBySourceKey: { ...state.queueBySourceKey, [key]: [...cached.queue] },
     snapshotGenerationBySource: {

@@ -12,6 +12,7 @@ import {
   entryListOptions,
   loadAllSubscriptions,
   loadCategories,
+  ReaderResponseOwnerMismatchError,
   sameSource,
 } from "./readerRequestData"
 import type { ReaderSource, ReaderState } from "./types"
@@ -21,6 +22,9 @@ interface ReaderRequestOptions {
   dispatch: (action: ReaderAction) => void
   stateRef: { current: ReaderState }
   session: ReaderSession
+  userId?: string
+  onSubscriptionsValidated?: () => void
+  onSourceValidated?: (source: ReaderSource) => void
 }
 
 type Pane = "subscriptions" | "queue" | "detail"
@@ -30,6 +34,9 @@ export function useReaderRequests({
   dispatch,
   stateRef,
   session,
+  userId,
+  onSubscriptionsValidated,
+  onSourceValidated,
 }: ReaderRequestOptions) {
   const controllers = useRef<Partial<Record<Pane, AbortController>>>({})
 
@@ -45,9 +52,9 @@ export function useReaderRequests({
     [session, stateRef],
   )
 
-  const loadSubscriptions = useCallback(async () => {
+  const loadSubscriptions = useCallback(async (): Promise<boolean> => {
     const request = beginRequest("subscriptions")
-    if (!request) return
+    if (!request) return false
     const { controller, generation } = request
     const current = () =>
       session.isCurrent(request) &&
@@ -55,34 +62,62 @@ export function useReaderRequests({
     dispatch({ type: "subscriptionsRequested", generation })
     try {
       const [categories, subscriptions] = await Promise.all([
-        loadCategories(api, controller.signal),
-        loadAllSubscriptions(api, controller.signal, current),
+        loadCategories(api, controller.signal, userId),
+        loadAllSubscriptions(api, controller.signal, current, userId),
       ])
-      if (current()) {
-        dispatch({ type: "subscriptionsReceived", generation, subscriptions, categories })
+      if (!current()) return false
+      if (
+        categories.ownerUserId !== subscriptions.ownerUserId ||
+        (userId !== undefined && categories.ownerUserId !== userId)
+      ) {
+        await session.expire(request)
+        return false
       }
+      dispatch({
+        type: "subscriptionsReceived",
+        generation,
+        subscriptions: subscriptions.items,
+        categories: categories.items,
+      })
+      onSubscriptionsValidated?.()
+      return true
     } catch (error) {
-      if (isAbortError(error)) return
-      if (!current()) return
-      if (isUnauthenticatedError(error)) return session.expire(request)
+      if (isAbortError(error)) return false
+      if (!current()) return false
+      if (
+        isUnauthenticatedError(error) ||
+        error instanceof ReaderResponseOwnerMismatchError
+      ) {
+        await session.expire(request)
+        return false
+      }
       dispatch({
         type: "subscriptionsFailed",
         generation,
         error: readerErrorMessage(error),
       })
+      return false
     } finally {
       session.finish(request)
     }
-  }, [api, beginRequest, dispatch, session, stateRef])
+  }, [
+    api,
+    beginRequest,
+    dispatch,
+    onSubscriptionsValidated,
+    session,
+    stateRef,
+    userId,
+  ])
 
   const loadSource = useCallback(
     async (
       source: ReaderSource,
       mode: "replace" | "discover",
       searchQuery = stateRef.current.feedSearchQuery,
-    ) => {
+    ): Promise<boolean> => {
       const request = beginRequest("queue")
-      if (!request) return
+      if (!request) return false
       const { controller, generation } = request
       const current = () =>
         session.isCurrent(request) &&
@@ -94,7 +129,11 @@ export function useReaderRequests({
           ...entryListOptions(source, searchQuery),
           signal: controller.signal,
         })
-        if (!current()) return
+        if (!current()) return false
+        if (userId !== undefined && page.ownerUserId !== userId) {
+          await session.expire(request)
+          return false
+        }
         dispatch({
           type: "sourceReceived",
           source,
@@ -103,29 +142,36 @@ export function useReaderRequests({
           snapshotGeneration: page.snapshotGeneration,
           mode,
         })
+        if (searchQuery === "") onSourceValidated?.(source)
+        return true
       } catch (error) {
-        if (isAbortError(error)) return
-        if (!current()) return
-        if (isUnauthenticatedError(error)) return session.expire(request)
+        if (isAbortError(error)) return false
+        if (!current()) return false
+        if (isUnauthenticatedError(error)) {
+          await session.expire(request)
+          return false
+        }
         dispatch({
           type: "sourceFailed",
           source,
           generation,
           error: readerErrorMessage(error),
         })
+        return false
       } finally {
         session.finish(request)
       }
     },
-    [api, beginRequest, dispatch, session, stateRef],
+    [api, beginRequest, dispatch, onSourceValidated, session, stateRef, userId],
   )
 
   const load = useCallback(
     async () => {
-      await Promise.all([
-        loadSubscriptions(),
-        loadSource(stateRef.current.selectedSource, "replace"),
-      ])
+      if (!await loadSubscriptions()) return false
+      const source = stateRef.current.selectedSource
+      const searchQuery = stateRef.current.feedSearchQuery
+      const sourceLoaded = await loadSource(source, "replace", searchQuery)
+      return sourceLoaded && searchQuery === ""
     },
     [loadSource, loadSubscriptions, stateRef],
   )
@@ -177,13 +223,26 @@ export function useReaderRequests({
   )
 
   const reloadEntries = useCallback(
-    () => loadSource(stateRef.current.selectedSource, "discover"),
+    async () => { await loadSource(stateRef.current.selectedSource, "discover") },
     [loadSource, stateRef],
   )
 
   const replaceEntries = useCallback(
-    () => loadSource(stateRef.current.selectedSource, "replace"),
+    async () => { await loadSource(stateRef.current.selectedSource, "replace") },
     [loadSource, stateRef],
+  )
+
+  const reloadSubscriptions = useCallback(
+    async () => { await loadSubscriptions() },
+    [loadSubscriptions],
+  )
+
+  const reloadSelectedEntry = useCallback(
+    async () => {
+      const entryId = stateRef.current.selectedEntryId
+      if (entryId !== null) await selectEntry(entryId)
+    },
+    [selectEntry, stateRef],
   )
 
   const searchFeed = useCallback(
@@ -215,7 +274,8 @@ export function useReaderRequests({
     selectEntry,
     reloadEntries,
     replaceEntries,
-    reloadSubscriptions: loadSubscriptions,
+    reloadSubscriptions,
+    reloadSelectedEntry,
     searchFeed,
     mergePendingEntries,
   }

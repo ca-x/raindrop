@@ -63,7 +63,7 @@ fn organization_openapi_freezes_the_public_surface_and_schema() {
         &[204, 401, 403, 404, 422, 429, 500],
     );
     assert_required(&document, "Category", &["categoryId", "title", "position"]);
-    assert_required(&document, "CategoryList", &["items"]);
+    assert_required(&document, "CategoryList", &["ownerUserId", "items"]);
     assert_required(&document, "CreateCategoryRequest", &["title"]);
     assert_required(&document, "ApiError", &["code", "message", "requestId"]);
     assert_eq!(
@@ -88,7 +88,6 @@ fn organization_openapi_freezes_the_public_surface_and_schema() {
         .to_ascii_lowercase();
     for forbidden in [
         "normalizedtitle",
-        "userid",
         "createdat",
         "updatedat",
         "password",
@@ -122,7 +121,10 @@ async fn organization_openapi_matches_real_router_responses() {
         .request(Method::GET, "/api/v1/categories", None, true)
         .await;
     assert_observed(&document, "/api/v1/categories", "get", &empty, 200);
-    assert_eq!(empty.json(), json!({ "items": [] }));
+    assert_eq!(
+        empty.json(),
+        json!({ "ownerUserId": USER_A_ID, "items": [] })
+    );
 
     let invalid = fixture
         .request(

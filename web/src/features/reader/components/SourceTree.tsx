@@ -7,7 +7,11 @@ import { useLingui } from "@lingui/react"
 import { useState, type Ref } from "react"
 
 import { CategoryList } from "../categories/CategoryList"
-import type { ReaderSource, ReaderState } from "../model/types"
+import {
+  isAuthoritativeSubscription,
+  type ReaderSource,
+  type ReaderState,
+} from "../model/types"
 import { refreshPresentation } from "../refresh/refreshPresentation"
 import { RefreshStatusSummary } from "../refresh/RefreshStatusSummary"
 import { SourceToolbar } from "./ReaderToolbar"
@@ -64,7 +68,13 @@ export function SourceTree({
     <div className="reader-source-tree" aria-busy={state.paneStatus.subscriptions === "loading"}>
       <SourceToolbar
         onManage={onManage}
-        onEditSubscription={selectedSubscription ? onEditSubscription : undefined}
+        onEditSubscription={
+          state.subscriptionsAuthoritative &&
+          selectedSubscription &&
+          isAuthoritativeSubscription(selectedSubscription)
+            ? onEditSubscription
+            : undefined
+        }
         onPreferences={onPreferences}
         onLogout={onLogout}
         manageButtonRef={manageButtonRef}

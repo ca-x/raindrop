@@ -39,12 +39,15 @@ describe("ReadyPage lifecycle", () => {
     const cache = makeReaderCache(cachedFeedSnapshot())
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
-      if (
-        url === "/api/v1/categories" ||
-        url.startsWith("/api/v1/subscriptions") ||
-        url.startsWith("/api/v1/entries")
-      ) {
+      if (url.startsWith("/api/v1/entries")) {
         return pendingResponse(init?.signal)
+      }
+      if (url.startsWith("/api/v1/subscriptions")) {
+        return Promise.resolve(jsonResponse({
+          ownerUserId: session.user.id,
+          items: [makeSubscription()],
+          nextCursor: null,
+        }))
       }
       return Promise.resolve(jsonResponse(responseBody(url)))
     })
@@ -62,10 +65,39 @@ describe("ReadyPage lifecycle", () => {
 
     expect(await screen.findByText("Cached article")).toBeVisible()
     expect(cache.load).toHaveBeenCalledWith(session.user.id)
-    expect(fetchMock.mock.calls.some(([input]) => {
-      const url = new URL(String(input), "https://raindrop.test")
-      return url.pathname === "/api/v1/entries" && url.searchParams.get("feedId") === feedId
-    })).toBe(true)
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([input]) => {
+        const url = new URL(String(input), "https://raindrop.test")
+        return url.pathname === "/api/v1/entries" &&
+          url.searchParams.get("feedId") === feedId
+      })).toBe(true)
+    })
+  })
+
+  it("falls back without restarting the request when validation removes a cached deep link", async () => {
+    activateLocale("en")
+    const feedId = makeSubscription().feedId
+    window.history.replaceState(null, "", `/reader/feed/${feedId}`)
+    const fetchMock = vi.fn((input: RequestInfo | URL) =>
+      Promise.resolve(jsonResponse(responseBody(String(input)))),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    render(
+      <Providers>
+        <ReadyPage
+          session={session}
+          onLoggedOut={vi.fn()}
+          readerCache={makeReaderCache(cachedFeedSnapshot())}
+        />
+      </Providers>,
+    )
+
+    await waitFor(() => expect(window.location.pathname).toBe("/reader/unread"))
+    expect(await screen.findByRole("heading", { name: "No entries here" })).toBeVisible()
+    expect(fetchMock.mock.calls.filter(([input]) =>
+      String(input).startsWith("/api/v1/entries"),
+    ).length).toBeLessThanOrEqual(2)
   })
 
   it("waits for Reader cache removal before completing explicit logout", async () => {
@@ -301,11 +333,16 @@ function responseBody(url: string): unknown {
       enclosures: [],
     }
   }
-  if (url === "/api/v1/categories") return { items: [] }
+  if (url === "/api/v1/categories") return { ownerUserId: session.user.id, items: [] }
   if (url.startsWith("/api/v1/subscriptions")) {
-    return { items: [], nextCursor: null }
+    return { ownerUserId: session.user.id, items: [], nextCursor: null }
   }
-  return { items: [], nextCursor: null, snapshotGeneration: 1 }
+  return {
+    ownerUserId: session.user.id,
+    items: [],
+    nextCursor: null,
+    snapshotGeneration: 1,
+  }
 }
 
 function jsonResponse(body: unknown): Response {

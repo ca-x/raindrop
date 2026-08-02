@@ -23,6 +23,7 @@ export interface RefreshSubscriptionRequest {
 }
 
 export interface SubscriptionPage {
+  ownerUserId: string
   items: Subscription[]
   nextCursor: string | null
 }
@@ -133,7 +134,7 @@ export function isRefreshSubscriptionRequest(value: unknown): value is RefreshSu
 }
 
 export function isSubscriptionPage(value: unknown): value is SubscriptionPage {
-  return ((isRecord(value) && hasOnlyKeys(value, ["items","nextCursor"]) && hasOwn(value, "items") && ((Array.isArray(value["items"]) && value["items"].every((item1) => isSubscription(item1)))) && hasOwn(value, "nextCursor") && ((typeof value["nextCursor"] === "string") || value["nextCursor"] === null)))
+  return ((isRecord(value) && hasOnlyKeys(value, ["ownerUserId","items","nextCursor"]) && hasOwn(value, "ownerUserId") && ((typeof value["ownerUserId"] === "string" && isUuid(value["ownerUserId"]))) && hasOwn(value, "items") && ((Array.isArray(value["items"]) && value["items"].every((item1) => isSubscription(item1)))) && hasOwn(value, "nextCursor") && ((typeof value["nextCursor"] === "string") || value["nextCursor"] === null)))
 }
 
 export function isCreateSubscriptionResponse(value: unknown): value is CreateSubscriptionResponse {

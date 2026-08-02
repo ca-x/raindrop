@@ -10,7 +10,11 @@ import { useLingui } from "@lingui/react"
 import { type DragEvent, useRef, useState } from "react"
 
 import { sourceTreeDensityStyle } from "../components/sourceDensity"
-import type { ReaderSource, ReaderState } from "../model/types"
+import {
+  isAuthoritativeSubscription,
+  type ReaderSource,
+  type ReaderState,
+} from "../model/types"
 import { refreshPresentation } from "../refresh/refreshPresentation"
 import { groupSubscriptions, type SubscriptionGroup } from "./groupSubscriptions"
 
@@ -333,7 +337,11 @@ function filterGroups(
     const subscriptions = categoryMatches
       ? group.subscriptions
       : group.subscriptions.filter((subscription) =>
-          [subscription.title, subscription.feedUrl, subscription.siteUrl]
+          [
+            subscription.title,
+            isAuthoritativeSubscription(subscription) ? subscription.feedUrl : null,
+            isAuthoritativeSubscription(subscription) ? subscription.siteUrl : null,
+          ]
             .filter(Boolean)
             .some((value) => value!.toLocaleLowerCase().includes(normalized)),
         )

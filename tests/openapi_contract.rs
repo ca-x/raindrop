@@ -466,6 +466,7 @@ async fn subscription_openapi_matches_real_router_responses() {
         StatusCode::OK,
         &list,
     );
+    assert_eq!(list.json()["ownerUserId"], USER_A_ID);
     record_observed(
         &mut covered_statuses,
         "/api/v1/subscriptions",
@@ -1583,8 +1584,9 @@ fn frozen_schema_manifest() -> Value {
         "SubscriptionPage": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["items", "nextCursor"],
+            "required": ["ownerUserId", "items", "nextCursor"],
             "properties": {
+                "ownerUserId": { "type": "string", "format": "uuid" },
                 "items": {
                     "type": "array",
                     "items": { "$ref": "#/components/schemas/Subscription" }

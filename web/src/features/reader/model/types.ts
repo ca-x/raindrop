@@ -6,6 +6,15 @@ import type {
 import type { Category } from "../api/organization.generated"
 import type { Subscription } from "../api/subscription.generated"
 
+export type CachedReaderSubscription = Omit<Subscription, "feedUrl" | "siteUrl">
+export type ReaderSubscription = Subscription | CachedReaderSubscription
+
+export function isAuthoritativeSubscription(
+  subscription: ReaderSubscription,
+): subscription is Subscription {
+  return "feedUrl" in subscription && "siteUrl" in subscription
+}
+
 export type ReaderSource =
   | { kind: "smart"; state: EntryListState }
   | { kind: "feed"; feedId: string }
@@ -32,8 +41,9 @@ export type PaneStatus = "idle" | "loading" | "ready" | "error"
 export interface ReaderState {
   categoriesById: Record<string, Category>
   categoryOrder: string[]
-  subscriptionsById: Record<string, Subscription>
+  subscriptionsById: Record<string, ReaderSubscription>
   subscriptionOrder: string[]
+  subscriptionsAuthoritative: boolean
   retiredFeedIds: Record<string, true>
   entriesById: Record<string, EntryListItemResponse>
   queueBySourceKey: Partial<Record<SourceKey, string[]>>

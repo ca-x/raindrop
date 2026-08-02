@@ -190,7 +190,12 @@ export async function installReaderApiFixture(page: Page): Promise<ReaderApiFixt
       if (search) items = items.filter((entry) => matchesSearch(entry, details, search))
       const snapshotGeneration = currentSnapshot()
       entryLists.push({ state, feedId, categoryId, search, snapshotGeneration })
-      await json(route, { items, nextCursor: null, snapshotGeneration })
+      await json(route, {
+        ownerUserId: await organization.ownerUserId(),
+        items,
+        nextCursor: null,
+        snapshotGeneration,
+      })
       return
     }
     throw new Error(`unexpected Reader request: ${request.method()} ${url.pathname}${url.search}`)

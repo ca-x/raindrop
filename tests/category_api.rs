@@ -163,7 +163,10 @@ async fn category_crud_is_user_scoped_and_uncached() {
         )
         .await;
     assert_eq!(empty.status, StatusCode::OK);
-    assert_eq!(empty.json(), json!({ "items": [] }));
+    assert_eq!(
+        empty.json(),
+        json!({ "ownerUserId": USER_A_ID, "items": [] })
+    );
     assert_sensitive_cache_headers(&empty);
 
     let created = fixture
@@ -213,7 +216,10 @@ async fn category_crud_is_user_scoped_and_uncached() {
             false,
         )
         .await;
-    assert_eq!(user_b.json(), json!({ "items": [] }));
+    assert_eq!(
+        user_b.json(),
+        json!({ "ownerUserId": USER_B_ID, "items": [] })
+    );
 
     let deleted = fixture
         .request(

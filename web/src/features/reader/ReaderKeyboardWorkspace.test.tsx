@@ -107,6 +107,21 @@ describe("Reader keyboard workspace", () => {
 
   it("does not use stale queue entries while a new source route is settling", async () => {
     const controller = keyboardController()
+    controller.state.subscriptionsById = {
+      "subscription-b": {
+        subscriptionId: "subscription-b",
+        feedId: "feed-b",
+        categoryId: null,
+        titleOverride: null,
+        position: 0,
+        title: "Feed B",
+        feedUrl: "https://feed-b.example/rss.xml",
+        siteUrl: "https://feed-b.example",
+        unreadCount: 0,
+        refresh: null,
+      },
+    }
+    controller.state.subscriptionOrder = ["subscription-b"]
     window.history.replaceState(null, "", "/reader/unread/entry/first")
     render(workspace(controller))
     await screen.findByRole("heading", { name: "First article" })

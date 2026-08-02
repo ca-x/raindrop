@@ -8,7 +8,7 @@ import type { ProfileController } from "../../profile/model/useProfileController
 import type { TranslationSettingsController } from "../../translation/model/useTranslationSettingsController"
 import type { BackupController } from "../../backups/model/useBackupController"
 import { adjacentUnreadSource, type UnreadSourceDirection } from "../model/unreadSourceNavigation"
-import { sourceKey } from "../model/types"
+import { sourceKey, type ReaderSource } from "../model/types"
 import type { ReaderController } from "../model/useReaderController"
 import { ReaderShell } from "../layout/ReaderShell"
 import {
@@ -56,15 +56,37 @@ export function ReaderRoutes(props: ReaderRoutesProps) {
     : []
 
   useEffect(() => {
-    if (!route || sameReaderSource(route.source, props.controller.state.selectedSource)) return
+    if (!route) return
+    const state = props.controller.state
     const routeFeedId = route.source.kind === "feed" ? route.source.feedId : null
-    if (
-      routeFeedId &&
-      props.controller.state.retiredFeedIds[routeFeedId]
-    ) {
-      navigate(pathForSource(props.controller.state.selectedSource), { replace: true })
+    const routeCategoryId = route.source.kind === "category" ? route.source.categoryId : null
+    const routeSourceMissing = state.subscriptionsAuthoritative && (
+      (routeFeedId !== null && (
+        state.retiredFeedIds[routeFeedId] ||
+        !state.subscriptionOrder.some(
+          (subscriptionId) =>
+            state.subscriptionsById[subscriptionId]?.feedId === routeFeedId,
+        )
+      )) ||
+      (routeCategoryId !== null && !state.categoriesById[routeCategoryId])
+    )
+    if (routeSourceMissing) {
+      const fallback: ReaderSource = { kind: "smart", state: "UNREAD" }
+      const fallbackSelected = sameReaderSource(fallback, state.selectedSource)
+      const fallbackHasQueue = Object.prototype.hasOwnProperty.call(
+        state.queueBySourceKey,
+        sourceKey(fallback),
+      )
+      if (
+        !fallbackSelected ||
+        (state.paneStatus.queue === "idle" && !fallbackHasQueue)
+      ) {
+        void props.controller.selectSource(fallback)
+      }
+      navigate(pathForSource(fallback), { replace: true })
       return
     }
+    if (sameReaderSource(route.source, state.selectedSource)) return
     void props.controller.selectSource(route.source)
   }, [navigate, props.controller, route?.sourcePath])
 

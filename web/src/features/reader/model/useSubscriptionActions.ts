@@ -16,6 +16,7 @@ interface SubscriptionActionOptions {
   createRequestId: () => string
   dispatch: (action: ReaderAction) => void
   session: ReaderSession
+  onOrganizationChanged: () => void
 }
 
 const refreshPollIntervalMs = 1_000
@@ -27,6 +28,7 @@ export function useSubscriptionActions({
   createRequestId,
   dispatch,
   session,
+  onOrganizationChanged,
 }: SubscriptionActionOptions) {
   const pollControllers = useRef(new Map<string, AbortController>())
   const cancelSubscriptionPoll = useCallback((subscriptionId: string) => {
@@ -51,7 +53,11 @@ export function useSubscriptionActions({
                 task.controller.signal,
               )
               if (task.controller.signal.aborted || !session.isCurrent(task)) return
-              dispatch({ type: "subscriptionUpserted", subscription })
+              dispatch({
+                type: "subscriptionUpserted",
+                subscription,
+                invalidateQueue: false,
+              })
               if (subscription.refresh?.state !== "PENDING") return
             } catch (error) {
               if (isAbortError(error)) return
@@ -83,6 +89,7 @@ export function useSubscriptionActions({
       request: (signal: AbortSignal) => Promise<T>,
       success: (value: T) => ReaderAction,
       followUp?: (value: T) => void,
+      organizationChanged = false,
     ): Promise<boolean> => {
       const task = session.begin()
       if (!task) return false
@@ -92,6 +99,7 @@ export function useSubscriptionActions({
         if (session.isCurrent(task)) {
           dispatch(success(value))
           followUp?.(value)
+          if (organizationChanged) onOrganizationChanged()
           return true
         }
         return false
@@ -107,7 +115,7 @@ export function useSubscriptionActions({
         session.finish(task)
       }
     },
-    [dispatch, session],
+    [dispatch, onOrganizationChanged, session],
   )
 
   const addSubscription = useCallback(
@@ -125,6 +133,7 @@ export function useSubscriptionActions({
             pollSubscription(response.subscription.subscriptionId)
           }
         },
+        true,
       )
       return added
     },
@@ -137,6 +146,7 @@ export function useSubscriptionActions({
         (signal) => api.deleteSubscription(subscriptionId, csrfToken, signal),
         () => ({ type: "subscriptionDeleted", subscriptionId }),
         () => cancelSubscriptionPoll(subscriptionId),
+        true,
       ),
     [api, cancelSubscriptionPoll, csrfToken, runAction],
   )

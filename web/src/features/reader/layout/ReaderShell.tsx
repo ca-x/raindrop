@@ -22,7 +22,11 @@ import { SourceTree } from "../components/SourceTree"
 import { SubscriptionEditDialog } from "../components/SubscriptionEditDialog"
 import { SubscriptionManagementDialog } from "../components/SubscriptionManagementDialog"
 import { useReaderHotkeys } from "../keyboard/useReaderHotkeys"
-import { sourceKey, type ReaderSource } from "../model/types"
+import {
+  isAuthoritativeSubscription,
+  sourceKey,
+  type ReaderSource,
+} from "../model/types"
 import { selectedSourceLabel } from "../model/sourcePresentation"
 import type { ReaderController } from "../model/useReaderController"
 import { pathForEntry, type ReaderRouteMatch } from "../routes/readerRoute"
@@ -90,6 +94,12 @@ export function ReaderShell(props: ReaderShellProps) {
             (subscription) => subscription.feedId === selectedSource.feedId,
           )
       : undefined
+  const editableSubscription =
+    props.controller.state.subscriptionsAuthoritative &&
+    selectedSubscription &&
+    isAuthoritativeSubscription(selectedSubscription)
+      ? selectedSubscription
+      : undefined
   const entryRoute = props.route.entryId ? pathForEntry(props.route.sourcePath, props.route.entryId) : null
   const aiConfig = props.aiSettingsController?.configEnvelope?.config
   const summaryEnabled = Boolean(aiConfig?.isEnabled && aiConfig.summary.enabled)
@@ -148,7 +158,7 @@ export function ReaderShell(props: ReaderShellProps) {
         setIsManagementOpen(true)
       }}
       onEditSubscription={() => {
-        if (!selectedSubscription) return
+        if (!editableSubscription) return
         reopenSourcesAfterSubscriptionEdit.current = props.viewportMode !== "wide"
         if (reopenSourcesAfterSubscriptionEdit.current) {
           mobileNavRef.current?.close()
@@ -340,7 +350,7 @@ export function ReaderShell(props: ReaderShellProps) {
       />
       <SubscriptionEditDialog
         isOpen={isSubscriptionEditOpen}
-        subscription={selectedSubscription}
+        subscription={editableSubscription}
         categories={props.controller.state.categoryOrder.map(
           (id) => props.controller.state.categoriesById[id],
         )}

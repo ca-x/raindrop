@@ -12,7 +12,7 @@ import {
   type ReaderAction,
 } from "./reducer"
 import { useReaderSession } from "./controllerSession"
-import type { ReaderSource, ReaderState } from "./types"
+import { sourceKey, type ReaderSource, type ReaderState, type SourceKey } from "./types"
 import { adjacentUnreadSource, type UnreadSourceDirection } from "./unreadSourceNavigation"
 import { useBulkReadActions } from "./useBulkReadActions"
 import { useEntryMutations } from "./useEntryMutations"
@@ -71,6 +71,11 @@ export interface UseReaderControllerOptions {
 const cacheSaveDelayMs = 100
 const defaultReaderSource: ReaderSource = { kind: "smart", state: "UNREAD" }
 
+interface PendingCacheWrite {
+  snapshot: NonNullable<ReturnType<typeof readerCacheSnapshot>>
+  markValidated: boolean
+}
+
 export function useReaderController({
   csrfToken,
   onUnauthenticated,
@@ -90,9 +95,13 @@ export function useReaderController({
   const loadInvocationRef = useRef(0)
   const cacheLoadSettledRef = useRef(userId === undefined)
   const cacheHydratedRef = useRef(false)
+  const cacheWriteEnabledRef = useRef(false)
   const cacheDisabledRef = useRef(false)
   const cacheSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const cacheSaveChainRef = useRef<Promise<void>>(Promise.resolve())
+  const cacheSaveInFlightRef = useRef(false)
+  const pendingCacheWriteRef = useRef<PendingCacheWrite | null>(null)
+  const subscriptionsValidatedRef = useRef(false)
+  const sourceValidatedKeyRef = useRef<SourceKey | null>(null)
   const cacheClearPromiseRef = useRef<Promise<void> | null>(null)
 
   const dispatch = useCallback((action: ReaderAction) => {
@@ -103,16 +112,15 @@ export function useReaderController({
   const clearCache = useCallback((): Promise<void> => {
     if (cacheClearPromiseRef.current) return cacheClearPromiseRef.current
     cacheDisabledRef.current = true
+    cacheWriteEnabledRef.current = false
+    subscriptionsValidatedRef.current = false
+    sourceValidatedKeyRef.current = null
+    pendingCacheWriteRef.current = null
     if (cacheSaveTimerRef.current !== null) {
       clearTimeout(cacheSaveTimerRef.current)
       cacheSaveTimerRef.current = null
     }
     const pending = (async () => {
-      try {
-        await cacheSaveChainRef.current
-      } catch {
-        // An optional cache write must never block session cleanup.
-      }
       try {
         await cache.clear()
       } catch {
@@ -130,6 +138,75 @@ export function useReaderController({
 
   const session = useReaderSession(dispatch, handleUnauthenticated)
 
+  const enqueueCacheWrite = useCallback((write: PendingCacheWrite) => {
+    if (cacheDisabledRef.current || !session.active()) return
+    if (cacheSaveInFlightRef.current) {
+      pendingCacheWriteRef.current = {
+        snapshot: write.snapshot,
+        markValidated:
+          write.markValidated || pendingCacheWriteRef.current?.markValidated === true,
+      }
+      return
+    }
+    cacheSaveInFlightRef.current = true
+    void (async () => {
+      let next: PendingCacheWrite | null = write
+      while (next && !cacheDisabledRef.current && session.active()) {
+        try {
+          await cache.save(
+            userId!,
+            next.snapshot,
+            next.markValidated ? { markValidated: true } : undefined,
+          )
+        } catch {
+          // Injected/custom caches retain the same best-effort boundary.
+        }
+        next = pendingCacheWriteRef.current
+        pendingCacheWriteRef.current = null
+      }
+      cacheSaveInFlightRef.current = false
+    })()
+  }, [cache, session, userId])
+
+  const persistCurrentCacheState = useCallback((markValidated = false) => {
+    if (
+      !userId ||
+      !cacheLoadSettledRef.current ||
+      !cacheWriteEnabledRef.current ||
+      cacheDisabledRef.current ||
+      !session.active()
+    ) return false
+    const snapshot = readerCacheSnapshot(stateRef.current)
+    if (!snapshot) return false
+    enqueueCacheWrite({ snapshot, markValidated })
+    return true
+  }, [enqueueCacheWrite, session, userId])
+
+  const persistWhenFullyValidated = useCallback(() => {
+    if (!subscriptionsValidatedRef.current) return
+    const selectedKey = sourceKey(stateRef.current.selectedSource)
+    if (sourceValidatedKeyRef.current !== selectedKey) return
+    const wasWriteEnabled = cacheWriteEnabledRef.current
+    cacheWriteEnabledRef.current = true
+    if (!persistCurrentCacheState(true)) {
+      cacheWriteEnabledRef.current = wasWriteEnabled
+      sourceValidatedKeyRef.current = null
+      return
+    }
+    subscriptionsValidatedRef.current = false
+    sourceValidatedKeyRef.current = null
+  }, [persistCurrentCacheState])
+
+  const onSubscriptionsValidated = useCallback(() => {
+    subscriptionsValidatedRef.current = true
+    persistWhenFullyValidated()
+  }, [persistWhenFullyValidated])
+
+  const onSourceValidated = useCallback((source: ReaderSource) => {
+    sourceValidatedKeyRef.current = sourceKey(source)
+    persistWhenFullyValidated()
+  }, [persistWhenFullyValidated])
+
   const hydrateCache = useCallback(() => {
     if (!userId || cacheDisabledRef.current) {
       cacheLoadSettledRef.current = true
@@ -146,6 +223,7 @@ export function useReaderController({
           session.active()
         ) {
           cacheHydratedRef.current = true
+          cacheWriteEnabledRef.current = true
           dispatch({ type: "readerCacheHydrated", cached })
         }
       } catch {
@@ -157,7 +235,38 @@ export function useReaderController({
     return cacheLoadRef.current
   }, [cache, dispatch, session, userId])
 
-  const requests = useReaderRequests({ api, dispatch, stateRef, session })
+  const requests = useReaderRequests({
+    api,
+    dispatch,
+    stateRef,
+    session,
+    userId,
+    onSubscriptionsValidated,
+    onSourceValidated,
+  })
+  const scheduleCacheSave = useCallback(() => {
+    if (
+      !userId ||
+      !cacheLoadSettledRef.current ||
+      !cacheWriteEnabledRef.current ||
+      cacheDisabledRef.current ||
+      !session.active()
+    ) {
+      return
+    }
+    if (cacheSaveTimerRef.current !== null) clearTimeout(cacheSaveTimerRef.current)
+    cacheSaveTimerRef.current = setTimeout(() => {
+      cacheSaveTimerRef.current = null
+      if (
+        cacheDisabledRef.current ||
+        !cacheWriteEnabledRef.current ||
+        !session.active()
+      ) {
+        return
+      }
+      persistCurrentCacheState()
+    }, cacheSaveDelayMs)
+  }, [persistCurrentCacheState, session, userId])
   const load = useCallback(async () => {
     const invocation = ++loadInvocationRef.current
     if (userId) await hydrateCache()
@@ -165,12 +274,25 @@ export function useReaderController({
     await requests.load()
   }, [hydrateCache, requests.load, session, userId])
   const { selectSource } = requests
+  const revalidateOrganization = useCallback(() => {
+    void Promise.all([
+      requests.reloadSubscriptions(),
+      requests.replaceEntries(),
+    ])
+  }, [requests.reloadSubscriptions, requests.replaceEntries])
+  const revalidateAfterEntryMutation = useCallback(() => {
+    void Promise.all([
+      requests.reloadEntries(),
+      requests.reloadSelectedEntry(),
+    ])
+  }, [requests.reloadEntries, requests.reloadSelectedEntry])
   const entryMutations = useEntryMutations({
     api,
     csrfToken,
     dispatch,
     stateRef,
     session,
+    onMutationSettled: revalidateAfterEntryMutation,
   })
   const subscriptionActions = useSubscriptionActions({
     api,
@@ -178,12 +300,14 @@ export function useReaderController({
     createRequestId,
     dispatch,
     session,
+    onOrganizationChanged: revalidateOrganization,
   })
   const organizationActions = useOrganizationActions({
     api,
     csrfToken,
     dispatch,
     session,
+    onOrganizationChanged: revalidateOrganization,
   })
   const bulkRead = useBulkReadActions({
     api,
@@ -191,6 +315,7 @@ export function useReaderController({
     dispatch,
     stateRef,
     session,
+    userId,
     reloadSubscriptions: requests.reloadSubscriptions,
     replaceEntries: requests.replaceEntries,
   })
@@ -217,37 +342,18 @@ export function useReaderController({
   }, [dispatch, session])
 
   useEffect(() => {
-    if (
-      !userId ||
-      !cacheLoadSettledRef.current ||
-      cacheDisabledRef.current ||
-      !session.active()
-    ) {
-      return
-    }
-    if (cacheSaveTimerRef.current !== null) clearTimeout(cacheSaveTimerRef.current)
-    cacheSaveTimerRef.current = setTimeout(() => {
-      cacheSaveTimerRef.current = null
-      if (cacheDisabledRef.current || !session.active()) return
-      const snapshot = readerCacheSnapshot(stateRef.current)
-      if (!snapshot) return
-      cacheSaveChainRef.current = cacheSaveChainRef.current
-        .catch(() => undefined)
-        .then(async () => {
-          try {
-            await cache.save(userId, snapshot)
-          } catch {
-            // Injected/custom caches retain the same best-effort boundary.
-          }
-        })
-    }, cacheSaveDelayMs)
-    return () => {
+    scheduleCacheSave()
+  }, [scheduleCacheSave, state])
+
+  useEffect(
+    () => () => {
       if (cacheSaveTimerRef.current !== null) {
         clearTimeout(cacheSaveTimerRef.current)
         cacheSaveTimerRef.current = null
       }
-    }
-  }, [cache, session, state, userId])
+    },
+    [],
+  )
 
   return {
     state,

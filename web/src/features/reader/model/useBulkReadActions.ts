@@ -1,9 +1,9 @@
-import { useCallback, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 
 import type { MarkEntriesReadRequest } from "../api/reader.generated"
 import { isAbortError, isUnauthenticatedError, readerErrorMessage } from "./controllerErrors"
 import type { ReaderApi } from "./controllerApi"
-import type { ReaderSession } from "./controllerSession"
+import type { ReaderSession, SessionTask } from "./controllerSession"
 import type { ReaderAction } from "./reducer"
 import { sourceKey, type ReaderState } from "./types"
 
@@ -13,6 +13,7 @@ interface BulkReadOptions {
   dispatch: (action: ReaderAction) => void
   stateRef: { current: ReaderState }
   session: ReaderSession
+  userId?: string
   reloadSubscriptions: () => Promise<void>
   replaceEntries: () => Promise<void>
 }
@@ -23,13 +24,21 @@ export function useBulkReadActions({
   dispatch,
   stateRef,
   session,
+  userId,
   reloadSubscriptions,
   replaceEntries,
 }: BulkReadOptions) {
   const [isMarkingRead, setIsMarkingRead] = useState(false)
   const isMarkingReadRef = useRef(false)
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
   const runMarkRead = useCallback(async (
-    requestFactory: (signal: AbortSignal) => Promise<MarkEntriesReadRequest | null>,
+    requestFactory: (task: SessionTask) => Promise<MarkEntriesReadRequest | null>,
   ): Promise<boolean> => {
     if (isMarkingReadRef.current) return false
     const task = session.begin()
@@ -37,7 +46,7 @@ export function useBulkReadActions({
     isMarkingReadRef.current = true
     setIsMarkingRead(true)
     try {
-      const request = await requestFactory(task.controller.signal)
+      const request = await requestFactory(task)
       if (!request || !session.isCurrent(task)) return false
       await api.markEntriesRead(request, csrfToken, task.controller.signal)
       if (!session.isCurrent(task)) return false
@@ -55,7 +64,7 @@ export function useBulkReadActions({
     } finally {
       session.finish(task)
       isMarkingReadRef.current = false
-      setIsMarkingRead(false)
+      if (mountedRef.current) setIsMarkingRead(false)
     }
   }, [
     api,
@@ -71,11 +80,20 @@ export function useBulkReadActions({
     [runMarkRead, stateRef],
   )
   const markFeedRead = useCallback(
-    (feedId: string) => runMarkRead(async (signal) => {
-      const page = await api.listEntries({ feedId, state: "ALL", limit: 1, signal })
+    (feedId: string) => runMarkRead(async (task) => {
+      const page = await api.listEntries({
+        feedId,
+        state: "ALL",
+        limit: 1,
+        signal: task.controller.signal,
+      })
+      if (userId !== undefined && page.ownerUserId !== userId) {
+        await session.expire(task)
+        return null
+      }
       return { snapshotGeneration: page.snapshotGeneration, feedId }
     }),
-    [api, runMarkRead],
+    [api, runMarkRead, session, userId],
   )
 
   return { isMarkingRead, markCurrentSourceRead, markFeedRead }
