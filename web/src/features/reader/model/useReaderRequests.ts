@@ -223,24 +223,26 @@ export function useReaderRequests({
   )
 
   const reloadEntries = useCallback(
-    async () => { await loadSource(stateRef.current.selectedSource, "discover") },
+    async () => loadSource(stateRef.current.selectedSource, "discover"),
     [loadSource, stateRef],
   )
 
   const replaceEntries = useCallback(
-    async () => { await loadSource(stateRef.current.selectedSource, "replace") },
+    async () => loadSource(stateRef.current.selectedSource, "replace"),
     [loadSource, stateRef],
   )
 
   const reloadSubscriptions = useCallback(
-    async () => { await loadSubscriptions() },
+    async () => loadSubscriptions(),
     [loadSubscriptions],
   )
 
   const reloadSelectedEntry = useCallback(
     async () => {
       const entryId = stateRef.current.selectedEntryId
-      if (entryId !== null) await selectEntry(entryId)
+      if (entryId === null) return true
+      await selectEntry(entryId)
+      return true
     },
     [selectEntry, stateRef],
   )

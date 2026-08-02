@@ -9,6 +9,7 @@ import type {
   Subscription,
 } from "../api/subscription.generated"
 import {
+  commitBulkRead,
   failEntryMutation,
   startEntryMutation,
   succeedEntryMutation,
@@ -79,6 +80,18 @@ export type ReaderAction =
     }
   | { type: "entryMutationSucceeded"; mutationId: number; state: EntryStateResponse }
   | { type: "entryMutationFailed"; mutationId: number; error: string }
+  | {
+      type: "bulkReadCommitted"
+      entryIds: string[]
+      affectedFeedIds: string[]
+      retainedSourceKey: SourceKey
+      retainedQueueEntryIds: string[] | null
+      retainedPendingEntryIds: string[] | null
+      retainedQueueGeneration: number
+      retainedSnapshotGeneration: number | null
+      retainedPendingSnapshotGeneration: number | null
+      invalidateAllSources: boolean
+    }
   | { type: "mutationErrorSet"; error: string }
   | { type: "mutationErrorCleared" }
   | { type: "sessionExpired" }
@@ -277,6 +290,8 @@ export function readerReducer(state: ReaderState, action: ReaderAction): ReaderS
       return succeedEntryMutation(state, action.mutationId, action.state)
     case "entryMutationFailed":
       return failEntryMutation(state, action.mutationId, action.error)
+    case "bulkReadCommitted":
+      return commitBulkRead(state, action)
     case "mutationErrorSet":
       return { ...state, errors: { ...state.errors, mutation: action.error } }
     case "mutationErrorCleared":

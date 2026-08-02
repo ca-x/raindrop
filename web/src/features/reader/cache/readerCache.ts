@@ -57,6 +57,7 @@ export interface ReaderCache {
     snapshot: ReaderCacheSnapshot,
     options?: { markValidated?: boolean },
   ): Promise<void>
+  invalidate?(): Promise<void>
   clear(): Promise<void>
 }
 
@@ -123,6 +124,14 @@ export function createReaderCache(
     forgetActiveSnapshot()
     coordination?.notifyCleared()
     await deleteStored()
+  }
+  const invalidate = async () => {
+    writesDisabled = true
+    forgetActiveSnapshot()
+    coordination?.notifyCleared()
+    const invalidationEpoch = ++cacheEpoch
+    await deleteStored()
+    if (cacheEpoch === invalidationEpoch) writesDisabled = false
   }
   coordination?.subscribe(() => {
     writesDisabled = true
@@ -194,6 +203,7 @@ export function createReaderCache(
       }
     },
 
+    invalidate,
     clear,
   }
 }
@@ -231,10 +241,17 @@ export function readerCacheSnapshot(state: ReaderState): ReaderCacheSnapshot | n
   const storedQueue = state.queueBySourceKey[key]
   const storedGeneration = state.snapshotGenerationBySource[key]
   if (storedQueue === undefined || storedGeneration === undefined) return null
-  const queue = storedQueue.slice(0, CACHE_MAX_ENTRIES)
-  const projected = queue.map((entryId) => state.entriesById[entryId])
-  if (projected.some((entry) => entry === undefined)) return null
-  const entries = projected.map((entry) => cacheEntry(entry!))
+  const queue: string[] = []
+  const entries: ReaderCacheEntry[] = []
+  for (const entryId of storedQueue) {
+    const entry = state.entriesById[entryId]
+    if (!entry) return null
+    const projected = cacheEntry(entry)
+    if (!entryMatchesSourceFilter(state.selectedSource, projected)) continue
+    queue.push(entryId)
+    entries.push(projected)
+    if (queue.length === CACHE_MAX_ENTRIES) break
+  }
 
   return {
     categories,
@@ -365,9 +382,20 @@ function isReaderCacheSnapshot(
       )
     : subscribedFeedIds
   return entries.every((entry) => {
+    if (!entryMatchesSourceFilter(source, entry)) return false
     if (source.kind === "feed") return entry.feedId === source.feedId
     return visibleFeedIds.has(entry.feedId)
   })
+}
+
+function entryMatchesSourceFilter(
+  source: ReaderSource,
+  entry: ReaderCacheEntry,
+): boolean {
+  if (source.kind !== "smart") return true
+  if (source.state === "UNREAD") return !entry.isRead
+  if (source.state === "STARRED") return entry.isStarred
+  return true
 }
 
 function sanitizeSnapshot(snapshot: ReaderCacheSnapshot): ReaderCacheSnapshot {

@@ -103,6 +103,51 @@ export function useReaderController({
   const subscriptionsValidatedRef = useRef(false)
   const sourceValidatedKeyRef = useRef<SourceKey | null>(null)
   const cacheClearPromiseRef = useRef<Promise<void> | null>(null)
+  const nextBulkRevalidationIdRef = useRef(0)
+  const activeBulkRevalidationIdRef = useRef<number | null>(null)
+  const activeBulkCacheInvalidationRef = useRef<{
+    revalidationId: number
+    promise: Promise<void>
+  } | null>(null)
+  const readActionActiveRef = useRef(false)
+  const queuedReadActionsRef = useRef<Array<() => void>>([])
+
+  const runReadAction = useCallback(
+    <T,>(operation: () => Promise<T>): Promise<T> =>
+      new Promise<T>((resolve, reject) => {
+        const start = () => {
+          readActionActiveRef.current = true
+          const finish = () => {
+            readActionActiveRef.current = false
+            queuedReadActionsRef.current.shift()?.()
+          }
+          let result: Promise<T>
+          try {
+            result = operation()
+          } catch (error) {
+            finish()
+            reject(error)
+            return
+          }
+          void result.then(
+            (value) => {
+              finish()
+              resolve(value)
+            },
+            (error: unknown) => {
+              finish()
+              reject(error)
+            },
+          )
+        }
+        if (readActionActiveRef.current) {
+          queuedReadActionsRef.current.push(start)
+        } else {
+          start()
+        }
+      }),
+    [],
+  )
 
   const dispatch = useCallback((action: ReaderAction) => {
     stateRef.current = readerReducer(stateRef.current, action)
@@ -197,12 +242,54 @@ export function useReaderController({
     sourceValidatedKeyRef.current = null
   }, [persistCurrentCacheState])
 
+  const beginBulkReadRevalidation = useCallback(() => {
+    const revalidationId = ++nextBulkRevalidationIdRef.current
+    activeBulkRevalidationIdRef.current = revalidationId
+    activeBulkCacheInvalidationRef.current = {
+      revalidationId,
+      promise: (cache.invalidate?.() ?? Promise.resolve()).catch(() => undefined),
+    }
+    cacheWriteEnabledRef.current = false
+    subscriptionsValidatedRef.current = false
+    sourceValidatedKeyRef.current = null
+    pendingCacheWriteRef.current = null
+    return revalidationId
+  }, [cache])
+
+  const finishBulkReadRevalidation = useCallback((
+    revalidationId: number,
+    validatedSourceKey: SourceKey | null,
+  ) => {
+    if (activeBulkRevalidationIdRef.current !== revalidationId) return
+    const invalidation = activeBulkCacheInvalidationRef.current
+    const invalidationPromise = invalidation?.revalidationId === revalidationId
+      ? invalidation.promise
+      : Promise.resolve()
+    void invalidationPromise.then(() => {
+      if (activeBulkRevalidationIdRef.current !== revalidationId) return
+      activeBulkRevalidationIdRef.current = null
+      activeBulkCacheInvalidationRef.current = null
+      subscriptionsValidatedRef.current = false
+      sourceValidatedKeyRef.current = null
+      if (
+        validatedSourceKey === null ||
+        sourceKey(stateRef.current.selectedSource) !== validatedSourceKey
+      ) {
+        return
+      }
+      cacheWriteEnabledRef.current = true
+      if (!persistCurrentCacheState(true)) cacheWriteEnabledRef.current = false
+    })
+  }, [persistCurrentCacheState])
+
   const onSubscriptionsValidated = useCallback(() => {
+    if (activeBulkRevalidationIdRef.current !== null) return
     subscriptionsValidatedRef.current = true
     persistWhenFullyValidated()
   }, [persistWhenFullyValidated])
 
   const onSourceValidated = useCallback((source: ReaderSource) => {
+    if (activeBulkRevalidationIdRef.current !== null) return
     sourceValidatedKeyRef.current = sourceKey(source)
     persistWhenFullyValidated()
   }, [persistWhenFullyValidated])
@@ -244,6 +331,9 @@ export function useReaderController({
     onSubscriptionsValidated,
     onSourceValidated,
   })
+  const reloadEntries = useCallback(async () => {
+    await requests.reloadEntries()
+  }, [requests.reloadEntries])
   const scheduleCacheSave = useCallback(() => {
     if (
       !userId ||
@@ -280,12 +370,26 @@ export function useReaderController({
       requests.replaceEntries(),
     ])
   }, [requests.reloadSubscriptions, requests.replaceEntries])
-  const revalidateAfterEntryMutation = useCallback(() => {
-    void Promise.all([
+  const revalidateAfterEntryMutation = useCallback((field: "isRead" | "isStarred") => {
+    void cache.invalidate?.().catch(() => undefined)
+    if (field === "isStarred") {
+      void Promise.allSettled([
+        requests.reloadEntries(),
+        requests.reloadSelectedEntry(),
+      ])
+      return
+    }
+    void Promise.allSettled([
+      requests.reloadSubscriptions(),
       requests.reloadEntries(),
       requests.reloadSelectedEntry(),
     ])
-  }, [requests.reloadEntries, requests.reloadSelectedEntry])
+  }, [
+    cache,
+    requests.reloadEntries,
+    requests.reloadSelectedEntry,
+    requests.reloadSubscriptions,
+  ])
   const entryMutations = useEntryMutations({
     api,
     csrfToken,
@@ -293,6 +397,7 @@ export function useReaderController({
     stateRef,
     session,
     onMutationSettled: revalidateAfterEntryMutation,
+    runReadAction,
   })
   const subscriptionActions = useSubscriptionActions({
     api,
@@ -316,8 +421,12 @@ export function useReaderController({
     stateRef,
     session,
     userId,
+    onReconciliationStarted: beginBulkReadRevalidation,
+    onReconciliationFinished: finishBulkReadRevalidation,
     reloadSubscriptions: requests.reloadSubscriptions,
     replaceEntries: requests.replaceEntries,
+    reloadSelectedEntry: requests.reloadSelectedEntry,
+    runReadAction,
   })
 
   const selectUnreadSource = useCallback(
@@ -358,6 +467,7 @@ export function useReaderController({
   return {
     state,
     ...requests,
+    reloadEntries,
     load,
     ...entryMutations,
     ...bulkRead,

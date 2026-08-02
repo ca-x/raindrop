@@ -17,7 +17,8 @@ interface EntryMutationOptions {
   dispatch: (action: ReaderAction) => void
   stateRef: { current: ReaderState }
   session: ReaderSession
-  onMutationSettled: () => void
+  onMutationSettled: (field: EntryMutationField) => void
+  runReadAction: <T>(operation: () => Promise<T>) => Promise<T>
 }
 
 export function useEntryMutations({
@@ -27,10 +28,11 @@ export function useEntryMutations({
   stateRef,
   session,
   onMutationSettled,
+  runReadAction,
 }: EntryMutationOptions) {
   const nextMutationId = useRef(0)
 
-  const toggleField = useCallback(
+  const executeToggle = useCallback(
     async (entryId: string, field: EntryMutationField) => {
       const entity =
         stateRef.current.entriesById[entryId] ?? stateRef.current.detailsById[entryId]
@@ -65,10 +67,17 @@ export function useEntryMutations({
         shouldRevalidate = true
       } finally {
         session.finish(task)
-        if (shouldRevalidate && session.active()) onMutationSettled()
+        if (shouldRevalidate && session.active()) onMutationSettled(field)
       }
     },
     [api, csrfToken, dispatch, onMutationSettled, session, stateRef],
+  )
+  const toggleField = useCallback(
+    (entryId: string, field: EntryMutationField) => {
+      const execute = () => executeToggle(entryId, field)
+      return field === "isRead" ? runReadAction(execute) : execute()
+    },
+    [executeToggle, runReadAction],
   )
 
   return {

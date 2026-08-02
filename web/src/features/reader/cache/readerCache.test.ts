@@ -261,6 +261,24 @@ describe("Reader cache", () => {
     expect(storage.value).toMatchObject({ ownerUserId: userId })
   })
 
+  it("invalidates stale projections while allowing the initiating cache to write again", async () => {
+    const storage = new MemoryStorage()
+    const coordination = new MemoryCoordination()
+    const activeCache = createReaderCache(storage, () => nowMs, coordination)
+    const staleCache = createReaderCache(storage, () => nowMs, coordination)
+
+    await activeCache.load(userId)
+    await staleCache.load(userId)
+    await staleCache.save(userId, makeSnapshot())
+    await activeCache.invalidate?.()
+    await staleCache.save(userId, makeSnapshot())
+
+    expect(storage.value).toBeNull()
+
+    await activeCache.save(userId, makeSnapshot())
+    expect(storage.value).toMatchObject({ ownerUserId: userId })
+  })
+
   it("projects only the first 100 current rows and bounds summaries by Unicode scalar", () => {
     const source = { kind: "smart", state: "UNREAD" } as const
     const entries = Array.from({ length: 101 }, (_, index) => makeEntry({
@@ -308,6 +326,39 @@ describe("Reader cache", () => {
     }
 
     expect(readerCacheSnapshot(state)).toBeNull()
+  })
+
+  it("rejects persisted filter drift and omits it from new smart snapshots", async () => {
+    const staleEntry = makeEntry({ isRead: true })
+    const staleSnapshot: ReaderCacheSnapshot = {
+      ...makeSnapshot(),
+      entries: [staleEntry],
+      queue: [staleEntry.entryId],
+    }
+    const storage = new MemoryStorage({
+      ...makeEnvelope(),
+      snapshot: staleSnapshot,
+    })
+
+    await expect(createReaderCache(storage, () => nowMs).load(userId)).resolves.toBeNull()
+    expect(storage.clear).toHaveBeenCalledOnce()
+
+    const subscription = makeSubscription()
+    const state: ReaderState = {
+      ...initialReaderState,
+      subscriptionsById: { [subscription.subscriptionId]: subscription },
+      subscriptionOrder: [subscription.subscriptionId],
+      entriesById: { [staleEntry.entryId]: staleEntry },
+      queueBySourceKey: { "smart:UNREAD": [staleEntry.entryId] },
+      snapshotGenerationBySource: { "smart:UNREAD": 9 },
+      paneStatus: {
+        ...initialReaderState.paneStatus,
+        subscriptions: "ready",
+        queue: "ready",
+      },
+    }
+
+    expect(readerCacheSnapshot(state)).toMatchObject({ entries: [], queue: [] })
   })
 
   it("keeps a refreshed scroll anchor inside the 32-route LRU projection", () => {

@@ -616,36 +616,37 @@ it("marks the visible snapshot read then reloads subscriptions and entries", asy
   ).toBe(0)
 })
 
-it("marks an unselected feed read from a fresh feed snapshot", async () => {
-  const subscription = makeSubscription({ unreadCount: 3 })
+it("commits a bulk-read response before slow background reconciliation", async () => {
+  const entry = makeEntry()
+  const subscription = makeSubscription({ unreadCount: 1 })
+  const reconciliation = deferred<{
+    ownerUserId: string
+    items: ReturnType<typeof makeEntry>[]
+    nextCursor: null
+    snapshotGeneration: number
+  }>()
+  const subscriptionReconciliation = deferred<{
+    ownerUserId: string
+    items: ReturnType<typeof makeSubscription>[]
+    nextCursor: null
+  }>()
   const listSubscriptions = vi
     .fn()
-    .mockResolvedValueOnce({ ownerUserId: userId, items: [subscription], nextCursor: null })
     .mockResolvedValueOnce({
       ownerUserId: userId,
-      items: [{ ...subscription, unreadCount: 0 }],
+      items: [subscription],
       nextCursor: null,
     })
+    .mockImplementationOnce(() => subscriptionReconciliation.promise)
   const listEntries = vi
     .fn()
     .mockResolvedValueOnce({
       ownerUserId: userId,
-      items: [makeEntry()],
+      items: [entry],
       nextCursor: null,
-      snapshotGeneration: 5,
+      snapshotGeneration: 7,
     })
-    .mockResolvedValueOnce({
-      ownerUserId: userId,
-      items: [makeEntry()],
-      nextCursor: null,
-      snapshotGeneration: 9,
-    })
-    .mockResolvedValueOnce({
-      ownerUserId: userId,
-      items: [],
-      nextCursor: null,
-      snapshotGeneration: 9,
-    })
+    .mockImplementationOnce(() => reconciliation.promise)
   const markEntriesRead = vi.fn(async () => undefined)
   const { result } = renderHook(() =>
     useReaderController({
@@ -656,9 +657,351 @@ it("marks an unselected feed read from a fresh feed snapshot", async () => {
   )
 
   await act(async () => result.current.load())
+  let markRead!: Promise<boolean>
+  act(() => { markRead = result.current.markCurrentSourceRead() })
+  await vi.waitFor(() => expect(markEntriesRead).toHaveBeenCalledOnce())
+  await act(async () => { await Promise.resolve() })
+
+  const unreadKey = sourceKey({ kind: "smart", state: "UNREAD" })
+  const queueBeforeReconciliation = result.current.state.queueBySourceKey[unreadKey]
+  const outcomeBeforeReconciliation = await Promise.race([
+    markRead,
+    Promise.resolve("pending" as const),
+  ])
+
+  await act(async () => { await markRead })
+  expect(queueBeforeReconciliation).toEqual([])
+  expect(outcomeBeforeReconciliation).toBe(true)
+  expect(result.current.isMarkingRead).toBe(false)
+  expect(result.current.state.entriesById[entry.entryId]?.isRead).toBe(true)
+  expect(
+    result.current.state.subscriptionsById[subscription.subscriptionId]?.unreadCount,
+  ).toBe(1)
+  expect(listEntries).toHaveBeenCalledTimes(1)
+
   await act(async () => {
-    await expect(result.current.markFeedRead(subscription.feedId)).resolves.toBe(true)
+    subscriptionReconciliation.resolve({
+      ownerUserId: userId,
+      items: [{ ...subscription, unreadCount: 0 }],
+      nextCursor: null,
+    })
+    await vi.waitFor(() => expect(listEntries).toHaveBeenCalledTimes(2))
+    reconciliation.resolve({
+      ownerUserId: userId,
+      items: [],
+      nextCursor: null,
+      snapshotGeneration: 7,
+    })
+    await Promise.resolve()
   })
+})
+
+it("serializes a pending single-entry read before a bulk read", async () => {
+  const entry = makeEntry()
+  const subscription = makeSubscription({ unreadCount: 1 })
+  const patch = deferred<{
+    entryId: string
+    isRead: boolean
+    isStarred: boolean
+  }>()
+  const patchEntryState = vi.fn(() => patch.promise)
+  const markEntriesRead = vi.fn(async () => undefined)
+  const listEntries = vi.fn(async () => ({
+    ownerUserId: userId,
+    items: [entry],
+    nextCursor: null,
+    snapshotGeneration: 7,
+  }))
+  const { result } = renderHook(() =>
+    useReaderController({
+      csrfToken: "csrf-memory",
+      onUnauthenticated: vi.fn(),
+      api: makeApi({
+        listSubscriptions: vi.fn(async () => ({
+          ownerUserId: userId,
+          items: [subscription],
+          nextCursor: null,
+        })),
+        listEntries,
+        patchEntryState,
+        markEntriesRead,
+      }),
+    }),
+  )
+
+  await act(async () => result.current.load())
+  let singleRead!: Promise<void>
+  let bulkRead!: Promise<boolean>
+  act(() => {
+    singleRead = result.current.toggleRead(entry.entryId)
+    bulkRead = result.current.markCurrentSourceRead()
+  })
+  await act(async () => {
+    await Promise.resolve()
+    await Promise.resolve()
+  })
+
+  expect(patchEntryState).toHaveBeenCalledOnce()
+  expect(markEntriesRead).not.toHaveBeenCalled()
+
+  await act(async () => {
+    patch.resolve({ entryId: entry.entryId, isRead: true, isStarred: false })
+    await singleRead
+  })
+  await vi.waitFor(() => expect(markEntriesRead).toHaveBeenCalledOnce())
+  await act(async () => { await bulkRead })
+})
+
+it("does not cache provisional bulk-read counts before reconciliation", async () => {
+  vi.useFakeTimers()
+  const entry = makeEntry()
+  const subscription = makeSubscription({ unreadCount: 1 })
+  const subscriptionReconciliation = deferred<{
+    ownerUserId: string
+    items: ReturnType<typeof makeSubscription>[]
+    nextCursor: null
+  }>()
+  const entryReconciliation = deferred<{
+    ownerUserId: string
+    items: ReturnType<typeof makeEntry>[]
+    nextCursor: null
+    snapshotGeneration: number
+  }>()
+  const save = vi.fn<ReaderCache["save"]>(async () => undefined)
+  const invalidate = vi.fn(async () => undefined)
+  const cache: ReaderCache = {
+    load: vi.fn(async () => cacheSnapshot(subscription, entry)),
+    save,
+    invalidate,
+    clear: vi.fn(async () => undefined),
+  }
+  const listSubscriptions = vi
+    .fn()
+    .mockResolvedValueOnce({
+      ownerUserId: userId,
+      items: [subscription],
+      nextCursor: null,
+    })
+    .mockImplementationOnce(() => subscriptionReconciliation.promise)
+  const listEntries = vi
+    .fn()
+    .mockResolvedValueOnce({
+      ownerUserId: userId,
+      items: [entry],
+      nextCursor: null,
+      snapshotGeneration: 7,
+    })
+    .mockImplementationOnce(() => entryReconciliation.promise)
+  const { result } = renderHook(() =>
+    useReaderController({
+      csrfToken: "csrf-memory",
+      userId,
+      cache,
+      onUnauthenticated: vi.fn(),
+      api: makeApi({
+        listSubscriptions,
+        listEntries,
+        markEntriesRead: vi.fn(async () => undefined),
+      }),
+    }),
+  )
+
+  await act(async () => result.current.load())
+  const validatedSaveCount = save.mock.calls.length
+  await act(async () => {
+    await expect(result.current.markCurrentSourceRead()).resolves.toBe(true)
+  })
+  expect(invalidate).toHaveBeenCalledOnce()
+  await act(async () => vi.advanceTimersByTimeAsync(200))
+
+  expect(result.current.state.subscriptionsById[subscription.subscriptionId]?.unreadCount)
+    .toBe(1)
+  expect(save).toHaveBeenCalledTimes(validatedSaveCount)
+
+  await act(async () => {
+    subscriptionReconciliation.resolve({
+      ownerUserId: userId,
+      items: [{ ...subscription, unreadCount: 0 }],
+      nextCursor: null,
+    })
+    entryReconciliation.resolve({
+      ownerUserId: userId,
+      items: [],
+      nextCursor: null,
+      snapshotGeneration: 7,
+    })
+    await Promise.resolve()
+  })
+
+  expect(save.mock.calls.length).toBeGreaterThan(validatedSaveCount)
+  expect(save.mock.lastCall?.[1]).toMatchObject({
+    subscriptions: [expect.objectContaining({ unreadCount: 0 })],
+    queue: [],
+  })
+})
+
+it("does not let unrelated source validation complete bulk cache reconciliation", async () => {
+  vi.useFakeTimers()
+  const entry = makeEntry()
+  const pendingEntry = makeEntry({
+    entryId: "00000000-0000-4000-8000-000000000302",
+  })
+  const subscription = makeSubscription({ unreadCount: 1 })
+  const subscriptionReconciliation = deferred<{
+    ownerUserId: string
+    items: ReturnType<typeof makeSubscription>[]
+    nextCursor: null
+  }>()
+  const bulkEntryReconciliation = deferred<{
+    ownerUserId: string
+    items: ReturnType<typeof makeEntry>[]
+    nextCursor: null
+    snapshotGeneration: number
+  }>()
+  const save = vi.fn<ReaderCache["save"]>(async () => undefined)
+  const cache: ReaderCache = {
+    load: vi.fn(async () => cacheSnapshot(subscription, entry)),
+    save,
+    clear: vi.fn(async () => undefined),
+  }
+  const listSubscriptions = vi
+    .fn()
+    .mockResolvedValueOnce({
+      ownerUserId: userId,
+      items: [subscription],
+      nextCursor: null,
+    })
+    .mockImplementationOnce(() => subscriptionReconciliation.promise)
+  const listEntries = vi
+    .fn()
+    .mockResolvedValueOnce({
+      ownerUserId: userId,
+      items: [entry],
+      nextCursor: null,
+      snapshotGeneration: 7,
+    })
+    .mockResolvedValueOnce({
+      ownerUserId: userId,
+      items: [pendingEntry],
+      nextCursor: null,
+      snapshotGeneration: 8,
+    })
+    .mockImplementationOnce(() => bulkEntryReconciliation.promise)
+  const { result } = renderHook(() =>
+    useReaderController({
+      csrfToken: "csrf-memory",
+      userId,
+      cache,
+      onUnauthenticated: vi.fn(),
+      api: makeApi({
+        listSubscriptions,
+        listEntries,
+        markEntriesRead: vi.fn(async () => undefined),
+      }),
+    }),
+  )
+
+  await act(async () => result.current.load())
+  await act(async () => {
+    await expect(result.current.markCurrentSourceRead()).resolves.toBe(true)
+  })
+  const validatedSaveCount = save.mock.calls.length
+
+  await act(async () => result.current.reloadEntries())
+  await act(async () => {
+    subscriptionReconciliation.resolve({
+      ownerUserId: userId,
+      items: [{ ...subscription, unreadCount: 1 }],
+      nextCursor: null,
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+  })
+
+  expect(listEntries).toHaveBeenCalledTimes(3)
+  expect(save).toHaveBeenCalledTimes(validatedSaveCount)
+
+  await act(async () => {
+    bulkEntryReconciliation.resolve({
+      ownerUserId: userId,
+      items: [pendingEntry],
+      nextCursor: null,
+      snapshotGeneration: 8,
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+  })
+  expect(save.mock.calls.length).toBeGreaterThan(validatedSaveCount)
+  expect(save.mock.lastCall?.[1]).toMatchObject({
+    queue: [pendingEntry.entryId],
+  })
+})
+
+it("marks an unselected feed read from a fresh feed snapshot", async () => {
+  const subscription = makeSubscription({ unreadCount: 2 })
+  const pendingEntry = makeEntry({
+    entryId: "00000000-0000-4000-8000-000000000302",
+    title: "Arrived after quick snapshot",
+  })
+  const quickSnapshot = deferred<{
+    ownerUserId: string
+    items: ReturnType<typeof makeEntry>[]
+    nextCursor: null
+    snapshotGeneration: number
+  }>()
+  const subscriptionReconciliation = deferred<{
+    ownerUserId: string
+    items: ReturnType<typeof makeSubscription>[]
+    nextCursor: null
+  }>()
+  const entryReconciliation = deferred<{
+    ownerUserId: string
+    items: ReturnType<typeof makeEntry>[]
+    nextCursor: null
+    snapshotGeneration: number
+  }>()
+  const listSubscriptions = vi
+    .fn()
+    .mockResolvedValueOnce({ ownerUserId: userId, items: [subscription], nextCursor: null })
+    .mockImplementationOnce(() => subscriptionReconciliation.promise)
+  const listEntries = vi
+    .fn()
+    .mockResolvedValueOnce({
+      ownerUserId: userId,
+      items: [makeEntry()],
+      nextCursor: null,
+      snapshotGeneration: 5,
+    })
+    .mockImplementationOnce(() => quickSnapshot.promise)
+    .mockResolvedValueOnce({
+      ownerUserId: userId,
+      items: [makeEntry(), pendingEntry],
+      nextCursor: null,
+      snapshotGeneration: 10,
+    })
+    .mockImplementationOnce(() => entryReconciliation.promise)
+  const markEntriesRead = vi.fn(async () => undefined)
+  const { result } = renderHook(() =>
+    useReaderController({
+      csrfToken: "csrf-memory",
+      onUnauthenticated: vi.fn(),
+      api: makeApi({ listSubscriptions, listEntries, markEntriesRead }),
+    }),
+  )
+
+  await act(async () => result.current.load())
+  let markRead!: Promise<boolean>
+  act(() => { markRead = result.current.markFeedRead(subscription.feedId) })
+  await vi.waitFor(() => expect(listEntries).toHaveBeenCalledTimes(2))
+  await act(async () => result.current.reloadEntries())
+  quickSnapshot.resolve({
+    ownerUserId: userId,
+    items: [makeEntry()],
+    nextCursor: null,
+    snapshotGeneration: 9,
+  })
+  await vi.waitFor(() => expect(markEntriesRead).toHaveBeenCalledOnce())
+  await act(async () => { await markRead })
 
   expect(listEntries).toHaveBeenNthCalledWith(2, {
     feedId: subscription.feedId,
@@ -671,6 +1014,36 @@ it("marks an unselected feed read from a fresh feed snapshot", async () => {
     "csrf-memory",
     expect.any(AbortSignal),
   )
+  expect(result.current.isMarkingRead).toBe(false)
+  expect(
+    result.current.state.queueBySourceKey[
+      sourceKey({ kind: "smart", state: "UNREAD" })
+    ],
+  ).toBeUndefined()
+  expect(result.current.state.entriesById[pendingEntry.entryId]?.isRead).toBe(false)
+  expect(
+    result.current.state.pendingNewEntriesBySource[
+      sourceKey({ kind: "smart", state: "UNREAD" })
+    ],
+  ).toBeUndefined()
+  expect(
+    result.current.state.subscriptionsById[subscription.subscriptionId]?.unreadCount,
+  ).toBe(2)
+
+  await act(async () => {
+    subscriptionReconciliation.resolve({
+      ownerUserId: userId,
+      items: [{ ...subscription, unreadCount: 1 }],
+      nextCursor: null,
+    })
+    entryReconciliation.resolve({
+      ownerUserId: userId,
+      items: [pendingEntry],
+      nextCursor: null,
+      snapshotGeneration: 10,
+    })
+    await Promise.resolve()
+  })
 })
 
 function makeApi(overrides: Partial<ReaderApi> = {}): ReaderApi {

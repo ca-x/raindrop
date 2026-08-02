@@ -4,6 +4,7 @@ import { initialReaderState, readerReducer } from "./reducer"
 import type { ReaderState } from "./types"
 import { sourceKey } from "./types"
 import {
+  categoryId,
   entryId,
   makeDetail,
   makeEntry,
@@ -51,6 +52,373 @@ it("optimistically updates read state and rolls back its bounded snapshot", () =
   expect(state.detailsById[entryId]?.isRead).toBe(false)
   expect(state.subscriptionsById[subscriptionId]?.unreadCount).toBe(3)
   expect(state.errors.mutation).toBe("You cannot change this entry")
+})
+
+it("commits bulk-read state while preserving entries newer than the snapshot", () => {
+  const pendingEntryId = "00000000-0000-4000-8000-000000000302"
+  const unreadSource = { kind: "smart", state: "UNREAD" } as const
+  const allSource = { kind: "smart", state: "ALL" } as const
+  const unreadKey = sourceKey(unreadSource)
+  const allKey = sourceKey(allSource)
+  const subscription = makeSubscription({ unreadCount: 2 })
+  let state: ReaderState = {
+    ...initialReaderState,
+    subscriptionsById: { [subscriptionId]: subscription },
+    subscriptionOrder: [subscriptionId],
+    entriesById: {
+      [entryId]: makeEntry(),
+      [pendingEntryId]: makeEntry({ entryId: pendingEntryId }),
+    },
+    detailsById: { [entryId]: makeDetail() },
+    selectedEntryId: entryId,
+    requestGenerationByPane: { subscriptions: 3, queue: 4, detail: 5 },
+    queueBySourceKey: {
+      [unreadKey]: [entryId],
+      [allKey]: [entryId, pendingEntryId],
+    },
+    pendingNewEntriesBySource: {
+      [unreadKey]: [pendingEntryId],
+    },
+    pendingNewEntryCountBySource: { [unreadKey]: 1 },
+    snapshotGenerationBySource: { [unreadKey]: 7, [allKey]: 8 },
+  }
+
+  state = readerReducer(state, {
+    type: "bulkReadCommitted",
+    entryIds: [entryId],
+    affectedFeedIds: [subscription.feedId],
+    retainedSourceKey: unreadKey,
+    retainedQueueEntryIds: [entryId],
+    retainedPendingEntryIds: [pendingEntryId],
+    retainedQueueGeneration: 4,
+    retainedSnapshotGeneration: 7,
+    retainedPendingSnapshotGeneration: null,
+    invalidateAllSources: true,
+  })
+
+  expect(state.entriesById[entryId]?.isRead).toBe(true)
+  expect(state.detailsById[entryId]?.isRead).toBe(true)
+  expect(state.entriesById[pendingEntryId]?.isRead).toBe(false)
+  expect(state.queueBySourceKey[unreadKey]).toEqual([])
+  expect(state.queueBySourceKey[allKey]).toBeUndefined()
+  expect(state.snapshotGenerationBySource[allKey]).toBeUndefined()
+  expect(state.pendingNewEntriesBySource[unreadKey]).toEqual([pendingEntryId])
+  expect(state.pendingNewEntryCountBySource[unreadKey]).toBe(1)
+  expect(state.subscriptionsById[subscriptionId]?.unreadCount).toBe(2)
+  expect(state.requestGenerationByPane).toEqual({
+    subscriptions: 4,
+    queue: 5,
+    detail: 6,
+  })
+
+  state = readerReducer(state, {
+    type: "detailReceived",
+    entryId,
+    generation: 5,
+    detail: makeDetail({ isRead: false }),
+  })
+  expect(state.detailsById[entryId]?.isRead).toBe(true)
+})
+
+it("makes a committed bulk read the rollback baseline for pending entry mutations", () => {
+  const unreadSource = { kind: "smart", state: "UNREAD" } as const
+  const unreadKey = sourceKey(unreadSource)
+  const subscription = makeSubscription({ unreadCount: 1 })
+  let state: ReaderState = {
+    ...initialReaderState,
+    subscriptionsById: { [subscriptionId]: subscription },
+    subscriptionOrder: [subscriptionId],
+    entriesById: { [entryId]: makeEntry() },
+    queueBySourceKey: { [unreadKey]: [entryId] },
+  }
+  state = readerReducer(state, {
+    type: "entryMutationStarted",
+    mutationId: 40,
+    entryId,
+    field: "isRead",
+    value: true,
+  })
+  state = readerReducer(state, {
+    type: "bulkReadCommitted",
+    entryIds: [entryId],
+    affectedFeedIds: [subscription.feedId],
+    retainedSourceKey: unreadKey,
+    retainedQueueEntryIds: [entryId],
+    retainedPendingEntryIds: null,
+    retainedQueueGeneration: 1,
+    retainedSnapshotGeneration: null,
+    retainedPendingSnapshotGeneration: null,
+    invalidateAllSources: true,
+  })
+
+  expect(state.pendingMutationByEntryId[entryId]).toBeUndefined()
+  expect(state.optimisticMutationsById[40]).toBeUndefined()
+
+  state = readerReducer(state, {
+    type: "entryMutationFailed",
+    mutationId: 40,
+    error: "Older request failed",
+  })
+  expect(state.entriesById[entryId]?.isRead).toBe(true)
+  expect(state.subscriptionsById[subscriptionId]?.unreadCount).toBe(0)
+  expect(state.queueBySourceKey[unreadKey]).toEqual([])
+})
+
+it("commits a stable category projection while broader caches revalidate", () => {
+  const subscription = makeSubscription({ categoryId })
+  const categorySource = { kind: "category", categoryId } as const
+  const categoryKey = sourceKey(categorySource)
+  const state: ReaderState = {
+    ...initialReaderState,
+    selectedSource: categorySource,
+    subscriptionsById: { [subscriptionId]: subscription },
+    subscriptionOrder: [subscriptionId],
+    entriesById: { [entryId]: makeEntry() },
+    queueBySourceKey: { [categoryKey]: [entryId] },
+    snapshotGenerationBySource: { [categoryKey]: 7 },
+    paneStatus: { ...initialReaderState.paneStatus, queue: "ready" },
+  }
+
+  const reloading = readerReducer(state, {
+    type: "bulkReadCommitted",
+    entryIds: [entryId],
+    affectedFeedIds: [subscription.feedId],
+    retainedSourceKey: categoryKey,
+    retainedQueueEntryIds: [entryId],
+    retainedPendingEntryIds: null,
+    retainedQueueGeneration: 0,
+    retainedSnapshotGeneration: 7,
+    retainedPendingSnapshotGeneration: null,
+    invalidateAllSources: true,
+  })
+
+  expect(reloading.entriesById[entryId]?.isRead).toBe(true)
+  expect(reloading.subscriptionsById[subscriptionId]?.unreadCount).toBe(
+    subscription.unreadCount,
+  )
+  expect(reloading.queueBySourceKey[categoryKey]).toEqual([entryId])
+  expect(reloading.snapshotGenerationBySource[categoryKey]).toBe(7)
+  expect(reloading.paneStatus.queue).toBe("ready")
+})
+
+it("keeps a concurrent star mutation independent from a bulk read", () => {
+  const unreadSource = { kind: "smart", state: "UNREAD" } as const
+  const unreadKey = sourceKey(unreadSource)
+  const subscription = makeSubscription({ unreadCount: 1 })
+  let state: ReaderState = {
+    ...initialReaderState,
+    subscriptionsById: { [subscriptionId]: subscription },
+    subscriptionOrder: [subscriptionId],
+    entriesById: { [entryId]: makeEntry() },
+    queueBySourceKey: { [unreadKey]: [entryId] },
+  }
+  state = readerReducer(state, {
+    type: "entryMutationStarted",
+    mutationId: 41,
+    entryId,
+    field: "isStarred",
+    value: true,
+  })
+  state = readerReducer(state, {
+    type: "bulkReadCommitted",
+    entryIds: [entryId],
+    affectedFeedIds: [subscription.feedId],
+    retainedSourceKey: unreadKey,
+    retainedQueueEntryIds: [entryId],
+    retainedPendingEntryIds: null,
+    retainedQueueGeneration: 1,
+    retainedSnapshotGeneration: null,
+    retainedPendingSnapshotGeneration: null,
+    invalidateAllSources: true,
+  })
+
+  expect(state.pendingMutationByEntryId[entryId]?.isStarred).toBe(41)
+  expect(state.optimisticMutationsById[41]?.field).toBe("isStarred")
+
+  state = readerReducer(state, {
+    type: "entryMutationFailed",
+    mutationId: 41,
+    error: "Star request failed",
+  })
+  expect(state.entriesById[entryId]?.isStarred).toBe(false)
+  expect(state.errors.mutation).toBe("Star request failed")
+})
+
+it("does not derive an authoritative unread count from a partial pending window", () => {
+  const pendingEntryId = "00000000-0000-4000-8000-000000000302"
+  const unreadSource = { kind: "smart", state: "UNREAD" } as const
+  const unreadKey = sourceKey(unreadSource)
+  const subscription = makeSubscription({ unreadCount: 1_000 })
+  const state: ReaderState = {
+    ...initialReaderState,
+    subscriptionsById: { [subscriptionId]: subscription },
+    subscriptionOrder: [subscriptionId],
+    entriesById: {
+      [entryId]: makeEntry(),
+      [pendingEntryId]: makeEntry({ entryId: pendingEntryId }),
+    },
+    queueBySourceKey: { [unreadKey]: [entryId] },
+    pendingNewEntriesBySource: { [unreadKey]: [pendingEntryId] },
+  }
+
+  const committed = readerReducer(state, {
+    type: "bulkReadCommitted",
+    entryIds: [entryId],
+    affectedFeedIds: [subscription.feedId],
+    retainedSourceKey: unreadKey,
+    retainedQueueEntryIds: [entryId],
+    retainedPendingEntryIds: null,
+    retainedQueueGeneration: 0,
+    retainedSnapshotGeneration: null,
+    retainedPendingSnapshotGeneration: null,
+    invalidateAllSources: true,
+  })
+
+  expect(committed.subscriptionsById[subscriptionId]?.unreadCount).toBe(1_000)
+})
+
+it("invalidates a retained projection that changed while bulk read was in flight", () => {
+  const replacementEntryId = "00000000-0000-4000-8000-000000000302"
+  const unreadSource = { kind: "smart", state: "UNREAD" } as const
+  const unreadKey = sourceKey(unreadSource)
+  const subscription = makeSubscription({ unreadCount: 2 })
+  const state: ReaderState = {
+    ...initialReaderState,
+    subscriptionsById: { [subscriptionId]: subscription },
+    subscriptionOrder: [subscriptionId],
+    entriesById: {
+      [entryId]: makeEntry(),
+      [replacementEntryId]: makeEntry({ entryId: replacementEntryId }),
+    },
+    queueBySourceKey: { [unreadKey]: [replacementEntryId, entryId] },
+    snapshotGenerationBySource: { [unreadKey]: 8 },
+    requestGenerationByPane: { subscriptions: 0, queue: 4, detail: 0 },
+    paneStatus: { ...initialReaderState.paneStatus, queue: "ready" },
+  }
+
+  const committed = readerReducer(state, {
+    type: "bulkReadCommitted",
+    entryIds: [entryId],
+    affectedFeedIds: [subscription.feedId],
+    retainedSourceKey: unreadKey,
+    retainedQueueEntryIds: [entryId],
+    retainedPendingEntryIds: null,
+    retainedQueueGeneration: 4,
+    retainedSnapshotGeneration: 8,
+    retainedPendingSnapshotGeneration: null,
+    invalidateAllSources: false,
+  })
+
+  expect(committed.entriesById[entryId]?.isRead).toBe(true)
+  expect(committed.entriesById[replacementEntryId]?.isRead).toBe(false)
+  expect(committed.queueBySourceKey[unreadKey]).toBeUndefined()
+  expect(committed.snapshotGenerationBySource[unreadKey]).toBeUndefined()
+  expect(committed.paneStatus.queue).toBe("idle")
+})
+
+it("invalidates a retained projection when its pending window changes", () => {
+  const pendingEntryId = "00000000-0000-4000-8000-000000000302"
+  const unreadKey = sourceKey({ kind: "smart", state: "UNREAD" })
+  const subscription = makeSubscription({ unreadCount: 2 })
+  const state: ReaderState = {
+    ...initialReaderState,
+    subscriptionsById: { [subscriptionId]: subscription },
+    subscriptionOrder: [subscriptionId],
+    entriesById: {
+      [entryId]: makeEntry(),
+      [pendingEntryId]: makeEntry({ entryId: pendingEntryId }),
+    },
+    queueBySourceKey: { [unreadKey]: [entryId] },
+    pendingNewEntriesBySource: { [unreadKey]: [pendingEntryId] },
+    pendingNewEntryCountBySource: { [unreadKey]: 1 },
+    snapshotGenerationBySource: { [unreadKey]: 7 },
+    pendingSnapshotGenerationBySource: { [unreadKey]: 8 },
+    requestGenerationByPane: { subscriptions: 0, queue: 4, detail: 0 },
+    paneStatus: { ...initialReaderState.paneStatus, queue: "ready" },
+  }
+
+  const committed = readerReducer(state, {
+    type: "bulkReadCommitted",
+    entryIds: [entryId],
+    affectedFeedIds: [subscription.feedId],
+    retainedSourceKey: unreadKey,
+    retainedQueueEntryIds: [entryId],
+    retainedPendingEntryIds: null,
+    retainedQueueGeneration: 4,
+    retainedSnapshotGeneration: 7,
+    retainedPendingSnapshotGeneration: null,
+    invalidateAllSources: false,
+  })
+
+  expect(committed.entriesById[entryId]?.isRead).toBe(true)
+  expect(committed.entriesById[pendingEntryId]?.isRead).toBe(false)
+  expect(committed.queueBySourceKey[unreadKey]).toBeUndefined()
+  expect(committed.pendingNewEntriesBySource[unreadKey]).toBeUndefined()
+  expect(committed.pendingSnapshotGenerationBySource[unreadKey]).toBeUndefined()
+  expect(committed.paneStatus.queue).toBe("idle")
+})
+
+it("invalidates every cached source after a category-scoped bulk read", () => {
+  const otherFeedId = "00000000-0000-4000-8000-000000000102"
+  const otherEntryId = "00000000-0000-4000-8000-000000000302"
+  const categorySource = { kind: "category", categoryId } as const
+  const categoryKey = sourceKey(categorySource)
+  const otherFeedKey = sourceKey({ kind: "feed", feedId: otherFeedId })
+  const subscription = makeSubscription({ categoryId })
+  const state: ReaderState = {
+    ...initialReaderState,
+    selectedSource: categorySource,
+    subscriptionsById: { [subscriptionId]: subscription },
+    subscriptionOrder: [subscriptionId],
+    entriesById: {
+      [entryId]: makeEntry(),
+      [otherEntryId]: makeEntry({ entryId: otherEntryId, feedId: otherFeedId }),
+    },
+    queueBySourceKey: {
+      [categoryKey]: [entryId],
+      [otherFeedKey]: [otherEntryId],
+    },
+    snapshotGenerationBySource: { [categoryKey]: 7, [otherFeedKey]: 8 },
+  }
+
+  const committed = readerReducer(state, {
+    type: "bulkReadCommitted",
+    entryIds: [entryId],
+    affectedFeedIds: [subscription.feedId],
+    retainedSourceKey: categoryKey,
+    retainedQueueEntryIds: [entryId],
+    retainedPendingEntryIds: null,
+    retainedQueueGeneration: 0,
+    retainedSnapshotGeneration: 7,
+    retainedPendingSnapshotGeneration: null,
+    invalidateAllSources: true,
+  })
+
+  expect(committed.queueBySourceKey[otherFeedKey]).toBeUndefined()
+  expect(committed.snapshotGenerationBySource[otherFeedKey]).toBeUndefined()
+})
+
+it("does not let a star response overwrite a newer read projection", () => {
+  let state: ReaderState = {
+    ...initialReaderState,
+    entriesById: { [entryId]: makeEntry({ isRead: true }) },
+    detailsById: { [entryId]: makeDetail({ isRead: true }) },
+  }
+  state = readerReducer(state, {
+    type: "entryMutationStarted",
+    mutationId: 42,
+    entryId,
+    field: "isStarred",
+    value: true,
+  })
+  state = readerReducer(state, {
+    type: "entryMutationSucceeded",
+    mutationId: 42,
+    state: { entryId, isRead: false, isStarred: true },
+  })
+
+  expect(state.entriesById[entryId]).toMatchObject({ isRead: true, isStarred: true })
+  expect(state.detailsById[entryId]).toMatchObject({ isRead: true, isStarred: true })
 })
 
 it("uses the server state as authoritative after an optimistic star change", () => {
