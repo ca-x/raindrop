@@ -287,7 +287,7 @@ function feedItems(
                   })}
                   icon={<MarkReadIcon />}
                   onClick={() => onRequestMarkRead(subscription.feedId, subscription.title)}
-                  isDisabled={isMarkingRead || subscription.unreadCount === 0}
+                  isDisabled={isMarkingRead}
                   variant="ghost"
                   size="sm"
                 />

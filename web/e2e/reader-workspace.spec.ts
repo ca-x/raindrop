@@ -86,6 +86,47 @@ test("Reader stable snapshot bulk read", async ({ page }, testInfo) => {
   }
 })
 
+test("Reader source quick mark-read uses a fresh snapshot despite a stale zero count", async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== "reader-1280x800",
+    "The source-row quick action is exercised once with a fine pointer.",
+  )
+  const quickReadServer = await startProductionServer()
+  try {
+    const fixture = await installReaderApiFixture(page)
+    const subscription = fixture.organization.subscriptions.find(
+      (item) => item.feedId === readerIds.feedA,
+    )
+    if (!subscription) throw new Error("Reader fixture is missing Quiet Web")
+    subscription.unreadCount = 0
+    await completeSetup(page, quickReadServer, createCredentials())
+
+    const sources = page.getByRole("navigation", { name: "Sources" })
+    await expect(sources.locator(".reader-source-tree")).toHaveAttribute(
+      "aria-busy",
+      "false",
+    )
+    await sources.getByRole("treeitem", { name: /Quiet Web/u }).hover()
+    const quickMarkRead = sources.getByRole("button", {
+      name: "Mark all from Quiet Web read",
+    })
+    await expect(quickMarkRead).toBeEnabled()
+    await quickMarkRead.click()
+
+    const dialog = page.getByRole("alertdialog", { name: "Mark “Quiet Web” read?" })
+    await dialog.getByRole("button", { name: "Mark all read" }).click()
+    await expect.poll(() => fixture.markReadCalls.length).toBe(1)
+    expect(fixture.markReadCalls[0]).toMatchObject({
+      body: { snapshotGeneration: 1, feedId: readerIds.feedA },
+    })
+    await expect(dialog).not.toBeVisible()
+  } finally {
+    await quickReadServer.stop()
+  }
+})
+
 test("Reader reload restores IndexedDB rows before background reconciliation", async ({
   page,
 }, testInfo) => {

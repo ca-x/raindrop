@@ -167,6 +167,34 @@ it("offers a per-feed quick mark-read action without selecting the feed", async 
   expect(onSelect).not.toHaveBeenCalled()
 })
 
+it("keeps quick mark-read available when the reconciled unread count is stale", async () => {
+  activateLocale("en")
+  const user = userEvent.setup()
+  const onRequestMarkRead = vi.fn()
+  const subscription = makeSubscription({ unreadCount: 0 })
+  render(
+    <Providers>
+      <CategoryList
+        state={{
+          ...initialReaderState,
+          subscriptionsById: { [subscription.subscriptionId]: subscription },
+          subscriptionOrder: [subscription.subscriptionId],
+        }}
+        onSelect={vi.fn()}
+        onRequestMarkRead={onRequestMarkRead}
+        density="balanced"
+      />
+    </Providers>,
+  )
+
+  const markRead = screen.getByRole("button", {
+    name: "Mark all from Example Feed read",
+  })
+  expect(markRead).toBeEnabled()
+  await user.click(markRead)
+  expect(onRequestMarkRead).toHaveBeenCalledWith(subscription.feedId, subscription.title)
+})
+
 it("moves a feed to a category when its tree row is dropped", async () => {
   activateLocale("en")
   const onMoveSubscription = vi.fn(async () => true)

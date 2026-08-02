@@ -398,6 +398,7 @@
     > div:focus-within
     .reader-source-status {
     opacity: 0;
+    pointer-events: none;
   }
 }
 
