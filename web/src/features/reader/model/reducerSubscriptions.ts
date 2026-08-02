@@ -14,7 +14,11 @@ export function requestSubscriptions(
       ...state.requestGenerationByPane,
       subscriptions: generation,
     },
-    paneStatus: { ...state.paneStatus, subscriptions: "loading" },
+    paneStatus: {
+      ...state.paneStatus,
+      subscriptions:
+        state.paneStatus.subscriptions === "ready" ? "ready" : "loading",
+    },
     errors: { ...state.errors, subscriptions: null },
   }
 }
@@ -57,7 +61,11 @@ export function failSubscriptions(
   if (generation !== state.requestGenerationByPane.subscriptions) return state
   return {
     ...state,
-    paneStatus: { ...state.paneStatus, subscriptions: "error" },
+    paneStatus: {
+      ...state.paneStatus,
+      subscriptions:
+        state.paneStatus.subscriptions === "ready" ? "ready" : "error",
+    },
     errors: { ...state.errors, subscriptions: error },
   }
 }

@@ -12,7 +12,7 @@ export interface ReaderSession {
   begin: () => SessionTask | null
   isCurrent: (task: SessionTask) => boolean
   finish: (task: SessionTask) => void
-  expire: (task: SessionTask) => void
+  expire: (task: SessionTask) => Promise<void>
 }
 
 interface SessionState {
@@ -23,7 +23,7 @@ interface SessionState {
 
 export function useReaderSession(
   dispatch: (action: ReaderAction) => void,
-  onUnauthenticated: () => void,
+  onUnauthenticated: () => void | Promise<void>,
 ): ReaderSession {
   const sessionRef = useRef<SessionState>({
     epoch: 0,
@@ -47,7 +47,7 @@ export function useReaderSession(
     sessionRef.current.controllers.delete(task.controller)
   }, [])
   const expire = useCallback(
-    (task: SessionTask) => {
+    async (task: SessionTask) => {
       const session = sessionRef.current
       if (session.expired || session.epoch !== task.epoch) return
       session.expired = true
@@ -55,7 +55,7 @@ export function useReaderSession(
       for (const controller of session.controllers) controller.abort()
       session.controllers.clear()
       dispatch({ type: "sessionExpired" })
-      onUnauthenticated()
+      await onUnauthenticated()
     },
     [dispatch, onUnauthenticated],
   )

@@ -461,6 +461,7 @@ function articleController(): ReaderController {
     updateSubscription: vi.fn().mockResolvedValue(true),
     recordScrollAnchor: vi.fn(),
     clearMutationError: vi.fn(),
+    clearCache: vi.fn(async () => undefined),
   }
 }
 

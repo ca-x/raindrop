@@ -13,7 +13,7 @@ use axum::{
     http::{
         Method, Request, StatusCode,
         header::{
-            CACHE_CONTROL, CONTENT_TYPE, COOKIE, HOST, LOCATION, ORIGIN, PRAGMA, RETRY_AFTER,
+            CACHE_CONTROL, CONTENT_TYPE, COOKIE, HOST, LOCATION, ORIGIN, PRAGMA, RETRY_AFTER, VARY,
         },
     },
 };
@@ -56,6 +56,22 @@ impl FeedTransport for BlockedTransport {
     async fn fetch(&self, _request: FetchRequest) -> Result<FetchOutcome, FeedFetchError> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         std::future::pending().await
+    }
+}
+
+#[derive(Clone)]
+struct StaticImageTransport;
+
+#[async_trait]
+impl FeedTransport for StaticImageTransport {
+    async fn fetch(&self, request: FetchRequest) -> Result<FetchOutcome, FeedFetchError> {
+        Ok(FetchOutcome::Document {
+            url: request.url().clone(),
+            document: b"\x89PNG\r\n\x1a\nsubscription-favicon".to_vec(),
+            content_type: Some("image/png".to_owned()),
+            etag: None,
+            last_modified: None,
+        })
     }
 }
 
@@ -118,7 +134,10 @@ impl SubscriptionApiFixture {
                 transport.clone(),
             )))
         });
-        let app = build_router(AppState::with_feed_runtime(setup, handle));
+        let app = build_router(
+            AppState::with_feed_runtime(setup, handle)
+                .with_media_transport(Arc::new(StaticImageTransport)),
+        );
 
         Self {
             _data: data,
@@ -485,6 +504,56 @@ async fn subscription_favicon_fails_closed_until_the_feed_has_a_safe_site_url() 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
     assert_sensitive_cache_headers(&response);
     assert_eq!(response_json(response).await["error"]["code"], "NOT_FOUND");
+}
+
+#[tokio::test]
+async fn subscription_favicon_reuses_a_private_success_response() {
+    let fixture = SubscriptionApiFixture::new().await;
+    let created = fixture
+        .post_with_csrf(
+            "/api/v1/subscriptions",
+            json!({ "url": "https://favicon.example/rss.xml" }),
+            UserKind::A,
+        )
+        .await;
+    let body = response_json(created).await;
+    let subscription_id = body["subscription"]["subscriptionId"]
+        .as_str()
+        .expect("created subscription should expose its identifier");
+    let feed_id = body["subscription"]["feedId"]
+        .as_str()
+        .expect("created subscription should expose its feed identifier");
+    let mut stored_feed = feed::Entity::find_by_id(Uuid::parse_str(feed_id).unwrap())
+        .one(&fixture.database)
+        .await
+        .expect("feed lookup should succeed")
+        .expect("created feed should exist")
+        .into_active_model();
+    stored_feed.site_url = Set(Some("https://favicon.example/articles".to_owned()));
+    stored_feed
+        .update(&fixture.database)
+        .await
+        .expect("feed site URL should update");
+
+    let response = fixture
+        .get(
+            &format!("/reader-assets/subscriptions/{subscription_id}/favicon"),
+            UserKind::A,
+        )
+        .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()[CONTENT_TYPE], "image/png");
+    assert_eq!(
+        response.headers()[CACHE_CONTROL],
+        "private, max-age=86400, stale-while-revalidate=604800"
+    );
+    assert_eq!(response.headers()[VARY], "Cookie");
+    assert!(
+        response_body_bytes(response)
+            .await
+            .starts_with(b"\x89PNG\r\n\x1a\n")
+    );
 }
 
 #[tokio::test]

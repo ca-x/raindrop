@@ -1,8 +1,9 @@
-import { act, renderHook } from "@testing-library/react"
+import { act, renderHook, waitFor } from "@testing-library/react"
 import { StrictMode, type PropsWithChildren } from "react"
 import { expect, it, vi } from "vitest"
 
 import { ApiClientError } from "../../../shared/api/client"
+import type { ReaderCache } from "../cache/readerCache"
 import type { EntryDetailResponse, EntryPageResponse } from "../api/reader.generated"
 import type { CreateSubscriptionResponse } from "../api/subscription.generated"
 import type { ReaderApi } from "./controllerApi"
@@ -15,6 +16,72 @@ const unauthorized = () =>
     code: "AUTHENTICATION_REQUIRED",
     message: "Sign in again",
   })
+
+const userId = "11111111-1111-4111-8111-111111111111"
+
+it("clears cached Reader data before reporting a current-session 401", async () => {
+  const cacheClear = deferred<void>()
+  const cache: ReaderCache = {
+    load: vi.fn(async () => null),
+    save: vi.fn(async () => undefined),
+    clear: vi.fn(() => cacheClear.promise),
+  }
+  const onUnauthenticated = vi.fn()
+  const { result } = renderHook(() =>
+    useReaderController({
+      csrfToken: "csrf-memory",
+      userId,
+      cache,
+      onUnauthenticated,
+      api: makeApi({ listEntries: vi.fn(async () => { throw unauthorized() }) }),
+    }),
+  )
+
+  let load!: Promise<void>
+  act(() => { load = result.current.load() })
+  await waitFor(() => expect(cache.clear).toHaveBeenCalledOnce())
+  expect(onUnauthenticated).not.toHaveBeenCalled()
+
+  cacheClear.resolve()
+  await act(async () => load)
+  expect(onUnauthenticated).toHaveBeenCalledOnce()
+})
+
+it("does not clear cached Reader data for a superseded 401", async () => {
+  const stale = deferred<EntryPageResponse>()
+  const listEntries = vi
+    .fn()
+    .mockResolvedValueOnce(page(makeEntry()))
+    .mockImplementationOnce(() => stale.promise)
+    .mockResolvedValueOnce(page(makeEntry({ title: "Current source" })))
+  const cache: ReaderCache = {
+    load: vi.fn(async () => null),
+    save: vi.fn(async () => undefined),
+    clear: vi.fn(async () => undefined),
+  }
+  const onUnauthenticated = vi.fn()
+  const { result } = renderHook(() =>
+    useReaderController({
+      csrfToken: "csrf-memory",
+      userId,
+      cache,
+      onUnauthenticated,
+      api: makeApi({ listEntries }),
+    }),
+  )
+  await act(async () => result.current.load())
+
+  let staleLoad!: Promise<void>
+  act(() => { staleLoad = result.current.reloadEntries() })
+  await act(async () => {
+    await result.current.selectSource({ kind: "smart", state: "ALL" })
+  })
+  stale.reject(unauthorized())
+  await act(async () => staleLoad)
+
+  expect(cache.clear).not.toHaveBeenCalled()
+  expect(onUnauthenticated).not.toHaveBeenCalled()
+})
 
 it("ignores late source and detail 401 responses from superseded requests", async () => {
   const staleSource = deferred<EntryPageResponse>()

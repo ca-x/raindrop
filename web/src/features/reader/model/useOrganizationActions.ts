@@ -40,7 +40,7 @@ export function useOrganizationActions({
       } catch (error) {
         if (isAbortError(error) || !session.isCurrent(task)) return false
         if (isUnauthenticatedError(error)) {
-          session.expire(task)
+          await session.expire(task)
           return false
         }
         dispatch({ type: "mutationErrorSet", error: readerErrorMessage(error) })

@@ -33,7 +33,7 @@ mod opml;
 const PUBLIC_TIME_FORMAT: &[time::format_description::FormatItem<'static>] =
     format_description!("[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:6]Z");
 const MAX_FAVICON_BYTES: usize = 512 * 1024;
-const FAVICON_CACHE_CONTROL: &str = "private, no-cache, max-age=0, must-revalidate";
+const FAVICON_CACHE_CONTROL: &str = "private, max-age=86400, stale-while-revalidate=604800";
 
 pub(super) fn router() -> Router<AppState> {
     let subscriptions = Router::new()

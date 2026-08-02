@@ -1,5 +1,6 @@
 import { expect, it } from "vitest"
 
+import type { ReaderCacheSnapshot } from "../cache/readerCache"
 import { initialReaderState, readerReducer } from "./reducer"
 import {
   categoryId,
@@ -11,6 +12,99 @@ import {
 } from "./testFixtures"
 import type { ReaderState } from "./types"
 import { sourceKey, type ReaderSource } from "./types"
+
+it("hydrates a matching cached queue and keeps it visible through revalidation failure", () => {
+  const source: ReaderSource = { kind: "smart", state: "UNREAD" }
+  const cachedEntry = makeEntry({ title: "Cached entry" })
+  const cached = cacheSnapshot({ source, entries: [cachedEntry], snapshotGeneration: 7 })
+
+  let state = readerReducer(initialReaderState, { type: "readerCacheHydrated", cached })
+
+  expect(state.paneStatus).toMatchObject({ subscriptions: "ready", queue: "ready" })
+  expect(state.queueBySourceKey[sourceKey(source)]).toEqual([cachedEntry.entryId])
+  expect(state.entriesById[cachedEntry.entryId]?.title).toBe("Cached entry")
+  expect(state.snapshotGenerationBySource[sourceKey(source)]).toBe(7)
+
+  state = readerReducer(state, { type: "sourceRequested", source, generation: 1 })
+  expect(state.paneStatus.queue).toBe("ready")
+  state = readerReducer(state, {
+    type: "sourceFailed",
+    source,
+    generation: 1,
+    error: "Temporarily offline",
+  })
+  expect(state.paneStatus.queue).toBe("ready")
+  expect(state.queueBySourceKey[sourceKey(source)]).toEqual([cachedEntry.entryId])
+  expect(state.errors.queue).toBe("Temporarily offline")
+
+  const freshEntryId = "00000000-0000-4000-8000-000000000302"
+  state = readerReducer(state, { type: "sourceRequested", source, generation: 2 })
+  state = readerReducer(state, {
+    type: "sourceReceived",
+    source,
+    generation: 2,
+    entries: [makeEntry({ entryId: freshEntryId, title: "Fresh entry", isRead: true })],
+    snapshotGeneration: 8,
+    mode: "replace",
+  })
+  expect(state.queueBySourceKey[sourceKey(source)]).toEqual([freshEntryId])
+  expect(state.entriesById[freshEntryId]).toMatchObject({ title: "Fresh entry", isRead: true })
+  expect(state.snapshotGenerationBySource[sourceKey(source)]).toBe(8)
+  expect(state.errors.queue).toBeNull()
+})
+
+it("hydrates cached organization without installing a queue for another route source", () => {
+  const selectedSource: ReaderSource = { kind: "smart", state: "ALL" }
+  const cachedSource: ReaderSource = { kind: "smart", state: "UNREAD" }
+  const selectedState = { ...initialReaderState, selectedSource }
+
+  const state = readerReducer(selectedState, {
+    type: "readerCacheHydrated",
+    cached: cacheSnapshot({ source: cachedSource }),
+  })
+
+  expect(state.paneStatus.subscriptions).toBe("ready")
+  expect(state.subscriptionOrder).toEqual([makeSubscription().subscriptionId])
+  expect(state.paneStatus.queue).toBe("idle")
+  expect(state.queueBySourceKey[sourceKey(cachedSource)]).toBeUndefined()
+})
+
+it("keeps cached subscriptions ready until an authoritative organization response wins", () => {
+  const cachedSubscription = makeSubscription({ title: "Cached feed", unreadCount: 9 })
+  let state = readerReducer(initialReaderState, {
+    type: "readerCacheHydrated",
+    cached: cacheSnapshot({ subscriptions: [cachedSubscription] }),
+  })
+
+  state = readerReducer(state, { type: "subscriptionsRequested", generation: 1 })
+  expect(state.paneStatus.subscriptions).toBe("ready")
+  state = readerReducer(state, {
+    type: "subscriptionsFailed",
+    generation: 1,
+    error: "Temporarily offline",
+  })
+  expect(state.paneStatus.subscriptions).toBe("ready")
+  expect(state.subscriptionsById[cachedSubscription.subscriptionId]?.unreadCount).toBe(9)
+
+  const freshSubscriptionId = "00000000-0000-4000-8000-000000000202"
+  state = readerReducer(state, { type: "subscriptionsRequested", generation: 2 })
+  state = readerReducer(state, {
+    type: "subscriptionsReceived",
+    generation: 2,
+    subscriptions: [
+      makeSubscription({
+        subscriptionId: freshSubscriptionId,
+        title: "Fresh feed",
+        unreadCount: 1,
+      }),
+    ],
+    categories: [],
+  })
+  expect(state.subscriptionOrder).toEqual([freshSubscriptionId])
+  expect(state.subscriptionsById[cachedSubscription.subscriptionId]).toBeUndefined()
+  expect(state.subscriptionsById[freshSubscriptionId]?.unreadCount).toBe(1)
+  expect(state.errors.subscriptions).toBeNull()
+})
 
 it("rejects late detail responses and updates the shared entity from the winner", () => {
   let state: ReaderState = {
@@ -188,3 +282,19 @@ it("keeps request generations monotonic across session expiry", () => {
   })
   expect(state.entriesById[entryId]?.title).toBe("Post-expiry response")
 })
+
+function cacheSnapshot(
+  overrides: Partial<ReaderCacheSnapshot> = {},
+): ReaderCacheSnapshot {
+  const entries = overrides.entries ?? [makeEntry({ title: "Cached entry" })]
+  return {
+    categories: [makeCategory()],
+    subscriptions: [makeSubscription()],
+    source: { kind: "smart", state: "UNREAD" },
+    entries,
+    queue: entries.map((entry) => entry.entryId),
+    snapshotGeneration: entries.length > 0 ? 7 : null,
+    scrollAnchorByRoute: { "/reader/unread": 128 },
+    ...overrides,
+  }
+}

@@ -70,6 +70,7 @@ export function receiveSource(state: ReaderState, receipt: SourceReceipt): Reade
     },
     pendingSnapshotGenerationBySource,
     paneStatus: { ...state.paneStatus, queue: "ready" },
+    errors: { ...state.errors, queue: null },
   }
 }
 

@@ -1,6 +1,7 @@
 import { act, renderHook } from "@testing-library/react"
-import { expect, it, vi } from "vitest"
+import { afterEach, expect, it, vi } from "vitest"
 
+import type { ReaderCache, ReaderCacheSnapshot } from "../cache/readerCache"
 import type { ListSubscriptionsOptions } from "../api/subscriptions"
 import type { ReaderApi } from "./controllerApi"
 import {
@@ -13,6 +14,134 @@ import {
 } from "./testFixtures"
 import { sourceKey } from "./types"
 import { useReaderController } from "./useReaderController"
+
+const userId = "11111111-1111-4111-8111-111111111111"
+
+afterEach(() => vi.useRealTimers())
+
+it("hydrates cached Reader rows before delayed requests and reconciles to the server result", async () => {
+  const categories = deferred<{ items: ReturnType<typeof makeCategory>[] }>()
+  const subscriptions = deferred<{
+    items: ReturnType<typeof makeSubscription>[]
+    nextCursor: null
+  }>()
+  const entries = deferred<{
+    items: ReturnType<typeof makeEntry>[]
+    nextCursor: null
+    snapshotGeneration: number
+  }>()
+  const cachedSubscription = makeSubscription({ title: "Cached feed", unreadCount: 9 })
+  const cachedEntry = makeEntry({ title: "Cached entry" })
+  const cache: ReaderCache = {
+    load: vi.fn(async () => cacheSnapshot(cachedSubscription, cachedEntry)),
+    save: vi.fn(async () => undefined),
+    clear: vi.fn(async () => undefined),
+  }
+  const api = makeApi({
+    listCategories: vi.fn(() => categories.promise),
+    listSubscriptions: vi.fn(() => subscriptions.promise),
+    listEntries: vi.fn(() => entries.promise),
+  })
+  const { result } = renderHook(() =>
+    useReaderController({
+      csrfToken: "csrf-memory",
+      userId,
+      cache,
+      onUnauthenticated: vi.fn(),
+      api,
+    }),
+  )
+
+  let load!: Promise<void>
+  act(() => { load = result.current.load() })
+  await act(async () => { await Promise.resolve() })
+
+  const unreadKey = sourceKey({ kind: "smart", state: "UNREAD" })
+  expect(result.current.state.paneStatus).toMatchObject({
+    subscriptions: "ready",
+    queue: "ready",
+  })
+  expect(result.current.state.subscriptionOrder).toEqual([
+    cachedSubscription.subscriptionId,
+  ])
+  expect(result.current.state.queueBySourceKey[unreadKey]).toEqual([cachedEntry.entryId])
+
+  const freshSubscriptionId = "00000000-0000-4000-8000-000000000202"
+  const freshEntryId = "00000000-0000-4000-8000-000000000302"
+  categories.resolve({ items: [] })
+  subscriptions.resolve({
+    items: [makeSubscription({
+      subscriptionId: freshSubscriptionId,
+      title: "Fresh feed",
+      unreadCount: 1,
+    })],
+    nextCursor: null,
+  })
+  entries.resolve({
+    items: [makeEntry({ entryId: freshEntryId, title: "Fresh entry", isRead: true })],
+    nextCursor: null,
+    snapshotGeneration: 8,
+  })
+  await act(async () => load)
+
+  expect(result.current.state.subscriptionOrder).toEqual([freshSubscriptionId])
+  expect(result.current.state.subscriptionsById[cachedSubscription.subscriptionId]).toBeUndefined()
+  expect(result.current.state.queueBySourceKey[unreadKey]).toEqual([freshEntryId])
+  expect(result.current.state.entriesById[freshEntryId]).toMatchObject({
+    title: "Fresh entry",
+    isRead: true,
+  })
+})
+
+it("serializes best-effort cache writes so a newer state cannot be overwritten", async () => {
+  vi.useFakeTimers()
+  const firstSave = deferred<void>()
+  const save = vi
+    .fn<(userId: string, snapshot: ReaderCacheSnapshot) => Promise<void>>()
+    .mockImplementationOnce(() => firstSave.promise)
+    .mockResolvedValue(undefined)
+  const cache: ReaderCache = {
+    load: vi.fn(async () => null),
+    save,
+    clear: vi.fn(async () => undefined),
+  }
+  const { result } = renderHook(() =>
+    useReaderController({
+      csrfToken: "csrf-memory",
+      userId,
+      cache,
+      onUnauthenticated: vi.fn(),
+      api: makeApi({
+        listCategories: vi.fn(async () => ({ items: [makeCategory()] })),
+        listSubscriptions: vi.fn(async () => ({
+          items: [makeSubscription()],
+          nextCursor: null,
+        })),
+        listEntries: vi.fn(async () => ({
+          items: [makeEntry()],
+          nextCursor: null,
+          snapshotGeneration: 1,
+        })),
+      }),
+    }),
+  )
+  await act(async () => result.current.load())
+
+  await act(async () => vi.advanceTimersByTimeAsync(100))
+  expect(save).toHaveBeenCalledTimes(1)
+  expect(JSON.stringify(save.mock.calls[0])).not.toContain("csrf-memory")
+
+  act(() => result.current.recordScrollAnchor("/reader/unread", 256))
+  await act(async () => vi.advanceTimersByTimeAsync(100))
+  expect(save).toHaveBeenCalledTimes(1)
+
+  firstSave.resolve()
+  await act(async () => { await Promise.resolve() })
+  expect(save).toHaveBeenCalledTimes(2)
+  expect(save.mock.calls[1]?.[1].scrollAnchorByRoute).toEqual({
+    "/reader/unread": 256,
+  })
+})
 
 it("loads every subscription page and the selected source through injected clients", async () => {
   const subscription = makeSubscription()
@@ -336,4 +465,19 @@ function deferred<T>() {
     reject = rejectPromise
   })
   return { promise, resolve, reject }
+}
+
+function cacheSnapshot(
+  subscription = makeSubscription(),
+  entry = makeEntry(),
+): ReaderCacheSnapshot {
+  return {
+    categories: [makeCategory()],
+    subscriptions: [subscription],
+    source: { kind: "smart", state: "UNREAD" },
+    entries: [entry],
+    queue: [entry.entryId],
+    snapshotGeneration: 7,
+    scrollAnchorByRoute: { "/reader/unread": 128 },
+  }
 }

@@ -23,10 +23,13 @@ import {
   updateSubscriptionRefresh,
   upsertSubscription,
 } from "./reducerSubscriptions"
+import { hydrateReaderCacheState } from "./reducerCache"
 import { sourceKey, type ReaderSource, type ReaderState, type SourceKey } from "./types"
 import type { EntryMutationField } from "./types"
+import type { ReaderCacheSnapshot } from "../cache/readerCache"
 
 export type ReaderAction =
+  | { type: "readerCacheHydrated"; cached: ReaderCacheSnapshot }
   | { type: "subscriptionsRequested"; generation: number }
   | {
       type: "subscriptionsReceived"
@@ -100,8 +103,14 @@ export const initialReaderState: ReaderState = {
   optimisticMutationsById: {},
 }
 
+export function initialReaderStateForSource(source: ReaderSource): ReaderState {
+  return { ...initialReaderState, selectedSource: source }
+}
+
 export function readerReducer(state: ReaderState, action: ReaderAction): ReaderState {
   switch (action.type) {
+    case "readerCacheHydrated":
+      return hydrateReaderCacheState(state, action.cached)
     case "subscriptionsRequested":
       return requestSubscriptions(state, action.generation)
     case "subscriptionsReceived":
@@ -142,16 +151,25 @@ export function readerReducer(state: ReaderState, action: ReaderAction): ReaderS
           [action.route]: action.offset,
         },
       }
-    case "sourceRequested":
+    case "sourceRequested": {
+      const key = sourceKey(action.source)
+      const hasCachedQueue = Object.prototype.hasOwnProperty.call(
+        state.queueBySourceKey,
+        key,
+      )
       return {
         ...state,
         requestGenerationByPane: {
           ...state.requestGenerationByPane,
           queue: action.generation,
         },
-        paneStatus: { ...state.paneStatus, queue: "loading" },
+        paneStatus: {
+          ...state.paneStatus,
+          queue: hasCachedQueue ? "ready" : "loading",
+        },
         errors: { ...state.errors, queue: null },
       }
+    }
     case "sourceReceived": {
       return receiveSource(state, action)
     }
@@ -164,7 +182,15 @@ export function readerReducer(state: ReaderState, action: ReaderAction): ReaderS
       }
       return {
         ...state,
-        paneStatus: { ...state.paneStatus, queue: "error" },
+        paneStatus: {
+          ...state.paneStatus,
+          queue: Object.prototype.hasOwnProperty.call(
+            state.queueBySourceKey,
+            sourceKey(action.source),
+          )
+            ? "ready"
+            : "error",
+        },
         errors: { ...state.errors, queue: action.error },
       }
     case "pendingEntriesMerged": {

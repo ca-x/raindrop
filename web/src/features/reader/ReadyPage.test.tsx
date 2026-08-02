@@ -1,10 +1,13 @@
 import { render, screen, waitFor } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { StrictMode } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { Providers } from "../../app/Providers"
 import { activateLocale } from "../../shared/i18n/i18n"
 import type { SessionResponse } from "../auth/session"
+import type { ReaderCache, ReaderCacheSnapshot } from "./cache/readerCache"
+import { makeCategory, makeEntry, makeSubscription } from "./model/testFixtures"
 import { ReadyPage } from "./ReadyPage"
 
 const session: SessionResponse = {
@@ -28,6 +31,111 @@ describe("ReadyPage lifecycle", () => {
     document.documentElement.style.removeProperty("--raindrop-reading-scale")
   })
   afterEach(() => vi.unstubAllGlobals())
+
+  it("restores a deep-linked source from the session-scoped cache before Reader requests settle", async () => {
+    activateLocale("en")
+    const feedId = makeSubscription().feedId
+    window.history.replaceState(null, "", `/reader/feed/${feedId}`)
+    const cache = makeReaderCache(cachedFeedSnapshot())
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (
+        url === "/api/v1/categories" ||
+        url.startsWith("/api/v1/subscriptions") ||
+        url.startsWith("/api/v1/entries")
+      ) {
+        return pendingResponse(init?.signal)
+      }
+      return Promise.resolve(jsonResponse(responseBody(url)))
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    render(
+      <Providers>
+        <ReadyPage
+          session={session}
+          onLoggedOut={vi.fn()}
+          readerCache={cache}
+        />
+      </Providers>,
+    )
+
+    expect(await screen.findByText("Cached article")).toBeVisible()
+    expect(cache.load).toHaveBeenCalledWith(session.user.id)
+    expect(fetchMock.mock.calls.some(([input]) => {
+      const url = new URL(String(input), "https://raindrop.test")
+      return url.pathname === "/api/v1/entries" && url.searchParams.get("feedId") === feedId
+    })).toBe(true)
+  })
+
+  it("waits for Reader cache removal before completing explicit logout", async () => {
+    activateLocale("en")
+    window.history.replaceState(null, "", "/reader/unread")
+    const cacheClear = deferred<void>()
+    const cache = makeReaderCache(null, () => cacheClear.promise)
+    const onLoggedOut = vi.fn()
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === "/api/v1/auth/logout") {
+        return Promise.resolve(new Response(null, { status: 204 }))
+      }
+      return Promise.resolve(jsonResponse(responseBody(url)))
+    }))
+    const user = userEvent.setup()
+    render(
+      <Providers>
+        <ReadyPage
+          session={session}
+          onLoggedOut={onLoggedOut}
+          readerCache={cache}
+        />
+      </Providers>,
+    )
+    await screen.findByRole("heading", { name: "No entries here" })
+
+    await user.click(screen.getByRole("button", { name: "Open menu" }))
+    await user.click(await screen.findByText("Sign out"))
+    await waitFor(() => expect(cache.clear).toHaveBeenCalledOnce())
+    expect(onLoggedOut).not.toHaveBeenCalled()
+
+    cacheClear.resolve()
+    await waitFor(() => expect(onLoggedOut).toHaveBeenCalledOnce())
+  })
+
+  it("clears Reader cache before another ready-page request reports session expiry", async () => {
+    activateLocale("en")
+    window.history.replaceState(null, "", "/reader/unread")
+    const cacheClear = deferred<void>()
+    const cache = makeReaderCache(null, () => cacheClear.promise)
+    const onLoggedOut = vi.fn()
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === "/api/v2/preferences") {
+        return Promise.resolve(new Response(JSON.stringify({
+          error: { code: "AUTHENTICATION_REQUIRED", message: "Sign in again" },
+        }), {
+          status: 401,
+          headers: { "content-type": "application/json" },
+        }))
+      }
+      return Promise.resolve(jsonResponse(responseBody(url)))
+    }))
+
+    render(
+      <Providers>
+        <ReadyPage
+          session={session}
+          onLoggedOut={onLoggedOut}
+          readerCache={cache}
+        />
+      </Providers>,
+    )
+
+    await waitFor(() => expect(cache.clear).toHaveBeenCalledOnce())
+    expect(onLoggedOut).not.toHaveBeenCalled()
+    cacheClear.resolve()
+    await waitFor(() => expect(onLoggedOut).toHaveBeenCalledOnce())
+  })
 
   it("starts Reader and preference loading together without blocking the workspace", async () => {
     activateLocale("en")
@@ -54,7 +162,9 @@ describe("ReadyPage lifecycle", () => {
       expect(urls.some((url) => url.startsWith("/api/v1/subscriptions"))).toBe(true)
       expect(urls.some((url) => url.startsWith("/api/v1/entries"))).toBe(true)
     })
-    expect(await screen.findByRole("heading", { name: "No entries here" })).toBeVisible()
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "No entries here" })).toBeVisible()
+    })
 
     preferenceResponse.resolve(jsonResponse({
       locale: "en",
@@ -120,7 +230,9 @@ describe("ReadyPage lifecycle", () => {
       </StrictMode>,
     )
 
-    expect(await screen.findByRole("heading", { name: "No entries here" })).toBeVisible()
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "No entries here" })).toBeVisible()
+    })
   })
 
   it("replaces a StrictMode-aborted deep-linked detail request", async () => {
@@ -210,4 +322,38 @@ function deferred<T>() {
     reject = rejectPromise
   })
   return { promise, resolve, reject }
+}
+
+function makeReaderCache(
+  snapshot: ReaderCacheSnapshot | null,
+  clear: () => Promise<void> = async () => undefined,
+): ReaderCache {
+  return {
+    load: vi.fn(async () => snapshot),
+    save: vi.fn(async () => undefined),
+    clear: vi.fn(clear),
+  }
+}
+
+function cachedFeedSnapshot(): ReaderCacheSnapshot {
+  const entry = makeEntry({ title: "Cached article" })
+  return {
+    categories: [makeCategory()],
+    subscriptions: [makeSubscription({ title: "Cached feed" })],
+    source: { kind: "feed", feedId: entry.feedId },
+    entries: [entry],
+    queue: [entry.entryId],
+    snapshotGeneration: 7,
+    scrollAnchorByRoute: {},
+  }
+}
+
+function pendingResponse(signal?: AbortSignal | null): Promise<Response> {
+  return new Promise((_resolve, reject) => {
+    signal?.addEventListener(
+      "abort",
+      () => reject(new DOMException("Aborted", "AbortError")),
+      { once: true },
+    )
+  })
 }

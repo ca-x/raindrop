@@ -86,6 +86,56 @@ test("Reader stable snapshot bulk read", async ({ page }, testInfo) => {
   }
 })
 
+test("Reader reload restores IndexedDB rows before background reconciliation", async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== "reader-1280x800",
+    "The real browser cache lifecycle is exercised once in the wide Reader project.",
+  )
+  const cacheServer = await startProductionServer()
+  let releaseNetwork: () => void = () => undefined
+  try {
+    const fixture = await installReaderApiFixture(page)
+    await completeSetup(page, cacheServer, createCredentials())
+    await expect(readerRow(page, readerIds.firstEntry)).toBeVisible()
+    await expect.poll(async () => Boolean(await activeReaderCacheRecord(page))).toBe(true)
+
+    let release!: () => void
+    const networkGate = new Promise<void>((resolve) => { release = resolve })
+    releaseNetwork = release
+    let delayedRequests = 0
+    await page.route(
+      /\/api\/v1\/(?:categories|subscriptions|entries)(?:[/?]|$)/u,
+      async (route) => {
+        if (route.request().method() !== "GET") return route.fallback()
+        delayedRequests += 1
+        await networkGate
+        await route.fallback()
+      },
+    )
+    const entryListCallsBeforeReload = fixture.entryLists.length
+
+    await page.reload({ waitUntil: "domcontentloaded" })
+
+    await expect.poll(() => delayedRequests).toBeGreaterThan(0)
+    await expect(readerRow(page, readerIds.firstEntry)).toBeVisible()
+    await expect(page.getByRole("region", { name: "Entry queue" })).toHaveAttribute(
+      "aria-busy",
+      "false",
+    )
+    await expect(page.locator(".reader-skeletons")).toHaveCount(0)
+
+    releaseNetwork()
+    await expect.poll(() => fixture.entryLists.length).toBeGreaterThan(
+      entryListCallsBeforeReload,
+    )
+  } finally {
+    releaseNetwork()
+    await cacheServer.stop()
+  }
+})
+
 test("Expanded source tree keeps hover distinct and reaches the final feed", async ({
   page,
 }, testInfo) => {
@@ -180,6 +230,25 @@ test("Expanded source tree keeps hover distinct and reaches the final feed", asy
     await overflowServer.stop()
   }
 })
+
+async function activeReaderCacheRecord(page: Page): Promise<unknown> {
+  return page.evaluate(() => new Promise((resolve, reject) => {
+    const open = indexedDB.open("raindrop-reader-cache", 1)
+    open.onerror = () => reject(open.error)
+    open.onsuccess = () => {
+      const database = open.result
+      const transaction = database.transaction("snapshots", "readonly")
+      const read = transaction.objectStore("snapshots").get("active")
+      read.onsuccess = () => resolve(read.result ?? null)
+      read.onerror = () => reject(read.error)
+      transaction.oncomplete = () => database.close()
+      transaction.onabort = () => {
+        database.close()
+        reject(transaction.error)
+      }
+    }
+  }))
+}
 
 test("Reader lists respect every layout density", async ({ page }, testInfo) => {
   test.skip(

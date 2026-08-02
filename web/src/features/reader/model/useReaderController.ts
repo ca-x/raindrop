@@ -1,7 +1,16 @@
-import { useCallback, useReducer, useRef } from "react"
+import { useCallback, useEffect, useReducer, useRef } from "react"
 
+import {
+  browserReaderCache,
+  readerCacheSnapshot,
+  type ReaderCache,
+} from "../cache/readerCache"
 import { defaultReaderApi, type ReaderApi } from "./controllerApi"
-import { initialReaderState, readerReducer, type ReaderAction } from "./reducer"
+import {
+  initialReaderStateForSource,
+  readerReducer,
+  type ReaderAction,
+} from "./reducer"
 import { useReaderSession } from "./controllerSession"
 import type { ReaderSource, ReaderState } from "./types"
 import { adjacentUnreadSource, type UnreadSourceDirection } from "./unreadSourceNavigation"
@@ -46,33 +55,115 @@ export interface ReaderController {
   ) => Promise<boolean>
   recordScrollAnchor: (route: string, offset: number) => void
   clearMutationError: () => void
+  clearCache: () => Promise<void>
 }
 
 export interface UseReaderControllerOptions {
   csrfToken: string
-  onUnauthenticated: () => void
+  onUnauthenticated: () => void | Promise<void>
+  userId?: string
+  initialSource?: ReaderSource
+  cache?: ReaderCache
   api?: ReaderApi
   createRequestId?: () => string
 }
 
+const cacheSaveDelayMs = 100
+const defaultReaderSource: ReaderSource = { kind: "smart", state: "UNREAD" }
+
 export function useReaderController({
   csrfToken,
   onUnauthenticated,
+  userId,
+  initialSource = defaultReaderSource,
+  cache = browserReaderCache,
   api = defaultReaderApi,
   createRequestId = defaultRequestId,
 }: UseReaderControllerOptions): ReaderController {
-  const [state, reactDispatch] = useReducer(readerReducer, initialReaderState)
+  const [state, reactDispatch] = useReducer(
+    readerReducer,
+    initialReaderStateForSource(initialSource),
+  )
   const stateRef = useRef(state)
   stateRef.current = state
+  const cacheLoadRef = useRef<Promise<void> | null>(null)
+  const loadInvocationRef = useRef(0)
+  const cacheLoadSettledRef = useRef(userId === undefined)
+  const cacheHydratedRef = useRef(false)
+  const cacheDisabledRef = useRef(false)
+  const cacheSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const cacheSaveChainRef = useRef<Promise<void>>(Promise.resolve())
+  const cacheClearPromiseRef = useRef<Promise<void> | null>(null)
 
   const dispatch = useCallback((action: ReaderAction) => {
     stateRef.current = readerReducer(stateRef.current, action)
     reactDispatch(action)
   }, [])
 
-  const session = useReaderSession(dispatch, onUnauthenticated)
+  const clearCache = useCallback((): Promise<void> => {
+    if (cacheClearPromiseRef.current) return cacheClearPromiseRef.current
+    cacheDisabledRef.current = true
+    if (cacheSaveTimerRef.current !== null) {
+      clearTimeout(cacheSaveTimerRef.current)
+      cacheSaveTimerRef.current = null
+    }
+    const pending = (async () => {
+      try {
+        await cacheSaveChainRef.current
+      } catch {
+        // An optional cache write must never block session cleanup.
+      }
+      try {
+        await cache.clear()
+      } catch {
+        // An optional cache delete must never block logout.
+      }
+    })()
+    cacheClearPromiseRef.current = pending
+    return pending
+  }, [cache])
+
+  const handleUnauthenticated = useCallback(async () => {
+    await clearCache()
+    await onUnauthenticated()
+  }, [clearCache, onUnauthenticated])
+
+  const session = useReaderSession(dispatch, handleUnauthenticated)
+
+  const hydrateCache = useCallback(() => {
+    if (!userId || cacheDisabledRef.current) {
+      cacheLoadSettledRef.current = true
+      return Promise.resolve()
+    }
+    if (cacheLoadRef.current) return cacheLoadRef.current
+    cacheLoadRef.current = (async () => {
+      try {
+        const cached = await cache.load(userId)
+        if (
+          cached &&
+          !cacheHydratedRef.current &&
+          !cacheDisabledRef.current &&
+          session.active()
+        ) {
+          cacheHydratedRef.current = true
+          dispatch({ type: "readerCacheHydrated", cached })
+        }
+      } catch {
+        // Injected/custom caches retain the same best-effort boundary.
+      } finally {
+        cacheLoadSettledRef.current = true
+      }
+    })()
+    return cacheLoadRef.current
+  }, [cache, dispatch, session, userId])
 
   const requests = useReaderRequests({ api, dispatch, stateRef, session })
+  const load = useCallback(async () => {
+    const invocation = ++loadInvocationRef.current
+    if (userId) await hydrateCache()
+    if (invocation !== loadInvocationRef.current || !session.active()) return
+    await requests.load()
+  }, [hydrateCache, requests.load, session, userId])
   const { selectSource } = requests
   const entryMutations = useEntryMutations({
     api,
@@ -125,9 +216,43 @@ export function useReaderController({
     dispatch({ type: "mutationErrorCleared" })
   }, [dispatch, session])
 
+  useEffect(() => {
+    if (
+      !userId ||
+      !cacheLoadSettledRef.current ||
+      cacheDisabledRef.current ||
+      !session.active()
+    ) {
+      return
+    }
+    if (cacheSaveTimerRef.current !== null) clearTimeout(cacheSaveTimerRef.current)
+    cacheSaveTimerRef.current = setTimeout(() => {
+      cacheSaveTimerRef.current = null
+      if (cacheDisabledRef.current || !session.active()) return
+      const snapshot = readerCacheSnapshot(stateRef.current)
+      if (!snapshot) return
+      cacheSaveChainRef.current = cacheSaveChainRef.current
+        .catch(() => undefined)
+        .then(async () => {
+          try {
+            await cache.save(userId, snapshot)
+          } catch {
+            // Injected/custom caches retain the same best-effort boundary.
+          }
+        })
+    }, cacheSaveDelayMs)
+    return () => {
+      if (cacheSaveTimerRef.current !== null) {
+        clearTimeout(cacheSaveTimerRef.current)
+        cacheSaveTimerRef.current = null
+      }
+    }
+  }, [cache, session, state, userId])
+
   return {
     state,
     ...requests,
+    load,
     ...entryMutations,
     ...bulkRead,
     ...subscriptionActions,
@@ -136,6 +261,7 @@ export function useReaderController({
     previousUnreadSource: () => selectUnreadSource(-1),
     recordScrollAnchor,
     clearMutationError,
+    clearCache,
   }
 }
 
