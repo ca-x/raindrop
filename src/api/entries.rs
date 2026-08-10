@@ -16,6 +16,7 @@ use crate::{
         FeedRepository, InertImageDto, ListEntriesQuery, MarkReadScope, RepositoryError,
         UpdateEntryState,
     },
+    realtime::ReaderEvent,
 };
 
 use super::{
@@ -426,7 +427,7 @@ async fn patch_entry_state(
     if request.is_read.is_none() && request.is_starred.is_none() {
         return Err(ApiError::validation());
     }
-    let state = writer_repository(&state)?
+    let entry_state = writer_repository(&state)?
         .update_state_for_user(
             &user.id,
             &entry_id,
@@ -438,7 +439,10 @@ async fn patch_entry_state(
         .await
         .map_err(map_repository_error)?
         .ok_or_else(ApiError::not_found)?;
-    Ok(Json(state.into()))
+    state
+        .reader_events
+        .publish(&user.id, ReaderEvent::entries_changed());
+    Ok(Json(entry_state.into()))
 }
 
 async fn mark_entries_read(
@@ -452,6 +456,9 @@ async fn mark_entries_read(
         .mark_read_for_user(&user.id, scope, snapshot_generation)
         .await
         .map_err(map_repository_error)?;
+    state
+        .reader_events
+        .publish(&user.id, ReaderEvent::entries_changed());
     Ok(StatusCode::NO_CONTENT)
 }
 

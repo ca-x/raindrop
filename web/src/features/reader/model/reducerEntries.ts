@@ -11,7 +11,16 @@ interface SourceReceipt {
   generation: number
   entries: EntryListItemResponse[]
   snapshotGeneration: number
+  nextCursor?: string | null
   mode: "replace" | "discover"
+}
+
+interface SourcePageReceipt {
+  source: ReaderSource
+  generation: number
+  entries: EntryListItemResponse[]
+  snapshotGeneration: number
+  nextCursor: string | null
 }
 
 interface DetailReceipt {
@@ -53,6 +62,9 @@ export function receiveSource(state: ReaderState, receipt: SourceReceipt): Reade
       ...state.queueBySourceKey,
       [key]: receipt.mode === "replace" ? receivedIds : currentQueue,
     },
+    nextCursorBySourceKey: receipt.mode === "replace"
+      ? { ...state.nextCursorBySourceKey, [key]: receipt.nextCursor ?? null }
+      : state.nextCursorBySourceKey,
     pendingNewEntriesBySource: {
       ...state.pendingNewEntriesBySource,
       [key]: receipt.mode === "replace" ? [] : [...pendingIds, ...discoveredIds],
@@ -70,7 +82,40 @@ export function receiveSource(state: ReaderState, receipt: SourceReceipt): Reade
     },
     pendingSnapshotGenerationBySource,
     paneStatus: { ...state.paneStatus, queue: "ready" },
-    errors: { ...state.errors, queue: null },
+    requestActivity: { ...state.requestActivity, queue: false, page: false },
+    errors: { ...state.errors, queue: null, page: null },
+  }
+}
+
+export function receiveSourcePage(
+  state: ReaderState,
+  receipt: SourcePageReceipt,
+): ReaderState {
+  if (receipt.generation !== state.requestGenerationByPane.queue) return state
+  if (sourceKey(receipt.source) !== sourceKey(state.selectedSource)) return state
+  const key = sourceKey(receipt.source)
+  const entries = receipt.entries.map((entry) => reconcileListEntry(state, entry))
+  const entriesById = { ...state.entriesById }
+  for (const entry of entries) entriesById[entry.entryId] = entry
+  const currentQueue = state.queueBySourceKey[key] ?? []
+  const currentIds = new Set(currentQueue)
+  const appendedIds = entries
+    .map((entry) => entry.entryId)
+    .filter((entryId) => !currentIds.has(entryId))
+  return {
+    ...state,
+    entriesById,
+    detailsById: updateDetailsFromEntries(state.detailsById, entries),
+    queueBySourceKey: {
+      ...state.queueBySourceKey,
+      [key]: [...currentQueue, ...appendedIds],
+    },
+    nextCursorBySourceKey: {
+      ...state.nextCursorBySourceKey,
+      [key]: receipt.nextCursor,
+    },
+    requestActivity: { ...state.requestActivity, page: false },
+    errors: { ...state.errors, page: null },
   }
 }
 

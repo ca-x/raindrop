@@ -16,6 +16,7 @@ use crate::{
     organization::{
         CategoryDto, CategoryError, CategoryRepository, CreateCategory, UpdateCategory,
     },
+    realtime::ReaderEvent,
 };
 
 use super::{ApiError, ApiJson, RateLimitRejection, routes::sensitive_cache_headers};
@@ -150,6 +151,9 @@ async fn create_category(
         )
         .await
         .map_err(map_category_error)?;
+    state
+        .reader_events
+        .publish(&user.id, ReaderEvent::subscriptions_changed());
     let location = HeaderValue::from_str(&format!("/api/v1/categories/{}", category.category_id))
         .map_err(|_| ApiError::internal())?;
     Ok((
@@ -183,6 +187,9 @@ async fn update_category(
         )
         .await
         .map_err(map_category_error)?;
+    state
+        .reader_events
+        .publish(&user.id, ReaderEvent::subscriptions_changed());
     Ok(Json(category.into()))
 }
 
@@ -201,6 +208,9 @@ async fn delete_category(
         .delete(&user.id, &category_id)
         .await
         .map_err(map_category_error)?;
+    state
+        .reader_events
+        .publish(&user.id, ReaderEvent::subscriptions_changed());
     Ok(StatusCode::NO_CONTENT)
 }
 

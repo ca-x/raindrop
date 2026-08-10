@@ -18,6 +18,10 @@ import { useBulkReadActions } from "./useBulkReadActions"
 import { useEntryMutations } from "./useEntryMutations"
 import { useOrganizationActions } from "./useOrganizationActions"
 import { useReaderRequests } from "./useReaderRequests"
+import {
+  type ReaderEventSourceFactory,
+  useReaderRealtimeSync,
+} from "./useReaderRealtimeSync"
 import { useSubscriptionActions } from "./useSubscriptionActions"
 import type { UpdateCategoryRequest } from "../api/organization.generated"
 import type {
@@ -31,6 +35,9 @@ export interface ReaderController {
   selectSource: (source: ReaderSource) => Promise<void>
   selectEntry: (entryId: string | null) => Promise<void>
   reloadEntries: () => Promise<void>
+  retryEntries: () => Promise<boolean>
+  reloadSubscriptions: () => Promise<boolean>
+  loadMoreEntries: () => Promise<boolean>
   searchFeed: (query: string) => Promise<void>
   mergePendingEntries: () => void
   isMarkingRead: boolean
@@ -66,6 +73,7 @@ export interface UseReaderControllerOptions {
   cache?: ReaderCache
   api?: ReaderApi
   createRequestId?: () => string
+  eventSourceFactory?: ReaderEventSourceFactory
 }
 
 const cacheSaveDelayMs = 100
@@ -84,6 +92,7 @@ export function useReaderController({
   cache = browserReaderCache,
   api = defaultReaderApi,
   createRequestId = defaultRequestId,
+  eventSourceFactory,
 }: UseReaderControllerOptions): ReaderController {
   const [state, reactDispatch] = useReducer(
     readerReducer,
@@ -331,9 +340,20 @@ export function useReaderController({
     onSubscriptionsValidated,
     onSourceValidated,
   })
+  useReaderRealtimeSync({
+    session,
+    stateRef,
+    reloadSubscriptions: requests.reloadSubscriptions,
+    reloadEntries: requests.reloadEntries,
+    eventSourceFactory,
+  })
   const reloadEntries = useCallback(async () => {
     await requests.reloadEntries()
   }, [requests.reloadEntries])
+  const retryEntries = useCallback(
+    async () => requests.replaceEntries(),
+    [requests.replaceEntries],
+  )
   const scheduleCacheSave = useCallback(() => {
     if (
       !userId ||
@@ -468,6 +488,7 @@ export function useReaderController({
     state,
     ...requests,
     reloadEntries,
+    retryEntries,
     load,
     ...entryMutations,
     ...bulkRead,

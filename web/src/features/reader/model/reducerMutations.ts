@@ -121,6 +121,10 @@ export function commitBulkRead(
     entriesById,
     detailsById,
     queueBySourceKey,
+    nextCursorBySourceKey: withoutSourceKeys(
+      state.nextCursorBySourceKey,
+      invalidatedSourceKeys,
+    ),
     pendingNewEntriesBySource,
     pendingNewEntryCountBySource,
     snapshotGenerationBySource: withoutSourceKeys(
@@ -198,6 +202,7 @@ function sourceKeysToInvalidate(
   const knownKeys = new Set<SourceKey>()
   for (const record of [
     state.queueBySourceKey,
+    state.nextCursorBySourceKey,
     state.pendingNewEntriesBySource,
     state.pendingNewEntryCountBySource,
     state.snapshotGenerationBySource,

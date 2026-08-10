@@ -15,7 +15,7 @@ import {
   succeedEntryMutation,
 } from "./reducerMutations"
 import { deleteCategoryState, upsertCategory } from "./reducerCategories"
-import { receiveDetail, receiveSource } from "./reducerEntries"
+import { receiveDetail, receiveSource, receiveSourcePage } from "./reducerEntries"
 import {
   deleteSubscriptionState,
   failSubscriptions,
@@ -37,6 +37,7 @@ export type ReaderAction =
       generation: number
       subscriptions: Subscription[]
       categories: Category[]
+      isFinal?: boolean
     }
   | { type: "subscriptionsFailed"; generation: number; error: string }
   | {
@@ -59,9 +60,20 @@ export type ReaderAction =
       generation: number
       entries: EntryListItemResponse[]
       snapshotGeneration: number
+      nextCursor?: string | null
       mode: "replace" | "discover"
     }
   | { type: "sourceFailed"; source: ReaderSource; generation: number; error: string }
+  | { type: "sourcePageRequested"; source: ReaderSource; generation: number }
+  | {
+      type: "sourcePageReceived"
+      source: ReaderSource
+      generation: number
+      entries: EntryListItemResponse[]
+      snapshotGeneration: number
+      nextCursor: string | null
+    }
+  | { type: "sourcePageFailed"; source: ReaderSource; generation: number; error: string }
   | { type: "pendingEntriesMerged"; source: ReaderSource }
   | { type: "detailRequested"; entryId: string; generation: number }
   | {
@@ -105,6 +117,7 @@ export const initialReaderState: ReaderState = {
   retiredFeedIds: {},
   entriesById: {},
   queueBySourceKey: {},
+  nextCursorBySourceKey: {},
   detailsById: {},
   selectedSource: { kind: "smart", state: "UNREAD" },
   selectedEntryId: null,
@@ -116,7 +129,8 @@ export const initialReaderState: ReaderState = {
   feedSearchQuery: "",
   scrollAnchorByRoute: {},
   paneStatus: { subscriptions: "idle", queue: "idle", detail: "idle" },
-  errors: { subscriptions: null, queue: null, detail: null, mutation: null },
+  requestActivity: { subscriptions: false, queue: false, page: false },
+  errors: { subscriptions: null, queue: null, page: null, detail: null, mutation: null },
   pendingMutationByEntryId: {},
   optimisticMutationsById: {},
 }
@@ -137,6 +151,7 @@ export function readerReducer(state: ReaderState, action: ReaderAction): ReaderS
         action.generation,
         action.subscriptions,
         action.categories,
+        action.isFinal ?? true,
       )
     case "subscriptionsFailed":
       return failSubscriptions(state, action.generation, action.error)
@@ -203,7 +218,8 @@ export function readerReducer(state: ReaderState, action: ReaderAction): ReaderS
           ...state.paneStatus,
           queue: hasCachedQueue ? "ready" : "loading",
         },
-        errors: { ...state.errors, queue: null },
+        requestActivity: { ...state.requestActivity, queue: true, page: false },
+        errors: { ...state.errors, queue: null, page: null },
       }
     }
     case "sourceReceived": {
@@ -218,6 +234,7 @@ export function readerReducer(state: ReaderState, action: ReaderAction): ReaderS
       }
       return {
         ...state,
+        requestActivity: { ...state.requestActivity, queue: false },
         paneStatus: {
           ...state.paneStatus,
           queue: Object.prototype.hasOwnProperty.call(
@@ -228,6 +245,30 @@ export function readerReducer(state: ReaderState, action: ReaderAction): ReaderS
             : "error",
         },
         errors: { ...state.errors, queue: action.error },
+      }
+    case "sourcePageRequested":
+      return {
+        ...state,
+        requestGenerationByPane: {
+          ...state.requestGenerationByPane,
+          queue: action.generation,
+        },
+        requestActivity: { ...state.requestActivity, page: true },
+        errors: { ...state.errors, page: null },
+      }
+    case "sourcePageReceived":
+      return receiveSourcePage(state, action)
+    case "sourcePageFailed":
+      if (
+        action.generation !== state.requestGenerationByPane.queue ||
+        sourceKey(action.source) !== sourceKey(state.selectedSource)
+      ) {
+        return state
+      }
+      return {
+        ...state,
+        requestActivity: { ...state.requestActivity, page: false },
+        errors: { ...state.errors, page: action.error },
       }
     case "pendingEntriesMerged": {
       const key = sourceKey(action.source)
@@ -301,7 +342,8 @@ export function readerReducer(state: ReaderState, action: ReaderAction): ReaderS
         ...initialReaderState,
         requestGenerationByPane: state.requestGenerationByPane,
         paneStatus: { subscriptions: "idle", queue: "idle", detail: "idle" },
-        errors: { subscriptions: null, queue: null, detail: null, mutation: null },
+        requestActivity: { subscriptions: false, queue: false, page: false },
+        errors: { subscriptions: null, queue: null, page: null, detail: null, mutation: null },
       }
   }
 }
@@ -344,6 +386,7 @@ function discardSelectedFeedQueue(state: ReaderState): ReaderState {
   return {
     ...state,
     queueBySourceKey: withoutKey(state.queueBySourceKey, key),
+    nextCursorBySourceKey: withoutKey(state.nextCursorBySourceKey, key),
     pendingNewEntriesBySource: withoutKey(state.pendingNewEntriesBySource, key),
     pendingNewEntryCountBySource: withoutKey(state.pendingNewEntryCountBySource, key),
     snapshotGenerationBySource: withoutKey(state.snapshotGenerationBySource, key),

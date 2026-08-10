@@ -66,6 +66,64 @@ it("renders empty categories, categorized feeds, and Uncategorized in one TreeLi
   expect(onSelect).toHaveBeenCalledWith({ kind: "feed", feedId: makeSubscription().feedId })
 })
 
+it("keeps the unread-first tree concise without hiding the selected read feed", () => {
+  activateLocale("en")
+  const readSubscription = makeSubscription({
+    subscriptionId: "00000000-0000-4000-8000-000000000202",
+    feedId: "00000000-0000-4000-8000-000000000102",
+    title: "Already read feed",
+    unreadCount: 0,
+  })
+  const unreadSubscription = makeSubscription({ title: "Unread feed", unreadCount: 3 })
+  const { rerender } = render(
+    <Providers>
+      <CategoryList
+        state={{
+          ...initialReaderState,
+          subscriptionsById: {
+            [readSubscription.subscriptionId]: readSubscription,
+            [unreadSubscription.subscriptionId]: unreadSubscription,
+          },
+          subscriptionOrder: [
+            readSubscription.subscriptionId,
+            unreadSubscription.subscriptionId,
+          ],
+        }}
+        onSelect={vi.fn()}
+        density="balanced"
+        showAllSources={false}
+      />
+    </Providers>,
+  )
+
+  expect(screen.getByText("Unread feed")).toBeVisible()
+  expect(screen.queryByText("Already read feed")).not.toBeInTheDocument()
+
+  rerender(
+    <Providers>
+      <CategoryList
+        state={{
+          ...initialReaderState,
+          selectedSource: { kind: "feed", feedId: readSubscription.feedId },
+          subscriptionsById: {
+            [readSubscription.subscriptionId]: readSubscription,
+            [unreadSubscription.subscriptionId]: unreadSubscription,
+          },
+          subscriptionOrder: [
+            readSubscription.subscriptionId,
+            unreadSubscription.subscriptionId,
+          ],
+        }}
+        onSelect={vi.fn()}
+        density="balanced"
+        showAllSources={false}
+      />
+    </Providers>,
+  )
+
+  expect(screen.getByText("Already read feed")).toBeVisible()
+})
+
 it.each([
   ["QUEUED", "Queued for refresh"],
   ["RUNNING", "Refreshing"],

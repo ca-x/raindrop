@@ -3,7 +3,7 @@ import { Banner } from "@astryxdesign/core/Banner"
 import { MobileNav } from "@astryxdesign/core/MobileNav"
 import { useResizable } from "@astryxdesign/core/Resizable"
 import { useLingui } from "@lingui/react"
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import type { ViewportMode } from "../../../shared/responsive/useViewportMode"
 import type { AiSettingsController } from "../../ai/model/useAiSettingsController"
@@ -82,6 +82,15 @@ export function ReaderShell(props: ReaderShellProps) {
   const sources = useResizable({ defaultSize: 240, minSizePx: 200, maxSizePx: 340, autoSaveId: "reader-sources" })
   const queue = useResizable({ defaultSize: 380, minSizePx: 300, maxSizePx: 560, autoSaveId: "reader-queue" })
   const accountLabel = props.profileController?.profile.displayName || props.username
+  const unreadCount = props.controller.state.subscriptionOrder.reduce(
+    (total, subscriptionId) =>
+      total + (props.controller.state.subscriptionsById[subscriptionId]?.unreadCount ?? 0),
+    0,
+  )
+  useEffect(() => {
+    document.title = unreadCount > 0 ? `(${unreadCount}) Raindrop` : "Raindrop"
+    return () => { document.title = "Raindrop" }
+  }, [unreadCount])
   const queueEntryIds = props.isSourceReady
     ? props.controller.state.queueBySourceKey[sourceKey(props.controller.state.selectedSource)] ?? []
     : []
@@ -176,6 +185,7 @@ export function ReaderShell(props: ReaderShellProps) {
         setIsPreferencesOpen(true)
       }}
       onRefresh={props.controller.refreshSubscription}
+      onRetrySubscriptions={props.controller.reloadSubscriptions}
       onLogout={async () => {
         mobileNavRef.current?.close()
         setIsNavOpen(false)
@@ -204,6 +214,8 @@ export function ReaderShell(props: ReaderShellProps) {
       savedScrollOffset={props.controller.state.scrollAnchorByRoute[props.route.sourcePath] ?? 0}
       onRecordScroll={props.controller.recordScrollAnchor}
       onReload={props.controller.reloadEntries}
+      onRetry={props.controller.retryEntries}
+      onLoadMore={props.controller.loadMoreEntries}
       onSearchFeed={props.controller.searchFeed}
       onNextUnreadSource={props.onNextUnreadSource}
       onPreviousUnreadSource={props.onPreviousUnreadSource}

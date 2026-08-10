@@ -10,12 +10,11 @@ import {
 import type { ReaderAction } from "./reducer"
 import {
   entryListOptions,
-  loadAllSubscriptions,
   loadCategories,
   ReaderResponseOwnerMismatchError,
   sameSource,
 } from "./readerRequestData"
-import type { ReaderSource, ReaderState } from "./types"
+import { sourceKey, type ReaderSource, type ReaderState } from "./types"
 
 interface ReaderRequestOptions {
   api: ReaderApi
@@ -61,24 +60,39 @@ export function useReaderRequests({
       stateRef.current.requestGenerationByPane.subscriptions === generation
     dispatch({ type: "subscriptionsRequested", generation })
     try {
-      const [categories, subscriptions] = await Promise.all([
+      const subscriptions = []
+      let ownerUserId: string | null = null
+      const [categories, firstPage] = await Promise.all([
         loadCategories(api, controller.signal, userId),
-        loadAllSubscriptions(api, controller.signal, current, userId),
+        api.listSubscriptions({ signal: controller.signal }),
       ])
-      if (!current()) return false
-      if (
-        categories.ownerUserId !== subscriptions.ownerUserId ||
-        (userId !== undefined && categories.ownerUserId !== userId)
-      ) {
-        await session.expire(request)
-        return false
+      let page = firstPage
+      while (true) {
+        if (!current()) return false
+        if (
+          categories.ownerUserId !== page.ownerUserId ||
+          (userId !== undefined && page.ownerUserId !== userId) ||
+          (ownerUserId !== null && ownerUserId !== page.ownerUserId)
+        ) {
+          await session.expire(request)
+          return false
+        }
+        ownerUserId = page.ownerUserId
+        subscriptions.push(...page.items)
+        const isFinal = page.nextCursor === null
+        dispatch({
+          type: "subscriptionsReceived",
+          generation,
+          subscriptions: [...subscriptions],
+          categories: categories.items,
+          isFinal,
+        })
+        if (page.nextCursor === null) break
+        page = await api.listSubscriptions({
+          cursor: page.nextCursor,
+          signal: controller.signal,
+        })
       }
-      dispatch({
-        type: "subscriptionsReceived",
-        generation,
-        subscriptions: subscriptions.items,
-        categories: categories.items,
-      })
       onSubscriptionsValidated?.()
       return true
     } catch (error) {
@@ -140,6 +154,7 @@ export function useReaderRequests({
           generation,
           entries: page.items,
           snapshotGeneration: page.snapshotGeneration,
+          nextCursor: page.nextCursor,
           mode,
         })
         if (searchQuery === "") onSourceValidated?.(source)
@@ -167,11 +182,13 @@ export function useReaderRequests({
 
   const load = useCallback(
     async () => {
-      if (!await loadSubscriptions()) return false
       const source = stateRef.current.selectedSource
       const searchQuery = stateRef.current.feedSearchQuery
-      const sourceLoaded = await loadSource(source, "replace", searchQuery)
-      return sourceLoaded && searchQuery === ""
+      const [subscriptionsLoaded, sourceLoaded] = await Promise.all([
+        loadSubscriptions(),
+        loadSource(source, "replace", searchQuery),
+      ])
+      return subscriptionsLoaded && sourceLoaded && searchQuery === ""
     },
     [loadSource, loadSubscriptions, stateRef],
   )
@@ -237,6 +254,65 @@ export function useReaderRequests({
     [loadSubscriptions],
   )
 
+  const loadMoreEntries = useCallback(async () => {
+    const source = stateRef.current.selectedSource
+    const key = sourceKey(source)
+    const cursor = stateRef.current.nextCursorBySourceKey[key]
+    if (
+      !session.active() ||
+      !cursor ||
+      stateRef.current.requestActivity.queue ||
+      stateRef.current.requestActivity.page ||
+      stateRef.current.paneStatus.queue !== "ready"
+    ) {
+      return false
+    }
+    const request = beginRequest("queue")
+    if (!request) return false
+    const { controller, generation } = request
+    const current = () =>
+      session.isCurrent(request) &&
+      stateRef.current.requestGenerationByPane.queue === generation &&
+      sameSource(stateRef.current.selectedSource, source)
+    dispatch({ type: "sourcePageRequested", source, generation })
+    try {
+      const page = await api.listEntries({
+        ...entryListOptions(source, stateRef.current.feedSearchQuery),
+        cursor,
+        signal: controller.signal,
+      })
+      if (!current()) return false
+      if (userId !== undefined && page.ownerUserId !== userId) {
+        await session.expire(request)
+        return false
+      }
+      dispatch({
+        type: "sourcePageReceived",
+        source,
+        generation,
+        entries: page.items,
+        snapshotGeneration: page.snapshotGeneration,
+        nextCursor: page.nextCursor,
+      })
+      return true
+    } catch (error) {
+      if (isAbortError(error) || !current()) return false
+      if (isUnauthenticatedError(error)) {
+        await session.expire(request)
+        return false
+      }
+      dispatch({
+        type: "sourcePageFailed",
+        source,
+        generation,
+        error: readerErrorMessage(error),
+      })
+      return false
+    } finally {
+      session.finish(request)
+    }
+  }, [api, beginRequest, dispatch, session, stateRef, userId])
+
   const reloadSelectedEntry = useCallback(
     async () => {
       const entryId = stateRef.current.selectedEntryId
@@ -277,6 +353,7 @@ export function useReaderRequests({
     reloadEntries,
     replaceEntries,
     reloadSubscriptions,
+    loadMoreEntries,
     reloadSelectedEntry,
     searchFeed,
     mergePendingEntries,

@@ -19,6 +19,7 @@ export function requestSubscriptions(
       subscriptions:
         state.paneStatus.subscriptions === "ready" ? "ready" : "loading",
     },
+    requestActivity: { ...state.requestActivity, subscriptions: true },
     errors: { ...state.errors, subscriptions: null },
   }
 }
@@ -28,6 +29,7 @@ export function receiveSubscriptions(
   generation: number,
   subscriptions: Subscription[],
   categories: Category[],
+  isFinal = true,
 ): ReaderState {
   if (generation !== state.requestGenerationByPane.subscriptions) return state
   const reconciled = subscriptions.map((subscription) =>
@@ -39,6 +41,32 @@ export function receiveSubscriptions(
   const subscriptionsById = Object.fromEntries(
     reconciled.map((subscription) => [subscription.subscriptionId, subscription]),
   )
+  if (!isFinal) {
+    const progressiveCategoriesById = {
+      ...state.categoriesById,
+      ...categoriesById,
+    }
+    const progressiveSubscriptionsById = {
+      ...state.subscriptionsById,
+      ...subscriptionsById,
+    }
+    const receivedIds = reconciled.map((subscription) => subscription.subscriptionId)
+    const receivedIdSet = new Set(receivedIds)
+    return {
+      ...state,
+      categoriesById: progressiveCategoriesById,
+      categoryOrder: sortedCategoryIds(progressiveCategoriesById),
+      subscriptionsById: progressiveSubscriptionsById,
+      subscriptionOrder: [
+        ...receivedIds,
+        ...state.subscriptionOrder.filter((id) => !receivedIdSet.has(id)),
+      ],
+      subscriptionsAuthoritative: false,
+      paneStatus: { ...state.paneStatus, subscriptions: "ready" },
+      requestActivity: { ...state.requestActivity, subscriptions: true },
+      errors: { ...state.errors, subscriptions: null },
+    }
+  }
   const validFeedIds = new Set(reconciled.map((subscription) => subscription.feedId))
   const validCategoryIds = new Set(categories.map((category) => category.categoryId))
   const feedIdsByCategory = new Map<string, Set<string>>()
@@ -48,10 +76,12 @@ export function receiveSubscriptions(
     feedIds.add(subscription.feedId)
     feedIdsByCategory.set(subscription.categoryId, feedIds)
   }
-  const changedMembershipKeys = membershipChangedSourceKeys(
-    Object.values(state.subscriptionsById),
-    reconciled,
-  )
+  const changedMembershipKeys = state.subscriptionOrder.length === 0
+    ? new Set<SourceKey>()
+    : membershipChangedSourceKeys(
+        Object.values(state.subscriptionsById),
+        reconciled,
+      )
   const selectedMembershipChanged = changedMembershipKeys.has(
     sourceKey(state.selectedSource),
   )
@@ -94,6 +124,14 @@ export function receiveSubscriptions(
     subscriptionsAuthoritative: true,
     retiredFeedIds,
     queueBySourceKey,
+    nextCursorBySourceKey: withoutSourceKeys(
+      pruneSourceRecord(
+        state.nextCursorBySourceKey,
+        validFeedIds,
+        validCategoryIds,
+      ),
+      changedMembershipKeys,
+    ),
     pendingNewEntriesBySource,
     pendingNewEntryCountBySource: Object.fromEntries(
       Object.entries(pendingNewEntriesBySource).map(([key, entryIds]) => [
@@ -130,6 +168,7 @@ export function receiveSubscriptions(
           ? "idle"
           : state.paneStatus.queue,
     },
+    requestActivity: { ...state.requestActivity, subscriptions: false },
     errors: { ...state.errors, subscriptions: null },
   }
 }
@@ -147,6 +186,7 @@ export function failSubscriptions(
       subscriptions:
         state.paneStatus.subscriptions === "ready" ? "ready" : "error",
     },
+    requestActivity: { ...state.requestActivity, subscriptions: false },
     errors: { ...state.errors, subscriptions: error },
   }
 }
@@ -207,6 +247,13 @@ export function upsertSubscription(
       : [...state.subscriptionOrder, subscription.subscriptionId],
     retiredFeedIds,
     queueBySourceKey: nextQueueBySourceKey,
+    nextCursorBySourceKey: withoutSourceKeys(
+      withoutSourceKey(
+        state.nextCursorBySourceKey,
+        feedChanged ? previousFeedKey : null,
+      ),
+      changedMembershipKeys,
+    ),
     pendingNewEntriesBySource: nextPendingNewEntriesBySource,
     pendingNewEntryCountBySource: countsForQueues(nextPendingNewEntriesBySource),
     snapshotGenerationBySource: withoutSourceKeys(
@@ -259,12 +306,14 @@ export function deleteSubscriptionState(
     subscription.feedId,
   )
   const snapshotGenerationBySource = { ...state.snapshotGenerationBySource }
+  const nextCursorBySourceKey = { ...state.nextCursorBySourceKey }
   const pendingSnapshotGenerationBySource = {
     ...state.pendingSnapshotGenerationBySource,
   }
   delete queueBySourceKey[feedKey]
   delete pendingNewEntriesBySource[feedKey]
   delete snapshotGenerationBySource[feedKey]
+  delete nextCursorBySourceKey[feedKey]
   delete pendingSnapshotGenerationBySource[feedKey]
   const changedMembershipKeys = membershipChangedSourceKeys(
     Object.values(state.subscriptionsById),
@@ -290,6 +339,10 @@ export function deleteSubscriptionState(
     subscriptionOrder: state.subscriptionOrder.filter((id) => id !== subscriptionId),
     retiredFeedIds: { ...state.retiredFeedIds, [subscription.feedId]: true },
     queueBySourceKey: nextQueueBySourceKey,
+    nextCursorBySourceKey: withoutSourceKeys(
+      nextCursorBySourceKey,
+      changedMembershipKeys,
+    ),
     pendingNewEntriesBySource: nextPendingNewEntriesBySource,
     pendingNewEntryCountBySource: countsForQueues(nextPendingNewEntriesBySource),
     snapshotGenerationBySource: withoutSourceKeys(

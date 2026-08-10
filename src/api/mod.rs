@@ -3,6 +3,7 @@ mod backups;
 mod categories;
 mod entries;
 mod error;
+mod events;
 mod json;
 mod media;
 mod preferences;

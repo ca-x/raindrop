@@ -33,6 +33,8 @@ interface EntryQueueProps {
   savedScrollOffset: number
   onRecordScroll: (route: string, offset: number) => void
   onReload: () => Promise<void>
+  onRetry?: () => Promise<boolean>
+  onLoadMore?: () => Promise<boolean>
   onSearchFeed: (query: string) => Promise<void>
   onNextUnreadSource: () => Promise<void>
   onPreviousUnreadSource: () => Promise<void>
@@ -57,6 +59,8 @@ export function EntryQueue({
   savedScrollOffset,
   onRecordScroll,
   onReload,
+  onRetry = async () => false,
+  onLoadMore = async () => false,
   onSearchFeed,
   onNextUnreadSource,
   onPreviousUnreadSource,
@@ -71,6 +75,11 @@ export function EntryQueue({
   const scrollRef = useRef<HTMLDivElement>(null)
   const key = sourceKey(state.selectedSource)
   const queue = state.queueBySourceKey[key] ?? []
+  const hasQueueSnapshot = Object.prototype.hasOwnProperty.call(
+    state.queueBySourceKey,
+    key,
+  )
+  const nextCursor = state.nextCursorBySourceKey[key]
   const pendingCount = state.pendingNewEntryCountBySource[key] ?? 0
   const markReadAvailability: MarkReadAvailability =
     state.selectedSource.kind === "smart" && state.selectedSource.state === "STARRED"
@@ -98,9 +107,11 @@ export function EntryQueue({
     <div
       ref={rootRef}
       className="reader-queue"
-      aria-busy={state.paneStatus.queue === "loading"}
+      aria-busy={state.requestActivity.queue || state.requestActivity.page}
+      data-request-active={state.requestActivity.queue ? "true" : undefined}
       style={entryQueueDensityStyle(density)}
     >
+      <div className="reader-pane-progress" aria-hidden="true" />
       <QueueToolbar
         sourceLabel={sourceLabel}
         entryCount={queue.length}
@@ -144,14 +155,23 @@ export function EntryQueue({
           />
         </MountTransition>
       ) : null}
-      {state.paneStatus.queue === "error" ? (
+      {state.errors.queue ? (
         <Banner
           container="section"
           status="error"
           title={i18n._("reader.queueError")}
           description={state.errors.queue ?? i18n._("reader.genericError")}
+          endContent={(
+            <Button
+              label={i18n._("common.retry")}
+              variant="ghost"
+              size="sm"
+              clickAction={async () => { await onRetry() }}
+            />
+          )}
         />
-      ) : state.paneStatus.queue === "loading" ? (
+      ) : null}
+      {state.paneStatus.queue === "loading" && !hasQueueSnapshot ? (
         <div className="reader-skeletons" role="status" aria-label={i18n._("reader.loadingEntries")}>
           {[0, 1, 2, 3].map((index) => (
             <Skeleton
@@ -162,7 +182,7 @@ export function EntryQueue({
             />
           ))}
         </div>
-      ) : queue.length === 0 ? (
+      ) : state.paneStatus.queue === "error" && !hasQueueSnapshot ? null : queue.length === 0 ? (
         <EmptyState
           isCompact
           title={i18n._("reader.noEntries")}
@@ -174,7 +194,17 @@ export function EntryQueue({
           className="reader-queue-scroll"
           data-testid="entry-queue-scroll"
           onScroll={(event) => {
-            if (isRouteReady) onRecordScroll(sourceRoute, event.currentTarget.scrollTop)
+            if (!isRouteReady) return
+            const target = event.currentTarget
+            onRecordScroll(sourceRoute, target.scrollTop)
+            if (
+              nextCursor &&
+              !state.requestActivity.queue &&
+              !state.requestActivity.page &&
+              target.scrollHeight - target.scrollTop - target.clientHeight < 240
+            ) {
+              void onLoadMore()
+            }
           }}
         >
           <List density={density} hasDividers data-testid="entry-list">
@@ -235,6 +265,29 @@ export function EntryQueue({
               )
             })}
           </List>
+          <div className="reader-queue-pagination" role="status" aria-live="polite">
+            {state.errors.page ? (
+              <>
+                <span>{i18n._("reader.moreEntriesError")}</span>
+                <Button
+                  label={i18n._("common.retry")}
+                  variant="ghost"
+                  size="sm"
+                  clickAction={async () => { await onLoadMore() }}
+                />
+              </>
+            ) : nextCursor ? (
+              <Button
+                label={i18n._("reader.loadMoreEntries")}
+                variant="ghost"
+                size="sm"
+                isLoading={state.requestActivity.page}
+                clickAction={async () => { await onLoadMore() }}
+              />
+            ) : (
+              <span>{i18n._("reader.noMoreEntries")}</span>
+            )}
+          </div>
         </div>
       )}
     </div>

@@ -1,4 +1,5 @@
 import { Banner } from "@astryxdesign/core/Banner"
+import { Button } from "@astryxdesign/core/Button"
 import { EmptyState } from "@astryxdesign/core/EmptyState"
 import { Skeleton } from "@astryxdesign/core/Skeleton"
 import type { TreeListDensity } from "@astryxdesign/core/TreeList"
@@ -30,6 +31,7 @@ interface SourceTreeProps {
   onEditSubscription: () => void
   onPreferences: () => void
   onRefresh: (subscriptionId: string) => Promise<void>
+  onRetrySubscriptions?: () => Promise<boolean>
   onLogout: () => Promise<void>
   manageButtonRef?: Ref<HTMLButtonElement>
   editSubscriptionButtonRef?: Ref<HTMLButtonElement>
@@ -47,6 +49,7 @@ export function SourceTree({
   onEditSubscription,
   onPreferences,
   onRefresh,
+  onRetrySubscriptions = async () => false,
   onLogout,
   manageButtonRef,
   editSubscriptionButtonRef,
@@ -55,6 +58,7 @@ export function SourceTree({
 }: SourceTreeProps) {
   const { i18n } = useLingui()
   const [sourceQuery, setSourceQuery] = useState("")
+  const [showAllSources, setShowAllSources] = useState(true)
   const selectedFeedId = state.selectedSource.kind === "feed" ? state.selectedSource.feedId : null
   const selectedSubscription = selectedFeedId
     ? state.subscriptionOrder
@@ -65,7 +69,17 @@ export function SourceTree({
     ? refreshPresentation(selectedSubscription.refresh)
     : null
   return (
-    <div className="reader-source-tree" aria-busy={state.paneStatus.subscriptions === "loading"}>
+    <div
+      className="reader-source-tree"
+      aria-busy={state.requestActivity.subscriptions}
+      data-request-active={state.requestActivity.subscriptions ? "true" : undefined}
+    >
+      <div className="reader-pane-progress" aria-hidden="true" />
+      <span className="reader-visually-hidden" role="status" aria-live="polite">
+        {state.requestActivity.subscriptions
+          ? i18n._("reader.syncingSubscriptions")
+          : ""}
+      </span>
       <SourceToolbar
         onManage={onManage}
         onEditSubscription={
@@ -86,7 +100,9 @@ export function SourceTree({
           isDisabled: selectedRefresh?.isPending ?? false,
         } : undefined}
       />
-      {selectedSubscription ? (
+      {selectedSubscription &&
+      selectedRefresh &&
+      selectedRefresh.kind !== "idle" ? (
         <RefreshStatusSummary refresh={selectedSubscription.refresh} />
       ) : null}
       {state.subscriptionOrder.length > 6 ? (
@@ -103,25 +119,26 @@ export function SourceTree({
           />
         </div>
       ) : null}
-      <CategoryList
-        state={state}
-        onSelect={onSelect}
-        onRequestMarkRead={onRequestMarkRead}
-        onMoveSubscription={onMoveSubscription}
-        isMarkingRead={isMarkingRead}
-        density={density}
-        query={sourceQuery}
-      />
-      {state.paneStatus.subscriptions === "error" ? (
-        <Banner
-          container="section"
-          status="error"
-          title={i18n._("reader.subscriptionsError")}
-          description={state.errors.subscriptions ?? i18n._("reader.genericError")}
-        />
-      ) : state.paneStatus.subscriptions === "loading" ? (
+      {state.subscriptionOrder.length > 0 ? (
+        <div className="reader-source-view-options">
+          <Button
+            className="reader-source-visibility-toggle"
+            label={i18n._(
+              showAllSources
+                ? "reader.showUnreadSources"
+                : "reader.showAllSources",
+            )}
+            variant="ghost"
+            size="sm"
+            isDisabled={sourceQuery.trim().length > 0}
+            onClick={() => setShowAllSources((current) => !current)}
+          />
+        </div>
+      ) : null}
+      {state.paneStatus.subscriptions === "loading" &&
+      state.subscriptionOrder.length === 0 ? (
         <div className="reader-skeletons" role="status" aria-label={i18n._("reader.loadingSubscriptions")}>
-          {[0, 1, 2].map((index) => (
+          {[0, 1, 2, 3, 4].map((index) => (
             <Skeleton
               key={index}
               height={sourceTreeDensityMetrics[density].rowBlockSize}
@@ -130,6 +147,33 @@ export function SourceTree({
             />
           ))}
         </div>
+      ) : (
+        <CategoryList
+          state={state}
+          onSelect={onSelect}
+          onRequestMarkRead={onRequestMarkRead}
+          onMoveSubscription={onMoveSubscription}
+          isMarkingRead={isMarkingRead}
+          density={density}
+          query={sourceQuery}
+          showAllSources={showAllSources || sourceQuery.trim().length > 0}
+        />
+      )}
+      {state.errors.subscriptions ? (
+        <Banner
+          container="section"
+          status="error"
+          title={i18n._("reader.subscriptionsError")}
+          description={state.errors.subscriptions ?? i18n._("reader.genericError")}
+          endContent={(
+            <Button
+              label={i18n._("common.retry")}
+              variant="ghost"
+              size="sm"
+              clickAction={async () => { await onRetrySubscriptions() }}
+            />
+          )}
+        />
       ) : null}
       {state.subscriptionOrder.length === 0 &&
       (state.paneStatus.subscriptions === "idle" || state.paneStatus.subscriptions === "ready") ? (

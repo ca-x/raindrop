@@ -85,6 +85,31 @@ impl FeedRepository {
         &self.database
     }
 
+    pub(crate) async fn subscriber_user_ids(
+        &self,
+        feed_id: &str,
+    ) -> Result<Vec<String>, RefreshRepositoryError> {
+        let backend = self.database.get_database_backend();
+        let sql = if backend == DatabaseBackend::Postgres {
+            "SELECT DISTINCT user_id FROM subscriptions WHERE feed_id = $1 ORDER BY user_id"
+        } else {
+            "SELECT DISTINCT user_id FROM subscriptions WHERE feed_id = ? ORDER BY user_id"
+        };
+        self.database
+            .query_all(Statement::from_sql_and_values(
+                backend,
+                sql,
+                [feed_id.into()],
+            ))
+            .await?
+            .into_iter()
+            .map(|row| {
+                row.try_get("", "user_id")
+                    .map_err(|_| RefreshRepositoryError::CorruptData)
+            })
+            .collect()
+    }
+
     /// Low-level exact-key queue seam retained for executor and persistence contracts.
     /// User-facing manual refresh admission must use `queue_subscription_refresh`.
     #[doc(hidden)]

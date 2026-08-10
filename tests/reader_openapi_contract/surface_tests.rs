@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use serde_json::json;
 
 use super::document::{
-    ENTRY_PATH, ENTRY_STATE_PATH, MARK_READ_PATH, assert_all_local_refs_resolve,
+    ENTRY_PATH, ENTRY_STATE_PATH, EVENTS_PATH, MARK_READ_PATH, assert_all_local_refs_resolve,
     assert_operation_statuses, documented_operations, load_openapi, parameter_names,
 };
 
@@ -16,10 +16,12 @@ fn reader_openapi_declares_exact_operations_and_security() {
         BTreeSet::from([
             ("GET".to_owned(), "/api/v1/entries".to_owned()),
             ("GET".to_owned(), ENTRY_PATH.to_owned()),
+            ("GET".to_owned(), EVENTS_PATH.to_owned()),
             ("PATCH".to_owned(), ENTRY_STATE_PATH.to_owned()),
             ("POST".to_owned(), MARK_READ_PATH.to_owned()),
         ])
     );
+    assert_operation_statuses(&document, EVENTS_PATH, "get", &[200, 401, 500]);
     assert_operation_statuses(&document, "/api/v1/entries", "get", &[200, 401, 422, 500]);
     assert_operation_statuses(&document, ENTRY_PATH, "get", &[200, 401, 404, 422, 500]);
     assert_operation_statuses(
@@ -61,6 +63,7 @@ fn reader_openapi_declares_exact_operations_and_security() {
     for (path, method) in [
         ("/api/v1/entries", "get"),
         (ENTRY_PATH, "get"),
+        (EVENTS_PATH, "get"),
         (ENTRY_STATE_PATH, "patch"),
         (MARK_READ_PATH, "post"),
     ] {

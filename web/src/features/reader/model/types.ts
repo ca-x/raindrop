@@ -47,6 +47,7 @@ export interface ReaderState {
   retiredFeedIds: Record<string, true>
   entriesById: Record<string, EntryListItemResponse>
   queueBySourceKey: Partial<Record<SourceKey, string[]>>
+  nextCursorBySourceKey: Partial<Record<SourceKey, string | null>>
   detailsById: Record<string, EntryDetailResponse>
   selectedSource: ReaderSource
   selectedEntryId: string | null
@@ -66,9 +67,15 @@ export interface ReaderState {
     queue: PaneStatus
     detail: PaneStatus
   }
+  requestActivity: {
+    subscriptions: boolean
+    queue: boolean
+    page: boolean
+  }
   errors: {
     subscriptions: string | null
     queue: string | null
+    page: string | null
     detail: string | null
     mutation: string | null
   }

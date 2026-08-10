@@ -29,6 +29,7 @@ interface CategoryListProps {
   isMarkingRead?: boolean
   density: TreeListDensity
   query?: string
+  showAllSources?: boolean
 }
 
 interface DraggedSubscription {
@@ -45,6 +46,7 @@ export function CategoryList({
   isMarkingRead = false,
   density,
   query = "",
+  showAllSources = true,
 }: CategoryListProps) {
   const { i18n } = useLingui()
   const draggedSubscriptionRef = useRef<DraggedSubscription | null>(null)
@@ -54,7 +56,16 @@ export function CategoryList({
   const [moveAnnouncement, setMoveAnnouncement] = useState("")
   const categories = state.categoryOrder.map((id) => state.categoriesById[id])
   const subscriptions = state.subscriptionOrder.map((id) => state.subscriptionsById[id])
-  const groups = filterGroups(groupSubscriptions(categories, subscriptions), query)
+  const groups = visibleGroups(
+    groupSubscriptions(categories, subscriptions),
+    query,
+    showAllSources,
+    state.selectedSource,
+  )
+  const totalUnread = subscriptions.reduce(
+    (total, subscription) => total + subscription.unreadCount,
+    0,
+  )
   const dragSubscription = (
     event: DragEvent<HTMLElement>,
     subscription: DraggedSubscription,
@@ -155,6 +166,10 @@ export function CategoryList({
         <SmartSourceIcon state={stateName as "UNREAD" | "ALL" | "STARRED"} />
       </span>
     ),
+    endContent:
+      stateName === "UNREAD" || stateName === "ALL"
+        ? <UnreadCount count={totalUnread} />
+        : undefined,
   }))
 
   const categoryItems = groups.categorized.map(
@@ -221,7 +236,7 @@ export function CategoryList({
         items={[
           ...smartItems,
           ...categoryItems,
-          ...(groups.uncategorized.subscriptions.length > 0 || !query.trim()
+          ...(groups.uncategorized.subscriptions.length > 0 || showAllSources
             ? [uncategorized]
             : []),
         ]}
@@ -248,6 +263,7 @@ function feedItems(
 ): TreeListItemData[] {
   return group.subscriptions.map((subscription) => {
     const status = refreshPresentation(subscription.refresh)
+    const showRefreshStatus = status.kind !== "idle" && status.kind !== "ready"
     return {
       id: `feed:${subscription.feedId}`,
       label: (
@@ -294,14 +310,24 @@ function feedItems(
               </span>
             </Tooltip>
           ) : null}
-          <span className="reader-source-status">
-            <StatusDot
-              variant={status.tone}
-              label={translate(status.label)}
-              isPulsing={status.isPulsing}
-            />
-            <span>{subscription.unreadCount}</span>
-          </span>
+          {showRefreshStatus || subscription.unreadCount > 0 ? (
+            <span className="reader-source-status">
+              {showRefreshStatus ? (
+                <StatusDot
+                  variant={status.tone}
+                  label={translate(status.label)}
+                  isPulsing={status.isPulsing}
+                />
+              ) : null}
+              {subscription.unreadCount > 0 ? (
+                <span title={String(subscription.unreadCount)}>
+                  {subscription.unreadCount >= 10_000
+                    ? "10k+"
+                    : subscription.unreadCount}
+                </span>
+              ) : null}
+            </span>
+          ) : null}
         </span>
       ),
     }
@@ -326,15 +352,16 @@ function MarkReadIcon() {
   )
 }
 
-function filterGroups(
+function visibleGroups(
   groups: ReturnType<typeof groupSubscriptions>,
   query: string,
+  showAllSources: boolean,
+  selectedSource: ReaderSource,
 ): ReturnType<typeof groupSubscriptions> {
   const normalized = query.trim().toLocaleLowerCase()
-  if (!normalized) return groups
-  const filter = (group: SubscriptionGroup): SubscriptionGroup => {
+  const search = (group: SubscriptionGroup): SubscriptionGroup => {
     const categoryMatches = group.category?.title.toLocaleLowerCase().includes(normalized)
-    const subscriptions = categoryMatches
+    const subscriptions = !normalized || categoryMatches
       ? group.subscriptions
       : group.subscriptions.filter((subscription) =>
           [
@@ -354,14 +381,54 @@ function filterGroups(
       ),
     }
   }
+  const searched = {
+    categorized: groups.categorized.map(search),
+    uncategorized: search(groups.uncategorized),
+  }
+  if (showAllSources && !normalized) return groups
+  if (normalized) {
+    return {
+      categorized: searched.categorized.filter(
+        (group) => group.subscriptions.length > 0,
+      ),
+      uncategorized: searched.uncategorized,
+    }
+  }
+  const selectedFeedId = selectedSource.kind === "feed" ? selectedSource.feedId : null
+  const unreadOnly = (group: SubscriptionGroup): SubscriptionGroup => {
+    const subscriptions = group.subscriptions.filter(
+      (subscription) =>
+        subscription.unreadCount > 0 || subscription.feedId === selectedFeedId,
+    )
+    return {
+      category: group.category,
+      subscriptions,
+      unreadCount: subscriptions.reduce(
+        (total, subscription) => total + subscription.unreadCount,
+        0,
+      ),
+    }
+  }
   return {
-    categorized: groups.categorized.map(filter).filter((group) => group.subscriptions.length > 0),
-    uncategorized: filter(groups.uncategorized),
+    categorized: searched.categorized
+      .map(unreadOnly)
+      .filter(
+        (group) =>
+          group.subscriptions.length > 0 ||
+          (selectedSource.kind === "category" &&
+            selectedSource.categoryId === group.category?.categoryId),
+      ),
+    uncategorized: unreadOnly(searched.uncategorized),
   }
 }
 
 function UnreadCount({ count }: { count: number }) {
-  return <span className="reader-category-unread-count">{count}</span>
+  if (count <= 0) return null
+  return (
+    <span className="reader-category-unread-count" title={String(count)}>
+      {count >= 10_000 ? "10k+" : count}
+    </span>
+  )
 }
 
 function SmartSourceIcon({ state }: { state: "UNREAD" | "ALL" | "STARRED" }) {

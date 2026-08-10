@@ -3,7 +3,7 @@
   "info": {
     "title": "Raindrop Reader API",
     "version": "1.0.0",
-    "description": "User-scoped entry listing, Feed-local search, detail reading, and read/star state updates. This committed fragment is the DTO source for Reader clients."
+    "description": "User-scoped entry listing, Feed-local search, detail reading, read/star state updates, and realtime invalidation events. This committed fragment is the DTO source for Reader clients."
   },
   "servers": [
     {
@@ -16,6 +16,39 @@
     }
   ],
   "paths": {
+    "/api/v1/events": {
+      "get": {
+        "tags": [
+          "Reader"
+        ],
+        "operationId": "streamReaderEvents",
+        "summary": "Stream current-user Reader invalidation events",
+        "description": "Server-Sent Events stream. The server emits a SYNC_REQUIRED event on every connection so clients can recover changes missed while disconnected. Event data is a versioned JSON object with kind SYNC_REQUIRED, FEED_REFRESHED, SUBSCRIPTIONS_CHANGED, or ENTRIES_CHANGED.",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reader event stream",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/api/v1/entries": {
       "get": {
         "tags": [

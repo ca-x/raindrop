@@ -18,6 +18,7 @@ use crate::{
     feeds::{
         FeedRepository, MAX_OPML_BYTES, OpmlDocument, OpmlError, OpmlImportResult, OpmlPreview,
     },
+    realtime::ReaderEvent,
 };
 
 use super::super::ApiError;
@@ -146,6 +147,9 @@ async fn import_opml(
                 )
                 .await
                 .map_err(map_opml_error)?;
+            state
+                .reader_events
+                .publish(&user.id, ReaderEvent::subscriptions_changed());
             OpmlImportResponse::imported(imported)
         }
     };

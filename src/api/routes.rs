@@ -51,6 +51,7 @@ pub fn router() -> Router<AppState> {
         .merge(super::categories::router())
         .merge(super::entries::router())
         .merge(super::entries::media_router())
+        .merge(super::events::router())
         .merge(super::preferences::router())
         .merge(super::profile::router())
         .merge(super::subscriptions::router())

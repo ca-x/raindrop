@@ -24,6 +24,7 @@ use raindrop::{
         FetchOutcome, FetchRequest, JitterSource, QueueRefreshRequest, QueueSubscriptionRefresh,
         RefreshStatus, RefreshTrigger, coordinate_attempt_for_test,
     },
+    realtime::{ReaderEventReceive, ReaderEventSubscription},
     setup::{SetupCompleteInput, SetupService},
 };
 use sea_orm::{
@@ -438,6 +439,7 @@ async fn notify_and_poll_both_wake_queued_work() {
             ZeroJitter,
         )))
     });
+    let mut reader_events = handle.reader_events().subscribe(USER_A_ID);
     let task = tokio::spawn(runtime.run());
 
     let notified = repository
@@ -451,6 +453,10 @@ async fn notify_and_poll_both_wake_queued_work() {
         .expect("notify refresh should queue");
     handle.notify();
     wait_for_terminal(&database, &notified.id, Duration::from_millis(500)).await;
+    assert_eq!(
+        next_reader_event_kind(&mut reader_events).await,
+        "FEED_REFRESHED"
+    );
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     let polled = repository
@@ -463,12 +469,31 @@ async fn notify_and_poll_both_wake_queued_work() {
         .await
         .expect("poll refresh should queue");
     wait_for_terminal(&database, &polled.id, Duration::from_secs(2)).await;
+    assert_eq!(
+        next_reader_event_kind(&mut reader_events).await,
+        "FEED_REFRESHED"
+    );
 
     handle.shutdown();
     task.await
         .expect("runtime task should join")
         .expect("ready runtime should stop cleanly");
     assert_eq!(calls.load(Ordering::SeqCst), 2);
+}
+
+async fn next_reader_event_kind(subscription: &mut ReaderEventSubscription) -> String {
+    let event = tokio::time::timeout(Duration::from_secs(1), subscription.recv())
+        .await
+        .expect("Reader event should arrive after terminal refresh");
+    let ReaderEventReceive::Event(event) = event else {
+        panic!("Reader event subscription should receive a concrete event");
+    };
+    serde_json::to_value(event)
+        .expect("Reader event should serialize")
+        .get("kind")
+        .and_then(serde_json::Value::as_str)
+        .expect("Reader event should contain a kind")
+        .to_owned()
 }
 
 #[tokio::test]

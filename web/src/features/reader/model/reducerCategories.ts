@@ -32,6 +32,7 @@ export function deleteCategoryState(
   )
   const key = sourceKey({ kind: "category", categoryId })
   const queueBySourceKey = { ...state.queueBySourceKey }
+  const nextCursorBySourceKey = { ...state.nextCursorBySourceKey }
   const pendingNewEntriesBySource = { ...state.pendingNewEntriesBySource }
   const pendingNewEntryCountBySource = { ...state.pendingNewEntryCountBySource }
   const snapshotGenerationBySource = { ...state.snapshotGenerationBySource }
@@ -39,6 +40,7 @@ export function deleteCategoryState(
     ...state.pendingSnapshotGenerationBySource,
   }
   delete queueBySourceKey[key]
+  delete nextCursorBySourceKey[key]
   delete pendingNewEntriesBySource[key]
   delete pendingNewEntryCountBySource[key]
   delete snapshotGenerationBySource[key]
@@ -53,6 +55,7 @@ export function deleteCategoryState(
     categoryOrder: state.categoryOrder.filter((id) => id !== categoryId),
     subscriptionsById,
     queueBySourceKey,
+    nextCursorBySourceKey,
     pendingNewEntriesBySource,
     pendingNewEntryCountBySource,
     snapshotGenerationBySource,

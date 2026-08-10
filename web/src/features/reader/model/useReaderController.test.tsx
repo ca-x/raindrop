@@ -281,6 +281,55 @@ it("does not create a cold cache until both authoritative panes validate", async
   expect(cache.save).not.toHaveBeenCalled()
 })
 
+it("revalidates visible reader data in the background without reordering the queue", async () => {
+  vi.useFakeTimers()
+  const storedEntry = makeEntry()
+  const discoveredEntry = makeEntry({
+    entryId: "00000000-0000-4000-8000-000000000302",
+    title: "Background entry",
+    sortAtUs: storedEntry.sortAtUs + 1,
+  })
+  const listSubscriptions = vi.fn(async () => ({
+    ownerUserId: userId,
+    items: [makeSubscription()],
+    nextCursor: null,
+  }))
+  const listEntries = vi
+    .fn()
+    .mockResolvedValueOnce({
+      ownerUserId: userId,
+      items: [storedEntry],
+      nextCursor: null,
+      snapshotGeneration: 1,
+    })
+    .mockResolvedValueOnce({
+      ownerUserId: userId,
+      items: [discoveredEntry, storedEntry],
+      nextCursor: null,
+      snapshotGeneration: 2,
+    })
+  const { result } = renderHook(() =>
+    useReaderController({
+      csrfToken: "csrf-memory",
+      onUnauthenticated: vi.fn(),
+      api: makeApi({ listSubscriptions, listEntries }),
+    }),
+  )
+
+  await act(async () => result.current.load())
+  await act(async () => vi.advanceTimersByTimeAsync(60_000))
+
+  const unreadKey = sourceKey({ kind: "smart", state: "UNREAD" })
+  expect(listSubscriptions).toHaveBeenCalledTimes(2)
+  expect(listEntries).toHaveBeenCalledTimes(2)
+  expect(result.current.state.queueBySourceKey[unreadKey]).toEqual([
+    storedEntry.entryId,
+  ])
+  expect(result.current.state.pendingNewEntriesBySource[unreadKey]).toEqual([
+    discoveredEntry.entryId,
+  ])
+})
+
 it("does not advance cached freshness when background validation fails", async () => {
   vi.useFakeTimers()
   const save = vi.fn<ReaderCache["save"]>(async () => undefined)
@@ -411,6 +460,228 @@ it("loads every subscription page and the selected source through injected clien
       sourceKey({ kind: "smart", state: "UNREAD" })
     ],
   ).toEqual([entry.entryId])
+})
+
+it("reveals the first subscription page while later pages are still loading", async () => {
+  const laterPage = deferred<{
+    ownerUserId: string
+    items: ReturnType<typeof makeSubscription>[]
+    nextCursor: null
+  }>()
+  const first = makeSubscription({ title: "First page feed" })
+  const second = makeSubscription({
+    subscriptionId: "00000000-0000-4000-8000-000000000202",
+    feedId: "00000000-0000-4000-8000-000000000102",
+    title: "Later page feed",
+  })
+  const listSubscriptions = vi
+    .fn()
+    .mockResolvedValueOnce({ ownerUserId: userId, items: [first], nextCursor: "next" })
+    .mockImplementationOnce(() => laterPage.promise)
+  const { result } = renderHook(() =>
+    useReaderController({
+      csrfToken: "csrf-memory",
+      onUnauthenticated: vi.fn(),
+      api: makeApi({ listSubscriptions }),
+    }),
+  )
+
+  let loading!: Promise<void>
+  act(() => { loading = result.current.load() })
+  await vi.waitFor(() => {
+    expect(result.current.state.subscriptionOrder).toEqual([first.subscriptionId])
+  })
+  expect(result.current.state.paneStatus.subscriptions).toBe("ready")
+  expect(result.current.state.requestActivity.subscriptions).toBe(true)
+  expect(result.current.state.subscriptionsAuthoritative).toBe(false)
+
+  laterPage.resolve({ ownerUserId: userId, items: [second], nextCursor: null })
+  await act(async () => loading)
+
+  expect(result.current.state.subscriptionOrder).toEqual([
+    first.subscriptionId,
+    second.subscriptionId,
+  ])
+  expect(result.current.state.requestActivity.subscriptions).toBe(false)
+  expect(result.current.state.subscriptionsAuthoritative).toBe(true)
+})
+
+it("keeps the complete source tree visible during a progressive background refresh", async () => {
+  const laterPage = deferred<{
+    ownerUserId: string
+    items: ReturnType<typeof makeSubscription>[]
+    nextCursor: null
+  }>()
+  const first = makeSubscription({ title: "First page feed" })
+  const second = makeSubscription({
+    subscriptionId: "00000000-0000-4000-8000-000000000202",
+    feedId: "00000000-0000-4000-8000-000000000102",
+    title: "Later page feed",
+  })
+  const refreshedFirst = { ...first, title: "Refreshed first page feed" }
+  const listSubscriptions = vi
+    .fn()
+    .mockResolvedValueOnce({
+      ownerUserId: userId,
+      items: [first, second],
+      nextCursor: null,
+    })
+    .mockResolvedValueOnce({
+      ownerUserId: userId,
+      items: [refreshedFirst],
+      nextCursor: "next",
+    })
+    .mockImplementationOnce(() => laterPage.promise)
+  const { result } = renderHook(() =>
+    useReaderController({
+      csrfToken: "csrf-memory",
+      onUnauthenticated: vi.fn(),
+      api: makeApi({ listSubscriptions }),
+    }),
+  )
+
+  await act(async () => result.current.load())
+
+  let refreshing!: Promise<boolean>
+  act(() => { refreshing = result.current.reloadSubscriptions() })
+  await vi.waitFor(() => {
+    expect(result.current.state.subscriptionsById[first.subscriptionId]?.title)
+      .toBe("Refreshed first page feed")
+  })
+  expect(result.current.state.subscriptionOrder).toEqual([
+    first.subscriptionId,
+    second.subscriptionId,
+  ])
+  expect(result.current.state.requestActivity.subscriptions).toBe(true)
+
+  laterPage.resolve({ ownerUserId: userId, items: [second], nextCursor: null })
+  await act(async () => refreshing)
+
+  expect(result.current.state.subscriptionOrder).toEqual([
+    first.subscriptionId,
+    second.subscriptionId,
+  ])
+  expect(result.current.state.subscriptionsAuthoritative).toBe(true)
+})
+
+it("keeps the entry list independent when subscription loading fails", async () => {
+  const entry = makeEntry({ title: "Available entry" })
+  const { result } = renderHook(() =>
+    useReaderController({
+      csrfToken: "csrf-memory",
+      onUnauthenticated: vi.fn(),
+      api: makeApi({
+        listCategories: vi.fn(async () => { throw new Error("offline") }),
+        listEntries: vi.fn(async () => ({
+          ownerUserId: userId,
+          items: [entry],
+          nextCursor: null,
+          snapshotGeneration: 1,
+        })),
+      }),
+    }),
+  )
+
+  await act(async () => result.current.load())
+
+  expect(result.current.state.errors.subscriptions).toBeTruthy()
+  expect(
+    result.current.state.queueBySourceKey[
+      sourceKey({ kind: "smart", state: "UNREAD" })
+    ],
+  ).toEqual([entry.entryId])
+  expect(result.current.state.paneStatus.queue).toBe("ready")
+})
+
+it("appends the next entry page without duplicating existing rows", async () => {
+  const nextEntry = makeEntry({
+    entryId: "00000000-0000-4000-8000-000000000302",
+    title: "Older entry",
+    sortAtUs: 1,
+  })
+  const listEntries = vi
+    .fn()
+    .mockResolvedValueOnce({
+      ownerUserId: userId,
+      items: [makeEntry()],
+      nextCursor: "next-page",
+      snapshotGeneration: 4,
+    })
+    .mockResolvedValueOnce({
+      ownerUserId: userId,
+      items: [makeEntry(), nextEntry],
+      nextCursor: null,
+      snapshotGeneration: 4,
+    })
+  const { result } = renderHook(() =>
+    useReaderController({
+      csrfToken: "csrf-memory",
+      onUnauthenticated: vi.fn(),
+      api: makeApi({ listEntries }),
+    }),
+  )
+
+  await act(async () => result.current.load())
+  await act(async () => {
+    await expect(result.current.loadMoreEntries()).resolves.toBe(true)
+  })
+
+  expect(listEntries).toHaveBeenLastCalledWith(
+    expect.objectContaining({ cursor: "next-page" }),
+  )
+  expect(
+    result.current.state.queueBySourceKey[
+      sourceKey({ kind: "smart", state: "UNREAD" })
+    ],
+  ).toEqual([entryId, nextEntry.entryId])
+  expect(result.current.state.nextCursorBySourceKey["smart:UNREAD"]).toBeNull()
+})
+
+it("does not let pagination interrupt a background queue refresh", async () => {
+  const refreshedPage = deferred<{
+    ownerUserId: string
+    items: ReturnType<typeof makeEntry>[]
+    nextCursor: string | null
+    snapshotGeneration: number
+  }>()
+  const listEntries = vi
+    .fn()
+    .mockResolvedValueOnce({
+      ownerUserId: userId,
+      items: [makeEntry()],
+      nextCursor: "next-page",
+      snapshotGeneration: 4,
+    })
+    .mockImplementationOnce(() => refreshedPage.promise)
+  const { result } = renderHook(() =>
+    useReaderController({
+      csrfToken: "csrf-memory",
+      onUnauthenticated: vi.fn(),
+      api: makeApi({ listEntries }),
+    }),
+  )
+
+  await act(async () => result.current.load())
+  let refresh!: Promise<void>
+  act(() => {
+    refresh = result.current.reloadEntries()
+  })
+
+  expect(result.current.state.requestActivity.queue).toBe(true)
+  await act(async () => {
+    await expect(result.current.loadMoreEntries()).resolves.toBe(false)
+  })
+  expect(listEntries).toHaveBeenCalledTimes(2)
+  expect(listEntries.mock.calls[1]?.[0].signal.aborted).toBe(false)
+
+  refreshedPage.resolve({
+    ownerUserId: userId,
+    items: [makeEntry()],
+    nextCursor: "next-page",
+    snapshotGeneration: 5,
+  })
+  await act(async () => refresh)
+  expect(result.current.state.requestActivity.queue).toBe(false)
 })
 
 it("aborts the previous detail request and ignores its late response", async () => {

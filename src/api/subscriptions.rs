@@ -18,6 +18,7 @@ use crate::{
         RefreshRepositoryError, RefreshStatus, RepositoryError, SubscribeInput,
         SubscriptionListItemDto, SubscriptionPage, SubscriptionPatchError, UpdateSubscription,
     },
+    realtime::ReaderEvent,
 };
 use url::Url;
 use uuid::Uuid;
@@ -428,6 +429,9 @@ async fn create_subscription(
         outcome.subscription.subscription_id
     ))
     .map_err(|_| ApiError::internal())?;
+    state
+        .reader_events
+        .publish(&user.id, ReaderEvent::subscriptions_changed());
     Ok((
         status,
         [(LOCATION, location)],
@@ -477,6 +481,9 @@ async fn update_subscription(
         ))
         .await
         .map_err(map_feed_service_error)?;
+    state
+        .reader_events
+        .publish(&user.id, ReaderEvent::subscriptions_changed());
     Ok(Json(subscription.try_into()?))
 }
 
@@ -512,6 +519,9 @@ async fn refresh_subscription(
     } else {
         StatusCode::OK
     };
+    state
+        .reader_events
+        .publish(&user.id, ReaderEvent::subscriptions_changed());
     Ok((status, Json(RefreshResponse::try_from(refresh)?)).into_response())
 }
 
@@ -531,6 +541,9 @@ async fn delete_subscription(
         .commit_and_notify_feed_runtime(service.unsubscribe(&user.id, &subscription_id))
         .await
         .map_err(map_feed_service_error)?;
+    state
+        .reader_events
+        .publish(&user.id, ReaderEvent::subscriptions_changed());
     Ok(StatusCode::NO_CONTENT)
 }
 

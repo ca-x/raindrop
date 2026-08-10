@@ -72,6 +72,7 @@ function fakeController(): ReaderController {
       errors: {
         subscriptions: "Subscriptions are unavailable.",
         queue: null,
+        page: null,
         detail: "Article detail is unavailable.",
         mutation: null,
       },
@@ -80,6 +81,9 @@ function fakeController(): ReaderController {
     selectSource: vi.fn().mockResolvedValue(undefined),
     selectEntry: vi.fn().mockResolvedValue(undefined),
     reloadEntries: vi.fn().mockResolvedValue(undefined),
+    retryEntries: vi.fn().mockResolvedValue(true),
+    reloadSubscriptions: vi.fn().mockResolvedValue(true),
+    loadMoreEntries: vi.fn().mockResolvedValue(true),
     searchFeed: vi.fn().mockResolvedValue(undefined),
     mergePendingEntries: vi.fn(),
     isMarkingRead: false,

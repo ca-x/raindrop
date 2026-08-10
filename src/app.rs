@@ -17,6 +17,7 @@ use crate::{
         FeedRuntime, FeedRuntimeHandle, FeedServiceError, FeedTransport, HttpFeedTransport,
         InertImageDto,
     },
+    realtime::ReaderEventHub,
     setup::SetupService,
     translation::{DeepLxTransport, OpenAiTranslationTransport, ProductionDeepLxTransport},
     web,
@@ -35,6 +36,7 @@ pub struct AppState {
     pub(crate) media_transport: Option<Arc<dyn FeedTransport>>,
     entry_image_cache: Arc<Mutex<EntryImageCache>>,
     pub feed_runtime: FeedRuntimeHandle,
+    pub(crate) reader_events: ReaderEventHub,
     pub content_runtime: ContentRuntimeHandle,
     pub backup_runtime: BackupRuntimeHandle,
     pub(crate) backup_transport: Option<Arc<dyn BackupTransport>>,
@@ -81,6 +83,7 @@ impl AppState {
         content_runtime: ContentRuntimeHandle,
         provider_keyring: Option<Arc<ProviderSecretKeyring>>,
     ) -> Self {
+        let reader_events = feed_runtime.reader_events();
         Self {
             version: env!("CARGO_PKG_VERSION"),
             setup,
@@ -98,6 +101,7 @@ impl AppState {
             media_transport: None,
             entry_image_cache: Arc::new(Mutex::new(EntryImageCache::default())),
             feed_runtime,
+            reader_events,
             content_runtime,
             backup_runtime: BackupRuntimeHandle::inert(),
             backup_transport: None,

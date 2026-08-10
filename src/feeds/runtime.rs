@@ -8,7 +8,10 @@ use tokio::{
 };
 use uuid::Uuid;
 
-use crate::setup::SetupService;
+use crate::{
+    realtime::{ReaderEvent, ReaderEventHub},
+    setup::SetupService,
+};
 
 use super::{
     ClaimRequest, FeedExecutor, FeedRepository, FeedRetentionPolicy, FeedServiceError,
@@ -36,6 +39,7 @@ struct LaneOptions {
 pub struct FeedRuntimeHandle {
     notify: Arc<Notify>,
     shutdown_tx: watch::Sender<bool>,
+    reader_events: ReaderEventHub,
 }
 
 impl FeedRuntimeHandle {
@@ -47,6 +51,11 @@ impl FeedRuntimeHandle {
         let _ = self.shutdown_tx.send(true);
         self.notify.notify_waiters();
     }
+
+    #[must_use]
+    pub fn reader_events(&self) -> ReaderEventHub {
+        self.reader_events.clone()
+    }
 }
 
 pub struct FeedRuntime<T: FeedTransport> {
@@ -54,6 +63,7 @@ pub struct FeedRuntime<T: FeedTransport> {
     executor_factory: ExecutorFactory<T>,
     notify: Arc<Notify>,
     shutdown_rx: watch::Receiver<bool>,
+    reader_events: ReaderEventHub,
     retention_policy: FeedRetentionPolicy,
     #[cfg(debug_assertions)]
     terminal_ready_hook: Option<Arc<TerminalReadyHook>>,
@@ -89,12 +99,14 @@ where
     {
         let notify = Arc::new(Notify::new());
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let reader_events = ReaderEventHub::default();
         (
             Self {
                 setup,
                 executor_factory: Arc::new(executor_factory),
                 notify: notify.clone(),
                 shutdown_rx,
+                reader_events: reader_events.clone(),
                 retention_policy: FeedRetentionPolicy::default(),
                 #[cfg(debug_assertions)]
                 terminal_ready_hook: None,
@@ -104,6 +116,7 @@ where
             FeedRuntimeHandle {
                 notify,
                 shutdown_tx,
+                reader_events,
             },
         )
     }
@@ -188,6 +201,7 @@ where
                 executor.clone(),
                 self.notify.clone(),
                 self.shutdown_rx.clone(),
+                self.reader_events.clone(),
                 LaneOptions {
                     retention_policy: self.retention_policy,
                     #[cfg(debug_assertions)]
@@ -264,6 +278,7 @@ async fn run_lane<T>(
     executor: Arc<FeedExecutor<T>>,
     notify: Arc<Notify>,
     mut shutdown_rx: watch::Receiver<bool>,
+    reader_events: ReaderEventHub,
     options: LaneOptions,
 ) -> Result<(), FeedServiceError>
 where
@@ -329,6 +344,7 @@ where
                     executor.clone(),
                     claim,
                     notify.as_ref(),
+                    &reader_events,
                     #[cfg(debug_assertions)]
                     options.terminal_ready_hook.clone(),
                 )
@@ -350,6 +366,7 @@ async fn execute_with_heartbeat<T>(
     executor: Arc<FeedExecutor<T>>,
     claim: super::RefreshClaim,
     notify: &Notify,
+    reader_events: &ReaderEventHub,
     #[cfg(debug_assertions)] terminal_ready_hook: Option<Arc<TerminalReadyHook>>,
 ) where
     T: FeedTransport + 'static,
@@ -373,7 +390,16 @@ async fn execute_with_heartbeat<T>(
                 }
             }
         };
-        coordinate_attempt(repository, attempt, claim, notify, Some(hook), true).await;
+        coordinate_attempt(
+            repository,
+            attempt,
+            claim,
+            notify,
+            reader_events,
+            Some(hook),
+            true,
+        )
+        .await;
         return;
     }
 
@@ -384,6 +410,7 @@ async fn execute_with_heartbeat<T>(
         attempt,
         claim,
         notify,
+        reader_events,
         #[cfg(debug_assertions)]
         None,
         #[cfg(debug_assertions)]
@@ -397,6 +424,7 @@ async fn coordinate_attempt<A>(
     attempt: A,
     mut claim: super::RefreshClaim,
     notify: &Notify,
+    reader_events: &ReaderEventHub,
     #[cfg(debug_assertions)] terminal_ready_hook: Option<Arc<TerminalReadyHook>>,
     #[cfg(debug_assertions)] mut gate_first_select: bool,
 ) where
@@ -416,7 +444,7 @@ async fn coordinate_attempt<A>(
         tokio::select! {
             biased;
             result = &mut attempt => {
-                finish_attempt(repository, notify, result).await;
+                finish_attempt(repository, notify, reader_events, &claim.feed_id, result).await;
                 return;
             }
             () = &mut heartbeat => {}
@@ -436,7 +464,7 @@ async fn coordinate_attempt<A>(
             tokio::select! {
                 biased;
                 result = &mut attempt => {
-                    finish_attempt(repository, notify, result).await;
+                    finish_attempt(repository, notify, reader_events, &claim.feed_id, result).await;
                     return;
                 }
                 extended = &mut extension => extended,
@@ -471,6 +499,7 @@ pub async fn coordinate_attempt_for_test<A>(
         attempt,
         claim,
         &Notify::new(),
+        &ReaderEventHub::default(),
         Some(Arc::new(TerminalReadyHook {
             ready: Arc::new(Notify::new()),
             release: Arc::new(Notify::new()),
@@ -485,20 +514,37 @@ pub async fn coordinate_attempt_for_test<A>(
 async fn finish_attempt(
     repository: &FeedRepository,
     notify: &Notify,
+    reader_events: &ReaderEventHub,
+    feed_id: &str,
     result: Result<super::RefreshDto, FeedServiceError>,
 ) {
-    if let Err(error) = result {
-        let lease_lost = matches!(
-            &error,
-            FeedServiceError::RefreshRepository(RefreshRepositoryError::LeaseLost)
-        );
-        let database_error = matches!(
-            &error,
-            FeedServiceError::RefreshRepository(RefreshRepositoryError::Database(_))
-        );
-        tracing::warn!(?error, database_error, "feed runtime attempt failed");
-        if lease_lost {
-            recover_after_lease_loss(repository, notify).await;
+    match result {
+        Ok(_) => match repository.subscriber_user_ids(feed_id).await {
+            Ok(user_ids) => {
+                for user_id in user_ids {
+                    reader_events.publish(&user_id, ReaderEvent::feed_refreshed(feed_id));
+                }
+            }
+            Err(error) => {
+                tracing::warn!(
+                    ?error,
+                    "feed runtime could not publish Reader refresh event"
+                );
+            }
+        },
+        Err(error) => {
+            let lease_lost = matches!(
+                &error,
+                FeedServiceError::RefreshRepository(RefreshRepositoryError::LeaseLost)
+            );
+            let database_error = matches!(
+                &error,
+                FeedServiceError::RefreshRepository(RefreshRepositoryError::Database(_))
+            );
+            tracing::warn!(?error, database_error, "feed runtime attempt failed");
+            if lease_lost {
+                recover_after_lease_loss(repository, notify).await;
+            }
         }
     }
 }
