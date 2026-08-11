@@ -196,16 +196,18 @@ where
             }
             lanes.spawn(run_lane(
                 lane_index,
-                format!("feed-runtime-{runtime_id}-lane-{lane_index}"),
-                repository.clone(),
-                executor.clone(),
-                self.notify.clone(),
                 self.shutdown_rx.clone(),
-                self.reader_events.clone(),
-                LaneOptions {
-                    retention_policy: self.retention_policy,
-                    #[cfg(debug_assertions)]
-                    terminal_ready_hook: self.terminal_ready_hook.clone(),
+                LaneContext {
+                    owner: format!("feed-runtime-{runtime_id}-lane-{lane_index}"),
+                    repository: repository.clone(),
+                    executor: executor.clone(),
+                    notify: self.notify.clone(),
+                    reader_events: self.reader_events.clone(),
+                    options: LaneOptions {
+                        retention_policy: self.retention_policy,
+                        #[cfg(debug_assertions)]
+                        terminal_ready_hook: self.terminal_ready_hook.clone(),
+                    },
                 },
             ));
         }
@@ -271,19 +273,31 @@ async fn abort_and_drain<T: 'static>(tasks: &mut JoinSet<T>) {
     while tasks.join_next().await.is_some() {}
 }
 
-async fn run_lane<T>(
-    lane_index: usize,
+struct LaneContext<T: FeedTransport> {
     owner: String,
     repository: FeedRepository,
     executor: Arc<FeedExecutor<T>>,
     notify: Arc<Notify>,
-    mut shutdown_rx: watch::Receiver<bool>,
     reader_events: ReaderEventHub,
     options: LaneOptions,
+}
+
+async fn run_lane<T>(
+    lane_index: usize,
+    mut shutdown_rx: watch::Receiver<bool>,
+    context: LaneContext<T>,
 ) -> Result<(), FeedServiceError>
 where
     T: FeedTransport + 'static,
 {
+    let LaneContext {
+        owner,
+        repository,
+        executor,
+        notify,
+        reader_events,
+        options,
+    } = context;
     let scheduler_lane = lane_index == 0;
     let mut next_schedule_scan = Instant::now();
     let mut next_retention_scan = Instant::now();

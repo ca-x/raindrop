@@ -72,6 +72,78 @@ describe("Reader keyboard workspace", () => {
     }
   })
 
+  it("enters immersive reading and reveals both side panels from the keyboard", async () => {
+    activateLocale("en")
+    const controller = keyboardController()
+    window.history.replaceState(null, "", "/reader/unread/entry/first")
+    render(workspace(controller))
+    await screen.findByRole("heading", { name: "First article" })
+
+    fireEvent.click(screen.getByRole("button", { name: "Enter immersive reading" }))
+    const layout = document.querySelector<HTMLElement>(".reader-workspace-layout")!
+    expect(layout).toHaveClass("reader-workspace-immersive")
+    expect(screen.getByRole("button", { name: "Exit immersive reading" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    )
+
+    fireEvent.keyDown(window, { key: "]" })
+    const queue = document.querySelector<HTMLElement>(".reader-immersive-queue-panel")!
+    await waitFor(() => expect(queue).toHaveAttribute("data-keyboard-open", "true"))
+    await waitFor(() => expect(queueRow("First article").querySelector("button")).toHaveFocus())
+
+    fireEvent.keyDown(window, { key: "f" })
+    await waitFor(() => expect(screen.getByRole("heading", { name: "First article" })).toHaveFocus())
+    await waitFor(() => expect(layout).not.toHaveClass("reader-workspace-immersive"))
+    fireEvent.keyDown(window, { key: "f" })
+    await waitFor(() => expect(layout).toHaveClass("reader-workspace-immersive"))
+    fireEvent.keyDown(window, { key: "]" })
+    await waitFor(() => expect(queue).toHaveAttribute("data-keyboard-open", "true"))
+
+    fireEvent.keyDown(window, { key: "Escape" })
+    await waitFor(() => expect(queue).not.toHaveAttribute("data-keyboard-open"))
+    expect(layout).toHaveClass("reader-workspace-immersive")
+
+    fireEvent.keyDown(window, { key: "[" })
+    const sources = document.querySelector<HTMLElement>(".reader-immersive-source-panel")!
+    await waitFor(() => expect(sources).toHaveAttribute("data-keyboard-open", "true"))
+    await waitFor(() => expect(sources).toContainElement(document.activeElement as HTMLElement))
+
+    fireEvent.keyDown(window, { key: "Escape" })
+    await waitFor(() => expect(sources).not.toHaveAttribute("data-keyboard-open"))
+    fireEvent.keyDown(window, { key: "Escape" })
+    await waitFor(() => expect(layout).not.toHaveClass("reader-workspace-immersive"))
+  })
+
+  it("pages article content with Space without animating scroll", async () => {
+    const controller = keyboardController()
+    window.history.replaceState(null, "", "/reader/unread/entry/first")
+    render(workspace(controller))
+    await screen.findByRole("heading", { name: "First article" })
+    const article = document.querySelector<HTMLElement>(".reader-article")!
+    Object.defineProperty(article, "clientHeight", { configurable: true, value: 600 })
+
+    fireEvent.keyDown(window, { key: " " })
+    expect(article.scrollTop).toBe(491)
+    fireEvent.keyDown(window, { key: " ", shiftKey: true })
+    expect(article.scrollTop).toBe(0)
+  })
+
+  it("reveals the responsive source overlay from the immersive keyboard shortcut", async () => {
+    activateLocale("en")
+    const controller = keyboardController()
+    window.history.replaceState(null, "", "/reader/unread/entry/first")
+    render(workspace(controller, "medium"))
+    await screen.findByRole("heading", { name: "First article" })
+
+    fireEvent.click(screen.getByRole("button", { name: "Enter immersive reading" }))
+    fireEvent.keyDown(window, { key: "[" })
+
+    const sources = document.querySelector<HTMLElement>(".reader-immersive-source-panel")!
+    await waitFor(() => expect(sources).toHaveAttribute("data-keyboard-open", "true"))
+    expect(screen.queryByRole("dialog", { name: "Sources" })).not.toBeInTheDocument()
+  })
+
   it("navigates Shift+J/K through canonical source routes", async () => {
     const controller = withUnreadSources(keyboardController())
     window.history.replaceState(null, "", "/reader/unread")
@@ -192,7 +264,7 @@ function ReaderRoutes(
   )
 }
 
-function workspace(controller: ReaderController, viewportMode: "wide" | "compact" = "wide") {
+function workspace(controller: ReaderController, viewportMode: "wide" | "medium" | "compact" = "wide") {
   return (
     <Providers>
       <ReaderRoutes controller={controller} username="reader" onLogout={vi.fn()} viewportMode={viewportMode} />

@@ -9,6 +9,128 @@
   overflow: hidden;
 }
 
+.reader-workspace-layout {
+  position: relative;
+  isolation: isolate;
+}
+
+.reader-immersive-edge {
+  display: none;
+}
+
+.reader-workspace-layout.reader-workspace-immersive .reader-workspace-resize {
+  display: none;
+}
+
+.reader-workspace-layout.reader-workspace-immersive .reader-workspace-article {
+  position: relative;
+  z-index: 1;
+  inline-size: 100%;
+}
+
+.reader-workspace-layout.reader-workspace-immersive .reader-immersive-panel {
+  position: absolute;
+  z-index: 12;
+  inset-block: 10px;
+  max-block-size: calc(100% - 20px);
+  overflow: hidden;
+  border: 1px solid color-mix(in oklch, var(--color-border) 82%, transparent);
+  border-radius: 12px;
+  background: color-mix(in oklch, var(--color-background-surface) 88%, transparent);
+  box-shadow:
+    0 20px 56px -18px color-mix(in oklch, var(--color-text-primary) 34%, transparent),
+    0 2px 8px -4px color-mix(in oklch, var(--color-text-primary) 22%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  transition:
+    opacity 190ms cubic-bezier(0.23, 1, 0.32, 1),
+    transform 210ms cubic-bezier(0.23, 1, 0.32, 1),
+    visibility 0s linear 210ms;
+  backdrop-filter: blur(20px) saturate(1.18);
+}
+
+.reader-workspace-layout.reader-workspace-immersive .reader-immersive-source-panel {
+  inset-inline-start: 10px;
+  transform: translateX(calc(-100% - 18px));
+}
+
+.reader-workspace-layout.reader-workspace-immersive .reader-immersive-queue-panel {
+  inset-inline-end: 10px;
+  transform: translateX(calc(100% + 18px));
+}
+
+.reader-workspace-layout.reader-workspace-immersive .reader-immersive-edge {
+  position: absolute;
+  z-index: 11;
+  inset-block: 0;
+  display: block;
+  inline-size: 18px;
+}
+
+.reader-workspace-layout.reader-workspace-immersive .reader-immersive-sources-edge {
+  inset-inline-start: 0;
+}
+
+.reader-workspace-layout.reader-workspace-immersive .reader-immersive-queue-edge {
+  inset-inline-end: 0;
+}
+
+.reader-immersive-edge-trigger {
+  display: grid;
+  inline-size: 100%;
+  block-size: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: default;
+  place-items: center;
+}
+
+.reader-immersive-edge-trigger > span {
+  inline-size: 3px;
+  block-size: 44px;
+  border-radius: 999px;
+  background: var(--color-text-secondary);
+  opacity: 0;
+  transform: scaleY(0.72);
+  transition:
+    opacity 140ms var(--ease-out),
+    transform 160ms var(--ease-out);
+}
+
+.reader-immersive-edge:hover .reader-immersive-edge-trigger > span,
+.reader-immersive-edge:focus-within .reader-immersive-edge-trigger > span {
+  opacity: 0.34;
+  transform: scaleY(1);
+}
+
+.reader-workspace-layout.reader-workspace-immersive
+  :is(
+    .reader-immersive-source-panel:hover:not([data-hover-suppressed="true"]),
+    .reader-immersive-source-panel[data-keyboard-open="true"],
+    .reader-immersive-queue-panel:hover:not([data-hover-suppressed="true"]),
+    .reader-immersive-queue-panel[data-keyboard-open="true"]
+  ),
+.reader-workspace-layout.reader-workspace-immersive:not(.reader-workspace-panel-open)
+  :is(
+    .reader-immersive-sources-edge:hover ~ .reader-immersive-source-panel,
+    .reader-immersive-queue-edge:hover ~ .reader-immersive-queue-panel,
+    .reader-immersive-sources-edge:focus-within ~ .reader-immersive-source-panel,
+    .reader-immersive-queue-edge:focus-within ~ .reader-immersive-queue-panel
+  ) {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0);
+  visibility: visible;
+  transition-delay: 0s;
+}
+
+.reader-workspace-layout.reader-workspace-keyboard-transition .reader-immersive-panel,
+.reader-workspace-layout.reader-workspace-keyboard-transition .reader-immersive-edge-trigger > span {
+  transition: none;
+}
+
 .reader-source-tree {
   position: relative;
   background: var(--color-background-muted);
@@ -609,6 +731,20 @@
   display: grid;
   gap: 12px;
   padding: 20px;
+}
+
+.reader-article-fallback {
+  min-block-size: 100%;
+  background: var(--color-background-surface);
+}
+
+.reader-immersive-fallback-toolbar {
+  display: flex;
+  min-block-size: 48px;
+  align-items: center;
+  justify-content: flex-end;
+  padding-inline: 12px;
+  border-block-end: 1px solid var(--color-border);
 }
 
 .reader-article-plane {
@@ -2079,6 +2215,23 @@ html[lang^="zh"] .ai-artifact-view {
   }
 }
 
+@media (max-width: 1099px) {
+  .reader-article-toolbar [role="toolbar"] {
+    justify-content: flex-start;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .reader-article-toolbar [role="toolbar"]::-webkit-scrollbar {
+    display: none;
+  }
+
+  .reader-article-toolbar .reader-shortcut-label,
+  .reader-article-toolbar kbd {
+    display: none;
+  }
+}
+
 @media (max-width: 719px) {
   .reader-ai-sidecar {
     --reader-ai-sidecar-space: 14px;
@@ -2875,6 +3028,12 @@ html[lang^="zh"] .ai-artifact-view {
     transition-property: opacity !important;
   }
 
+  .reader-workspace-layout.reader-workspace-immersive .reader-immersive-panel {
+    transform: translateX(0) !important;
+    transition-duration: 120ms !important;
+    transition-property: opacity, visibility !important;
+  }
+
   .reader-article-body img[data-raindrop-image-state] {
     transition-duration: 160ms !important;
     transition-property: opacity !important;
@@ -2908,5 +3067,12 @@ html[lang^="zh"] .ai-artifact-view {
   .reader-translation-title-pair[data-translation-mode="HOVER"]
     > :where(.reader-translation-original, .reader-translation-title) {
     transition-property: opacity !important;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .reader-workspace-layout.reader-workspace-immersive .reader-immersive-panel {
+    background: var(--color-background-surface);
+    backdrop-filter: none;
   }
 }

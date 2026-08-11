@@ -29,6 +29,7 @@ interface EntryQueueProps {
   isRouteReady: boolean
   cursorEntryId: string | null
   cursorFocusNonce: number
+  shouldFocusCursor?: boolean
   sourceRoute: string
   savedScrollOffset: number
   onRecordScroll: (route: string, offset: number) => void
@@ -55,6 +56,7 @@ export function EntryQueue({
   isRouteReady,
   cursorEntryId,
   cursorFocusNonce,
+  shouldFocusCursor = true,
   sourceRoute,
   savedScrollOffset,
   onRecordScroll,
@@ -73,6 +75,8 @@ export function EntryQueue({
   const { i18n } = useLingui()
   const rootRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const shouldFocusCursorRef = useRef(shouldFocusCursor)
+  shouldFocusCursorRef.current = shouldFocusCursor
   const key = sourceKey(state.selectedSource)
   const queue = state.queueBySourceKey[key] ?? []
   const hasQueueSnapshot = Object.prototype.hasOwnProperty.call(
@@ -96,7 +100,7 @@ export function EntryQueue({
     return () => onRecordScroll(sourceRoute, node.scrollTop)
   }, [isRouteReady, sourceRoute, state.paneStatus.queue])
   useEffect(() => {
-    if (!isRouteReady || !cursorEntryId || cursorFocusNonce === 0) return
+    if (!shouldFocusCursorRef.current || !isRouteReady || !cursorEntryId || cursorFocusNonce === 0) return
     const row = [...(rootRef.current?.querySelectorAll<HTMLElement>("[data-reader-entry-id]") ?? [])]
       .find((item) => item.dataset.readerEntryId === cursorEntryId)
     const button = row?.querySelector<HTMLButtonElement>("button")

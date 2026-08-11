@@ -141,6 +141,8 @@ interface ArticleToolbarProps {
   onToggleStar: () => Promise<void>
   onOpenSummary?: () => void
   summaryButtonRef?: Ref<HTMLButtonElement>
+  isImmersive: boolean
+  onToggleImmersive?: () => void
 }
 
 export function ArticleToolbar(props: ArticleToolbarProps) {
@@ -153,6 +155,22 @@ export function ArticleToolbar(props: ArticleToolbarProps) {
       dividers={["bottom"]}
       endContent={
         <>
+          {props.onToggleImmersive ? (
+            <span className="reader-toolbar-shortcut reader-immersive-shortcut">
+              <Button
+                label={i18n._(props.isImmersive ? "reader.exitImmersive" : "reader.enterImmersive")}
+                icon={<ImmersiveIcon isActive={props.isImmersive} />}
+                isIconOnly
+                tooltip={i18n._(props.isImmersive ? "reader.exitImmersive" : "reader.enterImmersive")}
+                onClick={props.onToggleImmersive}
+                aria-pressed={props.isImmersive}
+                aria-keyshortcuts="F"
+                variant="ghost"
+              />
+              <span className="reader-shortcut-label">{i18n._("reader.immersiveShortcut")}</span>
+              <Kbd keys="f" />
+            </span>
+          ) : null}
           {props.onOpenSummary ? (
             <Button
               ref={props.summaryButtonRef}
@@ -203,6 +221,34 @@ export function ArticleToolbar(props: ArticleToolbarProps) {
         </>
       }
     />
+  )
+}
+
+export function ImmersiveIcon({ isActive }: { isActive: boolean }) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width="1em"
+      height="1em"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      {isActive ? (
+        <>
+          <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />
+          <path d="M4 9 9 4M20 9l-5-5M4 15l5 5M20 15l-5 5" />
+        </>
+      ) : (
+        <>
+          <path d="M8 4H4v4M16 4h4v4M8 20H4v-4M16 20h4v-4" />
+          <path d="M4 4l5 5M20 4l-5 5M4 20l5-5M20 20l-5-5" />
+        </>
+      )}
+    </svg>
   )
 }
 

@@ -53,6 +53,64 @@ describe("Reader scroll anchors", () => {
     expect(record).toHaveBeenLastCalledWith("/reader/unread", 360)
   })
 
+  it("does not move focus into a hidden immersive queue", () => {
+    render(
+      <Providers>
+        <EntryQueue
+          state={readerState("first")}
+          sourceLabel="Unread"
+          showMenu={false}
+          isCompact={false}
+          onOpenSources={vi.fn()}
+          onSelect={vi.fn()}
+          isRouteReady
+          cursorEntryId="second"
+          cursorFocusNonce={1}
+          shouldFocusCursor={false}
+          sourceRoute="/reader/unread"
+          savedScrollOffset={0}
+          onRecordScroll={vi.fn()}
+          onReload={vi.fn().mockResolvedValue(undefined)}
+          onSearchFeed={vi.fn().mockResolvedValue(undefined)}
+          onNextUnreadSource={vi.fn().mockResolvedValue(undefined)}
+          onPreviousUnreadSource={vi.fn().mockResolvedValue(undefined)}
+          onRequestMarkRead={vi.fn()}
+          isMarkingRead={false}
+          onMergePending={vi.fn()}
+          onMergedEntryFocus={vi.fn()}
+          density="balanced"
+        />
+      </Providers>,
+    )
+
+    expect(screen.getByText("Second article").closest("li")?.querySelector("button")).not.toHaveFocus()
+  })
+
+  it("keeps a visible immersive exit action while article detail is loading", () => {
+    const state = readerState("first")
+    state.paneStatus.detail = "loading"
+    const onToggleImmersive = vi.fn()
+    render(
+      <Providers>
+        <ArticleReader
+          state={state}
+          entryRoute="/reader/unread/entry/first"
+          routeEntryId="first"
+          savedScrollOffset={0}
+          shouldFocusArticle
+          onRecordScroll={vi.fn()}
+          onToggleRead={vi.fn().mockResolvedValue(undefined)}
+          onToggleStar={vi.fn().mockResolvedValue(undefined)}
+          isImmersive
+          onToggleImmersive={onToggleImmersive}
+        />
+      </Providers>,
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: /退出沉浸阅读|Exit immersive reading/u }))
+    expect(onToggleImmersive).toHaveBeenCalledOnce()
+  })
+
   it("keeps article offsets separate by entry route and starts new content at top", () => {
     const anchors: Record<string, number> = { "/reader/unread/entry/first": 320 }
     const record = vi.fn((route: string, offset: number) => { anchors[route] = offset })

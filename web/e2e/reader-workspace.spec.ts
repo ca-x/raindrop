@@ -86,6 +86,56 @@ test("Reader stable snapshot bulk read", async ({ page }, testInfo) => {
   }
 })
 
+test("Reader immersive mode keeps the article live and reveals panels on demand", async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    !["reader-1280x800", "reader-900x800"].includes(testInfo.project.name),
+    "Immersive reading is exercised in wide and medium Reader projects.",
+  )
+  const immersiveServer = await startProductionServer()
+  try {
+    await installReaderApiFixture(page)
+    await completeSetup(page, immersiveServer, createCredentials())
+    await readerRowButton(page, readerIds.firstEntry).click()
+    await expect(page.getByRole("heading", { name: "First quiet article" })).toBeVisible()
+
+    const layout = page.locator(".reader-workspace-layout")
+    const sources = page.getByRole("navigation", { name: "Sources" })
+    const queue = page.getByRole("region", { name: "Entry queue" })
+    const queuePanel = page.locator(".reader-immersive-queue-panel")
+    await page.getByRole("button", { name: "Enter immersive reading" }).click()
+    await expect(layout).toHaveClass(/reader-workspace-immersive/u)
+    await expect(sources).toBeHidden()
+    await expect(queue).toBeHidden()
+    await expect(page.getByRole("article")).toBeVisible()
+
+    await page.locator(".reader-immersive-sources-edge").hover()
+    await expect(sources).toBeVisible()
+    await page.mouse.move(640, 400)
+    await expect(sources).toBeHidden()
+
+    await page.keyboard.press("]")
+    await expect(queue).toBeVisible()
+    await expect(queuePanel).toHaveAttribute("data-keyboard-open", "true")
+    await expect.poll(() => queue.evaluate((node) => node.contains(document.activeElement))).toBe(true)
+    await page.keyboard.press("Escape")
+    await expect(queuePanel).toHaveAttribute("data-hover-suppressed", "true")
+    await expect(queue).toBeHidden()
+    await expect(layout).toHaveClass(/reader-workspace-immersive/u)
+    await page.keyboard.press("Escape")
+    await expect(layout).not.toHaveClass(/reader-workspace-immersive/u)
+    if (testInfo.project.name === "reader-1280x800") {
+      await expect(sources).toBeVisible()
+    } else {
+      await expect(sources).toBeHidden()
+    }
+    await expect(queue).toBeVisible()
+  } finally {
+    await immersiveServer.stop()
+  }
+})
+
 test("Reader source quick mark-read uses a fresh snapshot despite a stale zero count", async ({
   page,
 }, testInfo) => {

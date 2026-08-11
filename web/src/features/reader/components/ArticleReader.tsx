@@ -1,4 +1,5 @@
 import { Banner } from "@astryxdesign/core/Banner"
+import { Button } from "@astryxdesign/core/Button"
 import { Icon } from "@astryxdesign/core/Icon"
 import { EmptyState } from "@astryxdesign/core/EmptyState"
 import { Skeleton } from "@astryxdesign/core/Skeleton"
@@ -19,7 +20,7 @@ import type {
   UserPreferencesReadingColorScheme,
   UserPreferencesReadingFontFamily,
 } from "../../preferences/api/preferences.generated"
-import { ArticleToolbar, ReadingFloatingToolbar } from "./ReaderToolbar"
+import { ArticleToolbar, ImmersiveIcon, ReadingFloatingToolbar } from "./ReaderToolbar"
 import { RelativeEntryTime } from "./RelativeEntryTime"
 
 interface ArticleReaderProps {
@@ -52,6 +53,9 @@ interface ArticleReaderProps {
   onReadingColorSchemeChange?: (
     colorScheme: UserPreferencesReadingColorScheme,
   ) => Promise<boolean>
+  isImmersive?: boolean
+  canToggleImmersive?: boolean
+  onToggleImmersive?: () => void
 }
 
 const ignoreUnauthenticated = () => {}
@@ -130,32 +134,55 @@ export function ArticleReader(props: ArticleReaderProps) {
     props.translationConfig?.displayMode,
     translationController.result,
   ])
+  const immersiveExit = props.isImmersive && props.onToggleImmersive ? (
+    <div className="reader-immersive-fallback-toolbar">
+      <Button
+        label={i18n._("reader.exitImmersive")}
+        icon={<ImmersiveIcon isActive />}
+        isIconOnly
+        tooltip={i18n._("reader.exitImmersive")}
+        variant="ghost"
+        onClick={props.onToggleImmersive}
+        aria-pressed
+        aria-keyshortcuts="F"
+      />
+    </div>
+  ) : null
   if (props.state.selectedEntryId && props.state.paneStatus.detail === "error") {
     return (
-      <Banner
-        container="section"
-        status="error"
-        title={i18n._("reader.articleError")}
-        description={props.state.errors.detail ?? i18n._("reader.genericError")}
-      />
+      <div className="reader-article-fallback">
+        {immersiveExit}
+        <Banner
+          container="section"
+          status="error"
+          title={i18n._("reader.articleError")}
+          description={props.state.errors.detail ?? i18n._("reader.genericError")}
+        />
+      </div>
     )
   }
   if (props.state.selectedEntryId && props.state.paneStatus.detail === "loading") {
     return (
-      <div className="reader-article-loading" role="status" aria-label={i18n._("reader.loadingArticle")}>
-        <Skeleton height={36} width="70%" radius={2} />
-        <Skeleton height={18} width="40%" radius={2} index={1} />
-        <Skeleton height={240} width="100%" radius={2} index={2} />
+      <div className="reader-article-fallback">
+        {immersiveExit}
+        <div className="reader-article-loading" role="status" aria-label={i18n._("reader.loadingArticle")}>
+          <Skeleton height={36} width="70%" radius={2} />
+          <Skeleton height={18} width="40%" radius={2} index={1} />
+          <Skeleton height={240} width="100%" radius={2} index={2} />
+        </div>
       </div>
     )
   }
   if (!detail) {
     return (
-      <div className="reader-article-empty">
-        <EmptyState
-          title={i18n._("reader.selectArticle")}
-          description={i18n._("reader.selectArticleDescription")}
-        />
+      <div className="reader-article-fallback">
+        {immersiveExit}
+        <div className="reader-article-empty">
+          <EmptyState
+            title={i18n._("reader.selectArticle")}
+            description={i18n._("reader.selectArticleDescription")}
+          />
+        </div>
       </div>
     )
   }
@@ -177,6 +204,8 @@ export function ArticleReader(props: ArticleReaderProps) {
             : undefined
         }
         summaryButtonRef={summaryButtonRef}
+        isImmersive={props.isImmersive ?? false}
+        onToggleImmersive={props.canToggleImmersive ? props.onToggleImmersive : undefined}
       />
       {aiController.openTab ? (
         <AiReaderSidecar

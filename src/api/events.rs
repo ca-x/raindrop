@@ -43,12 +43,10 @@ async fn reader_events(
                 state.initial_sync = false;
                 ReaderEvent::sync_required()
             } else {
-                loop {
-                    match state.subscription.recv().await {
-                        ReaderEventReceive::Event(event) => break event,
-                        ReaderEventReceive::Lagged => break ReaderEvent::sync_required(),
-                        ReaderEventReceive::Closed => return None,
-                    }
+                match state.subscription.recv().await {
+                    ReaderEventReceive::Event(event) => event,
+                    ReaderEventReceive::Lagged => ReaderEvent::sync_required(),
+                    ReaderEventReceive::Closed => return None,
                 }
             };
             Some((Event::default().event("reader").json_data(event), state))

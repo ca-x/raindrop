@@ -65,6 +65,11 @@ interface ReaderShellProps {
 export function ReaderShell(props: ReaderShellProps) {
   const { i18n } = useLingui()
   const [isNavOpen, setIsNavOpen] = useState(false)
+  const [isImmersive, setIsImmersive] = useState(false)
+  const [openImmersivePanel, setOpenImmersivePanel] = useState<"sources" | "queue" | null>(null)
+  const [suppressedImmersivePanel, setSuppressedImmersivePanel] =
+    useState<"sources" | "queue" | null>(null)
+  const [keyboardTransition, setKeyboardTransition] = useState(false)
   const [isManagementOpen, setIsManagementOpen] = useState(false)
   const [isSubscriptionEditOpen, setIsSubscriptionEditOpen] = useState(false)
   const [isPreferencesOpen, setIsPreferencesOpen] = useState(false)
@@ -72,9 +77,14 @@ export function ReaderShell(props: ReaderShellProps) {
     useState<PreferencesTab>("personal")
   const [markReadTarget, setMarkReadTarget] = useState<MarkReadTarget | null>(null)
   const mobileNavRef = useRef<HTMLDialogElement>(null)
+  const openImmersivePanelRef = useRef<"sources" | "queue" | null>(null)
+  const lastPointerPosition = useRef<{ x: number; y: number } | null>(null)
+  const suppressedAtPointerPosition = useRef<{ x: number; y: number } | null>(null)
   const managementButtonRef = useRef<HTMLButtonElement>(null)
   const editSubscriptionButtonRef = useRef<HTMLButtonElement>(null)
   const preferencesButtonRef = useRef<HTMLButtonElement>(null)
+  const articlePanelRef = useRef<HTMLDivElement>(null)
+  const preferencesOpenedFromArticle = useRef(false)
   const reopenSourcesAfterManagement = useRef(false)
   const reopenSourcesAfterSubscriptionEdit = useRef(false)
   const reopenSourcesAfterPreferences = useRef(false)
@@ -117,6 +127,100 @@ export function ReaderShell(props: ReaderShellProps) {
     props.controller.state,
     (id) => i18n._(id),
   )
+  const canToggleImmersive = props.viewportMode !== "compact" && Boolean(props.route.entryId)
+  const shouldReopenMobileSources = props.viewportMode !== "wide" && !isImmersive
+  const updateOpenImmersivePanel = (panel: "sources" | "queue" | null) => {
+    openImmersivePanelRef.current = panel
+    setOpenImmersivePanel(panel)
+  }
+  useEffect(() => {
+    if (canToggleImmersive) return
+    setIsImmersive(false)
+    updateOpenImmersivePanel(null)
+    setSuppressedImmersivePanel(null)
+  }, [canToggleImmersive])
+  const runKeyboardTransition = (action: () => void) => {
+    setKeyboardTransition(true)
+    action()
+    requestAnimationFrame(() => requestAnimationFrame(() => setKeyboardTransition(false)))
+  }
+  const focusArticle = () => {
+    requestAnimationFrame(() => {
+      const heading = document.querySelector<HTMLElement>(".reader-article h1")
+      const target = heading ?? articlePanelRef.current
+      target?.focus({ preventScroll: true })
+    })
+  }
+  const toggleImmersive = (fromKeyboard = false) => {
+    if (!canToggleImmersive) return
+    const update = () => {
+      updateOpenImmersivePanel(null)
+      setSuppressedImmersivePanel(null)
+      setIsImmersive((current) => !current)
+    }
+    if (fromKeyboard) runKeyboardTransition(update)
+    else update()
+    if (fromKeyboard) focusArticle()
+  }
+  const focusPanel = (panel: "sources" | "queue") => {
+    setSuppressedImmersivePanel(null)
+    if (panel === "queue" && props.viewportMode === "compact" && props.route.entryId) {
+      props.onBack()
+      return
+    }
+    if (panel === "sources" && props.viewportMode !== "wide" && !isImmersive) {
+      updateOpenImmersivePanel(null)
+      setIsNavOpen(true)
+      return
+    }
+    if (isImmersive) updateOpenImmersivePanel(panel)
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const root = document.querySelector<HTMLElement>(
+        panel === "sources"
+          ? ".reader-immersive-source-panel"
+          : props.viewportMode === "compact"
+            ? ".reader-queue"
+            : ".reader-immersive-queue-panel",
+      )
+      const selectors = panel === "sources"
+        ? ["input", "[role='treeitem']", "button", "a[href]"]
+        : [".reader-entry-item[aria-selected='true'] button", ".reader-entry-item button", "button", "a[href]"]
+      for (const selector of selectors) {
+        const target = root?.querySelector<HTMLElement>(selector)
+        if (!target) continue
+        target.focus({ preventScroll: true })
+        break
+      }
+    }))
+  }
+  const exitImmersive = () => {
+    runKeyboardTransition(() => {
+      const renderedPanel = document.querySelector<HTMLElement>(
+        ".reader-immersive-panel[data-keyboard-open='true']",
+      )
+      const panel = openImmersivePanelRef.current ??
+        (renderedPanel?.classList.contains("reader-immersive-source-panel")
+          ? "sources"
+          : renderedPanel
+            ? "queue"
+            : null)
+      if (panel) {
+        suppressedAtPointerPosition.current = lastPointerPosition.current
+        setSuppressedImmersivePanel(panel)
+        updateOpenImmersivePanel(null)
+      } else {
+        setSuppressedImmersivePanel(null)
+        setIsImmersive(false)
+      }
+    })
+    focusArticle()
+  }
+  const scrollArticle = (direction: 1 | -1) => {
+    const article = document.querySelector<HTMLElement>(".reader-article")
+    if (!article || !props.route.entryId) return
+    const distance = Math.max(1, Math.floor(article.clientHeight * 0.82))
+    article.scrollTop += distance * direction
+  }
   useReaderHotkeys({
     queueEntryIds,
     cursorEntryId: props.cursorEntryId,
@@ -126,8 +230,8 @@ export function ReaderShell(props: ReaderShellProps) {
       isManagementOpen ||
       isSubscriptionEditOpen ||
       isPreferencesOpen ||
-      markReadTarget !== null ||
-      !props.isSourceReady,
+      markReadTarget !== null,
+    isQueueDisabled: !props.isSourceReady,
     isUnread: (entryId) => {
       const entry = props.controller.state.entriesById[entryId] ?? props.controller.state.detailsById[entryId]
       return entry ? !entry.isRead : false
@@ -138,6 +242,14 @@ export function ReaderShell(props: ReaderShellProps) {
     onToggleStar: props.controller.toggleStar,
     onNextUnreadSource: props.onNextUnreadSource,
     onPreviousUnreadSource: props.onPreviousUnreadSource,
+    canToggleImmersive,
+    isImmersive,
+    onToggleImmersive: () => toggleImmersive(true),
+    onExitImmersive: exitImmersive,
+    onFocusSources: () => runKeyboardTransition(() => focusPanel("sources")),
+    onFocusQueue: () => runKeyboardTransition(() => focusPanel("queue")),
+    canScrollArticle: Boolean(props.route.entryId),
+    onScrollArticle: scrollArticle,
   })
   const sourceTree = (
     <SourceTree
@@ -147,7 +259,7 @@ export function ReaderShell(props: ReaderShellProps) {
         props.onSelectSource(source)
       }}
       onRequestMarkRead={(feedId, label) => {
-        reopenSourcesAfterMarkRead.current = props.viewportMode !== "wide"
+        reopenSourcesAfterMarkRead.current = shouldReopenMobileSources
         if (reopenSourcesAfterMarkRead.current) {
           mobileNavRef.current?.close()
           setIsNavOpen(false)
@@ -159,7 +271,7 @@ export function ReaderShell(props: ReaderShellProps) {
       }
       isMarkingRead={props.controller.isMarkingRead}
       onManage={() => {
-        reopenSourcesAfterManagement.current = props.viewportMode !== "wide"
+        reopenSourcesAfterManagement.current = shouldReopenMobileSources
         if (reopenSourcesAfterManagement.current) {
           mobileNavRef.current?.close()
           setIsNavOpen(false)
@@ -168,7 +280,7 @@ export function ReaderShell(props: ReaderShellProps) {
       }}
       onEditSubscription={() => {
         if (!editableSubscription) return
-        reopenSourcesAfterSubscriptionEdit.current = props.viewportMode !== "wide"
+        reopenSourcesAfterSubscriptionEdit.current = shouldReopenMobileSources
         if (reopenSourcesAfterSubscriptionEdit.current) {
           mobileNavRef.current?.close()
           setIsNavOpen(false)
@@ -177,7 +289,7 @@ export function ReaderShell(props: ReaderShellProps) {
       }}
       onPreferences={() => {
         setPreferencesInitialTab("personal")
-        reopenSourcesAfterPreferences.current = props.viewportMode !== "wide"
+        reopenSourcesAfterPreferences.current = shouldReopenMobileSources
         if (reopenSourcesAfterPreferences.current) {
           mobileNavRef.current?.close()
           setIsNavOpen(false)
@@ -210,6 +322,7 @@ export function ReaderShell(props: ReaderShellProps) {
       isRouteReady={props.isSourceReady}
       cursorEntryId={props.cursorEntryId}
       cursorFocusNonce={props.cursorFocusNonce}
+      shouldFocusCursor={!isImmersive || openImmersivePanel === "queue"}
       sourceRoute={props.route.sourcePath}
       savedScrollOffset={props.controller.state.scrollAnchorByRoute[props.route.sourcePath] ?? 0}
       onRecordScroll={props.controller.recordScrollAnchor}
@@ -234,7 +347,7 @@ export function ReaderShell(props: ReaderShellProps) {
       entryRoute={entryRoute}
       routeEntryId={props.route.entryId}
       savedScrollOffset={entryRoute ? props.controller.state.scrollAnchorByRoute[entryRoute] ?? 0 : 0}
-      shouldFocusArticle={props.viewportMode === "compact"}
+      shouldFocusArticle={props.viewportMode === "compact" || isImmersive}
       onRecordScroll={props.controller.recordScrollAnchor}
       onToggleRead={props.controller.toggleRead}
       onToggleStar={props.controller.toggleStar}
@@ -270,10 +383,14 @@ export function ReaderShell(props: ReaderShellProps) {
       }
       onUnauthenticated={props.onUnauthenticated}
       onOpenAiSettings={() => {
+        preferencesOpenedFromArticle.current = true
         reopenSourcesAfterPreferences.current = false
         setPreferencesInitialTab("plugins")
         setIsPreferencesOpen(true)
       }}
+      isImmersive={isImmersive}
+      canToggleImmersive={canToggleImmersive}
+      onToggleImmersive={() => toggleImmersive(false)}
     />
   )
 
@@ -295,7 +412,7 @@ export function ReaderShell(props: ReaderShellProps) {
             header={`Raindrop · ${accountLabel}`}
             className="reader-mobile-nav"
           >
-            {sourceTree}
+            {isImmersive ? null : sourceTree}
           </MobileNav>
         )
       }
@@ -310,8 +427,27 @@ export function ReaderShell(props: ReaderShellProps) {
         articlePane={articlePane}
         sourcesResizable={sources.props}
         queueResizable={queue.props}
-        onOpenSources={() => setIsNavOpen(true)}
+        onOpenSources={() => {
+          setIsNavOpen(true)
+        }}
         onBack={props.onBack}
+        isImmersive={isImmersive}
+        keyboardTransition={keyboardTransition}
+        openImmersivePanel={openImmersivePanel}
+        suppressedImmersivePanel={suppressedImmersivePanel}
+        onOpenImmersivePanel={(panel) => {
+          suppressedAtPointerPosition.current = null
+          setSuppressedImmersivePanel(null)
+          updateOpenImmersivePanel(panel)
+        }}
+        onWorkspacePointerMove={(point) => {
+          const suppressedAt = suppressedAtPointerPosition.current
+          lastPointerPosition.current = point
+          if (!suppressedAt || (point.x === suppressedAt.x && point.y === suppressedAt.y)) return
+          suppressedAtPointerPosition.current = null
+          setSuppressedImmersivePanel(null)
+        }}
+        articlePanelRef={articlePanelRef}
       />
       <SubscriptionManagementDialog
         isOpen={isManagementOpen}
@@ -421,6 +557,11 @@ export function ReaderShell(props: ReaderShellProps) {
         onOpenChange={(open) => {
           setIsPreferencesOpen(open)
           if (open) return
+          if (preferencesOpenedFromArticle.current) {
+            preferencesOpenedFromArticle.current = false
+            focusArticle()
+            return
+          }
           if (reopenSourcesAfterPreferences.current) {
             reopenSourcesAfterPreferences.current = false
             setIsNavOpen(true)
