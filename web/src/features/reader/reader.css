@@ -749,6 +749,7 @@
 
 .reader-article-plane {
   position: relative;
+  --reader-article-progress: 0;
   --reader-article-background: var(--color-background-surface);
   --reader-article-foreground: var(--color-text-primary);
   --reader-article-muted: var(--color-text-secondary);
@@ -792,11 +793,49 @@ html[data-raindrop-reading-color="gray"] .reader-article-plane {
   --reader-article-link: #285f68;
 }
 
-.reader-article-plane > [role="toolbar"] {
+.reader-article-plane > .reader-article-toolbar {
+  position: relative;
   flex: none;
   z-index: 1;
   border-block-end: 1px solid var(--color-border);
   background: color-mix(in oklch, var(--color-background-surface) 96%, transparent);
+}
+
+.reader-article-plane > .reader-article-toolbar::before,
+.reader-article-plane > .reader-article-toolbar::after {
+  position: absolute;
+  inset-inline: 0;
+  pointer-events: none;
+  content: "";
+}
+
+.reader-article-plane > .reader-article-toolbar::before {
+  z-index: 1;
+  inset-block-end: -1px;
+  block-size: 2px;
+  background: color-mix(in oklch, var(--color-accent) 72%, transparent);
+  transform: scaleX(var(--reader-article-progress));
+  transform-origin: left center;
+}
+
+:dir(rtl) .reader-article-plane > .reader-article-toolbar::before {
+  transform-origin: right center;
+}
+
+.reader-article-plane > .reader-article-toolbar::after {
+  inset-block-end: -12px;
+  block-size: 12px;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in oklch, var(--reader-article-foreground) 10%, transparent),
+    transparent
+  );
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+
+.reader-article-plane[data-article-scrolled="true"] > .reader-article-toolbar::after {
+  opacity: 0.34;
 }
 
 .reader-ai-sidecar {
@@ -1665,6 +1704,12 @@ html[lang^="zh"] .ai-artifact-view {
   font: inherit;
   text-align: start;
   cursor: pointer;
+  transition: transform var(--duration-micro) var(--ease-out);
+}
+
+.reader-reading-popover-option:not(:disabled):active {
+  box-shadow: inset 0 1px 3px color-mix(in oklch, var(--color-text-primary) 13%, transparent);
+  transform: scale(0.98);
 }
 
 .reader-reading-popover-option:not(:has(.reader-reading-theme-swatch)) {

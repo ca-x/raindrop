@@ -4,6 +4,7 @@ import type { ComponentProps } from "react"
 
 import { Providers } from "../../app/Providers"
 import { activateLocale } from "../../shared/i18n/i18n"
+import { setTestReducedMotion } from "../../test/setup"
 import { fakePreferencesController } from "../preferences/model/testFixtures"
 import { initialReaderState } from "./model/reducer"
 import type { ReaderController } from "./model/useReaderController"
@@ -221,7 +222,11 @@ describe("Reader keyboard workspace", () => {
     expect(controller.recordScrollAnchor).not.toHaveBeenCalled()
   })
 
-  it("merges pending entries at the top without replacing the open article", async () => {
+  it.each([
+    { reducedMotion: false, behavior: "smooth" as const },
+    { reducedMotion: true, behavior: "auto" as const },
+  ])("merges pending entries at the top without replacing the open article ($behavior)", async ({ reducedMotion, behavior }) => {
+    setTestReducedMotion(reducedMotion)
     const controller = keyboardController()
     const pending = { ...controller.state.entriesById.second, entryId: "pending", title: "Pending article" }
     controller.state.entriesById.pending = pending
@@ -236,6 +241,7 @@ describe("Reader keyboard workspace", () => {
     render(workspace(controller))
     await screen.findByRole("heading", { name: "First article" })
     const scroller = screen.getByTestId("entry-queue-scroll")
+    const scrollTo = vi.spyOn(scroller, "scrollTo")
     scroller.scrollTop = 260
     fireEvent.scroll(scroller)
     vi.clearAllMocks()
@@ -245,6 +251,7 @@ describe("Reader keyboard workspace", () => {
     const pendingRow = await screen.findByText("Pending article")
     expect(window.location.pathname).toBe("/reader/unread/entry/first")
     expect(screen.getByRole("heading", { name: "First article" })).toBeVisible()
+    expect(scrollTo).toHaveBeenCalledWith({ top: 0, behavior })
     expect(scroller.scrollTop).toBe(0)
     expect(pendingRow.closest("li")).toHaveAttribute("aria-selected", "true")
     expect(pendingRow.closest("li")?.querySelector("button")).toHaveFocus()

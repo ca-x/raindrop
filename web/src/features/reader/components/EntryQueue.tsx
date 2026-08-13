@@ -75,6 +75,7 @@ export function EntryQueue({
   const { i18n } = useLingui()
   const rootRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const smoothScrollCursorRef = useRef<string | null>(null)
   const shouldFocusCursorRef = useRef(shouldFocusCursor)
   shouldFocusCursorRef.current = shouldFocusCursor
   const key = sourceKey(state.selectedSource)
@@ -105,7 +106,11 @@ export function EntryQueue({
       .find((item) => item.dataset.readerEntryId === cursorEntryId)
     const button = row?.querySelector<HTMLButtonElement>("button")
     button?.focus({ preventScroll: true })
-    row?.scrollIntoView?.({ behavior: "auto", block: "nearest" })
+    if (smoothScrollCursorRef.current === cursorEntryId) {
+      smoothScrollCursorRef.current = null
+    } else {
+      row?.scrollIntoView?.({ behavior: "auto", block: "nearest" })
+    }
   }, [cursorEntryId, cursorFocusNonce, isRouteReady])
   return (
     <div
@@ -148,8 +153,12 @@ export function EntryQueue({
                 isDisabled={!isRouteReady}
                 onClick={() => {
                   const firstPending = state.pendingNewEntriesBySource[key]?.[0]
+                  smoothScrollCursorRef.current = firstPending ?? null
                   onMergePending()
-                  if (scrollRef.current) scrollRef.current.scrollTop = 0
+                  scrollRef.current?.scrollTo({
+                    top: 0,
+                    behavior: prefersReducedMotion() ? "auto" : "smooth",
+                  })
                   onRecordScroll(sourceRoute, 0)
                   if (firstPending) onMergedEntryFocus(firstPending)
                 }}
@@ -296,6 +305,10 @@ export function EntryQueue({
       )}
     </div>
   )
+}
+
+function prefersReducedMotion() {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches
 }
 
 function clampOffset(element: HTMLElement, offset: number): number {

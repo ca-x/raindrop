@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { Providers } from "../../app/Providers"
+import { notifyTestResize } from "../../test/setup"
 import { ArticleReader } from "./components/ArticleReader"
 import { EntryQueue } from "./components/EntryQueue"
 import { initialReaderState } from "./model/reducer"
@@ -131,6 +132,34 @@ describe("Reader scroll anchors", () => {
     rerender(article("first", anchors, record))
     expect(screen.getByRole("article").scrollTop).toBe(540)
     expect(record).toHaveBeenCalledWith("/reader/unread/entry/second", 210)
+  })
+
+  it("tracks article reading progress and toolbar depth without rerendering", () => {
+    const anchors: Record<string, number> = { "/reader/unread/entry/first": 200 }
+    render(article("first", anchors, vi.fn()))
+
+    const articleNode = screen.getByRole("article")
+    const plane = articleNode.closest<HTMLElement>(".reader-article-plane")!
+    expect(plane.style.getPropertyValue("--reader-article-progress")).toBe("0.25")
+    expect(plane).toHaveAttribute("data-article-scrolled", "true")
+
+    articleNode.scrollTop = 0
+    fireEvent.scroll(articleNode)
+    expect(plane.style.getPropertyValue("--reader-article-progress")).toBe("0")
+    expect(plane).not.toHaveAttribute("data-article-scrolled")
+  })
+
+  it("recalculates reading progress when the article viewport changes", () => {
+    render(article("first", { "/reader/unread/entry/first": 200 }, vi.fn()))
+
+    const articleNode = screen.getByRole("article")
+    const plane = articleNode.closest<HTMLElement>(".reader-article-plane")!
+    expect(plane.style.getPropertyValue("--reader-article-progress")).toBe("0.25")
+
+    vi.spyOn(articleNode, "clientHeight", "get").mockReturnValue(400)
+    notifyTestResize(articleNode)
+
+    expect(plane.style.getPropertyValue("--reader-article-progress")).toBe(String(1 / 3))
   })
 
   it("never binds a pending route to the previously rendered article node", () => {

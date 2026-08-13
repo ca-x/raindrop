@@ -2,10 +2,14 @@ import "@testing-library/jest-dom/vitest"
 import { cleanup } from "@testing-library/react"
 import { afterEach } from "vitest"
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  setTestReducedMotion(false)
+})
 
 let viewportWidth = 1280
 let viewportHeight = 800
+let reducedMotion = false
 const mediaQueries = new Map<string, MatchMediaMock>()
 
 class MatchMediaMock {
@@ -59,6 +63,18 @@ Object.defineProperty(window, "scrollTo", {
   configurable: true,
   value: () => undefined,
 })
+Object.defineProperty(HTMLElement.prototype, "scrollTo", {
+  configurable: true,
+  value(options?: ScrollToOptions | number, y?: number) {
+    if (typeof options === "number") {
+      this.scrollLeft = options
+      this.scrollTop = y ?? 0
+      return
+    }
+    if (options?.left !== undefined) this.scrollLeft = options.left
+    if (options?.top !== undefined) this.scrollTop = options.top
+  },
+})
 
 Object.defineProperty(HTMLElement.prototype, "showPopover", {
   configurable: true,
@@ -103,8 +119,20 @@ export function setTestViewport(width: number, height = 800) {
   window.dispatchEvent(new Event("resize"))
 }
 
+export function setTestReducedMotion(value: boolean) {
+  const previousMatches = new Map(
+    [...mediaQueries].map(([query, media]) => [query, media.matches]),
+  )
+  reducedMotion = value
+  for (const [query, media] of mediaQueries) {
+    if (previousMatches.get(query) !== media.matches) {
+      media.dispatchEvent(new Event("change"))
+    }
+  }
+}
+
 function matchesMediaQuery(query: string) {
-  if (/prefers-reduced-motion:\s*reduce/.test(query)) return false
+  if (/prefers-reduced-motion:\s*reduce/.test(query)) return reducedMotion
   if (/hover:\s*hover|pointer:\s*fine/.test(query)) return false
   if (/pointer:\s*coarse/.test(query)) return true
   const minWidth = query.match(/min-width:\s*(\d+)px/)
@@ -173,12 +201,37 @@ Object.defineProperty(globalThis, "localStorage", {
 })
 
 class ResizeObserverStub implements ResizeObserver {
-  disconnect() {}
-  observe() {}
-  unobserve() {}
+  static readonly instances: ResizeObserverStub[] = []
+
+  readonly observed = new Set<Element>()
+
+  constructor(private readonly callback: ResizeObserverCallback) {
+    ResizeObserverStub.instances.push(this)
+  }
+
+  disconnect() {
+    this.observed.clear()
+  }
+  observe(target: Element) {
+    this.observed.add(target)
+  }
+  unobserve(target: Element) {
+    this.observed.delete(target)
+  }
+
+  static notify(target: Element) {
+    for (const observer of ResizeObserverStub.instances) {
+      if (!observer.observed.has(target)) continue
+      observer.callback([], observer)
+    }
+  }
 }
 
 globalThis.ResizeObserver = ResizeObserverStub
+
+export function notifyTestResize(target: Element) {
+  ResizeObserverStub.notify(target)
+}
 
 Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
   configurable: true,

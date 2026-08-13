@@ -109,6 +109,7 @@ export function ArticleReader(props: ArticleReaderProps) {
     const entryRoute = props.entryRoute
     if (!node || !canBindArticle || !entryRoute) return
     node.scrollTop = clampOffset(node, props.savedScrollOffset)
+    updateArticleScrollState(node)
     return () => props.onRecordScroll(entryRoute, node.scrollTop)
   }, [canBindArticle, detail?.entryId, props.entryRoute])
   useEffect(() => {
@@ -118,6 +119,15 @@ export function ArticleReader(props: ArticleReaderProps) {
     if (!articleHtml || !bodyRef.current) return
     return enhanceArticleContent(bodyRef.current)
   })
+  useEffect(() => {
+    const article = articleRef.current
+    const body = bodyRef.current
+    if (!article || !body || !canBindArticle) return
+    const observer = new ResizeObserver(() => updateArticleScrollState(article))
+    observer.observe(article)
+    observer.observe(body)
+    return () => observer.disconnect()
+  }, [canBindArticle, detail?.entryId])
   useLayoutEffect(() => {
     if (!bodyRef.current || !translationController.result || !props.translationConfig) {
       return
@@ -228,6 +238,7 @@ export function ArticleReader(props: ArticleReaderProps) {
         ref={articleRef}
         className="reader-article"
         lang={i18n.locale}
+        onScroll={(event) => updateArticleScrollState(event.currentTarget)}
       >
         <p className="reader-article-kicker">{detail.feedTitle}</p>
         <div
@@ -295,6 +306,18 @@ export function ArticleReader(props: ArticleReaderProps) {
       />
     </div>
   )
+}
+
+function updateArticleScrollState(node: HTMLElement) {
+  const scrollableDistance = Math.max(0, node.scrollHeight - node.clientHeight)
+  const progress = scrollableDistance === 0
+    ? 0
+    : Math.min(1, Math.max(0, node.scrollTop / scrollableDistance))
+  const plane = node.closest<HTMLElement>(".reader-article-plane")
+  if (!plane) return
+  plane.style.setProperty("--reader-article-progress", String(progress))
+  if (node.scrollTop > 1) plane.dataset.articleScrolled = "true"
+  else delete plane.dataset.articleScrolled
 }
 
 const TRANSLATION_BLOCK_SELECTOR = [

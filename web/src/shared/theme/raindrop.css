@@ -33,6 +33,9 @@
     --shadow-color: light-dark(oklch(0.18 0.02 255 / 0.13), oklch(0 0 0 / 0.42));
     --shadow-surface: 0 1px 2px var(--shadow-color), 0 12px 30px -26px var(--shadow-color);
     --shadow-selected: 0 1px 3px var(--shadow-color), 0 10px 24px -24px var(--shadow-color);
+    --shadow-control: 0 1px 2px color-mix(in oklch, var(--shadow-color) 68%, transparent),
+      0 4px 10px -8px var(--shadow-color);
+    --shadow-control-pressed: inset 0 1px 2px color-mix(in oklch, var(--shadow-color) 82%, transparent);
     --scrollbar-thumb: color-mix(in oklch, var(--color-text-secondary) 28%, transparent);
     --scrollbar-thumb-hover: color-mix(in oklch, var(--color-text-secondary) 52%, transparent);
     --scrollbar-thumb-active: color-mix(in oklch, var(--color-text-secondary) 68%, transparent);
@@ -45,6 +48,16 @@
     --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
     --ease-standard: cubic-bezier(0.32, 0.72, 0, 1);
   }
+}
+
+.astryx-button[data-variant="primary"]:not(:disabled, [aria-disabled="true"]),
+.astryx-button[data-variant="secondary"]:not(:disabled, [aria-disabled="true"]) {
+  box-shadow: var(--shadow-control);
+}
+
+.astryx-button[data-variant="primary"]:not(:disabled, [aria-disabled="true"]):active,
+.astryx-button[data-variant="secondary"]:not(:disabled, [aria-disabled="true"]):active {
+  box-shadow: var(--shadow-control-pressed);
 }
 
 html,

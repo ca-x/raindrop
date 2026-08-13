@@ -582,6 +582,13 @@ async function verifyWide(page: Page, fixture: ReaderApiFixture): Promise<void> 
   await page.getByRole("button", { name: "Manage subscriptions" }).click()
   const addDialog = page.getByRole("dialog", { name: "Manage subscriptions" })
   await expect(addDialog).toBeVisible()
+  for (const button of [
+    addDialog.getByRole("button", { name: "Continue" }),
+    addDialog.getByRole("button", { name: "Close" }),
+  ]) {
+    await expect.poll(() => button.evaluate((element) => getComputedStyle(element).boxShadow))
+      .not.toBe("none")
+  }
   const beforeDialog = { url: page.url(), patches: fixture.patches.length }
   await addDialog.getByRole("button", { name: "Close" }).focus()
   await page.keyboard.press("j")
@@ -605,10 +612,30 @@ async function verifyWide(page: Page, fixture: ReaderApiFixture): Promise<void> 
   await expect(readerRowButton(page, readerIds.pendingEntry)).toBeFocused()
 
   const article = page.getByRole("article")
+  const articlePlane = page.locator(".reader-article-plane")
   await readerRowButton(page, readerIds.firstEntry).click()
   await setScrollTop(article, 320)
+  await expect(articlePlane).toHaveAttribute("data-article-scrolled", "true")
+  await expect.poll(() => articlePlane.evaluate((element) => ({
+    progress: Number.parseFloat(
+      getComputedStyle(element).getPropertyValue("--reader-article-progress"),
+    ),
+    shadowOpacity: getComputedStyle(
+      element.querySelector(".reader-article-toolbar")!,
+      "::after",
+    ).opacity,
+  }))).toEqual({
+    progress: expect.any(Number),
+    shadowOpacity: "0.34",
+  })
+  expect(
+    await articlePlane.evaluate((element) => Number.parseFloat(
+      getComputedStyle(element).getPropertyValue("--reader-article-progress"),
+    )),
+  ).toBeGreaterThan(0)
   await readerRowButton(page, readerIds.secondEntry).click()
   await expectScrollTop(article, 0)
+  await expect(articlePlane).not.toHaveAttribute("data-article-scrolled")
   await setScrollTop(article, 180)
   await readerRowButton(page, readerIds.firstEntry).click()
   await expectScrollTop(article, 320)
