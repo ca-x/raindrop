@@ -100,6 +100,95 @@ it("hydrates cached Reader rows before delayed requests and reconciles to the se
   })
 })
 
+it("does not block the initial network load on a slow browser cache", async () => {
+  const cacheLoad = deferred<ReaderCacheSnapshot | null>()
+  const entry = makeEntry({ title: "Network entry" })
+  const listEntries = vi.fn(async () => ({
+    ownerUserId: userId,
+    items: [entry],
+    nextCursor: null,
+    snapshotGeneration: 9,
+  }))
+  const listSubscriptions = vi.fn(async () => ({
+    ownerUserId: userId,
+    items: [makeSubscription()],
+    nextCursor: null,
+  }))
+  const cache: ReaderCache = {
+    load: vi.fn(() => cacheLoad.promise),
+    save: vi.fn(async () => undefined),
+    clear: vi.fn(async () => undefined),
+  }
+  const { result } = renderHook(() =>
+    useReaderController({
+      csrfToken: "csrf-memory",
+      userId,
+      cache,
+      onUnauthenticated: vi.fn(),
+      api: makeApi({ listSubscriptions, listEntries }),
+    }),
+  )
+
+  let loading!: Promise<void>
+  act(() => { loading = result.current.load() })
+  await vi.waitFor(() => expect(listEntries).toHaveBeenCalledOnce())
+  await vi.waitFor(() => {
+    expect(result.current.state.queueBySourceKey[sourceKey({ kind: "smart", state: "UNREAD" })])
+      .toEqual([entry.entryId])
+  })
+
+  cacheLoad.resolve(null)
+  await act(async () => loading)
+})
+
+it("does not let a late cache snapshot overwrite an authoritative response", async () => {
+  const cacheLoad = deferred<ReaderCacheSnapshot | null>()
+  const freshSubscription = makeSubscription({ title: "Authoritative feed" })
+  const freshEntry = makeEntry({ title: "Authoritative entry" })
+  const cache: ReaderCache = {
+    load: vi.fn(() => cacheLoad.promise),
+    save: vi.fn(async () => undefined),
+    clear: vi.fn(async () => undefined),
+  }
+  const { result } = renderHook(() =>
+    useReaderController({
+      csrfToken: "csrf-memory",
+      userId,
+      cache,
+      onUnauthenticated: vi.fn(),
+      api: makeApi({
+        listSubscriptions: vi.fn(async () => ({
+          ownerUserId: userId,
+          items: [freshSubscription],
+          nextCursor: null,
+        })),
+        listEntries: vi.fn(async () => ({
+          ownerUserId: userId,
+          items: [freshEntry],
+          nextCursor: null,
+          snapshotGeneration: 12,
+        })),
+      }),
+    }),
+  )
+
+  let loading!: Promise<void>
+  act(() => { loading = result.current.load() })
+  await vi.waitFor(() => {
+    expect(result.current.state.subscriptionsById[freshSubscription.subscriptionId]?.title)
+      .toBe("Authoritative feed")
+    expect(result.current.state.entriesById[freshEntry.entryId]?.title)
+      .toBe("Authoritative entry")
+  })
+
+  cacheLoad.resolve(cacheSnapshot(makeSubscription({ title: "Stale feed" }), makeEntry({ title: "Stale entry" })))
+  await act(async () => loading)
+
+  expect(result.current.state.subscriptionOrder).toEqual([freshSubscription.subscriptionId])
+  expect(result.current.state.queueBySourceKey[sourceKey({ kind: "smart", state: "UNREAD" })])
+    .toEqual([freshEntry.entryId])
+})
+
 it("does not let a pre-mutation revalidation response undo a committed cached entry change", async () => {
   const entries = deferred<{
     ownerUserId: string
@@ -445,6 +534,7 @@ it("loads every subscription page and the selected source through injected clien
     undefined,
     "next",
   ])
+  expect(listSubscriptions.mock.calls[1]?.[0]).toMatchObject({ limit: 100 })
   expect(listSubscriptions.mock.calls.every(([options]) => options?.signal instanceof AbortSignal)).toBe(
     true,
   )

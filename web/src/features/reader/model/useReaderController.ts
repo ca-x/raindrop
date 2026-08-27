@@ -326,10 +326,13 @@ export function useReaderController({
         // Injected/custom caches retain the same best-effort boundary.
       } finally {
         cacheLoadSettledRef.current = true
+        // The network can finish before a slow IndexedDB read. Re-run the
+        // validation gate now that cache writes are safe to schedule.
+        persistWhenFullyValidated()
       }
     })()
     return cacheLoadRef.current
-  }, [cache, dispatch, session, userId])
+  }, [cache, dispatch, persistWhenFullyValidated, session, userId])
 
   const requests = useReaderRequests({
     api,
@@ -379,9 +382,14 @@ export function useReaderController({
   }, [persistCurrentCacheState, session, userId])
   const load = useCallback(async () => {
     const invocation = ++loadInvocationRef.current
-    if (userId) await hydrateCache()
+    if (!session.active()) return
+    // Cache hydration is an acceleration path, not a prerequisite for the
+    // Reader. Start both operations together so a slow/blocked IndexedDB never
+    // leaves the workspace on an empty loading screen.
+    const cacheLoad = userId ? hydrateCache() : Promise.resolve()
     if (invocation !== loadInvocationRef.current || !session.active()) return
-    await requests.load()
+    const networkLoad = requests.load()
+    await Promise.all([cacheLoad, networkLoad])
   }, [hydrateCache, requests.load, session, userId])
   const { selectSource } = requests
   const revalidateOrganization = useCallback(() => {

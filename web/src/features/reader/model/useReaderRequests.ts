@@ -28,6 +28,11 @@ interface ReaderRequestOptions {
 
 type Pane = "subscriptions" | "queue" | "detail"
 
+// Keep the first page at the API default for a fast first paint, then drain
+// the remaining pages in larger batches so accounts with hundreds of feeds do
+// not spend one round-trip per small page before the projection is complete.
+const SUBSCRIPTION_REVALIDATION_PAGE_LIMIT = 100
+
 export function useReaderRequests({
   api,
   dispatch,
@@ -90,6 +95,7 @@ export function useReaderRequests({
         if (page.nextCursor === null) break
         page = await api.listSubscriptions({
           cursor: page.nextCursor,
+          limit: SUBSCRIPTION_REVALIDATION_PAGE_LIMIT,
           signal: controller.signal,
         })
       }

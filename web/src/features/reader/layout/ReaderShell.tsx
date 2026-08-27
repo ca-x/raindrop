@@ -3,7 +3,7 @@ import { Banner } from "@astryxdesign/core/Banner"
 import { MobileNav } from "@astryxdesign/core/MobileNav"
 import { useResizable } from "@astryxdesign/core/Resizable"
 import { useLingui } from "@lingui/react"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 
 import type { ViewportMode } from "../../../shared/responsive/useViewportMode"
 import type { AiSettingsController } from "../../ai/model/useAiSettingsController"
@@ -92,10 +92,16 @@ export function ReaderShell(props: ReaderShellProps) {
   const sources = useResizable({ defaultSize: 240, minSizePx: 200, maxSizePx: 340, autoSaveId: "reader-sources" })
   const queue = useResizable({ defaultSize: 380, minSizePx: 300, maxSizePx: 560, autoSaveId: "reader-queue" })
   const accountLabel = props.profileController?.profile.displayName || props.username
-  const unreadCount = props.controller.state.subscriptionOrder.reduce(
-    (total, subscriptionId) =>
-      total + (props.controller.state.subscriptionsById[subscriptionId]?.unreadCount ?? 0),
-    0,
+  const unreadCount = useMemo(
+    () => props.controller.state.subscriptionOrder.reduce(
+      (total, subscriptionId) =>
+        total + (props.controller.state.subscriptionsById[subscriptionId]?.unreadCount ?? 0),
+      0,
+    ),
+    [
+      props.controller.state.subscriptionOrder,
+      props.controller.state.subscriptionsById,
+    ],
   )
   useEffect(() => {
     document.title = unreadCount > 0 ? `(${unreadCount}) Raindrop` : "Raindrop"
@@ -105,14 +111,20 @@ export function ReaderShell(props: ReaderShellProps) {
     ? props.controller.state.queueBySourceKey[sourceKey(props.controller.state.selectedSource)] ?? []
     : []
   const selectedSource = props.controller.state.selectedSource
-  const selectedSubscription =
-    selectedSource.kind === "feed"
+  const selectedSubscription = useMemo(
+    () => selectedSource.kind === "feed"
       ? props.controller.state.subscriptionOrder
           .map((id) => props.controller.state.subscriptionsById[id])
           .find(
             (subscription) => subscription.feedId === selectedSource.feedId,
           )
-      : undefined
+      : undefined,
+    [
+      props.controller.state.subscriptionOrder,
+      props.controller.state.subscriptionsById,
+      selectedSource,
+    ],
+  )
   const editableSubscription =
     props.controller.state.subscriptionsAuthoritative &&
     selectedSubscription &&

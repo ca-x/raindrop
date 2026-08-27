@@ -411,6 +411,14 @@
   min-block-size: var(--reader-source-row-min-block-size);
 }
 
+/* Large subscription trees stay cheap to paint while preserving the full
+   accessible tree and keyboard model. The browser materializes rows as they
+   approach the scrollport, with a stable intrinsic height to avoid jumps. */
+.reader-source-tree .reader-source-list [data-tree-id^="feed:"] {
+  content-visibility: auto;
+  contain-intrinsic-size: var(--reader-source-row-min-block-size);
+}
+
 .reader-source-tree .reader-source-list [role="treeitem"] :where(button, a) {
   min-inline-size: 0;
   min-block-size: 0;

@@ -7,7 +7,7 @@ import {
   type TreeListItemData,
 } from "@astryxdesign/core/TreeList"
 import { useLingui } from "@lingui/react"
-import { type DragEvent, useRef, useState } from "react"
+import { type DragEvent, useMemo, useRef, useState } from "react"
 
 import { sourceTreeDensityStyle } from "../components/sourceDensity"
 import {
@@ -54,17 +54,29 @@ export function CategoryList({
   const [dropTargetCategoryId, setDropTargetCategoryId] = useState<string | null | undefined>()
   const [pendingCategoryId, setPendingCategoryId] = useState<string | null | undefined>()
   const [moveAnnouncement, setMoveAnnouncement] = useState("")
-  const categories = state.categoryOrder.map((id) => state.categoriesById[id])
-  const subscriptions = state.subscriptionOrder.map((id) => state.subscriptionsById[id])
-  const groups = visibleGroups(
-    groupSubscriptions(categories, subscriptions),
-    query,
-    showAllSources,
-    state.selectedSource,
+  const categories = useMemo(
+    () => state.categoryOrder.map((id) => state.categoriesById[id]),
+    [state.categoriesById, state.categoryOrder],
   )
-  const totalUnread = subscriptions.reduce(
-    (total, subscription) => total + subscription.unreadCount,
-    0,
+  const subscriptions = useMemo(
+    () => state.subscriptionOrder.map((id) => state.subscriptionsById[id]),
+    [state.subscriptionOrder, state.subscriptionsById],
+  )
+  const groups = useMemo(
+    () => visibleGroups(
+      groupSubscriptions(categories, subscriptions),
+      query,
+      showAllSources,
+      state.selectedSource,
+    ),
+    [categories, query, showAllSources, state.selectedSource, subscriptions],
+  )
+  const totalUnread = useMemo(
+    () => subscriptions.reduce(
+      (total, subscription) => total + subscription.unreadCount,
+      0,
+    ),
+    [subscriptions],
   )
   const dragSubscription = (
     event: DragEvent<HTMLElement>,
