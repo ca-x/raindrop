@@ -35,6 +35,7 @@ use tower::ServiceExt;
 const OPENAPI_PATH: &str = "docs/openapi/ai-provider-v1.json";
 const PROVIDERS_PATH: &str = "/api/v1/ai/providers";
 const PROVIDER_PATH: &str = "/api/v1/ai/providers/{providerId}";
+const MODELS_PATH: &str = "/api/v1/ai/providers/models";
 const METHODS: [&str; 8] = [
     "get", "put", "post", "delete", "options", "head", "patch", "trace",
 ];
@@ -48,6 +49,7 @@ fn provider_openapi_freezes_the_public_surface_and_secret_boundary() {
         BTreeSet::from([
             ("GET".to_owned(), PROVIDERS_PATH.to_owned()),
             ("POST".to_owned(), PROVIDERS_PATH.to_owned()),
+            ("POST".to_owned(), MODELS_PATH.to_owned()),
             ("GET".to_owned(), PROVIDER_PATH.to_owned()),
             ("PATCH".to_owned(), PROVIDER_PATH.to_owned()),
         ])
@@ -58,6 +60,12 @@ fn provider_openapi_freezes_the_public_surface_and_secret_boundary() {
         PROVIDERS_PATH,
         "post",
         &[201, 401, 403, 409, 422, 429, 500, 503],
+    );
+    assert_statuses(
+        &document,
+        MODELS_PATH,
+        "post",
+        &[200, 401, 403, 422, 429, 502],
     );
     assert_statuses(&document, PROVIDER_PATH, "get", &[200, 401, 404, 422, 500]);
     assert_statuses(
@@ -70,6 +78,7 @@ fn provider_openapi_freezes_the_public_surface_and_secret_boundary() {
     for (path, method) in [
         (PROVIDERS_PATH, "get"),
         (PROVIDERS_PATH, "post"),
+        (MODELS_PATH, "post"),
         (PROVIDER_PATH, "get"),
         (PROVIDER_PATH, "patch"),
     ] {
@@ -78,7 +87,11 @@ fn provider_openapi_freezes_the_public_surface_and_secret_boundary() {
             json!([{ "sessionCookie": [] }])
         );
     }
-    for (path, method) in [(PROVIDERS_PATH, "post"), (PROVIDER_PATH, "patch")] {
+    for (path, method) in [
+        (PROVIDERS_PATH, "post"),
+        (MODELS_PATH, "post"),
+        (PROVIDER_PATH, "patch"),
+    ] {
         assert!(
             document["paths"][path][method]["parameters"]
                 .as_array()

@@ -94,6 +94,27 @@
         }
       }
     },
+    "/api/v1/ai/providers/models": {
+      "post": {
+        "tags": ["AI Providers"],
+        "operationId": "discoverAiProviderModels",
+        "summary": "Discover models from an AI Provider endpoint",
+        "security": [{"sessionCookie": []}],
+        "parameters": [{"$ref": "#/components/parameters/CsrfToken"}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DiscoverModelsRequest"}}}
+        },
+        "responses": {
+          "200": {"$ref": "#/components/responses/DiscoveredModels"},
+          "401": {"$ref": "#/components/responses/Error"},
+          "403": {"$ref": "#/components/responses/Error"},
+          "422": {"$ref": "#/components/responses/Error"},
+          "429": {"$ref": "#/components/responses/RateLimited"},
+          "502": {"$ref": "#/components/responses/Error"}
+        }
+      }
+    },
     "/api/v1/ai/providers/{providerId}": {
       "parameters": [
         {
@@ -434,6 +455,28 @@
           }
         }
       },
+      "DiscoverModelsRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "endpoint", "credential"],
+        "properties": {
+          "kind": {"$ref": "#/components/schemas/ProviderKind"},
+          "endpoint": {"type": "string", "format": "uri", "pattern": "^https://", "maxLength": 2048},
+          "credential": {"type": "string", "minLength": 1, "maxLength": 8192, "writeOnly": true}
+        }
+      },
+      "DiscoveredModel": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label"],
+        "properties": {"id": {"type": "string", "minLength": 1, "maxLength": 200}, "label": {"type": "string", "minLength": 1, "maxLength": 200}}
+      },
+      "DiscoveredModels": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["models"],
+        "properties": {"models": {"type": "array", "maxItems": 200, "items": {"$ref": "#/components/schemas/DiscoveredModel"}}}
+      },
       "CreateProviderRequest": {
         "type": "object",
         "additionalProperties": false,
@@ -578,6 +621,14 @@
       }
     },
     "responses": {
+      "DiscoveredModels": {
+        "description": "Model identifiers returned by the provider discovery endpoint.",
+        "headers": {
+          "Cache-Control": {"$ref": "#/components/headers/CacheControl"},
+          "Pragma": {"$ref": "#/components/headers/Pragma"}
+        },
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DiscoveredModels"}}}
+      },
       "ProviderList": {
         "description": "Visible AI Providers and keyring availability.",
         "headers": {

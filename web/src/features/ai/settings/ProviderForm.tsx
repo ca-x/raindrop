@@ -16,9 +16,14 @@ import {
   type ProviderDraftErrors,
   type ProviderDraftField,
 } from "../model/providerDraft"
+import {
+  discoverProviderModels,
+  type ProviderModelDiscoveryResult,
+} from "../api/providers"
 import { providerKindLabel } from "./ProviderList"
 
 interface ProviderFormProps {
+  csrfToken: string
   draft: ProviderDraft
   isSaving: boolean
   credentialAvailable: boolean
@@ -37,9 +42,15 @@ const PROVIDER_KINDS: ProviderKind[] = [
 export function ProviderForm(props: ProviderFormProps) {
   const { i18n } = useLingui()
   const [errors, setErrors] = useState<ProviderDraftErrors>({})
+  const [models, setModels] = useState<ProviderModelDiscoveryResult[]>([])
+  const [isDiscoveringModels, setIsDiscoveringModels] = useState(false)
+  const [modelDiscoveryError, setModelDiscoveryError] = useState<string | null>(null)
   const update = (patch: Partial<ProviderDraft>) => {
     props.onChange({ ...props.draft, ...patch })
     setErrors({})
+    if (patch.endpoint !== undefined || patch.credential !== undefined) {
+      setModelDiscoveryError(null)
+    }
   }
   const updatePolicy = (field: keyof ProviderPolicy, value: number | null) => {
     update({ policy: { ...props.draft.policy, [field]: value } })
@@ -52,6 +63,26 @@ export function ProviderForm(props: ProviderFormProps) {
       return
     }
     await props.onSave(props.draft)
+  }
+
+  const discoverModels = async () => {
+    setModelDiscoveryError(null)
+    setIsDiscoveringModels(true)
+    try {
+      const result = await discoverProviderModels(props.csrfToken, {
+        kind: props.draft.kind,
+        endpoint: props.draft.endpoint,
+        credential: props.draft.credential,
+      })
+      setModels(result)
+      if (result.length === 0) setModelDiscoveryError(i18n._("ai.providerModelsEmpty"))
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return
+      setModels([])
+      setModelDiscoveryError(i18n._("ai.providerModelsLoadError"))
+    } finally {
+      setIsDiscoveringModels(false)
+    }
   }
 
   return (
@@ -73,9 +104,11 @@ export function ProviderForm(props: ProviderFormProps) {
             value: kind,
             label: providerKindLabel((id) => i18n._(id), kind),
           }))}
-          onChange={(kind) =>
+          onChange={(kind) => {
             props.onChange(changeProviderKind(props.draft, kind as ProviderKind))
-          }
+            setModels([])
+            setModelDiscoveryError(null)
+          }}
           isDisabled={props.draft.mode === "edit" || props.isSaving}
           disabledMessage={
             props.draft.mode === "edit" ? i18n._("ai.providerKindImmutable") : undefined
@@ -92,15 +125,45 @@ export function ProviderForm(props: ProviderFormProps) {
           width="100%"
           status={fieldStatus((id) => i18n._(id), errors, "endpoint")}
         />
-        <TextInput
-          label={i18n._("ai.providerModel")}
-          value={props.draft.model}
-          onChange={(model) => update({ model })}
-          isRequired
-          isDisabled={props.isSaving}
-          width="100%"
-          status={fieldStatus((id) => i18n._(id), errors, "model")}
-        />
+        <div className="ai-provider-model-field">
+          <div className="ai-provider-model-row">
+            <TextInput
+              label={i18n._("ai.providerModel")}
+              value={props.draft.model}
+              onChange={(model) => update({ model })}
+              isRequired
+              isDisabled={props.isSaving}
+              width="100%"
+              status={fieldStatus((id) => i18n._(id), errors, "model")}
+            />
+            <Button
+              label={i18n._("ai.providerDiscoverModels")}
+              type="button"
+              onClick={() => void discoverModels()}
+              isLoading={isDiscoveringModels}
+              isDisabled={props.isSaving || isDiscoveringModels || !props.draft.credential.trim()}
+              variant="secondary"
+            />
+          </div>
+          <div className="reader-preference-description">
+            {i18n._("ai.providerDiscoverModelsDescription")}
+          </div>
+          {modelDiscoveryError ? (
+            <div className="ai-provider-model-error" role="status">
+              {modelDiscoveryError}
+            </div>
+          ) : null}
+          {models.length > 0 ? (
+            <Selector
+              label={i18n._("ai.providerModelSuggestions")}
+              value={models.some((model) => model.id === props.draft.model) ? props.draft.model : ""}
+              options={models.map((model) => ({ value: model.id, label: model.label }))}
+              onChange={(model) => update({ model })}
+              isDisabled={props.isSaving || isDiscoveringModels}
+              width="100%"
+            />
+          ) : null}
+        </div>
         <TextInput
           type="password"
           label={i18n._("ai.providerCredential")}

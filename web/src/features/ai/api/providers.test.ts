@@ -7,6 +7,7 @@ import type {
 } from "./provider.generated"
 import {
   createProvider,
+  discoverProviderModels,
   getProvider,
   listProviders,
   updateProvider,
@@ -104,6 +105,51 @@ it("patches one provider with its exact revision and an optional credential", as
   expect(init?.signal).toBe(signal)
   expect(new Headers(init?.headers).get("x-csrf-token")).toBe("csrf-memory")
   expect(JSON.parse(String(init?.body))).toEqual(request)
+})
+
+it("discovers and normalizes OpenAI-compatible model ids", async () => {
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValue(jsonResponse({ data: [{ id: "gpt-4o" }, { id: "gpt-4o" }, { id: "models/ignored" }] }))
+  vi.stubGlobal("fetch", fetchMock)
+
+  await expect(
+    discoverProviderModels("csrf-memory", {
+      kind: "OPENAI_RESPONSES",
+      endpoint: "https://api.example.com/v1/responses",
+      credential: "secret",
+    }),
+  ).resolves.toEqual([
+    { id: "gpt-4o", label: "gpt-4o" },
+    { id: "ignored", label: "ignored" },
+  ])
+
+  const [url, init] = fetchMock.mock.calls[0] ?? []
+  expect(String(url)).toBe("/api/v1/ai/providers/models")
+  expect(new Headers(init?.headers).get("x-csrf-token")).toBe("csrf-memory")
+  expect(JSON.parse(String(init?.body))).toMatchObject({ credential: "secret" })
+})
+
+it("uses Gemini query authentication and rejects an empty credential", async () => {
+  const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ models: [{ name: "models/gemini-2.5" }] }))
+  vi.stubGlobal("fetch", fetchMock)
+
+  await expect(
+    discoverProviderModels("csrf-memory", {
+      kind: "GOOGLE_GEMINI",
+      endpoint: "https://generativelanguage.googleapis.com/",
+      credential: "gemini-key",
+    }),
+  ).resolves.toEqual([{ id: "gemini-2.5", label: "gemini-2.5" }])
+  expect(String(fetchMock.mock.calls[0]?.[0])).toBe("/api/v1/ai/providers/models")
+
+  await expect(
+    discoverProviderModels("csrf-memory", {
+      kind: "OPENAI_RESPONSES",
+      endpoint: "https://api.example.com/",
+      credential: "  ",
+    }),
+  ).rejects.toThrow("MODEL_DISCOVERY_CREDENTIAL_REQUIRED")
 })
 
 it.each([

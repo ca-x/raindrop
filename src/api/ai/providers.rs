@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, net::SocketAddr, time::Duration};
 
 use axum::{
     Json, Router,
@@ -6,8 +6,9 @@ use axum::{
     http::{HeaderValue, StatusCode, header::LOCATION, request::Parts},
     middleware,
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, post},
 };
+use reqwest::redirect::Policy;
 use secrecy::SecretString;
 use serde::{Deserialize, Deserializer, Serialize, de::DeserializeOwned, de::Visitor};
 use time::{OffsetDateTime, UtcOffset, macros::format_description};
@@ -18,9 +19,10 @@ use crate::{
     auth::{CsrfGuard, CurrentUser},
     content::provider::{
         CreateProvider, ProviderCapabilities, ProviderCoreError, ProviderCoreErrorKind,
-        ProviderKind, ProviderMetadata, ProviderPolicy, ProviderRepository, ProviderScope,
-        UpdateProvider,
+        ProviderEndpoint, ProviderKind, ProviderMetadata, ProviderPolicy, ProviderRepository,
+        ProviderScope, UpdateProvider,
     },
+    feeds::{AddressDecision, AddressPolicy},
 };
 
 use super::super::{ApiError, ApiJson, RateLimitRejection, routes::sensitive_cache_headers};
@@ -32,6 +34,7 @@ const PUBLIC_TIME_FORMAT: &[time::format_description::FormatItem<'static>] =
 pub(super) fn router() -> Router<AppState> {
     let providers = Router::new()
         .route("/", get(list_providers).post(create_provider))
+        .route("/models", post(discover_models))
         .route("/{provider_id}", get(get_provider).patch(update_provider))
         .fallback(provider_not_found)
         .method_not_allowed_fallback(provider_method_not_allowed);
@@ -233,6 +236,26 @@ struct ProviderListResponse {
     items: Vec<ProviderResponse>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct DiscoverModelsRequest {
+    kind: ProviderKindRequest,
+    endpoint: String,
+    credential: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DiscoverModelsResponse {
+    models: Vec<DiscoveredModel>,
+}
+
+#[derive(Serialize)]
+struct DiscoveredModel {
+    id: String,
+    label: String,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ProviderResponse {
@@ -332,6 +355,128 @@ async fn list_providers(
         },
         items,
     }))
+}
+
+async fn discover_models(
+    State(state): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    _csrf: CsrfGuard,
+    ApiJson(request): ApiJson<DiscoverModelsRequest>,
+) -> Result<Json<DiscoverModelsResponse>, ApiError> {
+    state
+        .provider_mutation_limiter
+        .check(&user.id)
+        .map_err(map_limiter_rejection)?;
+    let kind: ProviderKind = request.kind.into();
+    let endpoint = ProviderEndpoint::new(kind, Some(request.endpoint.trim()))
+        .map_err(|_| ApiError::validation().with_field("endpoint", "Endpoint is invalid"))?;
+    let credential = request.credential.trim();
+    if credential.is_empty() || credential.len() > 8192 {
+        return Err(ApiError::validation().with_field("credential", "Credential is invalid"));
+    }
+    let path = match kind {
+        ProviderKind::GoogleGemini => "/v1beta/models",
+        _ => "/v1/models",
+    };
+    let mut url = endpoint
+        .join_adapter_path(path)
+        .map_err(|_| ApiError::validation().with_field("endpoint", "Endpoint is invalid"))?;
+    let approved = tokio::net::lookup_host((endpoint.canonical_host(), endpoint.effective_port()))
+        .await
+        .map_err(|_| model_discovery_error())?
+        .filter(|address| {
+            matches!(
+                AddressPolicy::public_only().classify(address.ip()),
+                AddressDecision::Allowed
+            )
+        })
+        .collect::<Vec<SocketAddr>>();
+    if approved.is_empty() {
+        return Err(model_discovery_error());
+    }
+    let client = reqwest::Client::builder()
+        .redirect(Policy::none())
+        .no_proxy()
+        .no_gzip()
+        .no_brotli()
+        .no_deflate()
+        .no_zstd()
+        .resolve_to_addrs(endpoint.canonical_host(), &approved)
+        .timeout(Duration::from_secs(15))
+        .build()
+        .map_err(|_| model_discovery_error())?;
+    let mut request = client.get(url.clone()).header("accept", "application/json");
+    match kind {
+        ProviderKind::GoogleGemini => {
+            url.query_pairs_mut().append_pair("key", credential);
+            request = client.get(url).header("accept", "application/json");
+        }
+        ProviderKind::AnthropicMessages => {
+            request = request
+                .header("x-api-key", credential)
+                .header("anthropic-version", "2023-06-01");
+        }
+        ProviderKind::OpenAiResponses | ProviderKind::OpenAiChatCompletions => {
+            request = request.header("authorization", format!("Bearer {credential}"));
+        }
+    }
+    let response = request.send().await.map_err(|_| model_discovery_error())?;
+    if !response.status().is_success() {
+        return Err(model_discovery_error());
+    }
+    if response
+        .content_length()
+        .is_some_and(|length| length > 1_048_576)
+    {
+        return Err(model_discovery_error());
+    }
+    let body = response
+        .bytes()
+        .await
+        .map_err(|_| model_discovery_error())?;
+    if body.len() > 1_048_576 {
+        return Err(model_discovery_error());
+    }
+    let payload: serde_json::Value =
+        serde_json::from_slice(&body).map_err(|_| model_discovery_error())?;
+    let values = payload
+        .get("data")
+        .or_else(|| payload.get("models"))
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(model_discovery_error)?;
+    let mut models = std::collections::BTreeMap::new();
+    for value in values {
+        let raw = value
+            .get("id")
+            .or_else(|| value.get("name"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .map(|value| value.strip_prefix("models/").unwrap_or(value));
+        let Some(id) = raw else { continue };
+        if id.is_empty() || id.len() > 200 || id.chars().any(char::is_control) {
+            continue;
+        }
+        models
+            .entry(id.to_owned())
+            .or_insert_with(|| DiscoveredModel {
+                id: id.to_owned(),
+                label: id.to_owned(),
+            });
+        if models.len() >= 200 {
+            break;
+        }
+    }
+    Ok(Json(DiscoverModelsResponse {
+        models: models.into_values().collect(),
+    }))
+}
+
+fn model_discovery_error() -> ApiError {
+    ApiError::new(
+        StatusCode::BAD_GATEWAY,
+        "MODEL_DISCOVERY_FAILED",
+        "Unable to fetch models from the AI provider",
+    )
 }
 
 async fn get_provider(

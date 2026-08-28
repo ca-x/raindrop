@@ -1793,6 +1793,10 @@ html[lang^="zh"] .ai-artifact-view {
   justify-content: flex-end;
   flex-wrap: wrap;
   gap: 8px;
+  /* Keep action controls visually separated from the dialog edge even when a
+     host layout collapses its footer padding. */
+  padding-inline: 4px;
+  padding-block: 2px;
 }
 
 .reader-preferences-dialog {
@@ -2230,6 +2234,34 @@ html[lang^="zh"] .ai-artifact-view {
   padding-block-start: 14px;
 }
 
+.ai-provider-model-field {
+  display: grid;
+  gap: 8px;
+  min-inline-size: 0;
+}
+
+.ai-provider-model-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.ai-provider-model-row > button {
+  min-block-size: 40px;
+  white-space: nowrap;
+}
+
+.ai-provider-model-error {
+  padding: 8px 10px;
+  border: 1px solid color-mix(in oklch, var(--color-danger, #b42318) 32%, var(--color-border));
+  border-radius: var(--radius-control);
+  background: color-mix(in oklch, var(--color-danger, #b42318) 8%, transparent);
+  color: var(--color-text-primary);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
 .ai-settings-number-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2261,6 +2293,14 @@ html[lang^="zh"] .ai-artifact-view {
 
   .ai-settings-number-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ai-provider-model-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ai-provider-model-row > button {
+    justify-self: start;
   }
 
   .ai-provider-list-actions {

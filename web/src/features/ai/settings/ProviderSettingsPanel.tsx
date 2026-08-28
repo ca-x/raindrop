@@ -96,6 +96,7 @@ export function ProviderSettingsPanel({
             className="ai-provider-editor"
           >
             <ProviderForm
+              csrfToken={controller.csrfToken}
               draft={providerDraft}
               isSaving={controller.isSavingProvider}
               credentialAvailable={controller.keyringStatus === "AVAILABLE"}

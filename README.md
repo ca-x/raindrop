@@ -2,6 +2,11 @@
 
 Raindrop 是使用 Rust、Axum、SeaORM 和 React 构建的自托管 RSS 阅读器。它提供安全的 Feed 抓取与正文清洗、分类管理、未读与收藏状态、Feed 内搜索、批量已读、键盘导航、响应式阅读界面，以及 SQLite、PostgreSQL、MySQL 三种数据库支持。生产 Web 界面会嵌入单个 Rust 可执行文件。
 
+## v0.4.16
+
+- 设置与订阅弹窗的底部操作区统一增加边距，按钮不再贴近窗口边缘；窄屏下操作仍保持可点击间距。
+- AI Provider 支持从 OpenAI、Anthropic 和 Gemini 的标准模型目录获取模型，提供加载、空结果和失败反馈；模型凭据仅用于本次请求。
+
 ## v0.4.15
 
 - Reader 不再等待浏览器 IndexedDB 缓存完成后才发起网络请求；缓存较慢或被占用时，服务端首批内容仍会立即显示。
