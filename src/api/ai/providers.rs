@@ -9,7 +9,7 @@ use axum::{
     routing::{get, post},
 };
 use reqwest::redirect::Policy;
-use secrecy::SecretString;
+use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Deserializer, Serialize, de::DeserializeOwned, de::Visitor};
 use time::{OffsetDateTime, UtcOffset, macros::format_description};
 use uuid::Uuid;
@@ -239,8 +239,11 @@ struct ProviderListResponse {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct DiscoverModelsRequest {
+    #[serde(default)]
+    provider_id: Option<String>,
     kind: ProviderKindRequest,
     endpoint: String,
+    #[serde(default)]
     credential: String,
 }
 
@@ -367,10 +370,22 @@ async fn discover_models(
         .provider_mutation_limiter
         .check(&user.id)
         .map_err(map_limiter_rejection)?;
-    let kind: ProviderKind = request.kind.into();
-    let endpoint = ProviderEndpoint::new(kind, Some(request.endpoint.trim()))
+    let mut kind: ProviderKind = request.kind.into();
+    let mut endpoint_value = request.endpoint;
+    let mut credential = request.credential.trim().to_owned();
+    if credential.is_empty() {
+        if let Some(provider_id) = request.provider_id.as_deref() {
+            let binding = query_repository(&state)?
+                .load_enabled_binding(provider_id, &user.id)
+                .await
+                .map_err(map_provider_error)?;
+            kind = binding.metadata().kind();
+            endpoint_value = binding.metadata().endpoint().as_str().to_owned();
+            credential = binding.credential().expose_secret().to_owned();
+        }
+    }
+    let endpoint = ProviderEndpoint::new(kind, Some(endpoint_value.trim()))
         .map_err(|_| ApiError::validation().with_field("endpoint", "Endpoint is invalid"))?;
-    let credential = request.credential.trim();
     if credential.is_empty() || credential.len() > 8192 {
         return Err(ApiError::validation().with_field("credential", "Credential is invalid"));
     }
@@ -408,7 +423,7 @@ async fn discover_models(
     let mut request = client.get(url.clone()).header("accept", "application/json");
     match kind {
         ProviderKind::GoogleGemini => {
-            url.query_pairs_mut().append_pair("key", credential);
+            url.query_pairs_mut().append_pair("key", &credential);
             request = client.get(url).header("accept", "application/json");
         }
         ProviderKind::AnthropicMessages => {

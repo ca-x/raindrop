@@ -10,6 +10,7 @@ import {
 } from "./provider.generated"
 
 export interface ProviderModelDiscoveryRequest {
+  providerId?: string | null
   kind: ProviderKind
   endpoint: string
   credential: string
@@ -81,6 +82,7 @@ export async function discoverProviderModels(
     method: "POST",
     headers: { "x-csrf-token": csrfToken },
     body: JSON.stringify({
+      providerId: request.providerId ?? undefined,
       kind: request.kind,
       endpoint: request.endpoint,
       credential,

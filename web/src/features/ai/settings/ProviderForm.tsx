@@ -70,6 +70,7 @@ export function ProviderForm(props: ProviderFormProps) {
     setIsDiscoveringModels(true)
     try {
       const result = await discoverProviderModels(props.csrfToken, {
+        providerId: props.draft.providerId,
         kind: props.draft.kind,
         endpoint: props.draft.endpoint,
         credential: props.draft.credential,

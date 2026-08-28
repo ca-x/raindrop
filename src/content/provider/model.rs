@@ -439,7 +439,7 @@ impl ProviderBinding {
         &self.metadata
     }
 
-    pub(super) const fn credential(&self) -> &SecretString {
+    pub(crate) const fn credential(&self) -> &SecretString {
         &self.credential
     }
 }

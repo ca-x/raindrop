@@ -458,11 +458,12 @@
       "DiscoverModelsRequest": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["kind", "endpoint", "credential"],
+        "required": ["kind", "endpoint"],
         "properties": {
+          "providerId": {"type": "string", "format": "uuid", "description": "Use a visible enabled Provider and its stored credential when credential is omitted."},
           "kind": {"$ref": "#/components/schemas/ProviderKind"},
           "endpoint": {"type": "string", "format": "uri", "pattern": "^https://", "maxLength": 2048},
-          "credential": {"type": "string", "minLength": 1, "maxLength": 8192, "writeOnly": true}
+          "credential": {"type": "string", "maxLength": 8192, "writeOnly": true}
         }
       },
       "DiscoveredModel": {
