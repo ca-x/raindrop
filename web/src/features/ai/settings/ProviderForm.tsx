@@ -142,7 +142,11 @@ export function ProviderForm(props: ProviderFormProps) {
               type="button"
               onClick={() => void discoverModels()}
               isLoading={isDiscoveringModels}
-              isDisabled={props.isSaving || isDiscoveringModels || !props.draft.credential.trim()}
+              isDisabled={
+                props.isSaving ||
+                isDiscoveringModels ||
+                (!props.draft.credential.trim() && !props.draft.providerId)
+              }
               variant="secondary"
             />
           </div>
