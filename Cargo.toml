@@ -27,7 +27,7 @@ cookie = "0.18.1"
 constant_time_eq = "0.4.2"
 dlx = { version = "3", git = "https://github.com/hominsu/deeplx-rs", rev = "03054aebd09b54e9934642cd8f11f212e2513065", default-features = false }
 encoding_rs = "=0.8.35"
-feedparser-rs = { version = "=0.5.5", default-features = false }
+feedparser-rs = { version = "=0.5.6", default-features = false }
 futures-util = "0.3.32"
 hickory-resolver = { version = "=0.26.1", default-features = false, features = ["system-config", "tokio"] }
 http = { version = "1.4.2", default-features = false }
