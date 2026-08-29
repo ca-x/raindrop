@@ -16,6 +16,7 @@ import {
 import { refreshPresentation } from "../refresh/refreshPresentation"
 import { RefreshStatusSummary } from "../refresh/RefreshStatusSummary"
 import { SourceToolbar } from "./ReaderToolbar"
+import { ReaderEmptyIcon } from "./ReaderEmptyIcon"
 import { sourceTreeDensityMetrics } from "./sourceDensity"
 
 interface SourceTreeProps {
@@ -178,9 +179,19 @@ export function SourceTree({
       {state.subscriptionOrder.length === 0 &&
       (state.paneStatus.subscriptions === "idle" || state.paneStatus.subscriptions === "ready") ? (
         <EmptyState
+          className="reader-source-empty"
           isCompact
+          icon={<ReaderEmptyIcon kind="sources" />}
           title={i18n._("reader.noSubscriptions")}
           description={i18n._("reader.noSubscriptionsDescription")}
+          actions={(
+            <Button
+              label={i18n._("reader.addSubscription")}
+              onClick={onManage}
+              size="sm"
+              variant="secondary"
+            />
+          )}
         />
       ) : null}
     </div>

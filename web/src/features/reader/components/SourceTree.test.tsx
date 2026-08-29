@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { expect, it, vi } from "vitest"
 
 import { Providers } from "../../../app/Providers"
@@ -6,6 +7,33 @@ import { activateLocale } from "../../../shared/i18n/i18n"
 import { initialReaderState } from "../model/reducer"
 import { makeSubscription, subscriptionId } from "../model/testFixtures"
 import { SourceTree } from "./SourceTree"
+
+it("offers the primary subscription action from the empty state", async () => {
+  activateLocale("en")
+  const user = userEvent.setup()
+  const onManage = vi.fn()
+  render(
+    <Providers>
+      <SourceTree
+        state={{
+          ...initialReaderState,
+          paneStatus: { ...initialReaderState.paneStatus, subscriptions: "ready" },
+        }}
+        onSelect={vi.fn()}
+        onMoveSubscription={vi.fn(async () => true)}
+        onManage={onManage}
+        onEditSubscription={vi.fn()}
+        onPreferences={vi.fn()}
+        onRefresh={vi.fn()}
+        onLogout={vi.fn()}
+        density="balanced"
+      />
+    </Providers>,
+  )
+
+  await user.click(screen.getByRole("button", { name: "Add subscription" }))
+  expect(onManage).toHaveBeenCalledOnce()
+})
 
 it("disables redundant refresh while the selected feed is queued", () => {
   activateLocale("en")

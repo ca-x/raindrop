@@ -159,14 +159,19 @@ export function ProviderForm(props: ProviderFormProps) {
             </div>
           ) : null}
           {models.length > 0 ? (
-            <Selector
-              label={i18n._("ai.providerModelSuggestions")}
-              value={models.some((model) => model.id === props.draft.model) ? props.draft.model : ""}
-              options={models.map((model) => ({ value: model.id, label: model.label }))}
-              onChange={(model) => update({ model })}
-              isDisabled={props.isSaving || isDiscoveringModels}
-              width="100%"
-            />
+            <div className="ai-provider-model-results">
+              <span className="reader-visually-hidden" role="status" aria-live="polite">
+                {i18n._("ai.providerModelsLoaded", { count: models.length })}
+              </span>
+              <Selector
+                label={i18n._("ai.providerModelSuggestions")}
+                value={models.some((model) => model.id === props.draft.model) ? props.draft.model : ""}
+                options={models.map((model) => ({ value: model.id, label: model.label }))}
+                onChange={(model) => update({ model })}
+                isDisabled={props.isSaving || isDiscoveringModels}
+                width="100%"
+              />
+            </div>
           ) : null}
         </div>
         <TextInput

@@ -17,6 +17,7 @@ import {
 import { FeedSearchInput } from "./FeedSearchInput"
 import { QueueToolbar, type MarkReadAvailability } from "./QueueToolbar"
 import { RelativeEntryTime } from "./RelativeEntryTime"
+import { ReaderEmptyIcon } from "./ReaderEmptyIcon"
 import { StarIcon } from "./StarIcon"
 
 interface EntryQueueProps {
@@ -197,7 +198,9 @@ export function EntryQueue({
         </div>
       ) : state.paneStatus.queue === "error" && !hasQueueSnapshot ? null : queue.length === 0 ? (
         <EmptyState
+          className="reader-queue-empty"
           isCompact
+          icon={<ReaderEmptyIcon kind="queue" />}
           title={i18n._("reader.noEntries")}
           description={i18n._("reader.noEntriesDescription")}
         />

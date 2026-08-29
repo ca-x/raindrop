@@ -96,6 +96,7 @@ export function QueueToolbar(props: QueueToolbarProps) {
       {!props.showMenu ? (
         <div
           className="reader-queue-shortcuts"
+          role="group"
           aria-label={i18n._("reader.queueShortcuts")}
         >
           <span className="reader-shortcut-label">

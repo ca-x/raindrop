@@ -22,6 +22,7 @@ import type {
 } from "../../preferences/api/preferences.generated"
 import { ArticleToolbar, ImmersiveIcon, ReadingFloatingToolbar } from "./ReaderToolbar"
 import { RelativeEntryTime } from "./RelativeEntryTime"
+import { ReaderEmptyIcon } from "./ReaderEmptyIcon"
 
 interface ArticleReaderProps {
   state: ReaderState
@@ -189,6 +190,7 @@ export function ArticleReader(props: ArticleReaderProps) {
         {immersiveExit}
         <div className="reader-article-empty">
           <EmptyState
+            icon={<ReaderEmptyIcon kind="article" />}
             title={i18n._("reader.selectArticle")}
             description={i18n._("reader.selectArticleDescription")}
           />
