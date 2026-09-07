@@ -53,6 +53,74 @@ it("accepts only the versioned Reader event contract", () => {
   expect(isReaderEvent(new Event("reader"))).toBe(false)
 })
 
+it("bounds revalidation during a sustained refresh burst and reconciles the trailing event", async () => {
+  vi.useFakeTimers()
+  const source = new FakeEventSource()
+  const reloadSubscriptions = vi.fn(async () => true)
+  const reloadEntries = vi.fn(async () => true)
+  renderHook(() => useReaderRealtimeSync({
+    session: activeSession(),
+    stateRef: { current: initialReaderState },
+    reloadSubscriptions,
+    reloadEntries,
+    eventSourceFactory: () => source as unknown as EventSource,
+  }))
+  act(() => source.emit("open", new Event("open")))
+  for (let index = 0; index < 100; index++) {
+    act(() => source.emit("reader", readerEvent("FEED_REFRESHED")))
+    await act(async () => vi.advanceTimersByTimeAsync(200))
+  }
+  const beforeTrailing = reloadSubscriptions.mock.calls.length
+  expect(beforeTrailing).toBeLessThanOrEqual(5)
+  await act(async () => vi.advanceTimersByTimeAsync(5_000))
+  expect(reloadSubscriptions).toHaveBeenCalledTimes(beforeTrailing + 1)
+  expect(reloadEntries).toHaveBeenCalledTimes(beforeTrailing + 1)
+})
+
+it("recovers a failed read even while the event stream remains connected", async () => {
+  vi.useFakeTimers()
+  const source = new FakeEventSource()
+  const reloadSubscriptions = vi.fn(async () => true)
+  const reloadEntries = vi.fn().mockResolvedValueOnce(false).mockResolvedValue(true)
+  renderHook(() => useReaderRealtimeSync({
+    session: activeSession(),
+    stateRef: { current: initialReaderState },
+    reloadSubscriptions,
+    reloadEntries,
+    eventSourceFactory: () => source as unknown as EventSource,
+  }))
+  act(() => {
+    source.emit("open", new Event("open"))
+    source.emit("reader", readerEvent("FEED_REFRESHED"))
+  })
+  await act(async () => vi.advanceTimersByTimeAsync(150))
+  expect(reloadEntries).toHaveBeenCalledOnce()
+  await act(async () => vi.advanceTimersByTimeAsync(60_000))
+  expect(reloadEntries).toHaveBeenCalledTimes(2)
+})
+
+it("keeps polling recovery and trailing events behind the same deadline", async () => {
+  vi.useFakeTimers()
+  const source = new FakeEventSource()
+  const reloadSubscriptions = vi.fn(async () => true)
+  const reloadEntries = vi.fn().mockResolvedValueOnce(false).mockResolvedValue(true)
+  renderHook(() => useReaderRealtimeSync({
+    session: activeSession(), stateRef: { current: initialReaderState },
+    reloadSubscriptions, reloadEntries,
+    eventSourceFactory: () => source as unknown as EventSource,
+  }))
+  act(() => source.emit("open", new Event("open")))
+  await act(async () => vi.advanceTimersByTimeAsync(59_000))
+  act(() => source.emit("reader", readerEvent("FEED_REFRESHED")))
+  await act(async () => vi.advanceTimersByTimeAsync(1_000))
+  expect(reloadEntries).toHaveBeenCalledOnce()
+  act(() => source.emit("reader", readerEvent("FEED_REFRESHED")))
+  await act(async () => vi.advanceTimersByTimeAsync(4_150))
+  expect(reloadEntries).toHaveBeenCalledTimes(2)
+  await act(async () => vi.advanceTimersByTimeAsync(5_000))
+  expect(reloadEntries).toHaveBeenCalledTimes(2)
+})
+
 function activeSession(): ReaderSession {
   return {
     active: () => true,

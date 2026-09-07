@@ -10,6 +10,7 @@ import { useEffect, useLayoutEffect, useRef } from "react"
 
 import { MountTransition } from "../../../shared/motion/MountTransition"
 import { sourceKey, type ReaderState } from "../model/types"
+import { GENERIC_READER_ERROR } from "../model/controllerErrors"
 import {
   entryQueueDensityMetrics,
   entryQueueDensityStyle,
@@ -87,6 +88,9 @@ export function EntryQueue({
   )
   const nextCursor = state.nextCursorBySourceKey[key]
   const pendingCount = state.pendingNewEntryCountBySource[key] ?? 0
+  const queueError = state.errors.queue === GENERIC_READER_ERROR
+    ? i18n._("reader.queueRecoveryDescription")
+    : state.errors.queue
   const markReadAvailability: MarkReadAvailability =
     state.selectedSource.kind === "smart" && state.selectedSource.state === "STARRED"
       ? "hidden"
@@ -169,12 +173,12 @@ export function EntryQueue({
           />
         </MountTransition>
       ) : null}
-      {state.errors.queue ? (
+      {state.errors.queue && hasQueueSnapshot ? (
         <Banner
           container="section"
-          status="error"
+          status="warning"
           title={i18n._("reader.queueError")}
-          description={state.errors.queue ?? i18n._("reader.genericError")}
+          description={queueError ?? i18n._("reader.genericError")}
           endContent={(
             <Button
               label={i18n._("common.retry")}
@@ -196,7 +200,24 @@ export function EntryQueue({
             />
           ))}
         </div>
-      ) : state.paneStatus.queue === "error" && !hasQueueSnapshot ? null : queue.length === 0 ? (
+      ) : state.paneStatus.queue === "error" && !hasQueueSnapshot ? (
+        <div className="reader-queue-recovery" role="alert">
+          <EmptyState
+            isCompact
+            icon={<ReaderEmptyIcon kind="queue" />}
+            title={i18n._("reader.queueError")}
+            description={queueError ?? i18n._("reader.queueRecoveryDescription")}
+            actions={(
+              <Button
+                label={i18n._("common.retry")}
+                variant="secondary"
+                size="sm"
+                clickAction={async () => { await onRetry() }}
+              />
+            )}
+          />
+        </div>
+      ) : queue.length === 0 ? (
         <EmptyState
           className="reader-queue-empty"
           isCompact

@@ -7,6 +7,7 @@ const backgroundSyncIntervalMs = 60_000
 const eventSyncDebounceMs = 150
 const busySyncRetryMs = 500
 const disconnectedSyncDelayMs = 1_000
+const minimumSyncIntervalMs = 5_000
 const readerEventKinds = new Set([
   "SYNC_REQUIRED",
   "FEED_REFRESHED",
@@ -37,21 +38,29 @@ export function useReaderRealtimeSync({
     let syncPending = false
     let eventStreamOpen = false
     let eventSource: EventSource | null = null
+    let nextSyncAt = 0
+    let lastSyncFailed = false
+    let stopped = false
 
     const scheduleSync = (delayMs = eventSyncDebounceMs) => {
+      if (stopped) return
       syncPending = true
       if (syncTimer !== null) return
       syncTimer = window.setTimeout(() => {
         syncTimer = null
         void sync()
-      }, delayMs)
+      }, Math.max(delayMs, nextSyncAt - Date.now()))
     }
     const sync = async () => {
       if (
-        !session.active() ||
+        stopped || !session.active() ||
         document.visibilityState === "hidden" ||
         navigator.onLine === false
       ) {
+        return
+      }
+      if (Date.now() < nextSyncAt) {
+        scheduleSync(0)
         return
       }
       if (
@@ -65,8 +74,11 @@ export function useReaderRealtimeSync({
       }
       syncPending = false
       syncInFlight = true
+      nextSyncAt = Date.now() + minimumSyncIntervalMs
       try {
-        await Promise.allSettled([reloadSubscriptions(), reloadEntries()])
+        const results = await Promise.allSettled([reloadSubscriptions(), reloadEntries()])
+        lastSyncFailed = results.some((result) =>
+          result.status === "rejected" || !result.value)
       } finally {
         syncInFlight = false
         if (syncPending) scheduleSync()
@@ -87,7 +99,10 @@ export function useReaderRealtimeSync({
     }
     const onOnline = () => scheduleSync(0)
     const timer = window.setInterval(() => {
-      if (!eventStreamOpen) void sync()
+      if (
+        !eventStreamOpen || lastSyncFailed ||
+        stateRef.current.errors.subscriptions || stateRef.current.errors.queue
+      ) void sync()
     }, backgroundSyncIntervalMs)
 
     const canCreateEventSource =
@@ -103,6 +118,7 @@ export function useReaderRealtimeSync({
     window.addEventListener("online", onOnline)
     document.addEventListener("visibilitychange", onVisibilityChange)
     return () => {
+      stopped = true
       if (syncTimer !== null) window.clearTimeout(syncTimer)
       window.clearInterval(timer)
       window.removeEventListener("online", onOnline)

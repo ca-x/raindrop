@@ -65,6 +65,9 @@ describe("ReadyPage lifecycle", () => {
 
     expect(await screen.findByText("Cached article")).toBeVisible()
     expect(cache.load).toHaveBeenCalledWith(session.user.id)
+    expect(fetchMock.mock.calls.some(([input]) =>
+      String(input).includes("/backups"),
+    )).toBe(false)
     await waitFor(() => {
       expect(fetchMock.mock.calls.some(([input]) => {
         const url = new URL(String(input), "https://raindrop.test")

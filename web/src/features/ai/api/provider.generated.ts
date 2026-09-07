@@ -44,6 +44,22 @@ export interface ProviderList {
 
 export type ProviderListKeyringStatus = "AVAILABLE" | "UNAVAILABLE"
 
+export interface DiscoverModelsRequest {
+  providerId?: string
+  kind: ProviderKind
+  endpoint: string
+  credential?: string
+}
+
+export interface DiscoveredModel {
+  id: string
+  label: string
+}
+
+export interface DiscoveredModels {
+  models: DiscoveredModel[]
+}
+
 export interface CreateProviderRequest {
   displayName: string
   kind: ProviderKind
@@ -119,6 +135,18 @@ export function isProvider(value: unknown): value is Provider {
 
 export function isProviderList(value: unknown): value is ProviderList {
   return ((isRecord(value) && hasOnlyKeys(value, ["keyringStatus","items"]) && hasOwn(value, "keyringStatus") && (value["keyringStatus"] === "AVAILABLE" || value["keyringStatus"] === "UNAVAILABLE") && hasOwn(value, "items") && ((Array.isArray(value["items"]) && value["items"].every((item1) => isProvider(item1))))))
+}
+
+export function isDiscoverModelsRequest(value: unknown): value is DiscoverModelsRequest {
+  return ((isRecord(value) && hasOnlyKeys(value, ["providerId","kind","endpoint","credential"]) && (!hasOwn(value, "providerId") || ((typeof value["providerId"] === "string" && isUuid(value["providerId"])))) && hasOwn(value, "kind") && isProviderKind(value["kind"]) && hasOwn(value, "endpoint") && ((typeof value["endpoint"] === "string" && value["endpoint"].length <= 2048 && new RegExp("^https://").test(value["endpoint"]) && isUri(value["endpoint"]))) && (!hasOwn(value, "credential") || ((typeof value["credential"] === "string" && value["credential"].length <= 8192)))))
+}
+
+export function isDiscoveredModel(value: unknown): value is DiscoveredModel {
+  return ((isRecord(value) && hasOnlyKeys(value, ["id","label"]) && hasOwn(value, "id") && ((typeof value["id"] === "string" && value["id"].length >= 1 && value["id"].length <= 200)) && hasOwn(value, "label") && ((typeof value["label"] === "string" && value["label"].length >= 1 && value["label"].length <= 200))))
+}
+
+export function isDiscoveredModels(value: unknown): value is DiscoveredModels {
+  return ((isRecord(value) && hasOnlyKeys(value, ["models"]) && hasOwn(value, "models") && ((Array.isArray(value["models"]) && value["models"].length <= 200 && value["models"].every((item1) => isDiscoveredModel(item1))))))
 }
 
 export function isCreateProviderRequest(value: unknown): value is CreateProviderRequest {

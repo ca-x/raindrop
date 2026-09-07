@@ -416,9 +416,11 @@ test("Reader refresh observability", async ({ page }, testInfo) => {
         await expect(sources.getByText("Fetching and processing feed updates.")).toBeVisible({
           timeout: 3_000,
         })
-        await expect(sources.getByText(/Last successful refresh:/)).toBeVisible({
+        await expect(sources.getByText("Refresh complete")).toBeVisible({
           timeout: 3_000,
         })
+        await sources.locator(".reader-refresh-ready summary").click()
+        await expect(sources.getByText(/Last successful refresh:/)).toBeVisible()
         break
       case "reader-900x800":
         await expect(sources.getByRole("alert")).toContainText(
@@ -544,6 +546,9 @@ async function verifyWide(page: Page, fixture: ReaderApiFixture): Promise<void> 
   await expect(page.getByRole("navigation", { name: "Sources" })).toBeVisible()
   await expect(page.getByRole("region", { name: "Entry queue" })).toBeVisible()
   await expect(page.getByRole("complementary", { name: "Article" })).toBeVisible()
+  await expect(page.getByRole("group", { name: "Queue shortcuts" })).toBeHidden()
+  await page.getByRole("button", { name: "Queue menu" }).click()
+  await page.getByRole("menuitem", { name: "Queue shortcuts" }).click()
   for (const key of ["J", "K", "N", "P"]) {
     await expect(page.getByRole("img", { name: key, exact: true })).toBeVisible()
   }

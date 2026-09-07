@@ -281,6 +281,7 @@ function feedItems(
       label: (
         <span
           className="reader-source-label reader-feed-drag-label"
+          title={subscription.title}
           draggable={Boolean(onDragStart)}
           data-dragging={
             draggedSubscriptionId === subscription.subscriptionId ? "true" : undefined
@@ -332,7 +333,7 @@ function feedItems(
                 />
               ) : null}
               {subscription.unreadCount > 0 ? (
-                <span title={String(subscription.unreadCount)}>
+                <span className="reader-feed-unread-count" title={String(subscription.unreadCount)}>
                   {subscription.unreadCount >= 10_000
                     ? "10k+"
                     : subscription.unreadCount}

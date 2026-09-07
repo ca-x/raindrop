@@ -1667,8 +1667,9 @@ async fn sqlite_subscription_projection_bounds_refresh_fanout_to_selected_subscr
         .expect("bounded list EXPLAIN should execute")
         .join("\n");
     assert!(
-        list_plan.contains("selected_subscriptions"),
-        "list must bind latest-run work to the requested page: {list_plan}"
+        list_plan.contains("idx_refresh_runs_feed")
+            && !list_plan.contains("MATERIALIZE latest_runs"),
+        "list must seek the latest run through the feed index: {list_plan}"
     );
     let detail_plan = fixture
         .repository
@@ -1677,8 +1678,9 @@ async fn sqlite_subscription_projection_bounds_refresh_fanout_to_selected_subscr
         .expect("bounded detail EXPLAIN should execute")
         .join("\n");
     assert!(
-        detail_plan.contains("selected_subscriptions"),
-        "detail must bind latest-run work to the selected subscription: {detail_plan}"
+        detail_plan.contains("idx_refresh_runs_feed")
+            && !detail_plan.contains("MATERIALIZE latest_runs"),
+        "detail must seek the latest run through the feed index: {detail_plan}"
     );
 }
 

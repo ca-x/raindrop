@@ -76,7 +76,6 @@ export function ReadyPage({ session, onLoggedOut, readerCache }: ReadyPageProps)
     void profileController.load()
     void aiSettingsController.load()
     void translationController.load()
-    void backupController.load()
     return () => {
       preferencesController.cancelLoad()
       profileController.cancel()
@@ -95,7 +94,6 @@ export function ReadyPage({ session, onLoggedOut, readerCache }: ReadyPageProps)
     translationController.cancel,
     translationController.load,
     backupController.cancel,
-    backupController.load,
   ])
 
   const signOut = async () => {

@@ -1,4 +1,5 @@
 import { Banner } from "@astryxdesign/core/Banner"
+import { Icon } from "@astryxdesign/core/Icon"
 import { Stack } from "@astryxdesign/core/Stack"
 import { StatusDot } from "@astryxdesign/core/StatusDot"
 import { Text } from "@astryxdesign/core/Text"
@@ -18,6 +19,26 @@ export function RefreshStatusSummary({ refresh }: RefreshStatusSummaryProps) {
   const lastSuccessCopy = lastSuccess
     ? i18n._("reader.refreshLastSuccess", { time: lastSuccess })
     : i18n._("reader.refreshNeverSucceeded")
+
+  if (status.kind === "ready") {
+    return (
+      <details className="reader-refresh-ready">
+        <summary>
+          <Icon icon="check" />
+          <span>{i18n._(status.label)}</span>
+          {status.lastSuccessAt && lastSuccess ? (
+            <time dateTime={status.lastSuccessAt} title={lastSuccessCopy}>
+              {new Intl.DateTimeFormat(i18n.locale || "en", {
+                hour: "2-digit", minute: "2-digit",
+              }).format(new Date(status.lastSuccessAt))}
+            </time>
+          ) : null}
+          <Icon icon="chevronDown" />
+        </summary>
+        <p>{lastSuccessCopy}</p>
+      </details>
+    )
+  }
 
   if (status.kind === "degraded") {
     return (

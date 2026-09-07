@@ -50,6 +50,25 @@ it("surfaces malformed entry detail without exposing response internals", async 
   expect(result.current.state.errors.detail).toBe(GENERIC_READER_ERROR)
 })
 
+it("background recovery fills a missing queue snapshot and preserves pagination", async () => {
+  const secondId = "00000000-0000-4000-8000-000000000302"
+  const list = vi.fn()
+    .mockRejectedValueOnce(new Error("temporary failure"))
+    .mockResolvedValueOnce({ ownerUserId: userId, items: [makeEntry()], nextCursor: "page-two", snapshotGeneration: 1 })
+    .mockResolvedValueOnce({ ownerUserId: userId, items: [makeEntry({ entryId: secondId })], nextCursor: null, snapshotGeneration: 1 })
+  const { result } = renderHook(() => useReaderController({
+    csrfToken: "csrf-memory", onUnauthenticated: vi.fn(), api: makeApi({ listEntries: list }),
+  }))
+  await act(async () => result.current.load())
+  expect(result.current.state.errors.queue).toBe(GENERIC_READER_ERROR)
+  await act(async () => result.current.reloadEntries())
+  expect(result.current.state.queueBySourceKey["smart:UNREAD"]).toEqual([entryId])
+  expect(result.current.state.nextCursorBySourceKey["smart:UNREAD"]).toBe("page-two")
+  await act(async () => result.current.loadMoreEntries())
+  expect(list.mock.calls[2][0]).toMatchObject({ cursor: "page-two" })
+  expect(result.current.state.queueBySourceKey["smart:UNREAD"]).toEqual([entryId, secondId])
+})
+
 it("rejects a mismatched state response and rolls back the optimistic value", async () => {
   const otherEntryId = "00000000-0000-4000-8000-000000000302"
   vi.stubGlobal(

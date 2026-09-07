@@ -1,13 +1,15 @@
 import { AppShell } from "@astryxdesign/core/AppShell"
 import { Banner } from "@astryxdesign/core/Banner"
+import { Button } from "@astryxdesign/core/Button"
+import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog"
 import { MobileNav } from "@astryxdesign/core/MobileNav"
+import { Spinner } from "@astryxdesign/core/Spinner"
 import { useResizable } from "@astryxdesign/core/Resizable"
 import { useLingui } from "@lingui/react"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react"
 
 import type { ViewportMode } from "../../../shared/responsive/useViewportMode"
 import type { AiSettingsController } from "../../ai/model/useAiSettingsController"
-import { PreferencesDialog } from "../../preferences/components/PreferencesDialog"
 import type { PreferencesTab } from "../../preferences/components/PreferencesDialog"
 import { toAstryxDensity } from "../../preferences/model/preferenceTypes"
 import type { PreferencesController } from "../../preferences/model/usePreferencesController"
@@ -31,6 +33,35 @@ import { selectedSourceLabel } from "../model/sourcePresentation"
 import type { ReaderController } from "../model/useReaderController"
 import { pathForEntry, type ReaderRouteMatch } from "../routes/readerRoute"
 import { ReaderWorkspacePanels } from "./ReaderWorkspacePanels"
+
+const PreferencesDialog = lazy(() => import("../../preferences/components/PreferencesDialog")
+  .catch(() => ({ PreferencesDialog: PreferencesUnavailable }))
+  .then((module) => ({ default: module.PreferencesDialog })))
+
+interface PreferencesLoadStateProps {
+  isOpen: boolean
+  onOpenChange: (open: boolean) => void
+  hasError?: boolean
+}
+
+function PreferencesUnavailable(props: PreferencesLoadStateProps) {
+  return <PreferencesLoadState {...props} hasError />
+}
+
+function PreferencesLoadState(props: PreferencesLoadStateProps) {
+  const { i18n } = useLingui()
+  return (
+    <Dialog isOpen={props.isOpen} onOpenChange={props.onOpenChange} aria-label={i18n._("preferences.title")}>
+      <div className="reader-settings-unavailable">
+        <DialogHeader title={i18n._(props.hasError ? "preferences.loadError" : "preferences.title")} onOpenChange={props.onOpenChange} />
+        {props.hasError ? <>
+          <p>{i18n._("preferences.moduleUnavailable")}</p>
+          <Button label={i18n._("common.reloadPage")} variant="secondary" onClick={() => window.location.reload()} />
+        </> : <Spinner label={i18n._("app.loading")} />}
+      </div>
+    </Dialog>
+  )
+}
 
 type MarkReadTarget =
   | { kind: "current"; label: string }
@@ -162,6 +193,24 @@ export function ReaderShell(props: ReaderShellProps) {
       const target = heading ?? articlePanelRef.current
       target?.focus({ preventScroll: true })
     })
+  }
+  const onPreferencesOpenChange = (open: boolean) => {
+    setIsPreferencesOpen(open)
+    if (open) return
+    if (preferencesOpenedFromArticle.current) {
+      preferencesOpenedFromArticle.current = false
+      focusArticle()
+      return
+    }
+    if (reopenSourcesAfterPreferences.current) {
+      reopenSourcesAfterPreferences.current = false
+      setIsNavOpen(true)
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => preferencesButtonRef.current?.focus()),
+      )
+      return
+    }
+    requestAnimationFrame(() => preferencesButtonRef.current?.focus())
   }
   const toggleImmersive = (fromKeyboard = false) => {
     if (!canToggleImmersive) return
@@ -539,7 +588,9 @@ export function ReaderShell(props: ReaderShellProps) {
           requestAnimationFrame(() => editSubscriptionButtonRef.current?.focus())
         }}
       />
-      <PreferencesDialog
+      {isPreferencesOpen ? <Suspense fallback={
+        <PreferencesLoadState isOpen onOpenChange={onPreferencesOpenChange} />
+      }><PreferencesDialog
         isOpen={isPreferencesOpen}
         initialTab={preferencesInitialTab}
         profile={props.profileController?.profile ?? {
@@ -566,25 +617,8 @@ export function ReaderShell(props: ReaderShellProps) {
         onUploadFont={props.preferencesController.uploadFont}
         onDeleteFont={props.preferencesController.deleteFont}
         onClearProfileError={props.profileController?.clearError ?? (() => undefined)}
-        onOpenChange={(open) => {
-          setIsPreferencesOpen(open)
-          if (open) return
-          if (preferencesOpenedFromArticle.current) {
-            preferencesOpenedFromArticle.current = false
-            focusArticle()
-            return
-          }
-          if (reopenSourcesAfterPreferences.current) {
-            reopenSourcesAfterPreferences.current = false
-            setIsNavOpen(true)
-            requestAnimationFrame(() =>
-              requestAnimationFrame(() => preferencesButtonRef.current?.focus()),
-            )
-            return
-          }
-          requestAnimationFrame(() => preferencesButtonRef.current?.focus())
-        }}
-      />
+        onOpenChange={onPreferencesOpenChange}
+      /></Suspense> : null}
       <MarkReadDialog
         isOpen={markReadTarget !== null}
         sourceLabel={markReadTarget?.label ?? sourceLabel}

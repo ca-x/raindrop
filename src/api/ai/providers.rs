@@ -373,16 +373,16 @@ async fn discover_models(
     let mut kind: ProviderKind = request.kind.into();
     let mut endpoint_value = request.endpoint;
     let mut credential = request.credential.trim().to_owned();
-    if credential.is_empty() {
-        if let Some(provider_id) = request.provider_id.as_deref() {
-            let binding = query_repository(&state)?
-                .load_enabled_binding(provider_id, &user.id)
-                .await
-                .map_err(map_provider_error)?;
-            kind = binding.metadata().kind();
-            endpoint_value = binding.metadata().endpoint().as_str().to_owned();
-            credential = binding.credential().expose_secret().to_owned();
-        }
+    if credential.is_empty()
+        && let Some(provider_id) = request.provider_id.as_deref()
+    {
+        let binding = query_repository(&state)?
+            .load_enabled_binding(provider_id, &user.id)
+            .await
+            .map_err(map_provider_error)?;
+        kind = binding.metadata().kind();
+        endpoint_value = binding.metadata().endpoint().as_str().to_owned();
+        credential = binding.credential().expose_secret().to_owned();
     }
     let endpoint = ProviderEndpoint::new(kind, Some(endpoint_value.trim()))
         .map_err(|_| ApiError::validation().with_field("endpoint", "Endpoint is invalid"))?;

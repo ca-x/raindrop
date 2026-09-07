@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
+import userEvent from "@testing-library/user-event"
 import type { ComponentProps } from "react"
 
 import { Providers } from "../../app/Providers"
@@ -65,6 +66,10 @@ describe("Reader keyboard workspace", () => {
     expect(controller.toggleRead).toHaveBeenCalledWith("second")
     expect(controller.toggleStar).toHaveBeenCalledOnce()
     expect(controller.toggleStar).toHaveBeenCalledWith("second")
+    expect(screen.queryByRole("group", { name: "Queue shortcuts" })).not.toBeInTheDocument()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole("button", { name: "Queue menu" }))
+    await user.click(screen.getByRole("menuitem", { name: "Queue shortcuts", hidden: true }))
     for (const key of ["J", "K", "N", "P", "M", "S"]) {
       expect(screen.getByRole("img", { name: key })).toBeVisible()
     }

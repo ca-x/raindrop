@@ -486,7 +486,7 @@ function ReadingOption(props: ReadingOptionProps) {
   )
 }
 
-function RefreshIcon() {
+export function RefreshIcon() {
   return (
     <svg
       aria-hidden="true"

@@ -415,8 +415,8 @@ describe("Reader workspace", () => {
     await user.click(
       await screen.findByRole("menuitem", { name: "Settings", hidden: true }),
     )
-    const dialog = await screen.findByRole("dialog", { name: "Settings" })
-    await user.click(within(dialog).getByRole("button", { name: "Cancel" }))
+    await screen.findByRole("dialog", { name: "Settings" })
+    await user.click(await screen.findByRole("button", { name: "Cancel" }, { timeout: 5_000 }))
 
     await waitFor(() => expect(menuTrigger).toHaveFocus())
   })

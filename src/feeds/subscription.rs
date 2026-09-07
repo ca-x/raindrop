@@ -1002,19 +1002,6 @@ fn subscription_projection_sql(selected_subscriptions: &str) -> String {
     format!(
         "WITH selected_subscriptions AS (
             {selected_subscriptions}
-         ),
-         user_feeds AS (
-            SELECT DISTINCT feed_id FROM selected_subscriptions
-         ),
-         latest_runs AS (
-            SELECT r.id, r.feed_id, r.status, r.http_status, r.new_count, r.updated_count,
-                   r.dropped_count, r.commit_generation, r.error_code, r.retry_at,
-                   r.queued_at, r.started_at, r.completed_at,
-                   ROW_NUMBER() OVER (
-                       PARTITION BY r.feed_id ORDER BY r.queued_at DESC, r.id DESC
-                   ) AS refresh_rank
-            FROM feed_refresh_runs r
-            JOIN user_feeds uf ON uf.feed_id = r.feed_id
          )
          SELECT s.id AS subscription_id, s.feed_id AS feed_id, s.created_at AS created_at,
                 s.category_id AS category_id, s.title_override AS title_override,
@@ -1040,7 +1027,11 @@ fn subscription_projection_sql(selected_subscriptions: &str) -> String {
                 r.completed_at AS refresh_completed_at
          FROM selected_subscriptions s
          JOIN feeds f ON f.id = s.feed_id
-         LEFT JOIN latest_runs r ON r.feed_id = s.feed_id AND r.refresh_rank = 1"
+         LEFT JOIN feed_refresh_runs r ON r.id = (
+            SELECT latest.id FROM feed_refresh_runs latest
+            WHERE latest.feed_id = s.feed_id
+            ORDER BY latest.queued_at DESC, latest.id DESC LIMIT 1
+         )"
     )
 }
 
@@ -1810,7 +1801,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn mysql_projection_avoids_reserved_window_alias() {
+    fn mysql_projection_uses_a_bounded_latest_run_lookup() {
         let statement = subscription_list_statement(
             DatabaseBackend::MySql,
             "00000000-0000-4000-8000-000000000001",
@@ -1818,8 +1809,12 @@ mod tests {
             None,
         );
 
-        assert!(statement.sql.contains("AS refresh_rank"));
-        assert!(statement.sql.contains("r.refresh_rank = 1"));
-        assert!(!statement.sql.contains("AS row_number"));
+        assert!(statement.sql.contains("WHERE latest.feed_id = s.feed_id"));
+        assert!(
+            statement
+                .sql
+                .contains("ORDER BY latest.queued_at DESC, latest.id DESC LIMIT 1")
+        );
+        assert!(!statement.sql.contains("ROW_NUMBER()"));
     }
 }

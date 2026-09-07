@@ -101,11 +101,6 @@ export function SourceTree({
           isDisabled: selectedRefresh?.isPending ?? false,
         } : undefined}
       />
-      {selectedSubscription &&
-      selectedRefresh &&
-      selectedRefresh.kind !== "idle" ? (
-        <RefreshStatusSummary refresh={selectedSubscription.refresh} />
-      ) : null}
       {state.subscriptionOrder.length > 6 ? (
         <div className="reader-source-search">
           <TextInput
@@ -175,6 +170,9 @@ export function SourceTree({
             />
           )}
         />
+      ) : null}
+      {selectedSubscription && selectedRefresh && selectedRefresh.kind !== "idle" ? (
+        <RefreshStatusSummary refresh={selectedSubscription.refresh} />
       ) : null}
       {state.subscriptionOrder.length === 0 &&
       (state.paneStatus.subscriptions === "idle" || state.paneStatus.subscriptions === "ready") ? (

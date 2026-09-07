@@ -13,7 +13,7 @@ import type { PatchEntryStateRequest } from "./reader.generated"
 const emptyPatchIsRejected: PatchEntryStateRequest = {}
 void emptyPatchIsRejected
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers() })
 
 const entryId = "00000000-0000-4000-8000-000000000301"
 const feedId = "00000000-0000-4000-8000-000000000101"
@@ -36,6 +36,51 @@ const entry = {
 const entryPage = { ownerUserId, items: [entry], nextCursor: null, snapshotGeneration: 1 }
 const detail = { ...entry, contentHtml: "<p>Safe</p>", inertImages: [], enclosures: [] }
 const entryState = { entryId, isRead: true, isStarred: false }
+
+it("recovers a transient queue failure with a single delayed read", async () => {
+  vi.useFakeTimers()
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(new Response(null, { status: 503 }))
+    .mockResolvedValueOnce(jsonResponse(entryPage))
+  vi.stubGlobal("fetch", fetchMock)
+  const pending = listEntries({ feedId })
+  await vi.advanceTimersByTimeAsync(749)
+  expect(fetchMock).toHaveBeenCalledOnce()
+  await vi.advanceTimersByTimeAsync(1)
+  await expect(pending).resolves.toEqual(entryPage)
+  expect(fetchMock).toHaveBeenCalledTimes(2)
+})
+
+it("cancels a delayed retry when the reader switches sources", async () => {
+  vi.useFakeTimers()
+  const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 500 }))
+  vi.stubGlobal("fetch", fetchMock)
+  const controller = new AbortController()
+  const pending = listEntries({ signal: controller.signal })
+  const rejected = expect(pending).rejects.toMatchObject({ name: "AbortError" })
+  await vi.advanceTimersByTimeAsync(100)
+  controller.abort()
+  await rejected
+  await vi.advanceTimersByTimeAsync(1_000)
+  expect(fetchMock).toHaveBeenCalledOnce()
+})
+
+it.each([401, 403, 429])("does not retry HTTP %s responses", async (status) => {
+  const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status }))
+  vi.stubGlobal("fetch", fetchMock)
+  await expect(listEntries()).rejects.toMatchObject({ status })
+  expect(fetchMock).toHaveBeenCalledOnce()
+})
+
+it("stops after the second transient failure", async () => {
+  vi.useFakeTimers()
+  const fetchMock = vi.fn().mockImplementation(async () => new Response(null, { status: 500 }))
+  vi.stubGlobal("fetch", fetchMock)
+  const rejected = expect(listEntries()).rejects.toMatchObject({ status: 500 })
+  await vi.advanceTimersByTimeAsync(1_000)
+  await rejected
+  expect(fetchMock).toHaveBeenCalledTimes(2)
+})
 
 it("lists entries with artifact-backed state and query parameters", async () => {
   const fetchMock = vi.fn().mockResolvedValue(jsonResponse(entryPage))

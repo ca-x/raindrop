@@ -345,10 +345,26 @@ async fn list_entries(
     CurrentUser(user): CurrentUser,
     ApiQuery(params): ApiQuery<ListEntriesParams>,
 ) -> Result<Json<EntryPageResponse>, ApiError> {
+    let started = std::time::Instant::now();
     let page = reader_repository(&state)?
         .list_for_user(&user.id, params.into_query())
         .await
-        .map_err(map_repository_error)?;
+        .map_err(|error| {
+            // Keep URLs, queries, user IDs and database error text out of logs.
+            let failure_kind = match &error {
+                RepositoryError::Database(sea_orm::DbErr::ConnectionAcquire(_)) => "pool_acquire",
+                RepositoryError::Database(_) => "database",
+                RepositoryError::CorruptData => "projection",
+                RepositoryError::Content(_) => "content",
+                _ => "validation",
+            };
+            tracing::warn!(
+                failure_kind,
+                elapsed_ms = started.elapsed().as_millis(),
+                "Reader entry list failed"
+            );
+            map_repository_error(error)
+        })?;
     Ok(Json((user.id, page).into()))
 }
 

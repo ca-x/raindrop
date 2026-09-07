@@ -4,6 +4,8 @@ import { Kbd } from "@astryxdesign/core/Kbd"
 import { MoreMenu } from "@astryxdesign/core/MoreMenu"
 import { Toolbar } from "@astryxdesign/core/Toolbar"
 import { useLingui } from "@lingui/react"
+import { useState } from "react"
+import { RefreshIcon } from "./ReaderToolbar"
 
 export type MarkReadAvailability = "hidden" | "disabled" | "enabled"
 
@@ -23,6 +25,7 @@ interface QueueToolbarProps {
 
 export function QueueToolbar(props: QueueToolbarProps) {
   const { i18n } = useLingui()
+  const [showShortcuts, setShowShortcuts] = useState(false)
   const markReadItem = props.markReadAvailability === "hidden"
     ? []
     : [
@@ -76,11 +79,16 @@ export function QueueToolbar(props: QueueToolbarProps) {
                 icon: <Icon icon="chevronLeft" />,
               },
               ...markReadItem,
+              { type: "divider" as const },
+              {
+                label: i18n._("reader.queueShortcuts"),
+                onClick: () => setShowShortcuts((visible) => !visible),
+              },
             ]}
           />
           <Button
             label={i18n._("reader.reloadStored")}
-            icon={<Icon icon="arrowsUpDown" />}
+            icon={<RefreshIcon />}
             isIconOnly
             tooltip={i18n._("reader.reloadStored")}
             onClick={() => void props.onReload()}
@@ -93,7 +101,7 @@ export function QueueToolbar(props: QueueToolbarProps) {
   const content = (
     <>
       {toolbar}
-      {!props.showMenu ? (
+      {showShortcuts ? (
         <div
           className="reader-queue-shortcuts"
           role="group"

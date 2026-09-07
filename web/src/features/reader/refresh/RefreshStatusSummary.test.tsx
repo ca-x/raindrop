@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react"
+import { fireEvent, render, screen } from "@testing-library/react"
 import { expect, it } from "vitest"
 
 import { Providers } from "../../../app/Providers"
@@ -22,6 +22,7 @@ it("shows the last successful refresh for a ready feed", () => {
   renderSummary(makeRefresh())
 
   expect(screen.getByText("Refresh complete")).toBeVisible()
+  fireEvent.click(screen.getByText("Refresh complete"))
   expect(screen.getByText(/Last successful refresh:/)).toBeVisible()
 })
 

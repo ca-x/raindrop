@@ -60,6 +60,14 @@ export function PreferencesDialog(props: PreferencesDialogProps) {
     props.initialTab ?? "personal",
   )
   const wasOpen = useRef(false)
+  const backupStatus = props.backupController?.loadStatus
+  const loadBackup = props.backupController?.load
+
+  useEffect(() => {
+    if (props.isOpen && activeTab === "backup" && backupStatus === "idle") {
+      void loadBackup?.()
+    }
+  }, [props.isOpen, activeTab, backupStatus, loadBackup])
 
   useEffect(() => {
     if (props.isOpen && !wasOpen.current) {

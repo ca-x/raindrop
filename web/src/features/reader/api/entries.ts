@@ -1,4 +1,4 @@
-import { apiRequest, invalidResponseError } from "../../../shared/api/client"
+import { ApiClientError, apiRequest, invalidResponseError } from "../../../shared/api/client"
 import {
   isEntryDetailResponse,
   isEntryPageResponse,
@@ -35,11 +35,38 @@ export async function listEntries(
   if (options.categoryId !== undefined) query.set("categoryId", options.categoryId)
   if (options.search !== undefined) query.set("search", options.search)
   if (options.state !== undefined) query.set("state", options.state)
-  const response = await apiRequest(withQuery("/api/v1/entries", query), {
-    signal: options.signal,
-  })
+  const path = withQuery("/api/v1/entries", query)
+  let response: unknown
+  try {
+    response = await apiRequest(path, { signal: options.signal })
+  } catch (error) {
+    const transient = error instanceof TypeError || (
+      error instanceof ApiClientError &&
+      [500, 502, 503, 504].includes(error.status) &&
+      error.payload.code !== "INVALID_RESPONSE"
+    )
+    if (!transient || options.signal?.aborted) throw error
+    // Only retry this idempotent read, once. Switching sources cancels the wait.
+    await waitForReadRetry(options.signal)
+    response = await apiRequest(path, { signal: options.signal })
+  }
   if (!isEntryPageResponse(response)) throw invalidResponseError()
   return response
+}
+
+function waitForReadRetry(signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const abort = () => {
+      clearTimeout(timer)
+      reject(signal?.reason ?? new DOMException("Aborted", "AbortError"))
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", abort)
+      resolve()
+    }, 750)
+    if (signal?.aborted) abort()
+    else signal?.addEventListener("abort", abort, { once: true })
+  })
 }
 
 export async function markEntriesRead(

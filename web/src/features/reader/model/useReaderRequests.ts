@@ -246,7 +246,13 @@ export function useReaderRequests({
   )
 
   const reloadEntries = useCallback(
-    async () => loadSource(stateRef.current.selectedSource, "discover"),
+    async () => {
+      const source = stateRef.current.selectedSource
+      const hasSnapshot = Object.prototype.hasOwnProperty.call(
+        stateRef.current.queueBySourceKey, sourceKey(source),
+      )
+      return loadSource(source, hasSnapshot ? "discover" : "replace")
+    },
     [loadSource, stateRef],
   )
 
