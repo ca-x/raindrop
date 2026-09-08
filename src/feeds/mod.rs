@@ -1,3 +1,5 @@
+mod article_retention;
+pub use article_retention::ArticleRetentionSettings;
 mod address_policy;
 mod bulk_read;
 mod content_storage;

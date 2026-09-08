@@ -20,9 +20,12 @@ import {
   PersonalPreferencesForm,
   ReadingPreferencesForm,
 } from "./AppearancePreferencesForm"
+import { DatabaseSettingsPanel } from "../../database/DatabaseSettingsPanel"
 import { PluginSettingsPanel } from "./PluginSettingsPanel"
 
 interface PreferencesDialogProps {
+  databaseCsrfToken?: string
+  onUnauthenticated?: () => void
   isOpen: boolean
   initialTab?: PreferencesTab
   profile: UserProfile
@@ -47,7 +50,7 @@ interface PreferencesDialogProps {
   onDeleteFont: (fontId: string) => Promise<boolean>
 }
 
-export type PreferencesTab = "personal" | "reading" | "plugins" | "backup" | "about"
+export type PreferencesTab = "personal" | "reading" | "plugins" | "backup" | "database" | "about"
 
 export function PreferencesDialog(props: PreferencesDialogProps) {
   const { i18n } = useLingui()
@@ -176,6 +179,13 @@ export function PreferencesDialog(props: PreferencesDialogProps) {
                     onClick={() => setActiveTab("backup")}
                   />
                 ) : null}
+                {props.databaseCsrfToken ? <SettingsNavButton
+                  isActive={activeTab === "database"}
+                  label={i18n._("database.title")}
+                  description={i18n._("database.navDescription")}
+                  icon={<Icon icon="wrench" size="sm" color="inherit" />}
+                  onClick={() => setActiveTab("database")}
+                /> : null}
                 <SettingsNavButton
                   isActive={activeTab === "about"}
                   label={i18n._("preferences.tabAbout")}
@@ -241,6 +251,8 @@ export function PreferencesDialog(props: PreferencesDialogProps) {
                   />
                 ) : activeTab === "backup" && props.backupController ? (
                   <BackupSettingsPanel controller={props.backupController} />
+                ) : activeTab === "database" && props.databaseCsrfToken ? (
+                  <DatabaseSettingsPanel csrfToken={props.databaseCsrfToken} onUnauthenticated={props.onUnauthenticated} />
                 ) : activeTab === "about" ? (
                   <AboutPanel />
                 ) : null}

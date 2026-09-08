@@ -8,6 +8,7 @@ use time::OffsetDateTime;
 use super::FeedRepository;
 
 const MAX_RETENTION_LIMIT: u16 = 100;
+pub(super) const HISTORY_BATCH_LIMIT: usize = 100;
 const DEFAULT_ORPHAN_GRACE: Duration = Duration::from_secs(30 * 86_400);
 const DEFAULT_SCAN_INTERVAL: Duration = Duration::from_secs(60 * 60);
 
@@ -304,4 +305,106 @@ where
 {
     row.try_get("", column)
         .map_err(|_| FeedRetentionError::CorruptData)
+}
+
+/// Refresh diagnostics are operational history, not article data. The current lifecycle outbox
+/// has no dispatcher; retain its untouched refresh notifications for the same seven-day window.
+/// Never remove leased, retried, unknown, or externally consumed events.
+impl FeedRepository {
+    pub async fn purge_refresh_history(&self) -> Result<usize, FeedRetentionError> {
+        const BATCH: usize = HISTORY_BATCH_LIMIT;
+        let backend = self.connection().get_database_backend();
+        let now = database_now(self.connection(), backend).await?;
+        let cutoff = now - time::Duration::days(7);
+        let transaction = self.connection().begin().await?;
+        let parameter = if backend == DatabaseBackend::Postgres {
+            "$1"
+        } else {
+            "?"
+        };
+        let rows = transaction
+            .query_all(Statement::from_sql_and_values(
+                backend,
+                format!(
+                    "SELECT id FROM feed_refresh_runs r
+             WHERE status IN ('SUCCESS','NOT_MODIFIED','PARTIAL','ERROR','LEASE_LOST','CANCELLED')
+               AND queued_at < {parameter} AND completed_at < {parameter2}
+               AND NOT EXISTS (SELECT 1 FROM lifecycle_outbox o WHERE o.refresh_id = r.id
+                 AND (o.event_type NOT IN ('feed.refresh.persisted','feed.refresh.completed')
+                   OR o.status <> 'PENDING' OR o.attempts <> 0
+                   OR o.lease_owner IS NOT NULL OR o.lease_until IS NOT NULL))
+             ORDER BY queued_at, id LIMIT {BATCH}",
+                    parameter2 = if backend == DatabaseBackend::Postgres {
+                        "$2"
+                    } else {
+                        "?"
+                    }
+                ),
+                [Value::from(cutoff), Value::from(cutoff)],
+            ))
+            .await?;
+        // Active runs are never candidates. Re-check outbox eligibility in each DELETE
+        // so a notification claimed by a dispatcher is preserved.
+        let mut deleted = 0;
+        for row in rows {
+            let id: String = required(&row, "id")?;
+            transaction.execute(Statement::from_sql_and_values(backend, format!(
+                "DELETE FROM lifecycle_outbox WHERE refresh_id = {parameter}
+                 AND event_type IN ('feed.refresh.persisted','feed.refresh.completed')
+                 AND status = 'PENDING' AND attempts = 0 AND lease_owner IS NULL AND lease_until IS NULL"
+            ), [id.clone().into()])).await?;
+            let result = transaction.execute(Statement::from_sql_and_values(backend, format!(
+                "DELETE FROM feed_refresh_runs WHERE id = {parameter}
+                 AND NOT EXISTS (SELECT 1 FROM lifecycle_outbox WHERE refresh_id = feed_refresh_runs.id)"
+            ), [id.into()])).await?;
+            deleted += result.rows_affected() as usize;
+        }
+        transaction.commit().await?;
+        Ok(deleted)
+    }
+}
+
+impl FeedRepository {
+    /// Feed deletion cascades to refresh runs, but outbox records deliberately have no FK.
+    /// Sweep the resulting untouched notifications too, without dropping dispatchable leases.
+    pub async fn purge_orphaned_refresh_events(&self) -> Result<usize, FeedRetentionError> {
+        let backend = self.connection().get_database_backend();
+        let cutoff = database_now(self.connection(), backend).await? - time::Duration::days(7);
+        let transaction = self.connection().begin().await?;
+        let p1 = if backend == DatabaseBackend::Postgres {
+            "$1"
+        } else {
+            "?"
+        };
+        let p2 = if backend == DatabaseBackend::Postgres {
+            "$2"
+        } else {
+            "?"
+        };
+        let rows = transaction
+            .query_all(Statement::from_sql_and_values(
+                backend,
+                format!(
+                    "SELECT id FROM lifecycle_outbox o
+             WHERE status = 'PENDING' AND available_at < {p1} AND created_at < {p2}
+               AND event_type IN ('feed.refresh.persisted','feed.refresh.completed')
+               AND attempts = 0 AND lease_owner IS NULL AND lease_until IS NULL
+               AND NOT EXISTS (SELECT 1 FROM feed_refresh_runs r WHERE r.id = o.refresh_id)
+             ORDER BY available_at, id LIMIT {HISTORY_BATCH_LIMIT}"
+                ),
+                [Value::from(cutoff), Value::from(cutoff)],
+            ))
+            .await?;
+        let mut deleted = 0;
+        for row in rows {
+            let id: String = required(&row, "id")?;
+            let result = transaction.execute(Statement::from_sql_and_values(backend, format!(
+                "DELETE FROM lifecycle_outbox WHERE id = {p1}
+                 AND status = 'PENDING' AND attempts = 0 AND lease_owner IS NULL AND lease_until IS NULL"
+            ), [id.into()])).await?;
+            deleted += result.rows_affected() as usize;
+        }
+        transaction.commit().await?;
+        Ok(deleted)
+    }
 }

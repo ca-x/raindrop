@@ -76,6 +76,7 @@ interface ReaderShellProps {
   backupController?: BackupController
   route: ReaderRouteMatch
   isSourceReady: boolean
+  databaseCsrfToken?: string
   username: string
   email?: string | null
   viewportMode: ViewportMode
@@ -611,6 +612,8 @@ export function ReaderShell(props: ReaderShellProps) {
         aiController={props.aiSettingsController}
         translationController={props.translationController}
         backupController={props.backupController}
+        databaseCsrfToken={props.databaseCsrfToken}
+        onUnauthenticated={props.onUnauthenticated}
         onClearError={props.preferencesController.clearError}
         onSave={props.preferencesController.save}
         onSaveProfile={props.profileController?.save ?? (async () => true)}

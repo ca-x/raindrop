@@ -26,6 +26,7 @@ interface ReaderRoutesProps {
   aiSettingsController?: AiSettingsController
   translationController?: TranslationSettingsController
   backupController?: BackupController
+  databaseCsrfToken?: string
   username: string
   onLogout: () => Promise<void>
   onUnauthenticated?: () => void

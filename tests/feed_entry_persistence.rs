@@ -1777,3 +1777,110 @@ async fn sqlite_transient_busy_retries_reuse_owned_input_and_write_once() {
     database.close().await.expect("database should close");
     blocker.close().await.expect("blocker should close");
 }
+
+#[tokio::test]
+async fn optional_article_retention_preserves_all_users_state_and_prevents_refetch_resurrection() {
+    use raindrop::db::entities::entry_state;
+    use raindrop::feeds::ArticleRetentionSettings;
+    use support::database::{
+        SUBSCRIPTION_A_ID, SUBSCRIPTION_B_ID, USER_A_ID, USER_B_ID, insert_user, subscription_model,
+    };
+    let (_data, database, repository) = sqlite_persistence_database("article-retention").await;
+    let input = PersistFeed::try_from(parsed_feed(RSS_60).await).unwrap();
+    let claim = claim_refresh(&repository, "first-retention").await;
+    repository
+        .persist_feed(&claim, input.clone())
+        .await
+        .unwrap();
+    let old = time::OffsetDateTime::now_utc() - time::Duration::days(40);
+    database
+        .execute(Statement::from_sql_and_values(
+            DatabaseBackend::Sqlite,
+            "UPDATE entries SET inserted_at=?",
+            [old.into()],
+        ))
+        .await
+        .unwrap();
+    for (id, name, subscription_id, read_through) in [
+        (USER_A_ID, "alice", SUBSCRIPTION_A_ID, 60),
+        (USER_B_ID, "bob", SUBSCRIPTION_B_ID, 0),
+    ] {
+        insert_user(&database, id, name).await;
+        let mut subscription = subscription_model(subscription_id, id, old);
+        subscription.start_sequence = Set(0);
+        subscription.read_through_sequence = Set(read_through);
+        subscription.insert(&database).await.unwrap();
+    }
+    assert!(
+        !ArticleRetentionSettings::load(&database)
+            .await
+            .unwrap()
+            .enabled
+    );
+    assert_eq!(repository.purge_read_articles().await.unwrap(), 0);
+    ArticleRetentionSettings {
+        enabled: true,
+        retention_days: 30,
+    }
+    .save(&database)
+    .await
+    .unwrap();
+    // Alice read everything; Bob has not. Nothing may be removed.
+    assert_eq!(repository.purge_read_articles().await.unwrap(), 0);
+    database
+        .execute(Statement::from_string(
+            DatabaseBackend::Sqlite,
+            "UPDATE subscriptions SET read_through_sequence=60".to_owned(),
+        ))
+        .await
+        .unwrap();
+    let rows = entry::Entity::find()
+        .order_by_asc(entry::Column::FeedSequence)
+        .all(&database)
+        .await
+        .unwrap();
+    for (index, starred, read_override) in [(0, true, None), (1, false, Some(false))] {
+        entry_state::ActiveModel {
+            user_id: Set(USER_B_ID.to_owned()),
+            entry_id: Set(rows[index].id.clone()),
+            feed_id: Set(FEED_ID.to_owned()),
+            feed_sequence: Set(rows[index].feed_sequence),
+            read_override: Set(read_override),
+            is_starred: Set(starred),
+            starred_at: Set(if starred { Some(old) } else { None }),
+            revision: Set(1),
+            updated_at: Set(old),
+        }
+        .insert(&database)
+        .await
+        .unwrap();
+    }
+    database
+        .execute(Statement::from_sql_and_values(
+            DatabaseBackend::Sqlite,
+            "UPDATE entries SET inserted_at=? WHERE id=?",
+            [
+                time::OffsetDateTime::now_utc().into(),
+                rows[2].id.clone().into(),
+            ],
+        ))
+        .await
+        .unwrap();
+    assert_eq!(repository.purge_read_articles().await.unwrap(), 57);
+    let remaining = entry::Entity::find()
+        .order_by_asc(entry::Column::FeedSequence)
+        .all(&database)
+        .await
+        .unwrap();
+    assert_eq!(remaining.len(), 3);
+    assert_eq!(
+        remaining.iter().map(|e| &e.id).collect::<Vec<_>>(),
+        rows[..3].iter().map(|e| &e.id).collect::<Vec<_>>()
+    );
+    // The same publisher items arrive again. Retired identities must not become new unread rows.
+    let claim = claim_refresh(&repository, "refetch-retention").await;
+    let refreshed = repository.persist_feed(&claim, input).await.unwrap();
+    assert_eq!(refreshed.counts.new_count, 0);
+    assert_eq!(entry::Entity::find().all(&database).await.unwrap().len(), 3);
+    assert_eq!(repository.purge_read_articles().await.unwrap(), 0);
+}

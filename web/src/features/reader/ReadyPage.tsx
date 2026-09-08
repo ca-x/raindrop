@@ -118,6 +118,7 @@ export function ReadyPage({ session, onLoggedOut, readerCache }: ReadyPageProps)
     aiSettingsController,
     translationController,
     backupController,
+    databaseCsrfToken: session.user.roles.includes("ADMIN") ? session.csrfToken : undefined,
     username: session.user.username,
     email: session.user.email,
     onLogout: signOut,

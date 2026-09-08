@@ -49,6 +49,7 @@ pub fn router() -> Router<AppState> {
         .merge(super::ai::router())
         .merge(super::backups::router())
         .merge(super::categories::router())
+        .merge(super::database::router())
         .merge(super::entries::router())
         .merge(super::entries::media_router())
         .merge(super::events::router())

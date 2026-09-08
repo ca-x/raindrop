@@ -13,6 +13,7 @@ interface ReadyMobilePageProps {
   aiSettingsController?: AiSettingsController
   translationController?: TranslationSettingsController
   backupController?: BackupController
+  databaseCsrfToken?: string
   username: string
   sessionError: string | null
   onLogout: () => Promise<void>

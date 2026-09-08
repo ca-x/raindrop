@@ -1,6 +1,7 @@
 mod ai;
 mod backups;
 mod categories;
+mod database;
 mod entries;
 mod error;
 mod events;
@@ -13,6 +14,7 @@ mod routes;
 mod subscriptions;
 mod translation;
 
+pub(crate) use database::DatabaseMaintenance;
 pub use error::{ApiError, ApiErrorBody, ApiErrorEnvelope};
 pub use json::ApiJson;
 pub(crate) use rate_limit::{AccountThrottle, RateLimiter, UserConcurrencyLimiter};

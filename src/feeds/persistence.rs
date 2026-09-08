@@ -302,10 +302,15 @@ impl FeedRepository {
         let existing_hashes =
             lock_existing_identities(&transaction, backend, &claim.feed_id, &feed.entries).await?;
 
+        let retired_hashes =
+            load_retired_identities(&transaction, backend, &claim.feed_id, &feed.entries).await?;
         let new_count = feed
             .entries
             .iter()
-            .filter(|entry| !existing_hashes.contains(entry.identity.index_hash()))
+            .filter(|entry| {
+                !existing_hashes.contains(entry.identity.index_hash())
+                    && !retired_hashes.contains(entry.identity.index_hash())
+            })
             .count();
         let generation = if new_count == 0 {
             None
@@ -330,6 +335,9 @@ impl FeedRepository {
                 .map(|row| (row.identity_hash.clone(), row))
                 .collect::<HashMap<_, _>>();
             for entry in entry_batch {
+                if retired_hashes.contains(entry.identity.index_hash()) {
+                    continue;
+                }
                 if existing_hashes.contains(entry.identity.index_hash()) {
                     let existing = existing_by_hash
                         .remove(entry.identity.index_hash())
@@ -1436,6 +1444,35 @@ fn encode_enclosures(
 
 fn hash_hex(bytes: [u8; 32]) -> String {
     blake3::Hash::from_bytes(bytes).to_hex().to_string()
+}
+
+async fn load_retired_identities<C: ConnectionTrait>(
+    connection: &C,
+    backend: DbBackend,
+    feed_id: &str,
+    entries: &[PersistEntry],
+) -> Result<HashSet<String>, RefreshRepositoryError> {
+    let mut retired = HashSet::new();
+    // Article retention currently runs only on SQLite.
+    if backend != DatabaseBackend::Sqlite {
+        return Ok(retired);
+    }
+    for batch in entries.chunks(IDENTITY_BATCH_SIZE) {
+        let placeholders = vec!["?"; batch.len()].join(",");
+        let mut values = vec![Value::from(feed_id)];
+        values.extend(
+            batch
+                .iter()
+                .map(|entry| Value::from(entry.identity.index_hash())),
+        );
+        let rows = connection.query_all(Statement::from_sql_and_values(backend, format!(
+            "SELECT identity_hash FROM retired_entry_identities WHERE feed_id=? AND identity_hash IN ({placeholders})"
+        ), values)).await?;
+        for row in rows {
+            retired.insert(required(&row, "identity_hash")?);
+        }
+    }
+    Ok(retired)
 }
 
 #[cfg(test)]

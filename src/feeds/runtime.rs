@@ -301,6 +301,8 @@ where
     let scheduler_lane = lane_index == 0;
     let mut next_schedule_scan = Instant::now();
     let mut next_retention_scan = Instant::now();
+    let mut next_history_scan = Instant::now();
+    let mut next_article_scan = Instant::now();
     loop {
         if *shutdown_rx.borrow() {
             return Ok(());
@@ -339,6 +341,54 @@ where
                 }
             }
             next_retention_scan = Instant::now() + options.retention_policy.scan_interval;
+        }
+        if scheduler_lane && Instant::now() >= next_history_scan {
+            let history = repository.purge_refresh_history().await;
+            let orphaned = if history
+                .as_ref()
+                .is_ok_and(|count| *count == super::retention::HISTORY_BATCH_LIMIT)
+            {
+                Ok(0)
+            } else {
+                repository.purge_orphaned_refresh_events().await
+            };
+            let more = history
+                .as_ref()
+                .is_ok_and(|count| *count == super::retention::HISTORY_BATCH_LIMIT)
+                || orphaned
+                    .as_ref()
+                    .is_ok_and(|count| *count == super::retention::HISTORY_BATCH_LIMIT);
+            if let Err(error) = history.and(orphaned) {
+                tracing::warn!(?error, "feed runtime refresh history retention failed");
+            }
+            // Catch up without holding the writer or starving the scheduler. A fixed hourly
+            // batch alone cannot keep up with installations having many subscribed feeds.
+            next_history_scan = Instant::now()
+                + if more {
+                    std::time::Duration::from_secs(1)
+                } else {
+                    options.retention_policy.scan_interval
+                };
+        }
+
+        if scheduler_lane && Instant::now() >= next_article_scan {
+            let articles = repository.purge_read_articles().await;
+            let more = articles
+                .as_ref()
+                .is_ok_and(|count| *count == super::retention::HISTORY_BATCH_LIMIT);
+            match articles {
+                Ok(deleted) if deleted > 0 => {
+                    tracing::info!(deleted, "feed runtime removed expired read articles")
+                }
+                Err(error) => tracing::warn!(?error, "feed runtime article retention failed"),
+                _ => {}
+            }
+            next_article_scan = Instant::now()
+                + if more {
+                    std::time::Duration::from_secs(1)
+                } else {
+                    options.retention_policy.scan_interval
+                };
         }
 
         if *shutdown_rx.borrow() {

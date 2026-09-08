@@ -27,6 +27,7 @@ use crate::{
 pub struct AppState {
     pub version: &'static str,
     pub(crate) setup: SetupService,
+    pub(crate) database_maintenance: api::DatabaseMaintenance,
     pub(crate) login_limiter: RateLimiter,
     pub(crate) login_authentication_semaphore: Arc<Semaphore>,
     pub(crate) login_account_throttle: AccountThrottle,
@@ -87,6 +88,7 @@ impl AppState {
         Self {
             version: env!("CARGO_PKG_VERSION"),
             setup,
+            database_maintenance: api::DatabaseMaintenance::default(),
             login_limiter: RateLimiter::new(4_096, std::time::Duration::from_secs(15 * 60)),
             login_authentication_semaphore: Arc::new(Semaphore::new(4)),
             login_account_throttle: AccountThrottle::new(

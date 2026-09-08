@@ -610,3 +610,149 @@ async fn seed_outbox(
     .await
     .expect("retention outbox should insert");
 }
+
+#[tokio::test]
+async fn refresh_history_retention_preserves_articles_recent_active_and_claimed_events() {
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    let data = tempfile::tempdir().unwrap();
+    let database = connect_for_contract(SecretString::from(format!(
+        "sqlite://{}?mode=rwc",
+        data.path().join("history.db").display()
+    )))
+    .await;
+    migrate(&database).await.unwrap();
+    let old = OffsetDateTime::now_utc() - time::Duration::days(10);
+    let recent = OffsetDateTime::now_utc() - time::Duration::days(1);
+    let feed_id = Uuid::new_v4().to_string();
+    let article_id = Uuid::new_v4().to_string();
+    seed_orphan_feed(&database, &feed_id, old).await;
+    seed_entry(&database, &article_id, &feed_id, old).await;
+    let mut retained = Vec::new();
+    for (index, at) in [old, recent, old, old, old].into_iter().enumerate() {
+        let run = Uuid::new_v4().to_string();
+        let event = Uuid::new_v4().to_string();
+        // The fixture assigns a generation; each run needs a different one.
+        if index > 0 {
+            database
+                .execute(Statement::from_string(
+                    DatabaseBackend::Sqlite,
+                    "UPDATE feed_refresh_runs SET commit_generation = NULL".to_owned(),
+                ))
+                .await
+                .unwrap();
+        }
+        seed_terminal_refresh(&database, &run, &feed_id, at).await;
+        seed_outbox(&database, &event, &run, &feed_id, at).await;
+        let update = match index {
+            2 => Some("UPDATE lifecycle_outbox SET lease_owner='worker' WHERE id=?"),
+            3 => Some("UPDATE lifecycle_outbox SET attempts=1 WHERE id=?"),
+            4 => Some("UPDATE lifecycle_outbox SET event_type='future.event' WHERE id=?"),
+            _ => None,
+        };
+        if let Some(sql) = update {
+            database
+                .execute(Statement::from_sql_and_values(
+                    DatabaseBackend::Sqlite,
+                    sql,
+                    [event.clone().into()],
+                ))
+                .await
+                .unwrap();
+        }
+        if index > 0 {
+            retained.push((run, event));
+        }
+    }
+    seed_active_refresh(&database, &feed_id, old).await;
+    let before = entry::Entity::find_by_id(&article_id)
+        .one(&database)
+        .await
+        .unwrap()
+        .unwrap();
+    let repository = FeedRepository::new(database.clone());
+    assert_eq!(repository.purge_refresh_history().await.unwrap(), 1);
+    assert_eq!(repository.purge_refresh_history().await.unwrap(), 0);
+    for (run, event) in retained {
+        assert!(
+            feed_refresh_run::Entity::find_by_id(run)
+                .one(&database)
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            lifecycle_outbox::Entity::find_by_id(event)
+                .one(&database)
+                .await
+                .unwrap()
+                .is_some()
+        );
+    }
+    assert_eq!(
+        feed_refresh_run::Entity::find()
+            .count(&database)
+            .await
+            .unwrap(),
+        5
+    );
+    assert_eq!(
+        entry::Entity::find_by_id(article_id)
+            .one(&database)
+            .await
+            .unwrap()
+            .unwrap(),
+        before
+    );
+}
+
+#[tokio::test]
+async fn history_cleanup_reclaims_orphan_notifications_after_feed_cascade() {
+    let data = tempfile::tempdir().unwrap();
+    let database = connect_for_contract(SecretString::from(format!(
+        "sqlite://{}?mode=rwc",
+        data.path().join("orphan-events.db").display()
+    )))
+    .await;
+    migrate(&database).await.unwrap();
+    let old = OffsetDateTime::now_utc() - time::Duration::days(40);
+    let feed_id = Uuid::new_v4().to_string();
+    let run = Uuid::new_v4().to_string();
+    seed_orphan_feed(&database, &feed_id, old).await;
+    seed_terminal_refresh(&database, &run, &feed_id, old).await;
+    seed_outbox(&database, &Uuid::new_v4().to_string(), &run, &feed_id, old).await;
+    let repository = FeedRepository::new(database.clone());
+    assert_eq!(
+        repository
+            .purge_orphaned_feeds(Duration::from_secs(30 * 86400), 100)
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(repository.purge_refresh_history().await.unwrap(), 0);
+    assert_eq!(repository.purge_orphaned_refresh_events().await.unwrap(), 1);
+    assert_eq!(repository.purge_orphaned_refresh_events().await.unwrap(), 0);
+}
+
+#[tokio::test]
+async fn refresh_history_catches_up_in_bounded_batches() {
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    let data = tempfile::tempdir().unwrap();
+    let db = connect_for_contract(SecretString::from(format!(
+        "sqlite://{}?mode=rwc",
+        data.path().join("history-batches.db").display()
+    )))
+    .await;
+    migrate(&db).await.unwrap();
+    let old = OffsetDateTime::now_utc() - time::Duration::days(10);
+    let feed_id = Uuid::new_v4().to_string();
+    seed_orphan_feed(&db, &feed_id, old).await;
+    db.execute(Statement::from_sql_and_values(DatabaseBackend::Sqlite,
+        "WITH RECURSIVE numbers(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM numbers WHERE n<205)
+         INSERT INTO feed_refresh_runs(id,feed_id,trigger_kind,status,idempotency_key,queued_at,completed_at)
+         SELECT printf('%036d',n),?,'SCHEDULED','SUCCESS',printf('history-%d',n),?,? FROM numbers",
+        [feed_id.into(), old.into(), old.into()])).await.unwrap();
+    let repository = FeedRepository::new(db);
+    for expected in [100, 100, 5, 0] {
+        assert_eq!(repository.purge_refresh_history().await.unwrap(), expected);
+    }
+}
