@@ -11,6 +11,7 @@ import type {
 } from "../api/content.generated"
 import {
   createProvider,
+  deleteProvider,
   listProviders,
   updateProvider,
 } from "../api/providers"
@@ -27,6 +28,7 @@ import {
 } from "./providerDraft"
 
 export interface AiSettingsApi {
+  deleteProvider: typeof deleteProvider
   listProviders: (signal?: AbortSignal) => Promise<ProviderList>
   createProvider: (
     csrfToken: string,
@@ -69,6 +71,7 @@ export interface AiSettingsController {
   isSavingConfig: boolean
   load: () => Promise<void>
   saveProvider: (draft: ProviderDraft) => Promise<boolean>
+  removeProvider: (provider: Provider) => Promise<boolean>
   saveConfig: (request: PutAiConfigRequest) => Promise<boolean>
   cancel: () => void
   clearError: () => void
@@ -83,6 +86,7 @@ interface UseAiSettingsControllerOptions {
 const defaultApi: AiSettingsApi = {
   listProviders,
   createProvider,
+  deleteProvider,
   updateProvider,
   getAiConfig,
   putAiConfig,
@@ -209,6 +213,30 @@ export function useAiSettingsController({
     [api, csrfToken, endSession, keyringStatus],
   )
 
+  const removeProvider = useCallback(async (provider: Provider) => {
+    if (savingProvider.current || !provider.canEdit) return false
+    const abort = new AbortController()
+    providerAbort.current = abort
+    savingProvider.current = true
+    setIsSavingProvider(true)
+    setError(null)
+    try {
+      await api.deleteProvider(provider.providerId, csrfToken, provider.revision, abort.signal)
+      if (abort.signal.aborted) return false
+      setProviders((current) => current.filter((item) => item.providerId !== provider.providerId))
+      return true
+    } catch (cause) {
+      if (isAbortError(cause)) return false
+      if (isAuthenticationError(cause)) endSession()
+      else setError(providerError(cause))
+      return false
+    } finally {
+      if (providerAbort.current === abort) providerAbort.current = null
+      savingProvider.current = false
+      setIsSavingProvider(false)
+    }
+  }, [api, csrfToken, endSession])
+
   const saveConfig = useCallback(
     async (request: PutAiConfigRequest) => {
       if (savingConfig.current) return false
@@ -249,6 +277,7 @@ export function useAiSettingsController({
     isSavingConfig,
     load,
     saveProvider,
+    removeProvider,
     saveConfig,
     cancel,
     clearError: useCallback(() => setError(null), []),

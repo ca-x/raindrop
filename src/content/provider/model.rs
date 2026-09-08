@@ -268,6 +268,7 @@ impl fmt::Debug for CreateProvider {
 #[derive(Default)]
 pub struct UpdateProvider {
     pub expected_revision: u64,
+    pub kind: Option<ProviderKind>,
     pub display_name: Option<String>,
     pub endpoint: Option<String>,
     pub model: Option<String>,
@@ -279,7 +280,8 @@ pub struct UpdateProvider {
 
 impl UpdateProvider {
     pub fn validate(&self, kind: ProviderKind) -> Result<(), ProviderCoreError> {
-        if self.display_name.is_none()
+        if self.kind.is_none()
+            && self.display_name.is_none()
             && self.endpoint.is_none()
             && self.model.is_none()
             && self.credential.is_none()

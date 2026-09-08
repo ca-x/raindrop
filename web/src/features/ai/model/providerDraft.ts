@@ -229,6 +229,7 @@ export function providerDraftRequest(
     providerId: draft.providerId,
     request: {
       expectedRevision: draft.expectedRevision,
+      kind: draft.kind,
       ...shared,
       ...(draft.credential.length > 0 ? { credential: draft.credential } : {}),
     },

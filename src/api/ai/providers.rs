@@ -35,7 +35,12 @@ pub(super) fn router() -> Router<AppState> {
     let providers = Router::new()
         .route("/", get(list_providers).post(create_provider))
         .route("/models", post(discover_models))
-        .route("/{provider_id}", get(get_provider).patch(update_provider))
+        .route(
+            "/{provider_id}",
+            get(get_provider)
+                .patch(update_provider)
+                .delete(delete_provider),
+        )
         .fallback(provider_not_found)
         .method_not_allowed_fallback(provider_method_not_allowed);
     Router::new()
@@ -192,6 +197,8 @@ impl Visitor<'_> for NullableEndpointVisitor {
 struct UpdateProviderRequest {
     expected_revision: u64,
     #[serde(default, deserialize_with = "deserialize_present")]
+    kind: Option<ProviderKindRequest>,
+    #[serde(default, deserialize_with = "deserialize_present")]
     display_name: Option<String>,
     #[serde(default, deserialize_with = "deserialize_present")]
     endpoint: Option<String>,
@@ -218,6 +225,7 @@ impl UpdateProviderRequest {
     fn into_domain(self) -> UpdateProvider {
         UpdateProvider {
             expected_revision: self.expected_revision,
+            kind: self.kind.map(Into::into),
             display_name: self.display_name,
             endpoint: self.endpoint,
             model: self.model,
@@ -377,11 +385,14 @@ async fn discover_models(
         && let Some(provider_id) = request.provider_id.as_deref()
     {
         let binding = query_repository(&state)?
-            .load_enabled_binding(provider_id, &user.id)
+            .load_discovery_binding(provider_id, &user.id)
             .await
             .map_err(map_provider_error)?;
-        kind = binding.metadata().kind();
-        endpoint_value = binding.metadata().endpoint().as_str().to_owned();
+        // Shared credentials must never be redirected to a user-controlled endpoint.
+        if matches!(binding.metadata().scope(), ProviderScope::Instance) {
+            kind = binding.metadata().kind();
+            endpoint_value = binding.metadata().endpoint().as_str().to_owned();
+        }
         credential = binding.credential().expose_secret().to_owned();
     }
     let endpoint = ProviderEndpoint::new(kind, Some(endpoint_value.trim()))
@@ -437,7 +448,17 @@ async fn discover_models(
     }
     let response = request.send().await.map_err(|_| model_discovery_error())?;
     if !response.status().is_success() {
-        return Err(model_discovery_error());
+        let code = match response.status().as_u16() {
+            401 | 403 => "MODEL_DISCOVERY_AUTH_FAILED",
+            404 | 405 => "MODEL_DISCOVERY_UNSUPPORTED",
+            429 => "MODEL_DISCOVERY_RATE_LIMITED",
+            _ => "MODEL_DISCOVERY_FAILED",
+        };
+        return Err(ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            code,
+            "Unable to fetch models from the AI provider",
+        ));
     }
     if response
         .content_length()
@@ -568,6 +589,32 @@ async fn update_provider(
         .await
         .map_err(map_provider_error)?;
     Ok(Json(ProviderResponse::from_metadata(provider)?))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct DeleteProviderRequest {
+    expected_revision: u64,
+}
+
+async fn delete_provider(
+    State(state): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    _csrf: CsrfGuard,
+    ApiPath(provider_id): ApiPath<String>,
+    ApiJson(request): ApiJson<DeleteProviderRequest>,
+) -> Result<StatusCode, ApiError> {
+    validate_canonical_uuid(&provider_id)?;
+    state
+        .provider_mutation_limiter
+        .check(&user.id)
+        .map_err(map_limiter_rejection)?;
+    let scope = ProviderScope::user(user.id).map_err(map_provider_error)?;
+    command_repository(&state)?
+        .delete(&provider_id, &scope, request.expected_revision)
+        .await
+        .map_err(map_provider_error)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 fn query_repository(state: &AppState) -> Result<ProviderRepository, ApiError> {

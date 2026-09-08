@@ -58,7 +58,7 @@ it("edits only user Providers and leaves the credential field empty", async () =
   expect(
     screen.getByText("Leave blank to keep the existing credential."),
   ).toBeVisible()
-  expect(screen.getByRole("combobox", { name: "Provider kind" })).toHaveAttribute(
+  expect(screen.getByRole("combobox", { name: "Provider kind" })).not.toHaveAttribute(
     "aria-disabled",
     "true",
   )

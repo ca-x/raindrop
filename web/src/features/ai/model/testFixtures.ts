@@ -43,6 +43,7 @@ export function fakeAiSettingsController(
     isSavingProvider: false,
     isSavingConfig: false,
     load: vi.fn().mockResolvedValue(undefined),
+    removeProvider: vi.fn().mockResolvedValue(true),
     saveProvider: vi.fn().mockResolvedValue(true),
     saveConfig: vi.fn().mockResolvedValue(true),
     cancel: vi.fn(),

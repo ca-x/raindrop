@@ -2323,10 +2323,10 @@ html[lang^="zh"] .ai-artifact-view {
 }
 
 .ai-provider-editor {
-  padding: 14px;
+  padding: 20px;
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
-  background: var(--color-background-muted);
-  box-shadow: inset 0 0 0 1px var(--color-border);
+  background: var(--color-background-surface);
 }
 
 .ai-provider-form,
@@ -2334,7 +2334,44 @@ html[lang^="zh"] .ai-artifact-view {
   padding-block-start: 14px;
 }
 
+.ai-provider-identity {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+  align-items: start;
+  gap: 16px;
+}
+
+.ai-provider-editor :where(label, button, .reader-preference-description),
+.ai-provider-state {
+  letter-spacing: normal;
+}
+
+.ai-provider-form .astryx-text-input,
+.ai-provider-form [role="combobox"],
+.ai-provider-form button,
+.ai-provider-list-actions button {
+  min-block-size: 44px;
+}
+
+.ai-provider-state {
+  color: var(--color-text-secondary);
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+
+.ai-provider-form > div > .reader-dialog-actions {
+  border-block-start: 1px solid var(--color-border);
+  padding-block-start: 16px;
+}
+
+.ai-provider-delete {
+  margin-inline-end: auto;
+  color: var(--color-error);
+}
+
 .ai-provider-model-field {
+  padding-block: 16px;
+  border-block: 1px solid var(--color-border);
   display: grid;
   gap: 8px;
   min-inline-size: 0;
@@ -2363,7 +2400,7 @@ html[lang^="zh"] .ai-artifact-view {
 }
 
 .ai-provider-model-row > button {
-  min-block-size: 40px;
+  min-block-size: 44px;
   white-space: nowrap;
 }
 
@@ -2410,6 +2447,7 @@ html[lang^="zh"] .ai-artifact-view {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .ai-provider-identity,
   .ai-provider-model-row {
     grid-template-columns: minmax(0, 1fr);
   }

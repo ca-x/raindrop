@@ -52,6 +52,7 @@ fn provider_openapi_freezes_the_public_surface_and_secret_boundary() {
             ("POST".to_owned(), MODELS_PATH.to_owned()),
             ("GET".to_owned(), PROVIDER_PATH.to_owned()),
             ("PATCH".to_owned(), PROVIDER_PATH.to_owned()),
+            ("DELETE".to_owned(), PROVIDER_PATH.to_owned()),
         ])
     );
     assert_statuses(&document, PROVIDERS_PATH, "get", &[200, 401, 500]);
@@ -65,7 +66,7 @@ fn provider_openapi_freezes_the_public_surface_and_secret_boundary() {
         &document,
         MODELS_PATH,
         "post",
-        &[200, 401, 403, 422, 429, 502],
+        &[200, 401, 403, 404, 422, 429, 500, 502, 503],
     );
     assert_statuses(&document, PROVIDER_PATH, "get", &[200, 401, 404, 422, 500]);
     assert_statuses(
@@ -75,12 +76,25 @@ fn provider_openapi_freezes_the_public_surface_and_secret_boundary() {
         &[200, 401, 403, 404, 409, 422, 429, 500, 503],
     );
 
+    assert_statuses(
+        &document,
+        PROVIDER_PATH,
+        "delete",
+        &[204, 401, 403, 404, 409, 422, 429, 500],
+    );
+    assert_required(&document, "DeleteProviderRequest", &["expectedRevision"]);
+    assert_eq!(
+        document["components"]["schemas"]["UpdateProviderRequest"]["properties"]["kind"]["$ref"],
+        "#/components/schemas/ProviderKind"
+    );
+
     for (path, method) in [
         (PROVIDERS_PATH, "get"),
         (PROVIDERS_PATH, "post"),
         (MODELS_PATH, "post"),
         (PROVIDER_PATH, "get"),
         (PROVIDER_PATH, "patch"),
+        (PROVIDER_PATH, "delete"),
     ] {
         assert_eq!(
             document["paths"][path][method]["security"],
@@ -91,6 +105,7 @@ fn provider_openapi_freezes_the_public_surface_and_secret_boundary() {
         (PROVIDERS_PATH, "post"),
         (MODELS_PATH, "post"),
         (PROVIDER_PATH, "patch"),
+        (PROVIDER_PATH, "delete"),
     ] {
         assert!(
             document["paths"][path][method]["parameters"]

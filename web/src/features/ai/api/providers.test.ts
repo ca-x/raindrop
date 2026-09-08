@@ -183,3 +183,12 @@ function jsonResponse(body: unknown, status = 200): Response {
     headers: { "content-type": "application/json" },
   })
 }
+
+it("discovers saved providers without re-entering their credential", async () => {
+  const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ models: [{ id: "model-a" }] }))
+  vi.stubGlobal("fetch", fetchMock)
+  await expect(discoverProviderModels("csrf-memory", {
+    providerId, kind: "ANTHROPIC_MESSAGES", endpoint: "https://gateway.example/anthropic/", credential: "",
+  })).resolves.toEqual([{ id: "model-a", label: "model-a" }])
+  expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({ providerId, credential: "" })
+})

@@ -75,8 +75,11 @@ impl TranslationService {
         user_id: &str,
         input: SaveTranslationConfig,
     ) -> Result<TranslationConfig, TranslationError> {
-        if let Some(provider_id) = input.open_ai_provider_id.as_deref() {
-            self.validate_openai_provider(user_id, provider_id, input.is_enabled)
+        if input.is_enabled
+            && input.engine == TranslationEngine::OpenAi
+            && let Some(provider_id) = input.open_ai_provider_id.as_deref()
+        {
+            self.validate_openai_provider(user_id, provider_id, true)
                 .await?;
         }
         self.repository.save(user_id, input).await

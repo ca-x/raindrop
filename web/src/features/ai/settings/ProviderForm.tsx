@@ -6,7 +6,9 @@ import { Selector } from "@astryxdesign/core/Selector"
 import { Stack } from "@astryxdesign/core/Stack"
 import { TextInput } from "@astryxdesign/core/TextInput"
 import { useLingui } from "@lingui/react"
-import { useState, type FormEvent } from "react"
+import { useEffect, useRef, useState, type FormEvent } from "react"
+
+import { ApiClientError } from "../../../shared/api/client"
 
 import type { ProviderKind, ProviderPolicy } from "../api/provider.generated"
 import {
@@ -30,6 +32,8 @@ interface ProviderFormProps {
   onChange: (draft: ProviderDraft) => void
   onSave: (draft: ProviderDraft) => Promise<boolean>
   onCancel: () => void
+  onDelete?: () => void
+  saveError?: string | null
 }
 
 const PROVIDER_KINDS: ProviderKind[] = [
@@ -45,11 +49,25 @@ export function ProviderForm(props: ProviderFormProps) {
   const [models, setModels] = useState<ProviderModelDiscoveryResult[]>([])
   const [isDiscoveringModels, setIsDiscoveringModels] = useState(false)
   const [modelDiscoveryError, setModelDiscoveryError] = useState<string | null>(null)
+  const discoveryAbort = useRef<AbortController | null>(null)
+  const formRef = useRef<HTMLFormElement>(null)
+  useEffect(() => {
+    formRef.current?.querySelector<HTMLInputElement>("input")?.focus({ preventScroll: true })
+    formRef.current?.scrollIntoView?.({ block: "nearest" })
+    return () => discoveryAbort.current?.abort()
+  }, [])
+  const resetDiscovery = () => {
+    discoveryAbort.current?.abort()
+    discoveryAbort.current = null
+    setIsDiscoveringModels(false)
+    setModels([])
+    setModelDiscoveryError(null)
+  }
   const update = (patch: Partial<ProviderDraft>) => {
     props.onChange({ ...props.draft, ...patch })
     setErrors({})
     if (patch.endpoint !== undefined || patch.credential !== undefined) {
-      setModelDiscoveryError(null)
+      resetDiscovery()
     }
   }
   const updatePolicy = (field: keyof ProviderPolicy, value: number | null) => {
@@ -66,6 +84,9 @@ export function ProviderForm(props: ProviderFormProps) {
   }
 
   const discoverModels = async () => {
+    discoveryAbort.current?.abort()
+    const abort = new AbortController()
+    discoveryAbort.current = abort
     setModelDiscoveryError(null)
     setIsDiscoveringModels(true)
     try {
@@ -74,48 +95,63 @@ export function ProviderForm(props: ProviderFormProps) {
         kind: props.draft.kind,
         endpoint: props.draft.endpoint,
         credential: props.draft.credential,
-      })
+      }, abort.signal)
+      if (abort.signal.aborted) return
       setModels(result)
       if (result.length === 0) setModelDiscoveryError(i18n._("ai.providerModelsEmpty"))
     } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") return
+      if (abort.signal.aborted) return
       setModels([])
-      setModelDiscoveryError(i18n._("ai.providerModelsLoadError"))
+      const messages: Record<string, string> = {
+        MODEL_DISCOVERY_AUTH_FAILED: "ai.providerModelsAuthError",
+        MODEL_DISCOVERY_UNSUPPORTED: "ai.providerModelsUnsupported",
+        MODEL_DISCOVERY_RATE_LIMITED: "ai.providerModelsRateLimited",
+        RATE_LIMITED: "ai.providerModelsRateLimited",
+        AI_PROVIDER_KEYRING_UNAVAILABLE: "ai.providerCredentialUnavailable",
+        NOT_FOUND: "ai.providerModelsNotFound",
+      }
+      const message = error instanceof ApiClientError
+        ? messages[error.payload.code] ?? (error.status === 401 ? "ai.providerModelsSessionExpired" : "ai.providerModelsLoadError")
+        : "ai.providerModelsLoadError"
+      setModelDiscoveryError(i18n._(message))
     } finally {
-      setIsDiscoveringModels(false)
+      if (discoveryAbort.current === abort) {
+        discoveryAbort.current = null
+        setIsDiscoveringModels(false)
+      }
     }
   }
 
   return (
-    <form onSubmit={submit} className="ai-provider-form">
+    <form ref={formRef} onSubmit={submit} className="ai-provider-form">
       <Stack gap={4}>
-        <TextInput
-          label={i18n._("ai.providerName")}
-          value={props.draft.displayName}
-          onChange={(displayName) => update({ displayName })}
-          isRequired
-          isDisabled={props.isSaving}
-          width="100%"
-          status={fieldStatus((id) => i18n._(id), errors, "displayName")}
-        />
-        <Selector
-          label={i18n._("ai.providerKind")}
-          value={props.draft.kind}
-          options={PROVIDER_KINDS.map((kind) => ({
-            value: kind,
-            label: providerKindLabel((id) => i18n._(id), kind),
-          }))}
-          onChange={(kind) => {
-            props.onChange(changeProviderKind(props.draft, kind as ProviderKind))
-            setModels([])
-            setModelDiscoveryError(null)
-          }}
-          isDisabled={props.draft.mode === "edit" || props.isSaving}
-          disabledMessage={
-            props.draft.mode === "edit" ? i18n._("ai.providerKindImmutable") : undefined
-          }
-          width="100%"
-        />
+        <div className="ai-provider-identity">
+          <TextInput
+            label={i18n._("ai.providerName")}
+            value={props.draft.displayName}
+            onChange={(displayName) => update({ displayName })}
+            isRequired
+            isDisabled={props.isSaving}
+            width="100%"
+            status={fieldStatus((id) => i18n._(id), errors, "displayName")}
+          />
+          <Selector
+            label={i18n._("ai.providerKind")}
+            value={props.draft.kind}
+            options={PROVIDER_KINDS.map((kind) => ({
+              value: kind,
+              label: providerKindLabel((id) => i18n._(id), kind),
+            }))}
+            onChange={(kind) => {
+              props.onChange(changeProviderKind(props.draft, kind as ProviderKind))
+              resetDiscovery()
+              setErrors({})
+            }}
+            isDisabled={props.isSaving || !props.credentialAvailable}
+            width="100%"
+          />
+        </div>
+        <div className="reader-preference-description">{i18n._("ai.providerKindHelp")}</div>
         <TextInput
           label={i18n._("ai.providerEndpoint")}
           description={i18n._("ai.providerEndpointDescription")}
@@ -126,54 +162,6 @@ export function ProviderForm(props: ProviderFormProps) {
           width="100%"
           status={fieldStatus((id) => i18n._(id), errors, "endpoint")}
         />
-        <div className="ai-provider-model-field">
-          <div className="ai-provider-model-row">
-            <TextInput
-              label={i18n._("ai.providerModel")}
-              value={props.draft.model}
-              onChange={(model) => update({ model })}
-              isRequired
-              isDisabled={props.isSaving}
-              width="100%"
-              status={fieldStatus((id) => i18n._(id), errors, "model")}
-            />
-            <Button
-              label={i18n._("ai.providerDiscoverModels")}
-              type="button"
-              onClick={() => void discoverModels()}
-              isLoading={isDiscoveringModels}
-              isDisabled={
-                props.isSaving ||
-                isDiscoveringModels ||
-                (!props.draft.credential.trim() && !props.draft.providerId)
-              }
-              variant="secondary"
-            />
-          </div>
-          <div className="reader-preference-description">
-            {i18n._("ai.providerDiscoverModelsDescription")}
-          </div>
-          {modelDiscoveryError ? (
-            <div className="ai-provider-model-error" role="status">
-              {modelDiscoveryError}
-            </div>
-          ) : null}
-          {models.length > 0 ? (
-            <div className="ai-provider-model-results">
-              <span className="reader-visually-hidden" role="status" aria-live="polite">
-                {i18n._("ai.providerModelsLoaded", { count: models.length })}
-              </span>
-              <Selector
-                label={i18n._("ai.providerModelSuggestions")}
-                value={models.some((model) => model.id === props.draft.model) ? props.draft.model : ""}
-                options={models.map((model) => ({ value: model.id, label: model.label }))}
-                onChange={(model) => update({ model })}
-                isDisabled={props.isSaving || isDiscoveringModels}
-                width="100%"
-              />
-            </div>
-          ) : null}
-        </div>
         <TextInput
           type="password"
           label={i18n._("ai.providerCredential")}
@@ -195,8 +183,58 @@ export function ProviderForm(props: ProviderFormProps) {
           width="100%"
           status={fieldStatus((id) => i18n._(id), errors, "credential")}
         />
+        <div className="ai-provider-model-field">
+          <div className="ai-provider-model-row">
+            <TextInput
+              label={i18n._("ai.providerModel")}
+              value={props.draft.model}
+              onChange={(model) => update({ model })}
+              isRequired
+              isDisabled={props.isSaving}
+              width="100%"
+              status={fieldStatus((id) => i18n._(id), errors, "model")}
+            />
+            <Button
+              label={i18n._("ai.providerDiscoverModels")}
+              type="button"
+              onClick={() => void discoverModels()}
+              isLoading={isDiscoveringModels}
+              isDisabled={
+                props.isSaving ||
+                isDiscoveringModels ||
+                (!props.draft.credential.trim() && (!props.draft.providerId || !props.credentialAvailable))
+              }
+              variant="secondary"
+            />
+          </div>
+          <div className="reader-preference-description">
+            {i18n._(props.draft.mode === "edit" && !props.draft.credential.trim()
+              ? "ai.providerDiscoverStoredDescription"
+              : "ai.providerDiscoverModelsDescription")}
+          </div>
+          {modelDiscoveryError ? (
+            <div className="ai-provider-model-error" role="alert">
+              {modelDiscoveryError}
+            </div>
+          ) : null}
+          {models.length > 0 ? (
+            <div className="ai-provider-model-results">
+              <span className="reader-visually-hidden" role="status" aria-live="polite">
+                {i18n._("ai.providerModelsLoaded", { count: models.length })}
+              </span>
+              <Selector
+                label={i18n._("ai.providerModelSuggestions")}
+                value={models.some((model) => model.id === props.draft.model) ? props.draft.model : ""}
+                options={models.map((model) => ({ value: model.id, label: model.label }))}
+                onChange={(model) => update({ model })}
+                isDisabled={props.isSaving || isDiscoveringModels}
+                width="100%"
+              />
+            </div>
+          ) : null}
+        </div>
         <CheckboxInput
-          label={i18n._("ai.providerEnabled")}
+          label={i18n._("ai.providerEnable")}
           description={i18n._("ai.providerEnabledDescription")}
           value={props.draft.isEnabled}
           onChange={(isEnabled) => update({ isEnabled })}
@@ -313,8 +351,15 @@ export function ProviderForm(props: ProviderFormProps) {
             </div>
           </Stack>
         </Collapsible>
+        {props.saveError ? <div role="alert" className="ai-provider-model-error">{props.saveError}</div> : null}
         <div className="reader-dialog-actions">
+          {props.onDelete ? (
+            <Button label={i18n._("ai.providerDelete")} type="button"
+              className="ai-provider-delete" onClick={props.onDelete}
+              isDisabled={props.isSaving} variant="secondary" />
+          ) : null}
           <Button
+            type="button"
             label={i18n._("common.cancel")}
             onClick={props.onCancel}
             isDisabled={props.isSaving}

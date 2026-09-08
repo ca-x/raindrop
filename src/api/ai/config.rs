@@ -210,7 +210,7 @@ async fn put_config(
     if !plugin_state.is_ready() {
         return Err(ai_unavailable());
     }
-    if request.summary.enabled {
+    if request.is_enabled && request.summary.enabled {
         require_provider(
             &providers,
             &user.id,
@@ -219,7 +219,7 @@ async fn put_config(
         )
         .await?;
     }
-    if request.translation.enabled {
+    if request.is_enabled && request.translation.enabled {
         require_provider(
             &providers,
             &user.id,

@@ -571,7 +571,7 @@ async fn provider_paths_methods_limits_and_internal_errors_are_stable() {
 
     let method_not_allowed = fixture
         .request(
-            Method::DELETE,
+            Method::PUT,
             &format!("/api/v1/ai/providers/{}", fixture.user_a_provider_id),
             None,
             Some(UserKind::A),
@@ -759,5 +759,130 @@ fn assert_sensitive_cache_headers(response: &CapturedResponse) {
             .get(PRAGMA)
             .and_then(|value| value.to_str().ok()),
         Some("no-cache")
+    );
+}
+
+#[tokio::test]
+async fn provider_kind_change_preserves_identity_and_decryptable_credentials() {
+    let fixture = ProviderFixture::new(true).await;
+    let path = format!("/api/v1/ai/providers/{}", fixture.user_a_provider_id);
+    let updated = fixture
+        .request(
+            Method::PATCH,
+            &path,
+            Some(json!({
+                "expectedRevision": 0, "kind": "ANTHROPIC_MESSAGES",
+                "endpoint": "https://gateway.example/anthropic/", "model": "custom-model"
+            })),
+            Some(UserKind::A),
+            true,
+        )
+        .await;
+    assert_eq!(updated.status, StatusCode::OK);
+    assert_eq!(updated.json()["providerId"], fixture.user_a_provider_id);
+    assert_eq!(updated.json()["kind"], "ANTHROPIC_MESSAGES");
+    let repository =
+        ProviderRepository::new(fixture.database.clone(), Some(Arc::new(provider_keyring())));
+    let binding = repository
+        .load_enabled_binding(&fixture.user_a_provider_id, USER_A_ID)
+        .await
+        .expect("existing credential should decrypt using the new provider kind");
+    assert_eq!(binding.metadata().kind(), ProviderKind::AnthropicMessages);
+    let conflict = fixture
+        .request(
+            Method::PATCH,
+            &path,
+            Some(json!({
+                "expectedRevision": 0, "kind": "GOOGLE_GEMINI"
+            })),
+            Some(UserKind::A),
+            true,
+        )
+        .await;
+    assert_error(&conflict, StatusCode::CONFLICT, "REVISION_CONFLICT");
+}
+
+#[tokio::test]
+async fn delete_requires_owner_csrf_and_current_revision_and_works_without_keyring() {
+    let fixture = ProviderFixture::new(false).await;
+    let path = format!("/api/v1/ai/providers/{}", fixture.user_a_provider_id);
+    let body = json!({"expectedRevision": 0});
+    for (user, csrf, status, code) in [
+        (None, false, StatusCode::UNAUTHORIZED, "UNAUTHENTICATED"),
+        (Some(UserKind::A), false, StatusCode::FORBIDDEN, "FORBIDDEN"),
+        (Some(UserKind::B), true, StatusCode::NOT_FOUND, "NOT_FOUND"),
+    ] {
+        let response = fixture
+            .request(Method::DELETE, &path, Some(body.clone()), user, csrf)
+            .await;
+        assert_eq!(response.status, status, "{code}");
+    }
+    let shared = fixture
+        .request(
+            Method::DELETE,
+            &format!("/api/v1/ai/providers/{}", fixture.instance_provider_id),
+            Some(body.clone()),
+            Some(UserKind::A),
+            true,
+        )
+        .await;
+    assert_error(&shared, StatusCode::NOT_FOUND, "NOT_FOUND");
+    let conflict = fixture
+        .request(
+            Method::DELETE,
+            &path,
+            Some(json!({"expectedRevision": 9})),
+            Some(UserKind::A),
+            true,
+        )
+        .await;
+    assert_error(&conflict, StatusCode::CONFLICT, "REVISION_CONFLICT");
+    let removed = fixture
+        .request(Method::DELETE, &path, Some(body), Some(UserKind::A), true)
+        .await;
+    assert_eq!(removed.status, StatusCode::NO_CONTENT);
+    let missing = fixture
+        .request(Method::GET, &path, None, Some(UserKind::A), false)
+        .await;
+    assert_error(&missing, StatusCode::NOT_FOUND, "NOT_FOUND");
+}
+
+#[tokio::test]
+async fn disabled_provider_discovery_uses_saved_secret_and_validates_the_draft_endpoint() {
+    let fixture = ProviderFixture::new(true).await;
+    let disabled = fixture
+        .request(
+            Method::PATCH,
+            &format!("/api/v1/ai/providers/{}", fixture.user_a_provider_id),
+            Some(json!({"expectedRevision": 0, "isEnabled": false})),
+            Some(UserKind::A),
+            true,
+        )
+        .await;
+    assert_eq!(disabled.status, StatusCode::OK);
+    // No network required: this must reach draft endpoint validation after loading the saved secret.
+    let response = fixture.request(Method::POST, "/api/v1/ai/providers/models", Some(json!({
+        "providerId": fixture.user_a_provider_id,
+        "kind": "ANTHROPIC_MESSAGES", "endpoint": "http://invalid.example/", "credential": ""
+    })), Some(UserKind::A), true).await;
+    assert_error(
+        &response,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "VALIDATION_ERROR",
+    );
+    assert!(response.json()["error"]["fields"]["endpoint"].is_string());
+    let other = fixture.request(Method::POST, "/api/v1/ai/providers/models", Some(json!({
+        "providerId": fixture.user_b_provider_id,
+        "kind": "ANTHROPIC_MESSAGES", "endpoint": "http://invalid.example/", "credential": ""
+    })), Some(UserKind::A), true).await;
+    assert_error(&other, StatusCode::NOT_FOUND, "NOT_FOUND");
+    let repository =
+        ProviderRepository::new(fixture.database.clone(), Some(Arc::new(provider_keyring())));
+    assert!(
+        repository
+            .load_enabled_binding(&fixture.user_a_provider_id, USER_A_ID)
+            .await
+            .is_err(),
+        "disabled providers must still reject inference"
     );
 }

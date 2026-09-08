@@ -11,7 +11,7 @@
 | OpenAI Chat Completions-compatible | `https://api.openai.com/` | `/v1/chat/completions` |
 | Google Gemini | `https://generativelanguage.googleapis.com/` | `/v1beta/models/{encodedModel}:generateContent` |
 
-`providerKind` 在记录创建后不可修改。兼容服务可以设置带固定 path prefix 的自定义 HTTPS endpoint，例如 `https://gateway.example/tenant-a/`；adapter path 会安全地追加到该 prefix 后。endpoint 不接受 HTTP、userinfo、query、fragment、反斜杠、点路径、编码的点或路径分隔符，也不接受私有或特殊用途 literal IP。
+用户可以修改自己 Provider 的 `kind`；修改会保留 ID，并在同一事务内以新 kind 重新加密凭据。兼容服务可以设置带固定 path prefix 的自定义 HTTPS endpoint，例如 `https://gateway.example/tenant-a/`；adapter path 会安全地追加到该 prefix 后。endpoint 不接受 HTTP、userinfo、query、fragment、反斜杠、点路径、编码的点或路径分隔符，也不接受私有或特殊用途 literal IP。
 
 ## Provider secret keyring
 
@@ -46,14 +46,15 @@ SQLite 和交互式设置默认在数据目录创建一次 `provider-secret.key`
 
 ## 用户设置与 credential 边界
 
-登录用户可以在“设置 > 插件”中管理自己的 Provider，并通过 AI 阅读插件总开关控制 Reader 是否出现摘要和翻译操作。当前 UI 支持 list、create 和 edit，不提供物理删除；instance scope Provider 对普通用户可见但只读。Provider kind 创建后不可修改，用户可以更新显示名、HTTPS endpoint、model、capability、policy、启用状态和 credential。
+登录用户可以在“设置 > 插件”中管理自己的 Provider，并通过 AI 阅读插件总开关控制 Reader 是否出现摘要和翻译操作。当前 UI 支持查看、新建、编辑和确认后删除；instance scope Provider 对普通用户可见但只读。用户可以更新协议类型、显示名、HTTPS endpoint、model、capability、policy、启用状态和 credential。删除采用 revision 校验并移除该 Provider 及凭据；引用它的摘要或翻译需要重新选择 Provider，已有文章和生成结果保留。
 
 Credential 是 write-only 字段。创建或轮换时，它只存在于请求边界和表单草稿中；Provider 响应、前端缓存、错误对象和编辑初始值都不包含 credential。编辑表单默认留空，空白表示保留现有 envelope。API 也不会返回 `encrypted_secret`、key ID、原始 policy JSON 或 owner user ID。
 
 相关用户 API 为：
 
 - `GET/POST /api/v1/ai/providers`
-- `GET/PATCH /api/v1/ai/providers/:providerId`
+- `GET/PATCH/DELETE /api/v1/ai/providers/:providerId`
+- `POST /api/v1/ai/providers/models`
 - `GET/PUT /api/v1/ai/config`
 
 修改请求需要登录会话和 CSRF token，并使用 revision 做并发控制。跨用户和不可编辑的 Provider 统一按 not found 处理。Provider 响应与错误响应都使用 `Cache-Control: no-store`。
@@ -63,6 +64,10 @@ Credential 是 write-only 字段。创建或轮换时，它只存在于请求边
 每个 binary 内嵌固定的 Component bytes、规范化 manifest、SHA-256 digest、Ed25519 signature 和匹配 public key。启动时先验证 key ID、manifest、digest、signature、插件 identity 和 ABI，再编译 Component；任何结构损坏都会以脱敏配置错误停止 Content supervision，数据库 installation 不会被写入。
 
 本地与普通 CI 构建使用 `raindrop-development-2026`，仅用于开发验证。tag binary 与 Docker 发布必须使用 `raindrop-release-2026` 和受保护的 32 字节 signing seed；发布 workflow 无法静默回退。构建期变量、BuildKit secret 和轮换流程见 [配置文档](configuration.md#构建期官方插件签名)。签名只证明内嵌发布来源，Feed 文本、prompt、provider 响应和模型输出仍全部按不可信输入处理。
+
+### 获取模型
+
+编辑时凭据留空会复用已保存的密钥，包括停用的个人 Provider；停用状态仍禁止新推理任务。模型获取使用表单当前的类型和 HTTPS 地址，不会自动保存修改。实例 Provider 的共享凭据只能发往原配置地址。支持 `/v1/models`（Anthropic、OpenAI）或 `/v1beta/models`（Gemini）；兼容服务未提供模型列表时可以手填模型名称。界面区分凭据被拒绝、接口不支持和限流，并在修改连接信息或关闭编辑器时取消旧请求。
 
 ## 轮换
 
@@ -92,7 +97,7 @@ Credential 是 write-only 字段。创建或轮换时，它只存在于请求边
 
 - 算法：ring AES-256-GCM。
 - nonce：每次加密独立生成 96-bit 随机值。
-- AAD：绑定 envelope 版本、provider ID 和不可变 provider kind。
+- AAD：绑定 envelope 版本、provider ID 和 provider kind；修改 kind 时必须重新加密。
 - credential：1 到 8,192 个 UTF-8 字节，只在 keyring、repository、adapter 和 transport 的窄边界内出现。
 - `ai_providers` 是 SQLite、PostgreSQL 和 MySQL 的唯一记录系统；capability、quota 和 cost policy 使用规范化列。
 - repository 使用显式 instance/user scope、用户隔离、enabled 检查和 revision CAS。
@@ -144,7 +149,7 @@ worker 对可重试的瞬时错误在同一 job 内执行最多三次内部尝�
 
 以下仍是后续工作：
 
-- Provider 物理删除、instance scope 管理和管理员策略 UI；
+- instance scope 管理和管理员策略 UI；
 - Feed 生命周期 dispatcher、自动 job intents、插件管理和第三方分发；
 - AI 插件通过 broker 调用的 MCP client，以及 Raindrop 自身的 MCP server。
 - Streaming、chat 和第三方插件 artifact UI。

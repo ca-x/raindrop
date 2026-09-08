@@ -272,6 +272,7 @@ function renderController(api: AiSettingsApi, onUnauthenticated = vi.fn()) {
 
 function fakeApi(overrides: Partial<AiSettingsApi> = {}): AiSettingsApi {
   return {
+    deleteProvider: vi.fn().mockResolvedValue(undefined),
     listProviders: vi.fn().mockResolvedValue(providerList),
     createProvider: vi.fn<
       (
@@ -333,3 +334,24 @@ function deferred<T>() {
   })
   return { promise, resolve, reject }
 }
+
+it("removes a provider using the current revision and updates the list after success", async () => {
+  const api = fakeApi()
+  const { result } = renderController(api)
+  await act(() => result.current.load())
+  await act(async () => { expect(await result.current.removeProvider(provider)).toBe(true) })
+  expect(api.deleteProvider).toHaveBeenCalledWith(providerId, "csrf-memory", 0, expect.any(AbortSignal))
+  expect(result.current.providers).toEqual([])
+  expect(result.current.isSavingProvider).toBe(false)
+})
+
+it("keeps the provider and reports a conflict if deletion uses a stale revision", async () => {
+  const api = fakeApi({ deleteProvider: vi.fn().mockRejectedValue(new ApiClientError(409, {
+    code: "REVISION_CONFLICT", message: "Changed",
+  })) })
+  const { result } = renderController(api)
+  await act(() => result.current.load())
+  await act(async () => { expect(await result.current.removeProvider(provider)).toBe(false) })
+  expect(result.current.providers).toEqual([provider])
+  expect(result.current.error).toBe("PROVIDER_CONFLICT")
+})

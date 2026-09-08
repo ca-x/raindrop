@@ -80,6 +80,7 @@ export interface UpdateProviderRequest {
   capabilities?: ProviderCapabilities
   policy?: ProviderPolicy
   isEnabled?: boolean
+  kind?: ProviderKind
 }
 
 export interface ApiError {
@@ -91,6 +92,10 @@ export interface ApiError {
 
 export interface ApiErrorEnvelope {
   error: ApiError
+}
+
+export interface DeleteProviderRequest {
+  expectedRevision: number
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -154,7 +159,7 @@ export function isCreateProviderRequest(value: unknown): value is CreateProvider
 }
 
 export function isUpdateProviderRequest(value: unknown): value is UpdateProviderRequest {
-  return ((isRecord(value) && hasOnlyKeys(value, ["expectedRevision","displayName","endpoint","model","credential","capabilities","policy","isEnabled"]) && Object.keys(value).length >= 2 && hasOwn(value, "expectedRevision") && ((typeof value["expectedRevision"] === "number" && Number.isFinite(value["expectedRevision"]) && Number.isInteger(value["expectedRevision"]) && value["expectedRevision"] >= 0)) && (!hasOwn(value, "displayName") || ((typeof value["displayName"] === "string" && value["displayName"].length >= 1 && value["displayName"].length <= 80))) && (!hasOwn(value, "endpoint") || ((typeof value["endpoint"] === "string" && value["endpoint"].length <= 2048 && new RegExp("^https://").test(value["endpoint"]) && isUri(value["endpoint"])))) && (!hasOwn(value, "model") || ((typeof value["model"] === "string" && value["model"].length >= 1 && value["model"].length <= 200))) && (!hasOwn(value, "credential") || ((typeof value["credential"] === "string" && value["credential"].length >= 1 && value["credential"].length <= 8192) || value["credential"] === null)) && (!hasOwn(value, "capabilities") || isProviderCapabilities(value["capabilities"])) && (!hasOwn(value, "policy") || isProviderPolicy(value["policy"])) && (!hasOwn(value, "isEnabled") || (typeof value["isEnabled"] === "boolean"))))
+  return ((isRecord(value) && hasOnlyKeys(value, ["expectedRevision","displayName","endpoint","model","credential","capabilities","policy","isEnabled","kind"]) && Object.keys(value).length >= 2 && hasOwn(value, "expectedRevision") && ((typeof value["expectedRevision"] === "number" && Number.isFinite(value["expectedRevision"]) && Number.isInteger(value["expectedRevision"]) && value["expectedRevision"] >= 0)) && (!hasOwn(value, "displayName") || ((typeof value["displayName"] === "string" && value["displayName"].length >= 1 && value["displayName"].length <= 80))) && (!hasOwn(value, "endpoint") || ((typeof value["endpoint"] === "string" && value["endpoint"].length <= 2048 && new RegExp("^https://").test(value["endpoint"]) && isUri(value["endpoint"])))) && (!hasOwn(value, "model") || ((typeof value["model"] === "string" && value["model"].length >= 1 && value["model"].length <= 200))) && (!hasOwn(value, "credential") || ((typeof value["credential"] === "string" && value["credential"].length >= 1 && value["credential"].length <= 8192) || value["credential"] === null)) && (!hasOwn(value, "capabilities") || isProviderCapabilities(value["capabilities"])) && (!hasOwn(value, "policy") || isProviderPolicy(value["policy"])) && (!hasOwn(value, "isEnabled") || (typeof value["isEnabled"] === "boolean")) && (!hasOwn(value, "kind") || isProviderKind(value["kind"]))))
 }
 
 export function isApiError(value: unknown): value is ApiError {
@@ -163,4 +168,8 @@ export function isApiError(value: unknown): value is ApiError {
 
 export function isApiErrorEnvelope(value: unknown): value is ApiErrorEnvelope {
   return ((isRecord(value) && hasOnlyKeys(value, ["error"]) && hasOwn(value, "error") && isApiError(value["error"])))
+}
+
+export function isDeleteProviderRequest(value: unknown): value is DeleteProviderRequest {
+  return ((isRecord(value) && hasOnlyKeys(value, ["expectedRevision"]) && hasOwn(value, "expectedRevision") && ((typeof value["expectedRevision"] === "number" && Number.isFinite(value["expectedRevision"]) && Number.isInteger(value["expectedRevision"]) && value["expectedRevision"] >= 0))))
 }

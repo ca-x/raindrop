@@ -256,6 +256,126 @@ impl CapturedResponse {
 }
 
 #[tokio::test]
+async fn translation_config_recovers_after_selected_provider_is_deleted_or_changes_kind() {
+    for delete_provider in [true, false] {
+        let fixture = TranslationFixture::new(true).await;
+        let created = fixture
+            .json_request(
+                Method::POST,
+                "/api/v1/ai/providers",
+                Some(json!({
+                    "displayName": "Translation provider",
+                    "kind": "OPENAI_RESPONSES",
+                    "endpoint": null,
+                    "model": "test-model",
+                    "credential": "test-credential",
+                    "capabilities": { "supportsUsage": true, "supportsIdempotency": false },
+                    "policy": {
+                        "maxConcurrency": 2,
+                        "requestsPerMinute": 30,
+                        "maxInputTokensPerRequest": 32768,
+                        "maxOutputTokensPerRequest": 4096,
+                        "inputCostMicrosPerMillionTokens": null,
+                        "outputCostMicrosPerMillionTokens": null,
+                        "maxCostMicrosPerRequest": 250000
+                    },
+                    "isEnabled": true
+                })),
+                Some(UserKind::A),
+                true,
+            )
+            .await;
+        assert_eq!(created.status, StatusCode::CREATED, "{}", created.json());
+        let provider = created.json();
+        let mut body = translation_config_body(Value::Null, "DeepLX", Some(true));
+        body["engine"] = json!("OPENAI");
+        body["openAi"]["providerId"] = provider["providerId"].clone();
+        let configured = fixture
+            .json_request(
+                Method::PUT,
+                "/api/v3/plugins/translation",
+                Some(body.clone()),
+                Some(UserKind::A),
+                true,
+            )
+            .await;
+        assert_eq!(configured.status, StatusCode::OK, "{}", configured.json());
+        body["expectedRevision"] = configured.json()["revision"].clone();
+
+        let mut mutation = json!({ "expectedRevision": provider["revision"] });
+        if !delete_provider {
+            mutation["kind"] = json!("ANTHROPIC_MESSAGES");
+        }
+        let changed = fixture
+            .json_request(
+                if delete_provider {
+                    Method::DELETE
+                } else {
+                    Method::PATCH
+                },
+                &format!(
+                    "/api/v1/ai/providers/{}",
+                    provider["providerId"].as_str().unwrap()
+                ),
+                Some(mutation),
+                Some(UserKind::A),
+                true,
+            )
+            .await;
+        assert_eq!(
+            changed.status,
+            if delete_provider {
+                StatusCode::NO_CONTENT
+            } else {
+                StatusCode::OK
+            }
+        );
+
+        body["isEnabled"] = json!(false);
+        let disabled = fixture
+            .json_request(
+                Method::PUT,
+                "/api/v3/plugins/translation",
+                Some(body.clone()),
+                Some(UserKind::A),
+                true,
+            )
+            .await;
+        assert_eq!(disabled.status, StatusCode::OK, "{}", disabled.json());
+        body["expectedRevision"] = disabled.json()["revision"].clone();
+        body["isEnabled"] = json!(true);
+        body["engine"] = json!("DEEPLX");
+        let switched = fixture
+            .json_request(
+                Method::PUT,
+                "/api/v3/plugins/translation",
+                Some(body.clone()),
+                Some(UserKind::A),
+                true,
+            )
+            .await;
+        assert_eq!(switched.status, StatusCode::OK, "{}", switched.json());
+
+        body["expectedRevision"] = switched.json()["revision"].clone();
+        body["engine"] = json!("OPENAI");
+        let reenabled = fixture
+            .json_request(
+                Method::PUT,
+                "/api/v3/plugins/translation",
+                Some(body),
+                Some(UserKind::A),
+                true,
+            )
+            .await;
+        assert_error(
+            &reenabled,
+            StatusCode::CONFLICT,
+            "TRANSLATION_PROVIDER_UNAVAILABLE",
+        );
+    }
+}
+
+#[tokio::test]
 async fn translation_config_requires_authentication_csrf_and_strict_json() {
     let fixture = TranslationFixture::new(true).await;
     let unauthenticated = fixture

@@ -113,12 +113,36 @@ impl MigrationTrait for CreateArticleRetention {
                 )
                 .await?;
         }
-        for (table, name) in [
-            ("entry_states", "idx_states_entry_retention"),
-            ("content_jobs", "idx_jobs_entry_retention"),
-            ("content_artifacts", "idx_artifacts_entry_retention"),
+        for (table, name, foreign_key_index) in [
+            ("entry_states", "idx_states_entry_retention", None),
+            (
+                "content_jobs",
+                "idx_jobs_entry_retention",
+                Some("fk_content_jobs_entry"),
+            ),
+            (
+                "content_artifacts",
+                "idx_artifacts_entry_retention",
+                Some("fk_content_artifacts_entry"),
+            ),
         ] {
             if manager.has_index(table, name).await? {
+                // MySQL may replace implicit FK indexes with these retention indexes.
+                // Restore their support before dropping the replacement.
+                if manager.get_database_backend() == sea_orm::DbBackend::MySql
+                    && let Some(foreign_key_index) = foreign_key_index
+                    && !manager.has_index(table, foreign_key_index).await?
+                {
+                    manager
+                        .create_index(
+                            Index::create()
+                                .name(foreign_key_index)
+                                .table(Alias::new(table))
+                                .col(Alias::new("entry_id"))
+                                .to_owned(),
+                        )
+                        .await?;
+                }
                 manager
                     .drop_index(Index::drop().name(name).table(Alias::new(table)).to_owned())
                     .await?;

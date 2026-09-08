@@ -66,6 +66,17 @@ export async function updateProvider(
   return response
 }
 
+export async function deleteProvider(
+  providerId: string, csrfToken: string, expectedRevision: number, signal?: AbortSignal,
+): Promise<void> {
+  await apiRequest(providerPath(providerId), {
+    method: "DELETE",
+    headers: { "x-csrf-token": csrfToken },
+    body: JSON.stringify({ expectedRevision }),
+    signal,
+  })
+}
+
 /**
  * Fetches the model catalog exposed by a provider's standard discovery endpoint.
  * This request is intentionally kept in-memory: credentials are sent only to
@@ -77,7 +88,7 @@ export async function discoverProviderModels(
   signal?: AbortSignal,
 ): Promise<ProviderModelDiscoveryResult[]> {
   const credential = request.credential.trim()
-  if (!credential) throw new Error("MODEL_DISCOVERY_CREDENTIAL_REQUIRED")
+  if (!credential && !request.providerId) throw new Error("MODEL_DISCOVERY_CREDENTIAL_REQUIRED")
   const response = await apiRequest("/api/v1/ai/providers/models", {
     method: "POST",
     headers: { "x-csrf-token": csrfToken },

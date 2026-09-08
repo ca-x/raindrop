@@ -193,7 +193,8 @@ impl ProviderRepository {
                     ProviderCoreErrorKind::RevisionConflict,
                 ));
             }
-            patch.validate(current.kind())?;
+            let kind = patch.kind.unwrap_or_else(|| current.kind());
+            patch.validate(kind)?;
 
             let display_name = patch
                 .display_name
@@ -204,7 +205,7 @@ impl ProviderRepository {
             let endpoint = patch
                 .endpoint
                 .as_deref()
-                .map(|value| ProviderEndpoint::new(current.kind(), Some(value)))
+                .map(|value| ProviderEndpoint::new(kind, Some(value)))
                 .transpose()?
                 .unwrap_or_else(|| current.endpoint().clone());
             let model = patch
@@ -229,14 +230,22 @@ impl ProviderRepository {
                 optional_u64_to_i64(policy.output_cost_micros_per_million_tokens)?;
             let max_cost_micros_per_request =
                 optional_u64_to_i64(policy.max_cost_micros_per_request)?;
-            let encrypted_secret = patch.credential.as_ref().map_or_else(
-                || Ok(stored.encrypted_secret.clone()),
-                |credential| {
-                    self.require_keyring()?
-                        .encrypt(id, current.kind(), credential)
-                        .map_err(secret_error)
-                },
-            )?;
+            // The provider kind is authenticated encryption context; re-encrypt on changes.
+            let encrypted_secret = if let Some(credential) = patch.credential.as_ref() {
+                self.require_keyring()?
+                    .encrypt(id, kind, credential)
+                    .map_err(secret_error)?
+            } else if kind != current.kind() {
+                let keyring = self.require_keyring()?;
+                let credential = keyring
+                    .decrypt(id, current.kind(), &stored.encrypted_secret)
+                    .map_err(secret_error)?;
+                keyring
+                    .encrypt(id, kind, &credential)
+                    .map_err(secret_error)?
+            } else {
+                stored.encrypted_secret.clone()
+            };
             let is_enabled = patch.is_enabled.unwrap_or_else(|| current.is_enabled());
             let next_revision = current
                 .revision()
@@ -246,6 +255,7 @@ impl ProviderRepository {
             let now = OffsetDateTime::now_utc();
 
             let update = ai_provider::Entity::update_many()
+                .col_expr(ai_provider::Column::Kind, Expr::value(kind.as_storage()))
                 .col_expr(ai_provider::Column::DisplayName, Expr::value(display_name))
                 .col_expr(
                     ai_provider::Column::Endpoint,
@@ -326,10 +336,65 @@ impl ProviderRepository {
         finish_transaction(transaction, result).await
     }
 
+    pub async fn delete(
+        &self,
+        id: &str,
+        scope: &ProviderScope,
+        expected_revision: u64,
+    ) -> Result<(), ProviderCoreError> {
+        let current = self.get(id, scope).await?;
+        if current.revision() != expected_revision {
+            return Err(ProviderCoreError::new(
+                ProviderCoreErrorKind::RevisionConflict,
+            ));
+        }
+        let query = ai_provider::Entity::delete_many()
+            .filter(ai_provider::Column::Id.eq(id))
+            .filter(
+                ai_provider::Column::Revision
+                    .eq(i64::try_from(expected_revision).map_err(|_| corrupt_data())?),
+            );
+        let query = match scope {
+            ProviderScope::Instance => query.filter(ai_provider::Column::OwnerUserId.is_null()),
+            ProviderScope::User(user_id) => {
+                query.filter(ai_provider::Column::OwnerUserId.eq(user_id))
+            }
+        };
+        if query
+            .exec(&self.database)
+            .await
+            .map_err(database_error)?
+            .rows_affected
+            != 1
+        {
+            return Err(ProviderCoreError::new(
+                ProviderCoreErrorKind::RevisionConflict,
+            ));
+        }
+        Ok(())
+    }
+
     pub async fn load_enabled_binding(
         &self,
         id: &str,
         user_id: &str,
+    ) -> Result<ProviderBinding, ProviderCoreError> {
+        self.load_binding(id, user_id, false).await
+    }
+
+    pub(crate) async fn load_discovery_binding(
+        &self,
+        id: &str,
+        user_id: &str,
+    ) -> Result<ProviderBinding, ProviderCoreError> {
+        self.load_binding(id, user_id, true).await
+    }
+
+    async fn load_binding(
+        &self,
+        id: &str,
+        user_id: &str,
+        allow_disabled: bool,
     ) -> Result<ProviderBinding, ProviderCoreError> {
         validate_provider_id(id)?;
         let scope = ProviderScope::user(user_id)?;
@@ -347,7 +412,7 @@ impl ProviderRepository {
             .map_err(database_error)?
             .ok_or_else(not_found)?;
         let metadata = metadata_from_model(&stored)?;
-        if !metadata.is_enabled() {
+        if !metadata.is_enabled() && !allow_disabled {
             return Err(ProviderCoreError::new(
                 ProviderCoreErrorKind::ProviderDisabled,
             ));

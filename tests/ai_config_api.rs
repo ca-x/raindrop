@@ -268,6 +268,45 @@ impl CapturedResponse {
 }
 
 #[tokio::test]
+async fn config_can_be_disabled_after_selected_provider_is_deleted() {
+    let fixture = AiConfigFixture::new(true).await;
+    let mut body = config_body(
+        Value::Null,
+        true,
+        &fixture.user_a_provider_id,
+        true,
+        &fixture.user_a_provider_id,
+    );
+    let configured = fixture
+        .request(Method::PUT, Some(body.clone()), Some(UserKind::A), true)
+        .await;
+    assert_eq!(configured.status, StatusCode::OK);
+    body["expectedRevision"] = configured.json()["config"]["revision"].clone();
+
+    ProviderRepository::new(fixture.database.clone(), None)
+        .delete(
+            &fixture.user_a_provider_id,
+            &ProviderScope::user(USER_A_ID).unwrap(),
+            0,
+        )
+        .await
+        .expect("selected provider should delete");
+
+    body["isEnabled"] = json!(false);
+    let disabled = fixture
+        .request(Method::PUT, Some(body.clone()), Some(UserKind::A), true)
+        .await;
+    assert_eq!(disabled.status, StatusCode::OK, "{}", disabled.json());
+    assert_eq!(disabled.json()["config"]["isEnabled"], false);
+    body["expectedRevision"] = disabled.json()["config"]["revision"].clone();
+    body["isEnabled"] = json!(true);
+    let reenabled = fixture
+        .request(Method::PUT, Some(body), Some(UserKind::A), true)
+        .await;
+    assert_error(&reenabled, StatusCode::CONFLICT, "AI_UNAVAILABLE");
+}
+
+#[tokio::test]
 async fn config_get_returns_typed_null_default_and_is_user_scoped() {
     let fixture = AiConfigFixture::new(true).await;
     let initial = fixture

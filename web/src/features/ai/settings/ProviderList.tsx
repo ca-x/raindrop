@@ -10,6 +10,8 @@ interface ProviderListProps {
   providers: Provider[]
   editingProviderId: string | null
   onEdit: (provider: Provider) => void
+  onDelete: (provider: Provider) => void
+  isBusy: boolean
 }
 
 export function ProviderList(props: ProviderListProps) {
@@ -42,6 +44,7 @@ export function ProviderList(props: ProviderListProps) {
           }
           endContent={
             <div className="ai-provider-list-actions">
+              <span className="ai-provider-state">{i18n._(provider.isEnabled ? "ai.providerEnabled" : "ai.providerDisabled")}</span>
               <Badge
                 variant={provider.scope === "INSTANCE" ? "info" : "neutral"}
                 label={i18n._(
@@ -51,12 +54,16 @@ export function ProviderList(props: ProviderListProps) {
                 )}
               />
               {provider.canEdit ? (
-                <Button
-                  label={i18n._("ai.providerEdit")}
-                  onClick={() => props.onEdit(provider)}
-                  variant="secondary"
-                  isDisabled={props.editingProviderId === provider.providerId}
-                />
+                <>
+                  <Button
+                    label={i18n._("ai.providerEdit")}
+                    onClick={() => props.onEdit(provider)}
+                    variant="secondary"
+                    isDisabled={props.isBusy || props.editingProviderId === provider.providerId}
+                  />
+                  <Button label={i18n._("ai.providerDelete")} variant="secondary"
+                    onClick={() => props.onDelete(provider)} isDisabled={props.isBusy} />
+                </>
               ) : null}
             </div>
           }
