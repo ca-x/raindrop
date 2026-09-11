@@ -22,6 +22,7 @@ export interface UseReaderHotkeysOptions {
   onFocusQueue?: () => void
   canScrollArticle?: boolean
   onScrollArticle?: (direction: 1 | -1) => void
+  onChangeReadingSize?: (direction: 1 | -1 | 0) => void
 }
 
 const editableSelector = [
@@ -189,6 +190,17 @@ function useImmediateInteractionGuard(
 ): void {
   useEffect(() => {
     const guard = (event: KeyboardEvent) => {
+      const sizeDirection = readingSizeDirection(event)
+      if (sizeDirection !== null) {
+        const current = optionsRef.current
+        if (event.defaultPrevented || isImeKeyEvent(event) || disabledRef.current ||
+          !current.openEntryId || !current.onChangeReadingSize || hasOpenModal() ||
+          isEditableTarget(event.target) || isEditableTarget(document.activeElement)) return
+        event.preventDefault()
+        event.stopImmediatePropagation()
+        current.onChangeReadingSize(sizeDirection)
+        return
+      }
       if (!readerKeys.has(event.key.toLowerCase())) return
       if (event.ctrlKey || event.metaKey || event.altKey) return
       if (hasOpenModal()) {
@@ -214,6 +226,14 @@ function useImmediateInteractionGuard(
     window.addEventListener("keydown", guard, { capture: true })
     return () => window.removeEventListener("keydown", guard, { capture: true })
   }, [])
+}
+
+function readingSizeDirection(event: KeyboardEvent): 1 | -1 | 0 | null {
+  if (event.altKey || (event.ctrlKey && event.metaKey)) return null
+  if (event.key === "+" || (event.key === "=" && !event.shiftKey)) return 1
+  if (event.key === "-" && !event.shiftKey) return -1
+  if (event.key === "0" && !event.shiftKey) return 0
+  return null
 }
 
 function isNativeSpaceTarget(target: EventTarget | null): boolean {

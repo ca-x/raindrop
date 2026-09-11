@@ -6,6 +6,63 @@ import { useReaderHotkeys, type UseReaderHotkeysOptions } from "./useReaderHotke
 describe("useReaderHotkeys", () => {
   afterEach(() => document.body.replaceChildren())
 
+  it("resizes and resets article text with plain, Ctrl, Cmd, and numpad keys", () => {
+    const onChangeReadingSize = vi.fn()
+    renderHook(() => useReaderHotkeys(hotkeyOptions({ onChangeReadingSize })))
+    for (const modifiers of [{}, { ctrlKey: true }, { metaKey: true }]) {
+      for (const [key, direction] of [["=", 1], ["+", 1], ["-", -1], ["0", 0]] as const) {
+        const event = keyEvent(key, modifiers)
+        fireEvent(window, event)
+        expect(event.defaultPrevented).toBe(true)
+        expect(onChangeReadingSize).toHaveBeenLastCalledWith(direction)
+      }
+    }
+    press("+", { shiftKey: true })
+    press("+", { code: "NumpadAdd", repeat: true })
+    expect(onChangeReadingSize).toHaveBeenCalledTimes(14)
+  })
+
+  it("leaves browser zoom alone without an article or while the reader is disabled", () => {
+    const onChangeReadingSize = vi.fn()
+    const { rerender } = renderHook((options) => useReaderHotkeys(options), {
+      initialProps: hotkeyOptions({ openEntryId: null, onChangeReadingSize }),
+    })
+    const event = keyEvent("+", { ctrlKey: true })
+    fireEvent(window, event)
+    expect(event.defaultPrevented).toBe(false)
+    rerender(hotkeyOptions({ isDisabled: true, onChangeReadingSize }))
+    press("+")
+    expect(onChangeReadingSize).not.toHaveBeenCalled()
+  })
+
+  it("ignores reading size keys in editing controls, modals, IME, and other combinations", () => {
+    const onChangeReadingSize = vi.fn()
+    renderHook(() => useReaderHotkeys(hotkeyOptions({ onChangeReadingSize })))
+    for (const node of [element("input"), element("textarea"), element("select"),
+      contentEditable(), element("div", { role: "slider", tabindex: "0" })]) {
+      document.body.append(node)
+      fireEvent(node, keyEvent("+", { ctrlKey: true }))
+      node.remove()
+    }
+    const dialog = element("dialog", { open: "" })
+    document.body.append(dialog)
+    press("+")
+    dialog.remove()
+    const ariaDialog = element("div", { role: "dialog", "aria-modal": "true" })
+    document.body.append(ariaDialog)
+    press("-", { metaKey: true })
+    ariaDialog.remove()
+    press("+", { isComposing: true })
+    press("+", { keyCode: 229 })
+    press("+", { altKey: true })
+    press("-", { shiftKey: true })
+    press("0", { shiftKey: true })
+    const prevented = keyEvent("+")
+    prevented.preventDefault()
+    fireEvent(window, prevented)
+    expect(onChangeReadingSize).not.toHaveBeenCalled()
+  })
+
   it("opens next and previous entries and marks only unread targets on J/K", () => {
     const options = hotkeyOptions({ cursorEntryId: "first" })
     const firstHook = renderHook(() => useReaderHotkeys(options))

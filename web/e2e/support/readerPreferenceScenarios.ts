@@ -35,7 +35,7 @@ export async function verifyWidePreferences(
     buffer: Buffer.from("wOF2fixture-font"),
   })
   await dialog.getByRole("button", { name: "Upload font" }).click()
-  await expect(dialog.getByText("Editorial", { exact: true })).toBeVisible()
+  await expect(dialog.locator(".reader-font-list").getByText("Editorial", { exact: true })).toBeVisible()
   await dialog.getByRole("button", { name: "Save changes" }).click()
   await expect(dialog).not.toBeVisible()
   await expectPresentation(page, {
@@ -172,10 +172,10 @@ export async function verifyCompactPreferences(
     ])
     expect(fixture.preferences.patches).toHaveLength(failedPatchCount)
     await expect(dialog.getByText("Preferences could not be saved")).toBeVisible()
-    await expect(dialog.getByRole("combobox", { name: "Article font" })).toHaveCount(0)
+    await expect(dialog.getByRole("combobox", { name: "Article font" })).toHaveText("Serif")
     await expect(dialog.getByRole("radio", { name: "Sepia" })).toBeChecked()
     await expect(dialog.getByRole("radio", { name: "Current page" })).toBeChecked()
-    await expect(dialog.getByRole("slider", { name: "Reading size" })).toHaveCount(0)
+    await expect(dialog.getByRole("spinbutton", { name: "Reading size" })).toHaveValue("100")
     await dialog.getByRole("button", { name: "Personal" }).click()
     await expect(dialog.getByRole("radio", { name: "Dark" })).toBeChecked()
     await expect(dialog.getByRole("radio", { name: "中文" })).toBeChecked()

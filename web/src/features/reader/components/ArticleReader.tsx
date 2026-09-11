@@ -21,6 +21,7 @@ import type {
   UserPreferencesReadingFontFamily,
 } from "../../preferences/api/preferences.generated"
 import { ArticleToolbar, ImmersiveIcon, ReadingFloatingToolbar } from "./ReaderToolbar"
+import { toReadingScaleCss } from "../../preferences/model/preferenceTypes"
 import { RelativeEntryTime } from "./RelativeEntryTime"
 import { ReaderEmptyIcon } from "./ReaderEmptyIcon"
 
@@ -237,6 +238,7 @@ export function ArticleReader(props: ArticleReaderProps) {
         />
       ) : null}
       <article
+        style={{ fontSize: toReadingScaleCss(readingFontScale) }}
         ref={articleRef}
         className="reader-article"
         lang={i18n.locale}

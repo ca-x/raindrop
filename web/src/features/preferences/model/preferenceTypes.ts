@@ -12,12 +12,21 @@ export type PreferenceLocale = UserPreferencesLocale
 export type PreferenceThemeMode = UserPreferencesThemeMode
 export type PreferenceLayoutDensity = UserPreferencesLayoutDensity
 
+export const DEFAULT_READING_FONT_SCALE = 100
+export const MIN_READING_FONT_SCALE = 85
+export const MAX_READING_FONT_SCALE = 130
+export const READING_FONT_SCALE_STEP = 5
+
+export function clampReadingFontScale(scale: number): number {
+  return Math.max(MIN_READING_FONT_SCALE, Math.min(MAX_READING_FONT_SCALE, Math.round(scale)))
+}
+
 export function defaultPreferences(locale: PreferenceLocale): UserPreferences {
   return {
     locale,
     themeMode: "SYSTEM",
     layoutDensity: "BALANCED",
-    readingFontScale: 100,
+    readingFontScale: DEFAULT_READING_FONT_SCALE,
     readingFontFamily: "SERIF",
     readingCustomFontId: null,
     readingColorScheme: "AUTO",

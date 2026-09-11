@@ -70,6 +70,107 @@ test("Reader workspace production contract", async ({ page }, testInfo) => {
   await verifyHostileDeepLink(page, testInfo)
 })
 
+test("Reader font settings and keyboard resizing persist across reloads", async ({ page }) => {
+  const fontServer = await startProductionServer()
+  try {
+    const fixture = await installReaderApiFixture(page)
+    await completeSetup(page, fontServer, createCredentials())
+    const menu = page.getByRole("button", { name: "Open menu" })
+    if (!(await menu.isVisible())) {
+      await page.getByRole("button", { name: "Open sources" }).click()
+    }
+    await menu.click()
+    await page.getByRole("menuitem", { name: "Settings" }).click()
+    const dialog = page.getByRole("dialog", { name: "Settings" })
+    await dialog.getByRole("button", { name: /^Reading\b/u }).click()
+    await expectDialogFontControls()
+    await dialog.getByRole("combobox", { name: "Article font" }).click()
+    await page.keyboard.press("End")
+    await page.keyboard.press("Enter")
+    await dialog.getByRole("spinbutton", { name: "Reading size" }).fill("120")
+    await dialog.getByRole("button", { name: "Save changes" }).click()
+    await expect(dialog).toBeHidden()
+    await expect.poll(() => fixture.preferences.current().readingFontScale).toBe(120)
+    expect(fixture.preferences.current().readingFontFamily).toBe("SANS")
+
+    await page.goto(`${fontServer.baseURL}/reader/unread/entry/${readerIds.firstEntry}`)
+    const heading = page.getByRole("heading", { name: "First quiet article" })
+    const body = page.locator(".reader-article-body")
+    await expect(body).toHaveCSS("font-size", "24px")
+    await expect(body).toHaveCSS("font-family", /sans-serif/u)
+    await heading.focus()
+    for (const [key, scale] of [["+", 125], ["Control+-", 120], ["Meta+=", 125], ["0", 100]] as const) {
+      await page.keyboard.press(key)
+      await expect.poll(() => fixture.preferences.current().readingFontScale).toBe(scale)
+      await expect(body).toHaveCSS("font-size", `${20 * scale / 100}px`)
+    }
+    if ((page.viewportSize()?.width ?? 0) >= 1280) {
+      let release!: () => void
+      const pending = new Promise<void>((resolve) => { release = resolve })
+      let delayNextPatch = true
+      await page.route("**/api/v2/preferences", async (route) => {
+        if (route.request().method() === "PATCH" && delayNextPatch) {
+          delayNextPatch = false
+          await pending
+        }
+        await route.fallback()
+      })
+      await page.keyboard.press("+")
+      await page.keyboard.press("+")
+      await page.keyboard.press("+")
+      await expect(body).toHaveCSS("font-size", "23px")
+      await menu.click()
+      await page.getByRole("menuitem", { name: "Settings" }).click()
+      await dialog.getByRole("button", { name: /^Reading\b/u }).click()
+      await expect(dialog.getByRole("spinbutton", { name: "Reading size" })).toHaveValue("115")
+      release()
+      await expect.poll(() => fixture.preferences.current().readingFontScale).toBe(115)
+      await dialog.getByRole("radio", { name: "Sepia" }).click()
+      await dialog.getByRole("button", { name: "Save changes" }).click()
+      await expect(dialog).toBeHidden()
+      expect(fixture.preferences.current().readingFontScale).toBe(115)
+      await heading.focus()
+      await page.keyboard.press("0")
+      await expect.poll(() => fixture.preferences.current().readingFontScale).toBe(100)
+    }
+    const patchCount = fixture.preferences.patches.length
+    fixture.preferences.failNextPatch()
+    await page.keyboard.press("+")
+    await expect(body).toHaveCSS("font-size", "20px")
+    await expect.poll(() => fixture.preferences.patches.length).toBe(patchCount + 1)
+    expect(fixture.preferences.current().readingFontScale).toBe(100)
+    await page.keyboard.press("-")
+    await expect.poll(() => fixture.preferences.current().readingFontScale).toBe(95)
+    await page.reload({ waitUntil: "domcontentloaded" })
+    await expect(body).toHaveCSS("font-size", "19px")
+    await heading.focus()
+    // Repeated presses stop at the saved preference limits.
+    for (let index = 0; index < 3; index += 1) {
+      await page.keyboard.press("-")
+      await expect.poll(() => fixture.preferences.current().readingFontScale).toBe(Math.max(85, 90 - index * 5))
+    }
+    await expect(body).toHaveCSS("font-size", "17px")
+    await page.keyboard.press("0")
+    await expect.poll(() => fixture.preferences.current().readingFontScale).toBe(100)
+    for (let index = 0; index < 7; index += 1) {
+      await page.keyboard.press("+")
+      await expect.poll(() => fixture.preferences.current().readingFontScale).toBe(Math.min(130, 105 + index * 5))
+    }
+    await expect(body).toHaveCSS("font-size", "26px")
+    await expectNoHorizontalOverflow(page)
+    await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" })
+    await expectNoHorizontalOverflow(page)
+
+    async function expectDialogFontControls() {
+      await expect(dialog.getByRole("combobox", { name: "Article font" })).toBeVisible()
+      await expect(dialog.getByRole("spinbutton", { name: "Reading size" })).toHaveValue("100")
+      await expectNoHorizontalOverflow(page)
+    }
+  } finally {
+    await fontServer.stop()
+  }
+})
+
 test("Reader stable snapshot bulk read", async ({ page }, testInfo) => {
   test.skip(
     testInfo.project.name !== "reader-1280x800",

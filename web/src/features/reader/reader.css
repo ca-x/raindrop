@@ -1491,10 +1491,19 @@ html[data-raindrop-reading-color="gray"] .reader-article-plane {
 .reader-article-body {
   color: var(--reader-article-foreground);
   font-family: var(--reader-article-font);
-  font-size: 1.075em;
+  font-size: 1.25em;
   font-weight: 400;
   line-height: 1.68;
   text-wrap: pretty;
+}
+
+.reader-reading-size-help {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-block-start: 8px;
 }
 
 .reader-article-meta {

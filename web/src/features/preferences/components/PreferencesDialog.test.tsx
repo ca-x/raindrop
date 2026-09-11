@@ -32,8 +32,13 @@ it("edits personal and reading preferences through ASTRYX controls and saves onc
   await user.click(within(dialog).getByRole("radio", { name: "中文" }))
   await user.click(within(dialog).getByRole("radio", { name: "Compact" }))
   await user.click(within(dialog).getByRole("button", { name: /^Reading/ }))
-  expect(within(dialog).queryByRole("combobox", { name: "Article font" })).not.toBeInTheDocument()
-  expect(within(dialog).queryByRole("slider", { name: "Reading size" })).not.toBeInTheDocument()
+  await user.click(within(dialog).getByRole("combobox", { name: "Article font" }))
+  await user.keyboard("{End}{Enter}")
+  const size = within(dialog).getByRole("spinbutton", { name: "Reading size" })
+  await user.clear(size)
+  await user.type(size, "103")
+  await user.tab()
+  expect((size as HTMLInputElement).checkValidity()).toBe(true)
   await user.click(within(dialog).getByRole("radio", { name: "Sepia" }))
   await user.click(within(dialog).getByRole("radio", { name: "Current page" }))
   await user.click(within(dialog).getByRole("button", { name: "Save changes" }))
@@ -43,8 +48,8 @@ it("edits personal and reading preferences through ASTRYX controls and saves onc
     locale: "zh-CN",
     themeMode: "DARK",
     layoutDensity: "COMPACT",
-    readingFontScale: 100,
-    readingFontFamily: "SERIF",
+    readingFontScale: 103,
+    readingFontFamily: "SANS",
     readingCustomFontId: null,
     readingColorScheme: "SEPIA",
     linkOpenMode: "CURRENT_TAB",
@@ -165,7 +170,7 @@ it("uses icon-assisted navigation and exposes the current build version", async 
   expect(navigation.querySelectorAll("svg").length).toBeGreaterThanOrEqual(3)
   await user.click(within(navigation).getByRole("button", { name: /^About/ }))
   expect(within(dialog).getByText("Raindrop")).toBeVisible()
-  expect(within(dialog).getByText("v0.4.20")).toBeVisible()
+  expect(within(dialog).getByText("v0.4.21")).toBeVisible()
 })
 
 it("clears a deleted active custom font from the open draft before saving", async () => {

@@ -24,6 +24,7 @@ import { SourceTree } from "../components/SourceTree"
 import { SubscriptionEditDialog } from "../components/SubscriptionEditDialog"
 import { SubscriptionManagementDialog } from "../components/SubscriptionManagementDialog"
 import { useReaderHotkeys } from "../keyboard/useReaderHotkeys"
+import { useReadingFontScale } from "../keyboard/useReadingFontScale"
 import {
   isAuthoritativeSubscription,
   sourceKey,
@@ -283,6 +284,7 @@ export function ReaderShell(props: ReaderShellProps) {
     const distance = Math.max(1, Math.floor(article.clientHeight * 0.82))
     article.scrollTop += distance * direction
   }
+  const readingFontScale = useReadingFontScale(props.preferencesController)
   useReaderHotkeys({
     queueEntryIds,
     cursorEntryId: props.cursorEntryId,
@@ -312,6 +314,7 @@ export function ReaderShell(props: ReaderShellProps) {
     onFocusQueue: () => runKeyboardTransition(() => focusPanel("queue")),
     canScrollArticle: Boolean(props.route.entryId),
     onScrollArticle: scrollArticle,
+    onChangeReadingSize: readingFontScale.change,
   })
   const sourceTree = (
     <SourceTree
@@ -418,12 +421,12 @@ export function ReaderShell(props: ReaderShellProps) {
       translationConfig={translationConfig}
       translationSettingsController={props.translationController}
       linkOpenMode={props.preferencesController.preferences.linkOpenMode}
-      readingFontScale={props.preferencesController.preferences.readingFontScale}
+      readingFontScale={readingFontScale.scale}
       readingFontFamily={props.preferencesController.preferences.readingFontFamily}
       readingCustomFontId={props.preferencesController.preferences.readingCustomFontId}
       readingColorScheme={props.preferencesController.preferences.readingColorScheme}
       fonts={props.preferencesController.fonts}
-      isReadingPreferenceSaving={props.preferencesController.isSaving}
+      isReadingPreferenceSaving={props.preferencesController.isSaving || readingFontScale.isPending}
       onReadingFontScaleChange={(readingFontScale) =>
         props.preferencesController.save({
           ...props.preferencesController.preferences,
@@ -600,10 +603,10 @@ export function ReaderShell(props: ReaderShellProps) {
           displayName: null,
           email: props.email ?? null,
         }}
-        preferences={props.preferencesController.preferences}
+        preferences={{ ...props.preferencesController.preferences, readingFontScale: readingFontScale.scale }}
         fonts={props.preferencesController.fonts}
         fontLimits={props.preferencesController.fontLimits}
-        isSaving={props.preferencesController.isSaving}
+        isSaving={props.preferencesController.isSaving || readingFontScale.isPending}
         isProfileSaving={props.profileController?.isSaving ?? false}
         isFontMutating={props.preferencesController.isFontMutating}
         error={props.preferencesController.error}

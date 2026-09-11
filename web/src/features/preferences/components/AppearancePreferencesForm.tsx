@@ -2,6 +2,8 @@ import { Banner } from "@astryxdesign/core/Banner"
 import { Button } from "@astryxdesign/core/Button"
 import { FileInput } from "@astryxdesign/core/FileInput"
 import { IconButton } from "@astryxdesign/core/IconButton"
+import { NumberInput } from "@astryxdesign/core/NumberInput"
+import { Selector } from "@astryxdesign/core/Selector"
 import {
   SegmentedControl,
   SegmentedControlItem,
@@ -19,6 +21,12 @@ import type {
 } from "../../profile/model/useProfileController"
 import type { UserFont, UserPreferences } from "../api/preferences.generated"
 import type { PreferencesControllerError } from "../model/usePreferencesController"
+import {
+  clampReadingFontScale,
+  DEFAULT_READING_FONT_SCALE,
+  MAX_READING_FONT_SCALE,
+  MIN_READING_FONT_SCALE,
+} from "../model/preferenceTypes"
 
 interface PreferencesFormProps {
   value: UserPreferences
@@ -226,6 +234,47 @@ export function ReadingPreferencesForm(props: ReadingPreferencesFormProps) {
   const { i18n } = useLingui()
   return (
     <PreferencesFormShell {...props}>
+      <Selector
+        label={i18n._("preferences.readingFont")}
+        description={i18n._("preferences.readingFontDescription")}
+        value={props.value.readingCustomFontId
+          ? `custom:${props.value.readingCustomFontId}`
+          : props.value.readingFontFamily}
+        options={[
+          { value: "SERIF", label: i18n._("preferences.fontSerif") },
+          { value: "SANS", label: i18n._("preferences.fontSans") },
+          ...props.fonts.map((font) => ({ value: `custom:${font.fontId}`, label: font.displayName })),
+        ]}
+        onChange={(value) => props.onChange(value.startsWith("custom:")
+          ? { readingCustomFontId: value.slice(7) }
+          : { readingFontFamily: value as UserPreferences["readingFontFamily"], readingCustomFontId: null })}
+        isDisabled={props.isSaving || props.isFontMutating}
+        width="100%"
+      />
+      <div className="reader-preference-field">
+        <NumberInput
+          label={i18n._("preferences.readingSize")}
+          description={i18n._("preferences.readingSizeDescription")}
+          value={props.value.readingFontScale}
+          min={MIN_READING_FONT_SCALE}
+          max={MAX_READING_FONT_SCALE}
+          step={1}
+          units="%"
+          isIntegerOnly
+          onChange={(value) => props.onChange({ readingFontScale: clampReadingFontScale(value) })}
+          isDisabled={props.isSaving}
+          width="100%"
+        />
+        <div className="reader-reading-size-help">
+          <span className="reader-preference-description">{i18n._("preferences.readingSizeShortcuts")}</span>
+          <Button
+            label={i18n._("preferences.resetReadingSize")}
+            variant="ghost"
+            onClick={() => props.onChange({ readingFontScale: DEFAULT_READING_FONT_SCALE })}
+            isDisabled={props.isSaving || props.value.readingFontScale === DEFAULT_READING_FONT_SCALE}
+          />
+        </div>
+      </div>
       <CustomFontManagement {...props} />
       <PreferenceField
         label={i18n._("preferences.readingColor")}

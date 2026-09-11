@@ -8,6 +8,14 @@ import { Text } from "@astryxdesign/core/Text"
 import { ToggleButton } from "@astryxdesign/core/ToggleButton"
 import { Toolbar } from "@astryxdesign/core/Toolbar"
 import { useLingui } from "@lingui/react"
+import {
+  clampReadingFontScale,
+  DEFAULT_READING_FONT_SCALE,
+  MAX_READING_FONT_SCALE,
+  MIN_READING_FONT_SCALE,
+  READING_FONT_SCALE_STEP,
+} from "../../preferences/model/preferenceTypes"
+
 import { useState, type Ref } from "react"
 
 import { BrandMark } from "../../../shared/brand/BrandMark"
@@ -275,7 +283,7 @@ export function ReadingFloatingToolbar(props: ReadingFloatingToolbarProps) {
   const [isFontOpen, setIsFontOpen] = useState(false)
   const [isColorOpen, setIsColorOpen] = useState(false)
   const updateScale = (scale: number) => {
-    void props.onScaleChange(Math.max(85, Math.min(130, scale)))
+    void props.onScaleChange(clampReadingFontScale(scale))
   }
   const value = props.readingCustomFontId
     ? `custom:${props.readingCustomFontId}`
@@ -381,16 +389,16 @@ export function ReadingFloatingToolbar(props: ReadingFloatingToolbarProps) {
           label={i18n._("reader.decreaseReadingSize")}
           icon={<span aria-hidden="true">A−</span>}
           isIconOnly
-          tooltip={i18n._("reader.decreaseReadingSize")}
-          onClick={() => updateScale(props.readingFontScale - 5)}
-          isDisabled={props.isSaving || props.readingFontScale <= 85}
+          tooltip={`${i18n._("reader.decreaseReadingSize")} (−)`}
+          onClick={() => updateScale(props.readingFontScale - READING_FONT_SCALE_STEP)}
+          isDisabled={props.isSaving || props.readingFontScale <= MIN_READING_FONT_SCALE}
           variant="ghost"
         />
         <Button
           label={i18n._("reader.resetReadingSize", { scale: props.readingFontScale })}
-          tooltip={i18n._("reader.resetReadingSize", { scale: props.readingFontScale })}
-          onClick={() => updateScale(100)}
-          isDisabled={props.isSaving || props.readingFontScale === 100}
+          tooltip={`${i18n._("reader.resetReadingSize", { scale: props.readingFontScale })} (0)`}
+          onClick={() => updateScale(DEFAULT_READING_FONT_SCALE)}
+          isDisabled={props.isSaving || props.readingFontScale === DEFAULT_READING_FONT_SCALE}
           variant="ghost"
         >
           <span className="reader-reading-scale-value">{props.readingFontScale}%</span>
@@ -399,9 +407,9 @@ export function ReadingFloatingToolbar(props: ReadingFloatingToolbarProps) {
           label={i18n._("reader.increaseReadingSize")}
           icon={<span aria-hidden="true">A＋</span>}
           isIconOnly
-          tooltip={i18n._("reader.increaseReadingSize")}
-          onClick={() => updateScale(props.readingFontScale + 5)}
-          isDisabled={props.isSaving || props.readingFontScale >= 130}
+          tooltip={`${i18n._("reader.increaseReadingSize")} (+)`}
+          onClick={() => updateScale(props.readingFontScale + READING_FONT_SCALE_STEP)}
+          isDisabled={props.isSaving || props.readingFontScale >= MAX_READING_FONT_SCALE}
           variant="ghost"
         />
         <span className="reader-floating-divider" aria-hidden="true" />
