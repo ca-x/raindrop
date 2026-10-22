@@ -228,9 +228,10 @@ describe("Reader keyboard workspace", () => {
   })
 
   it.each([
-    { reducedMotion: false, behavior: "smooth" as const },
-    { reducedMotion: true, behavior: "auto" as const },
-  ])("merges pending entries at the top without replacing the open article ($behavior)", async ({ reducedMotion, behavior }) => {
+    { reducedMotion: false, detail: 1, behavior: "smooth" as const },
+    { reducedMotion: true, detail: 1, behavior: "auto" as const },
+    { reducedMotion: false, detail: 0, behavior: "auto" as const },
+  ])("merges pending entries without replacing the article (motion=$reducedMotion, click=$detail)", async ({ reducedMotion, detail, behavior }) => {
     setTestReducedMotion(reducedMotion)
     const controller = keyboardController()
     const pending = { ...controller.state.entriesById.second, entryId: "pending", title: "Pending article" }
@@ -251,7 +252,7 @@ describe("Reader keyboard workspace", () => {
     fireEvent.scroll(scroller)
     vi.clearAllMocks()
 
-    fireEvent.click(screen.getByRole("button", { name: "Show 1 new entries" }))
+    fireEvent.click(screen.getByRole("button", { name: "Show 1 new entries" }), { detail })
 
     const pendingRow = await screen.findByText("Pending article")
     expect(window.location.pathname).toBe("/reader/unread/entry/first")

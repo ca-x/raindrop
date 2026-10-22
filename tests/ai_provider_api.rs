@@ -848,6 +848,33 @@ async fn delete_requires_owner_csrf_and_current_revision_and_works_without_keyri
 }
 
 #[tokio::test]
+async fn model_discovery_rejects_invalid_header_credentials_before_network_access() {
+    let fixture = ProviderFixture::new(true).await;
+    for kind in ["OPENAI_RESPONSES", "ANTHROPIC_MESSAGES", "GOOGLE_GEMINI"] {
+        let response = fixture
+            .request(
+                Method::POST,
+                "/api/v1/ai/providers/models",
+                Some(json!({
+                    "kind": kind,
+                    "endpoint": "https://unresolvable.invalid/",
+                    "credential": "key\r\ninjected-header: secret-sentinel"
+                })),
+                Some(UserKind::A),
+                true,
+            )
+            .await;
+        assert_error(
+            &response,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "VALIDATION_ERROR",
+        );
+        assert!(response.json()["error"]["fields"]["credential"].is_string());
+        assert!(!String::from_utf8_lossy(&response.body).contains("secret-sentinel"));
+    }
+}
+
+#[tokio::test]
 async fn disabled_provider_discovery_uses_saved_secret_and_validates_the_draft_endpoint() {
     let fixture = ProviderFixture::new(true).await;
     let disabled = fixture

@@ -507,38 +507,55 @@ test("Reader refresh observability", async ({ page }, testInfo) => {
     await completeSetup(page, refreshServer, createCredentials())
     const sources = await selectQuietWebAndShowSources(page, refreshServer.baseURL)
     const refreshButton = sources.getByRole("button", { name: "Refresh Quiet Web" })
+    const refresh = sources.locator(".reader-refresh-ready")
+    const refreshStatus = refresh.getByRole("status")
+    const refreshSummary = refresh.locator("summary")
     await expectTouchTarget(refreshButton)
+    if (testInfo.project.name === "reader-1280x800") await refreshButton.click()
+    await expect(refresh).toHaveJSProperty("open", false)
+    const initialSummaryBounds = await refreshSummary.boundingBox()
 
     switch (testInfo.project.name) {
       case "reader-1280x800":
-        await refreshButton.click()
-        await expect(sources.getByText("Waiting for a refresh worker.")).toBeVisible()
+        await expect(refreshStatus).toHaveText("Queued for refresh")
+        await expect(refresh.getByText("Waiting for a refresh worker.")).toBeHidden()
         await expect(refreshButton).toHaveAttribute("aria-disabled", "true")
-        await expect(sources.getByText("Fetching and processing feed updates.")).toBeVisible({
+        await refreshSummary.click()
+        await expect(refresh.getByText("Waiting for a refresh worker.")).toBeVisible()
+        await expect(refresh.getByText("Fetching and processing feed updates.")).toBeVisible({
           timeout: 3_000,
         })
-        await expect(sources.getByText("Refresh complete")).toBeVisible({
+        await expect(refreshStatus).toHaveText("Refresh complete", {
           timeout: 3_000,
         })
-        await sources.locator(".reader-refresh-ready summary").click()
-        await expect(sources.getByText(/Last successful refresh:/)).toBeVisible()
+        await expect(refresh.getByText(/Last successful refresh:/)).toBeVisible()
         break
       case "reader-900x800":
-        await expect(sources.getByRole("alert")).toContainText(
-          "2 duplicate entries were ignored.",
-        )
+        await expect(refreshStatus).toHaveText("Refresh completed with skipped entries")
+        await expect(refresh.getByText("2 duplicate entries were ignored.")).toBeHidden()
+        await refreshSummary.click()
+        await expect(refresh.getByText("2 duplicate entries were ignored.")).toBeVisible()
         break
       case "reader-390x844":
-        await expect(sources.getByRole("alert")).toContainText("Refresh cooling down")
-        await expect(sources.getByRole("alert")).toContainText("Next attempt after")
+        await expect(refreshStatus).toHaveText("Refresh cooling down")
+        await expect(refresh.getByText(/Next attempt after/)).toBeHidden()
+        await refreshSummary.click()
+        await expect(refresh.getByText(/Next attempt after/)).toBeVisible()
         break
       case "reader-360x800":
-        await expect(sources.getByRole("alert")).toContainText("Refresh failed")
-        await expect(sources.getByRole("alert")).toContainText("Last successful refresh:")
+        await expect(refreshStatus).toHaveText("Refresh failed")
+        await expect(refresh.getByText(/Last successful refresh:/)).toBeHidden()
+        await refreshSummary.click()
+        await expect(refresh.getByText(/Last successful refresh:/)).toBeVisible()
         break
       default:
         throw new Error(`unexpected Reader project ${testInfo.project.name}`)
     }
+    const finalSummaryBounds = await refreshSummary.boundingBox()
+    expect(initialSummaryBounds).not.toBeNull()
+    expect(finalSummaryBounds).not.toBeNull()
+    expect(Math.abs(finalSummaryBounds!.height - initialSummaryBounds!.height)).toBeLessThanOrEqual(1)
+    await expect(refresh.getByRole("alert")).toHaveCount(0)
     await expectNoHorizontalOverflow(page)
   } finally {
     await refreshServer.stop()
@@ -707,10 +724,15 @@ async function verifyWide(page: Page, fixture: ReaderApiFixture): Promise<void> 
   const articleUrl = page.url()
   const queue = page.getByTestId("entry-queue-scroll")
   await setScrollTop(queue, 260)
+  const pending = page.locator(".reader-queue-update-notice")
+  const initialNoticeBounds = await pending.boundingBox()
   fixture.discoverPending()
   await page.getByRole("button", { name: "Reload stored entries" }).click()
-  const pending = page.getByRole("status").filter({ hasText: "1 new entries available" })
-  await expect(pending).toBeVisible()
+  await expect(pending.getByRole("status").filter({ hasText: "1 new entries available" })).toBeVisible()
+  const pendingNoticeBounds = await pending.boundingBox()
+  expect(initialNoticeBounds).not.toBeNull()
+  expect(pendingNoticeBounds).not.toBeNull()
+  expect(Math.abs(pendingNoticeBounds!.height - initialNoticeBounds!.height)).toBeLessThanOrEqual(1)
   await pending.getByRole("button", { name: "Show 1 new entries" }).click()
   await expect(page).toHaveURL(articleUrl)
   await expectScrollTop(queue, 0)
@@ -939,7 +961,9 @@ async function verifyCompactHistory(
 ): Promise<void> {
   await verifyCompactQueueMenu(page)
   const queue = page.getByTestId("entry-queue-scroll")
-  const restoredOffset = await setScrollTop(queue, 260)
+  await setScrollTop(queue, 260)
+  await readerRow(page, readerIds.fourthEntry).scrollIntoViewIfNeeded()
+  const restoredOffset = await queue.evaluate((element) => element.scrollTop)
   await readerRowButton(page, readerIds.fourthEntry).click()
   await expect(page).toHaveURL(`${server.baseURL}/reader/unread/entry/${readerIds.fourthEntry}`)
   await expect(page.getByRole("heading", { name: "Fixture entry 04" })).toBeFocused()

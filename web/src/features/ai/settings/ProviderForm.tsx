@@ -9,11 +9,13 @@ import { useLingui } from "@lingui/react"
 import { useEffect, useRef, useState, type FormEvent } from "react"
 
 import { ApiClientError } from "../../../shared/api/client"
+import { interactionMotion } from "../../../shared/motion/interactionMotion"
 
 import type { ProviderKind, ProviderPolicy } from "../api/provider.generated"
 import {
   changeProviderKind,
   providerDraftRequest,
+  validateProviderConnection,
   type ProviderDraft,
   type ProviderDraftErrors,
   type ProviderDraftField,
@@ -46,16 +48,24 @@ const PROVIDER_KINDS: ProviderKind[] = [
 export function ProviderForm(props: ProviderFormProps) {
   const { i18n } = useLingui()
   const [errors, setErrors] = useState<ProviderDraftErrors>({})
+  const [step, setStep] = useState<"connection" | "model">("connection")
+  const [advancedOpen, setAdvancedOpen] = useState(false)
   const [models, setModels] = useState<ProviderModelDiscoveryResult[]>([])
   const [isDiscoveringModels, setIsDiscoveringModels] = useState(false)
   const [modelDiscoveryError, setModelDiscoveryError] = useState<string | null>(null)
   const discoveryAbort = useRef<AbortController | null>(null)
   const formRef = useRef<HTMLFormElement>(null)
+  const isConnectionStep = props.draft.mode === "create" && step === "connection"
   useEffect(() => {
     formRef.current?.querySelector<HTMLInputElement>("input")?.focus({ preventScroll: true })
     formRef.current?.scrollIntoView?.({ block: "nearest" })
-    return () => discoveryAbort.current?.abort()
-  }, [])
+  }, [isConnectionStep])
+  useEffect(() => () => discoveryAbort.current?.abort(), [])
+  useEffect(() => {
+    if (Object.keys(errors).length > 0) {
+      formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus()
+    }
+  }, [errors])
   const resetDiscovery = () => {
     discoveryAbort.current?.abort()
     discoveryAbort.current = null
@@ -75,15 +85,33 @@ export function ProviderForm(props: ProviderFormProps) {
   }
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (props.isSaving) return
+    if (isConnectionStep) {
+      const connectionErrors = validateProviderConnection(props.draft)
+      setErrors(connectionErrors)
+      if (Object.keys(connectionErrors).length === 0) setStep("model")
+      return
+    }
     const parsed = providerDraftRequest(props.draft)
     if (!parsed.ok) {
       setErrors(parsed.errors)
+      if (props.draft.mode === "create" && (parsed.errors.endpoint || parsed.errors.credential || parsed.errors.displayName)) {
+        setStep("connection")
+      }
+      if (Object.keys(parsed.errors).some((field) => field in props.draft.policy)) setAdvancedOpen(true)
       return
     }
     await props.onSave(props.draft)
   }
 
   const discoverModels = async () => {
+    const connectionErrors = validateProviderConnection(props.draft)
+    delete connectionErrors.displayName
+    if (Object.keys(connectionErrors).length > 0) {
+      setErrors(connectionErrors)
+      if (props.draft.mode === "create") setStep("connection")
+      return
+    }
     discoveryAbort.current?.abort()
     const abort = new AbortController()
     discoveryAbort.current = abort
@@ -107,6 +135,8 @@ export function ProviderForm(props: ProviderFormProps) {
         MODEL_DISCOVERY_UNSUPPORTED: "ai.providerModelsUnsupported",
         MODEL_DISCOVERY_RATE_LIMITED: "ai.providerModelsRateLimited",
         RATE_LIMITED: "ai.providerModelsRateLimited",
+        MODEL_DISCOVERY_TIMEOUT: "ai.providerModelsTimeout",
+        MODEL_DISCOVERY_RESPONSE_TOO_LARGE: "ai.providerModelsTooLarge",
         AI_PROVIDER_KEYRING_UNAVAILABLE: "ai.providerCredentialUnavailable",
         NOT_FOUND: "ai.providerModelsNotFound",
       }
@@ -123,234 +153,280 @@ export function ProviderForm(props: ProviderFormProps) {
   }
 
   return (
-    <form ref={formRef} onSubmit={submit} className="ai-provider-form">
+    <form ref={formRef} onSubmit={submit} className="ai-provider-form" {...interactionMotion}>
       <Stack gap={4}>
-        <div className="ai-provider-identity">
-          <TextInput
-            label={i18n._("ai.providerName")}
-            value={props.draft.displayName}
-            onChange={(displayName) => update({ displayName })}
-            isRequired
-            isDisabled={props.isSaving}
-            width="100%"
-            status={fieldStatus((id) => i18n._(id), errors, "displayName")}
-          />
-          <Selector
-            label={i18n._("ai.providerKind")}
-            value={props.draft.kind}
-            options={PROVIDER_KINDS.map((kind) => ({
-              value: kind,
-              label: providerKindLabel((id) => i18n._(id), kind),
-            }))}
-            onChange={(kind) => {
-              props.onChange(changeProviderKind(props.draft, kind as ProviderKind))
-              resetDiscovery()
-              setErrors({})
-            }}
-            isDisabled={props.isSaving || !props.credentialAvailable}
-            width="100%"
-          />
-        </div>
-        <div className="reader-preference-description">{i18n._("ai.providerKindHelp")}</div>
-        <TextInput
-          label={i18n._("ai.providerEndpoint")}
-          description={i18n._("ai.providerEndpointDescription")}
-          value={props.draft.endpoint}
-          onChange={(endpoint) => update({ endpoint })}
-          isRequired
-          isDisabled={props.isSaving}
-          width="100%"
-          status={fieldStatus((id) => i18n._(id), errors, "endpoint")}
-        />
-        <TextInput
-          type="password"
-          label={i18n._("ai.providerCredential")}
-          description={i18n._(
-            props.draft.mode === "edit"
-              ? "ai.providerCredentialEditDescription"
-              : "ai.providerCredentialCreateDescription",
-          )}
-          value={props.draft.credential}
-          onChange={(credential) => update({ credential })}
-          isRequired={props.draft.mode === "create"}
-          isOptional={props.draft.mode === "edit"}
-          isDisabled={props.isSaving || !props.credentialAvailable}
-          disabledMessage={
-            !props.credentialAvailable
-              ? i18n._("ai.providerCredentialUnavailable")
-              : undefined
-          }
-          width="100%"
-          status={fieldStatus((id) => i18n._(id), errors, "credential")}
-        />
-        <div className="ai-provider-model-field">
-          <div className="ai-provider-model-row">
-            <TextInput
-              label={i18n._("ai.providerModel")}
-              value={props.draft.model}
-              onChange={(model) => update({ model })}
-              isRequired
-              isDisabled={props.isSaving}
-              width="100%"
-              status={fieldStatus((id) => i18n._(id), errors, "model")}
-            />
-            <Button
-              label={i18n._("ai.providerDiscoverModels")}
-              type="button"
-              onClick={() => void discoverModels()}
-              isLoading={isDiscoveringModels}
-              isDisabled={
-                props.isSaving ||
-                isDiscoveringModels ||
-                (!props.draft.credential.trim() && (!props.draft.providerId || !props.credentialAvailable))
-              }
-              variant="secondary"
-            />
-          </div>
-          <div className="reader-preference-description">
-            {i18n._(props.draft.mode === "edit" && !props.draft.credential.trim()
-              ? "ai.providerDiscoverStoredDescription"
-              : "ai.providerDiscoverModelsDescription")}
-          </div>
-          {modelDiscoveryError ? (
-            <div className="ai-provider-model-error" role="alert">
-              {modelDiscoveryError}
-            </div>
-          ) : null}
-          {models.length > 0 ? (
-            <div className="ai-provider-model-results">
-              <span className="reader-visually-hidden" role="status" aria-live="polite">
-                {i18n._("ai.providerModelsLoaded", { count: models.length })}
-              </span>
-              <Selector
-                label={i18n._("ai.providerModelSuggestions")}
-                value={models.some((model) => model.id === props.draft.model) ? props.draft.model : ""}
-                options={models.map((model) => ({ value: model.id, label: model.label }))}
-                onChange={(model) => update({ model })}
-                isDisabled={props.isSaving || isDiscoveringModels}
+        {props.draft.mode === "create" ? (
+          <ol className="ai-setup-steps" aria-label={i18n._("ai.providerSetupProgress")}>
+            {["connection", "model"].map((item, index) => (
+              <li key={item} aria-current={step === item ? "step" : undefined} data-complete={step === "model" && index === 0}>
+                <span className="ai-setup-step-number" aria-hidden="true">{index + 1}</span>
+                <span>{i18n._(`ai.providerStep.${item}`)}</span>
+              </li>
+            ))}
+          </ol>
+        ) : null}
+        {isConnectionStep ? <p className="reader-preference-description">{i18n._("ai.providerConnectionHint")}</p> : null}
+        {props.draft.mode === "edit" || isConnectionStep ? (
+          <div className="ai-provider-step-content" key="connection">
+            <Stack gap={4}>
+              <div className="ai-provider-identity">
+                <TextInput
+                  size="lg"
+                  label={i18n._("ai.providerName")}
+                  value={props.draft.displayName}
+                  onChange={(displayName) => update({ displayName })}
+                  isRequired
+                  isDisabled={props.isSaving}
+                  width="100%"
+                  status={fieldStatus((id) => i18n._(id), errors, "displayName")}
+                />
+                <Selector
+                  size="lg"
+                  label={i18n._("ai.providerKind")}
+                  value={props.draft.kind}
+                  options={PROVIDER_KINDS.map((kind) => ({
+                    value: kind,
+                    label: providerKindLabel((id) => i18n._(id), kind),
+                  }))}
+                  onChange={(kind) => {
+                    props.onChange(changeProviderKind(props.draft, kind as ProviderKind))
+                    resetDiscovery()
+                    setErrors({})
+                  }}
+                  isDisabled={props.isSaving || !props.credentialAvailable}
+                  width="100%"
+                />
+              </div>
+              <div className="reader-preference-description">{i18n._("ai.providerKindHelp")}</div>
+              <TextInput
+                size="lg"
+                label={i18n._("ai.providerEndpoint")}
+                description={i18n._("ai.providerEndpointDescription")}
+                value={props.draft.endpoint}
+                onChange={(endpoint) => update({ endpoint })}
+                isRequired
+                isDisabled={props.isSaving}
                 width="100%"
+                status={fieldStatus((id) => i18n._(id), errors, "endpoint")}
               />
-            </div>
-          ) : null}
-        </div>
-        <CheckboxInput
-          label={i18n._("ai.providerEnable")}
-          description={i18n._("ai.providerEnabledDescription")}
-          value={props.draft.isEnabled}
-          onChange={(isEnabled) => update({ isEnabled })}
-          isDisabled={props.isSaving}
-        />
-        <Collapsible
-          trigger={i18n._("ai.providerAdvanced")}
-          defaultIsOpen={false}
-        >
-          <Stack gap={4} className="ai-provider-advanced">
-            <div className="ai-provider-capabilities">
-              <CheckboxInput
-                label={i18n._("ai.providerSupportsUsage")}
-                value={props.draft.capabilities.supportsUsage}
-                onChange={(supportsUsage) =>
-                  update({
-                    capabilities: {
-                      ...props.draft.capabilities,
-                      supportsUsage,
-                    },
-                  })
+              <TextInput
+                size="lg"
+                type="password"
+                label={i18n._("ai.providerCredential")}
+                description={i18n._(
+                  props.draft.mode === "edit"
+                    ? "ai.providerCredentialEditDescription"
+                    : "ai.providerCredentialCreateDescription",
+                )}
+                value={props.draft.credential}
+                onChange={(credential) => update({ credential })}
+                isRequired={props.draft.mode === "create"}
+                isOptional={props.draft.mode === "edit"}
+                isDisabled={props.isSaving || !props.credentialAvailable}
+                disabledMessage={
+                  !props.credentialAvailable
+                    ? i18n._("ai.providerCredentialUnavailable")
+                    : undefined
                 }
-                isDisabled={props.isSaving}
+                width="100%"
+                status={fieldStatus((id) => i18n._(id), errors, "credential")}
               />
+            </Stack>
+          </div>
+        ) : (
+          <div className="ai-provider-connection-summary">
+            <div>
+              <div className="reader-preference-label">{props.draft.displayName}</div>
+              <div className="reader-preference-description">{providerKindLabel((id) => i18n._(id), props.draft.kind)}</div>
+              <div className="ai-provider-endpoint">{props.draft.endpoint}</div>
+            </div>
+            <Button type="button" label={i18n._("ai.providerBackToConnection")} variant="ghost"
+              onClick={() => { resetDiscovery(); setStep("connection") }} isDisabled={props.isSaving} />
+          </div>
+        )}
+        {!isConnectionStep ? (
+          <div className="ai-provider-step-content" key="model">
+            <Stack gap={4}>
+              <div className="ai-provider-model-field">
+                <div className="ai-provider-model-row">
+                  <TextInput
+                    size="lg"
+                    label={i18n._("ai.providerModel")}
+                    value={props.draft.model}
+                    onChange={(model) => update({ model })}
+                    isRequired
+                    isDisabled={props.isSaving}
+                    width="100%"
+                    status={fieldStatus((id) => i18n._(id), errors, "model")}
+                  />
+                  <Button
+                    label={i18n._("ai.providerDiscoverModels")}
+                    type="button"
+                    onClick={() => void discoverModels()}
+                    isLoading={isDiscoveringModels}
+                    isDisabled={
+                      props.isSaving ||
+                      isDiscoveringModels ||
+                      (!props.draft.credential.trim() && (!props.draft.providerId || !props.credentialAvailable))
+                    }
+                    variant="secondary"
+                  />
+                </div>
+                {isDiscoveringModels ? (
+                  <div className="ai-provider-discovery-status" role="status">
+                    <span>{i18n._("ai.providerModelsLoading")}</span>
+                    <Button type="button" variant="ghost" label={i18n._("ai.providerCancelLookup")} onClick={resetDiscovery} />
+                  </div>
+                ) : null}
+                <div className="reader-preference-description">
+                  {i18n._(props.draft.mode === "edit" && !props.draft.credential.trim()
+                    ? "ai.providerDiscoverStoredDescription"
+                    : "ai.providerDiscoverModelsDescription")}
+                </div>
+                {modelDiscoveryError ? (
+                  <div className="ai-provider-model-error" role="alert">
+                    {modelDiscoveryError}
+                  </div>
+                ) : null}
+                {models.length > 0 ? (
+                  <div className="ai-provider-model-results">
+                    <span className="reader-visually-hidden" role="status" aria-live="polite">
+                      {i18n._("ai.providerModelsLoaded", { count: models.length })}
+                    </span>
+                    <Selector
+                      size="lg"
+                      label={i18n._("ai.providerModelSuggestions")}
+                      value={models.some((model) => model.id === props.draft.model) ? props.draft.model : ""}
+                      options={models.map((model) => ({ value: model.id, label: model.label }))}
+                      onChange={(model) => update({ model })}
+                      isDisabled={props.isSaving || isDiscoveringModels}
+                      width="100%"
+                    />
+                  </div>
+                ) : null}
+              </div>
               <CheckboxInput
-                label={i18n._("ai.providerSupportsIdempotency")}
-                value={props.draft.capabilities.supportsIdempotency}
-                onChange={(supportsIdempotency) =>
-                  update({
-                    capabilities: {
-                      ...props.draft.capabilities,
-                      supportsIdempotency,
-                    },
-                  })
-                }
+                label={i18n._("ai.providerEnable")}
+                description={i18n._("ai.providerEnabledDescription")}
+                value={props.draft.isEnabled}
+                onChange={(isEnabled) => update({ isEnabled })}
                 isDisabled={props.isSaving}
               />
-            </div>
-            <div className="ai-settings-number-grid">
-              <PolicyNumber
-                field="maxConcurrency"
-                label={i18n._("ai.policyConcurrency")}
-                value={props.draft.policy.maxConcurrency}
-                min={1}
-                max={64}
-                errors={errors}
-                onChange={updatePolicy}
-                isDisabled={props.isSaving}
-              />
-              <PolicyNumber
-                field="requestsPerMinute"
-                label={i18n._("ai.policyRequestsPerMinute")}
-                value={props.draft.policy.requestsPerMinute}
-                min={1}
-                max={1_000_000}
-                hasClear
-                errors={errors}
-                onChange={updatePolicy}
-                isDisabled={props.isSaving}
-              />
-              <PolicyNumber
-                field="maxInputTokensPerRequest"
-                label={i18n._("ai.policyInputTokens")}
-                value={props.draft.policy.maxInputTokensPerRequest}
-                min={1}
-                max={1_048_576}
-                errors={errors}
-                onChange={updatePolicy}
-                isDisabled={props.isSaving}
-              />
-              <PolicyNumber
-                field="maxOutputTokensPerRequest"
-                label={i18n._("ai.policyOutputTokens")}
-                value={props.draft.policy.maxOutputTokensPerRequest}
-                min={1}
-                max={16_384}
-                errors={errors}
-                onChange={updatePolicy}
-                isDisabled={props.isSaving}
-              />
-              <PolicyNumber
-                field="inputCostMicrosPerMillionTokens"
-                label={i18n._("ai.policyInputCost")}
-                value={props.draft.policy.inputCostMicrosPerMillionTokens}
-                min={0}
-                max={1_000_000_000_000}
-                hasClear
-                errors={errors}
-                onChange={updatePolicy}
-                isDisabled={props.isSaving}
-              />
-              <PolicyNumber
-                field="outputCostMicrosPerMillionTokens"
-                label={i18n._("ai.policyOutputCost")}
-                value={props.draft.policy.outputCostMicrosPerMillionTokens}
-                min={0}
-                max={1_000_000_000_000}
-                hasClear
-                errors={errors}
-                onChange={updatePolicy}
-                isDisabled={props.isSaving}
-              />
-              <PolicyNumber
-                field="maxCostMicrosPerRequest"
-                label={i18n._("ai.policyRequestCost")}
-                value={props.draft.policy.maxCostMicrosPerRequest}
-                min={0}
-                max={1_000_000_000_000}
-                hasClear
-                errors={errors}
-                onChange={updatePolicy}
-                isDisabled={props.isSaving}
-              />
-            </div>
-          </Stack>
-        </Collapsible>
+              <Collapsible
+                trigger={i18n._("ai.providerAdvanced")}
+                isOpen={advancedOpen}
+                onOpenChange={setAdvancedOpen}
+              >
+                <Stack gap={4} className="ai-provider-advanced">
+                  <div className="ai-provider-capabilities">
+                    <CheckboxInput
+                      label={i18n._("ai.providerSupportsUsage")}
+                      value={props.draft.capabilities.supportsUsage}
+                      onChange={(supportsUsage) =>
+                        update({
+                          capabilities: {
+                            ...props.draft.capabilities,
+                            supportsUsage,
+                          },
+                        })
+                      }
+                      isDisabled={props.isSaving}
+                    />
+                    <CheckboxInput
+                      label={i18n._("ai.providerSupportsIdempotency")}
+                      value={props.draft.capabilities.supportsIdempotency}
+                      onChange={(supportsIdempotency) =>
+                        update({
+                          capabilities: {
+                            ...props.draft.capabilities,
+                            supportsIdempotency,
+                          },
+                        })
+                      }
+                      isDisabled={props.isSaving}
+                    />
+                  </div>
+                  <div className="ai-settings-number-grid">
+                    <PolicyNumber
+                      field="maxConcurrency"
+                      label={i18n._("ai.policyConcurrency")}
+                      value={props.draft.policy.maxConcurrency}
+                      min={1}
+                      max={64}
+                      errors={errors}
+                      onChange={updatePolicy}
+                      isDisabled={props.isSaving}
+                    />
+                    <PolicyNumber
+                      field="requestsPerMinute"
+                      label={i18n._("ai.policyRequestsPerMinute")}
+                      value={props.draft.policy.requestsPerMinute}
+                      min={1}
+                      max={1_000_000}
+                      hasClear
+                      errors={errors}
+                      onChange={updatePolicy}
+                      isDisabled={props.isSaving}
+                    />
+                    <PolicyNumber
+                      field="maxInputTokensPerRequest"
+                      label={i18n._("ai.policyInputTokens")}
+                      value={props.draft.policy.maxInputTokensPerRequest}
+                      min={1}
+                      max={1_048_576}
+                      errors={errors}
+                      onChange={updatePolicy}
+                      isDisabled={props.isSaving}
+                    />
+                    <PolicyNumber
+                      field="maxOutputTokensPerRequest"
+                      label={i18n._("ai.policyOutputTokens")}
+                      value={props.draft.policy.maxOutputTokensPerRequest}
+                      min={1}
+                      max={16_384}
+                      errors={errors}
+                      onChange={updatePolicy}
+                      isDisabled={props.isSaving}
+                    />
+                    <PolicyNumber
+                      field="inputCostMicrosPerMillionTokens"
+                      label={i18n._("ai.policyInputCost")}
+                      value={props.draft.policy.inputCostMicrosPerMillionTokens}
+                      min={0}
+                      max={1_000_000_000_000}
+                      hasClear
+                      errors={errors}
+                      onChange={updatePolicy}
+                      isDisabled={props.isSaving}
+                    />
+                    <PolicyNumber
+                      field="outputCostMicrosPerMillionTokens"
+                      label={i18n._("ai.policyOutputCost")}
+                      value={props.draft.policy.outputCostMicrosPerMillionTokens}
+                      min={0}
+                      max={1_000_000_000_000}
+                      hasClear
+                      errors={errors}
+                      onChange={updatePolicy}
+                      isDisabled={props.isSaving}
+                    />
+                    <PolicyNumber
+                      field="maxCostMicrosPerRequest"
+                      label={i18n._("ai.policyRequestCost")}
+                      value={props.draft.policy.maxCostMicrosPerRequest}
+                      min={0}
+                      max={1_000_000_000_000}
+                      hasClear
+                      errors={errors}
+                      onChange={updatePolicy}
+                      isDisabled={props.isSaving}
+                    />
+                  </div>
+                </Stack>
+              </Collapsible>
+            </Stack>
+          </div>
+        ) : null}
         {props.saveError ? <div role="alert" className="ai-provider-model-error">{props.saveError}</div> : null}
         <div className="reader-dialog-actions">
           {props.onDelete ? (
@@ -368,7 +444,7 @@ export function ProviderForm(props: ProviderFormProps) {
           <Button
             label={i18n._(
               props.draft.mode === "create"
-                ? "ai.providerCreate"
+                ? isConnectionStep ? "ai.providerContinue" : "ai.providerCreate"
                 : "ai.providerSave",
             )}
             type="submit"
@@ -396,6 +472,7 @@ interface PolicyNumberProps {
 function PolicyNumber(props: PolicyNumberProps) {
   const { i18n } = useLingui()
   const shared = {
+    size: "lg" as const,
     label: props.label,
     value: props.value,
     min: props.min,
@@ -431,6 +508,7 @@ function fieldStatus(
     TOO_LONG: "ai.fieldTooLong",
     HTTPS: "ai.endpointInvalid",
     RANGE: "ai.numberOutOfRange",
+    INVALID: "ai.credentialInvalid",
   } as const
   return { type: "error" as const, message: translate(messages[error]) }
 }

@@ -148,6 +148,45 @@ fn provider_endpoint_rejects_ambiguous_or_private_routes() {
 }
 
 #[test]
+fn versioned_provider_bases_do_not_repeat_adapter_versions() {
+    for (kind, base, path, expected) in [
+        (
+            ProviderKind::OpenAiResponses,
+            "https://gateway.example/openai/v1",
+            "/v1/responses",
+            "https://gateway.example/openai/v1/responses",
+        ),
+        (
+            ProviderKind::OpenAiChatCompletions,
+            "https://gateway.example/api/v1/",
+            "/v1/chat/completions",
+            "https://gateway.example/api/v1/chat/completions",
+        ),
+        (
+            ProviderKind::AnthropicMessages,
+            "https://gateway.example/claude/v1/",
+            "/v1/models",
+            "https://gateway.example/claude/v1/models",
+        ),
+        (
+            ProviderKind::GoogleGemini,
+            "https://gateway.example/gemini/v1beta/",
+            "/v1beta/models",
+            "https://gateway.example/gemini/v1beta/models",
+        ),
+        (
+            ProviderKind::GoogleGemini,
+            "https://gateway.example/v1-tenant",
+            "/v1beta/models",
+            "https://gateway.example/v1-tenant/v1beta/models",
+        ),
+    ] {
+        let endpoint = ProviderEndpoint::new(kind, Some(base)).unwrap();
+        assert_eq!(endpoint.join_adapter_path(path).unwrap().as_str(), expected);
+    }
+}
+
+#[test]
 fn provider_scope_capability_policy_and_patch_bounds_are_exact() {
     assert!(ProviderScope::user(USER_A_ID).is_ok());
     assert_eq!(

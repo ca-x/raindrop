@@ -89,3 +89,57 @@ it("requires confirmation to delete and lets the user cancel without a mutation"
   expect(controller.removeProvider).toHaveBeenCalledWith(controller.providers[0])
   expect(await screen.findByText("Provider deleted.")).toBeVisible()
 })
+
+it("guides a new connection before showing models and preserves input when going back", async () => {
+  const user = userEvent.setup()
+  const controller = renderPanel()
+  await user.click(screen.getByRole("button", { name: "Add Provider" }))
+  expect(screen.queryByRole("textbox", { name: /^Model/u })).not.toBeInTheDocument()
+  await user.click(screen.getByRole("button", { name: "Continue to model" }))
+  expect(controller.saveProvider).not.toHaveBeenCalled()
+  await user.type(screen.getByRole("textbox", { name: /^Display name/u }), "My gateway")
+  await user.type(screen.getByLabelText(/^Credential/u), "secret-key")
+  await user.click(screen.getByRole("button", { name: "Continue to model" }))
+  await user.type(screen.getByRole("textbox", { name: /^Model/u }), "custom-model")
+  await user.click(screen.getByRole("button", { name: "Back to connection" }))
+  expect(screen.getByRole("textbox", { name: /^Display name/u })).toHaveValue("My gateway")
+  expect(screen.getByLabelText(/^Credential/u)).toHaveValue("secret-key")
+  await user.click(screen.getByRole("button", { name: "Continue to model" }))
+  expect(screen.getByRole("textbox", { name: /^Model/u })).toHaveValue("custom-model")
+  await user.click(screen.getByRole("button", { name: "Create Provider" }))
+  expect(controller.saveProvider).toHaveBeenCalledWith(expect.objectContaining({
+    displayName: "My gateway", model: "custom-model", credential: "secret-key",
+  }))
+})
+
+it("lets the user cancel discovery without discarding their manual model", async () => {
+  const fetchMock = vi.fn(() => new Promise<Response>(() => {}))
+  vi.stubGlobal("fetch", fetchMock)
+  const user = userEvent.setup()
+  renderPanel()
+  await user.click(screen.getByRole("button", { name: "Edit" }))
+  const model = screen.getByRole("textbox", { name: /^Model/u })
+  const original = (model as HTMLInputElement).value
+  await user.click(screen.getByRole("button", { name: "Fetch models" }))
+  await user.click(screen.getByRole("button", { name: "Cancel lookup" }))
+  expect((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].signal?.aborted).toBe(true)
+  expect(model).toHaveValue(original)
+  expect(screen.getByRole("button", { name: "Save Provider" })).toBeEnabled()
+})
+
+it("restores focus after cancelling setup without saving", async () => {
+  const user = userEvent.setup()
+  const controller = renderPanel()
+  const add = screen.getByRole("button", { name: "Add Provider" })
+  await user.click(add)
+  await user.click(screen.getByRole("button", { name: /^Cancel$/u }))
+  expect(add).toHaveFocus()
+  expect(controller.saveProvider).not.toHaveBeenCalled()
+})
+
+it("offers retry after settings fail to load", async () => {
+  const user = userEvent.setup()
+  const controller = renderPanel(fakeAiSettingsController({ loadStatus: "error", keyringStatus: null }))
+  await user.click(screen.getByRole("button", { name: "Retry" }))
+  expect(controller.load).toHaveBeenCalledOnce()
+})

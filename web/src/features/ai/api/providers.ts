@@ -1,4 +1,4 @@
-import { apiRequest, invalidResponseError } from "../../../shared/api/client"
+import { ApiClientError, apiRequest, invalidResponseError } from "../../../shared/api/client"
 import {
   isProvider,
   isProviderList,
@@ -89,30 +89,41 @@ export async function discoverProviderModels(
 ): Promise<ProviderModelDiscoveryResult[]> {
   const credential = request.credential.trim()
   if (!credential && !request.providerId) throw new Error("MODEL_DISCOVERY_CREDENTIAL_REQUIRED")
-  const response = await apiRequest("/api/v1/ai/providers/models", {
-    method: "POST",
-    headers: { "x-csrf-token": csrfToken },
-    body: JSON.stringify({
-      providerId: request.providerId ?? undefined,
-      kind: request.kind,
-      endpoint: request.endpoint,
-      credential,
-    }),
-    signal,
-  })
+  const timeout = AbortSignal.timeout(20_000)
+  const discoverySignal = signal ? AbortSignal.any([signal, timeout]) : timeout
+  let response: unknown
+  try {
+    response = await apiRequest("/api/v1/ai/providers/models", {
+      method: "POST",
+      headers: { "x-csrf-token": csrfToken },
+      body: JSON.stringify({
+        providerId: request.providerId ?? undefined,
+        kind: request.kind,
+        endpoint: request.endpoint,
+        credential,
+      }),
+      signal: discoverySignal,
+    })
+  } catch (error) {
+    if (timeout.aborted && !signal?.aborted) {
+      throw new ApiClientError(504, { code: "MODEL_DISCOVERY_TIMEOUT", message: "Model lookup timed out" })
+    }
+    throw error
+  }
   return parseModelDiscoveryResponse(response)
 }
 
 function parseModelDiscoveryResponse(payload: unknown): ProviderModelDiscoveryResult[] {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    throw new Error("MODEL_DISCOVERY_RESPONSE_INVALID")
+    throw invalidResponseError()
   }
   const record = payload as Record<string, unknown>
   const values = Array.isArray(record.data)
     ? record.data
     : Array.isArray(record.models)
       ? record.models
-      : []
+      : null
+  if (!values) throw invalidResponseError()
   const models = values
     .map((value): ProviderModelDiscoveryResult | null => {
       if (!value || typeof value !== "object" || Array.isArray(value)) return null

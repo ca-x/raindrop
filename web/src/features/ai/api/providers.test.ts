@@ -130,7 +130,7 @@ it("discovers and normalizes OpenAI-compatible model ids", async () => {
   expect(JSON.parse(String(init?.body))).toMatchObject({ credential: "secret" })
 })
 
-it("uses Gemini query authentication and rejects an empty credential", async () => {
+it("routes Gemini discovery through the server and rejects an empty credential", async () => {
   const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ models: [{ name: "models/gemini-2.5" }] }))
   vi.stubGlobal("fetch", fetchMock)
 
@@ -191,4 +191,32 @@ it("discovers saved providers without re-entering their credential", async () =>
     providerId, kind: "ANTHROPIC_MESSAGES", endpoint: "https://gateway.example/anthropic/", credential: "",
   })).resolves.toEqual([{ id: "model-a", label: "model-a" }])
   expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({ providerId, credential: "" })
+})
+
+it("bounds discovery with a deadline while retaining caller cancellation", async () => {
+  const deadline = new AbortController()
+  const timeout = vi.spyOn(AbortSignal, "timeout").mockReturnValue(deadline.signal)
+  vi.stubGlobal("fetch", vi.fn((_url: string, init: RequestInit) => new Promise<Response>((_resolve, reject) => {
+    init.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true })
+  })))
+  const request = { kind: "OPENAI_RESPONSES" as const, endpoint: "https://gateway.example/v1", credential: "key" }
+  const result = expect(discoverProviderModels("csrf", request)).rejects.toMatchObject({
+    payload: { code: "MODEL_DISCOVERY_TIMEOUT" },
+  })
+  deadline.abort(new DOMException("Timed out", "TimeoutError"))
+  await result
+  expect(timeout).toHaveBeenCalledWith(20_000)
+
+  const caller = new AbortController()
+  timeout.mockReturnValue(new AbortController().signal)
+  const cancelled = expect(discoverProviderModels("csrf", request, caller.signal)).rejects.toMatchObject({ name: "AbortError" })
+  caller.abort()
+  await cancelled
+})
+
+it("does not mistake a malformed catalog for an empty successful response", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ error: "secret-sentinel" })))
+  await expect(discoverProviderModels("csrf", {
+    kind: "OPENAI_RESPONSES", endpoint: "https://gateway.example/", credential: "key",
+  })).rejects.toMatchObject({ payload: { code: "INVALID_RESPONSE" } })
 })

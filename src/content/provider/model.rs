@@ -134,7 +134,18 @@ impl ProviderEndpoint {
 
     pub fn join_adapter_path(&self, path: &str) -> Result<Url, ProviderCoreError> {
         validate_adapter_path(path)?;
-        let joined = self.url.join(&path[1..]).map_err(|_| invalid_endpoint())?;
+        let relative_path = &path[1..];
+        let relative_path = relative_path
+            .split_once('/')
+            .filter(|(version, _)| {
+                matches!(*version, "v1" | "v1beta")
+                    && self.url.path().trim_end_matches('/').rsplit('/').next() == Some(*version)
+            })
+            .map_or(relative_path, |(_, remainder)| remainder);
+        let joined = self
+            .url
+            .join(relative_path)
+            .map_err(|_| invalid_endpoint())?;
         if joined.scheme() != self.url.scheme()
             || joined.host_str() != self.url.host_str()
             || joined.port_or_known_default() != self.url.port_or_known_default()

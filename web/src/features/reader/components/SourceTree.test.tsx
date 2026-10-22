@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react"
+import { fireEvent, render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { expect, it, vi } from "vitest"
 
@@ -80,5 +80,7 @@ it("disables redundant refresh while the selected feed is queued", () => {
     "aria-disabled",
     "true",
   )
+  expect(screen.getByText("Queued for refresh")).toBeVisible()
+  fireEvent.click(screen.getByText("Queued for refresh"))
   expect(screen.getByText("Waiting for a refresh worker.")).toBeVisible()
 })

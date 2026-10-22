@@ -28,6 +28,8 @@ use crate::{
 use super::super::{ApiError, ApiJson, RateLimitRejection, routes::sensitive_cache_headers};
 
 const USER_PROVIDER_LIMIT: u64 = 32;
+const MODEL_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(15);
+const MAX_MODEL_CATALOG_BYTES: usize = 1_048_576;
 const PUBLIC_TIME_FORMAT: &[time::format_description::FormatItem<'static>] =
     format_description!("[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:6]Z");
 
@@ -400,11 +402,28 @@ async fn discover_models(
     if credential.is_empty() || credential.len() > 8192 {
         return Err(ApiError::validation().with_field("credential", "Credential is invalid"));
     }
+    let mut credential = HeaderValue::from_str(&credential)
+        .map_err(|_| ApiError::validation().with_field("credential", "Credential is invalid"))?;
+    credential.set_sensitive(true);
+    let models = tokio::time::timeout(
+        MODEL_DISCOVERY_TIMEOUT,
+        fetch_discovered_models(kind, &endpoint, credential),
+    )
+    .await
+    .map_err(|_| model_discovery_timeout())??;
+    Ok(Json(DiscoverModelsResponse { models }))
+}
+
+async fn fetch_discovered_models(
+    kind: ProviderKind,
+    endpoint: &ProviderEndpoint,
+    credential: HeaderValue,
+) -> Result<Vec<DiscoveredModel>, ApiError> {
     let path = match kind {
         ProviderKind::GoogleGemini => "/v1beta/models",
         _ => "/v1/models",
     };
-    let mut url = endpoint
+    let url = endpoint
         .join_adapter_path(path)
         .map_err(|_| ApiError::validation().with_field("endpoint", "Endpoint is invalid"))?;
     let approved = tokio::net::lookup_host((endpoint.canonical_host(), endpoint.effective_port()))
@@ -428,14 +447,18 @@ async fn discover_models(
         .no_deflate()
         .no_zstd()
         .resolve_to_addrs(endpoint.canonical_host(), &approved)
-        .timeout(Duration::from_secs(15))
+        .connect_timeout(Duration::from_secs(5))
+        .read_timeout(Duration::from_secs(5))
+        .timeout(MODEL_DISCOVERY_TIMEOUT)
         .build()
         .map_err(|_| model_discovery_error())?;
-    let mut request = client.get(url.clone()).header("accept", "application/json");
+    let mut request = client
+        .get(url)
+        .header("accept", "application/json")
+        .header("accept-encoding", "identity");
     match kind {
         ProviderKind::GoogleGemini => {
-            url.query_pairs_mut().append_pair("key", &credential);
-            request = client.get(url).header("accept", "application/json");
+            request = request.header("x-goog-api-key", credential);
         }
         ProviderKind::AnthropicMessages => {
             request = request
@@ -443,10 +466,21 @@ async fn discover_models(
                 .header("anthropic-version", "2023-06-01");
         }
         ProviderKind::OpenAiResponses | ProviderKind::OpenAiChatCompletions => {
-            request = request.header("authorization", format!("Bearer {credential}"));
+            let credential = credential.to_str().map_err(|_| {
+                ApiError::validation().with_field("credential", "Credential is invalid")
+            })?;
+            let mut authorization = HeaderValue::from_str(&format!("Bearer {credential}"))
+                .map_err(|_| {
+                    ApiError::validation().with_field("credential", "Credential is invalid")
+                })?;
+            authorization.set_sensitive(true);
+            request = request.header("authorization", authorization);
         }
     }
-    let response = request.send().await.map_err(|_| model_discovery_error())?;
+    let response = request
+        .send()
+        .await
+        .map_err(map_discovery_transport_error)?;
     if !response.status().is_success() {
         let code = match response.status().as_u16() {
             401 | 403 => "MODEL_DISCOVERY_AUTH_FAILED",
@@ -460,21 +494,43 @@ async fn discover_models(
             "Unable to fetch models from the AI provider",
         ));
     }
+    let body = collect_model_discovery_body(response).await?;
+    parse_discovered_models(&body)
+}
+
+async fn collect_model_discovery_body(
+    mut response: reqwest::Response,
+) -> Result<Vec<u8>, ApiError> {
+    let declared_length = response
+        .headers()
+        .get(reqwest::header::CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok());
     if response
         .content_length()
-        .is_some_and(|length| length > 1_048_576)
+        .into_iter()
+        .chain(declared_length)
+        .any(|length| length > MAX_MODEL_CATALOG_BYTES as u64)
     {
-        return Err(model_discovery_error());
+        return Err(model_discovery_too_large());
     }
-    let body = response
-        .bytes()
+    let mut body = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
         .await
-        .map_err(|_| model_discovery_error())?;
-    if body.len() > 1_048_576 {
-        return Err(model_discovery_error());
+        .map_err(map_discovery_transport_error)?
+    {
+        if chunk.len() > MAX_MODEL_CATALOG_BYTES.saturating_sub(body.len()) {
+            return Err(model_discovery_too_large());
+        }
+        body.extend_from_slice(&chunk);
     }
+    Ok(body)
+}
+
+fn parse_discovered_models(body: &[u8]) -> Result<Vec<DiscoveredModel>, ApiError> {
     let payload: serde_json::Value =
-        serde_json::from_slice(&body).map_err(|_| model_discovery_error())?;
+        serde_json::from_slice(body).map_err(|_| model_discovery_error())?;
     let values = payload
         .get("data")
         .or_else(|| payload.get("models"))
@@ -502,9 +558,31 @@ async fn discover_models(
             break;
         }
     }
-    Ok(Json(DiscoverModelsResponse {
-        models: models.into_values().collect(),
-    }))
+    Ok(models.into_values().collect())
+}
+
+fn map_discovery_transport_error(error: reqwest::Error) -> ApiError {
+    if error.is_timeout() {
+        model_discovery_timeout()
+    } else {
+        model_discovery_error()
+    }
+}
+
+fn model_discovery_timeout() -> ApiError {
+    ApiError::new(
+        StatusCode::GATEWAY_TIMEOUT,
+        "MODEL_DISCOVERY_TIMEOUT",
+        "AI provider model lookup timed out",
+    )
+}
+
+fn model_discovery_too_large() -> ApiError {
+    ApiError::new(
+        StatusCode::BAD_GATEWAY,
+        "MODEL_DISCOVERY_RESPONSE_TOO_LARGE",
+        "AI provider model catalog is too large",
+    )
 }
 
 fn model_discovery_error() -> ApiError {
@@ -697,4 +775,91 @@ fn format_public_time(value: OffsetDateTime) -> Result<String, ApiError> {
         .to_offset(UtcOffset::UTC)
         .format(PUBLIC_TIME_FORMAT)
         .map_err(|_| ApiError::internal())
+}
+
+#[cfg(test)]
+mod model_discovery_tests {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    use futures_util::{StreamExt, stream};
+    use serde_json::json;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn discovery_stops_reading_an_oversized_unknown_length_stream() {
+        let reads = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&reads);
+        let chunks = stream::iter([
+            Ok::<_, std::io::Error>(vec![b' '; MAX_MODEL_CATALOG_BYTES]),
+            Ok(vec![b' '; 1]),
+            Ok(vec![b' '; 1]),
+        ])
+        .inspect(move |_| {
+            counter.fetch_add(1, Ordering::SeqCst);
+        });
+        let response =
+            reqwest::Response::from(http::Response::new(reqwest::Body::wrap_stream(chunks)));
+        let error = collect_model_discovery_body(response).await.unwrap_err();
+        assert!(format!("{error:?}").contains("MODEL_DISCOVERY_RESPONSE_TOO_LARGE"));
+        assert_eq!(reads.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn discovery_accepts_the_exact_byte_limit_and_rejects_oversized_content_length() {
+        let body = vec![b' '; MAX_MODEL_CATALOG_BYTES];
+        let response = reqwest::Response::from(http::Response::new(reqwest::Body::from(body)));
+        assert_eq!(
+            collect_model_discovery_body(response).await.unwrap().len(),
+            MAX_MODEL_CATALOG_BYTES
+        );
+        let response = reqwest::Response::from(
+            http::Response::builder()
+                .header("content-length", MAX_MODEL_CATALOG_BYTES + 1)
+                .body(reqwest::Body::from(Vec::<u8>::new()))
+                .unwrap(),
+        );
+        let error = collect_model_discovery_body(response).await.unwrap_err();
+        assert!(format!("{error:?}").contains("MODEL_DISCOVERY_RESPONSE_TOO_LARGE"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn discovery_deadline_also_bounds_a_stalled_stream() {
+        let chunks = stream::pending::<Result<Vec<u8>, std::io::Error>>();
+        let response =
+            reqwest::Response::from(http::Response::new(reqwest::Body::wrap_stream(chunks)));
+        let result = tokio::time::timeout(
+            MODEL_DISCOVERY_TIMEOUT,
+            collect_model_discovery_body(response),
+        )
+        .await;
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn discovery_catalog_is_deduplicated_sanitized_and_bounded() {
+        let payload = json!({ "models": [
+            { "name": "models/model-b" }, { "id": "model-a" }, { "id": "model-a" },
+            { "id": "bad\nmodel" }, { "id": "" }, { "id": "x".repeat(201) }
+        ] });
+        let models = parse_discovered_models(&serde_json::to_vec(&payload).unwrap()).unwrap();
+        assert_eq!(
+            models
+                .iter()
+                .map(|model| model.id.as_str())
+                .collect::<Vec<_>>(),
+            ["model-a", "model-b"]
+        );
+        let payload = json!({ "data": (0..300).map(|index| json!({ "id": format!("model-{index:03}") })).collect::<Vec<_>>() });
+        assert_eq!(
+            parse_discovered_models(&serde_json::to_vec(&payload).unwrap())
+                .unwrap()
+                .len(),
+            200
+        );
+        assert!(parse_discovered_models(br#"{"error":"credential-sentinel"}"#).is_err());
+    }
 }

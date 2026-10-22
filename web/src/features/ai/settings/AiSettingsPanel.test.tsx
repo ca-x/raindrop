@@ -16,11 +16,12 @@ it("creates a Provider inline and never renders a credential readback", async ()
   await user.click(screen.getByRole("button", { name: "Add Provider" }))
   const form = screen.getByRole("button", { name: "New Provider" }).closest("div")!
   await user.type(screen.getByRole("textbox", { name: /^Display name/u }), "Local model")
-  await user.type(screen.getByRole("textbox", { name: /^Model/u }), "model-v1")
   await user.type(
     screen.getByLabelText(/^Credential/u),
     "credential-kept-in-memory-only",
   )
+  await user.click(screen.getByRole("button", { name: "Continue to model" }))
+  await user.type(screen.getByRole("textbox", { name: /^Model/u }), "model-v1")
   await user.click(screen.getByRole("button", { name: "Create Provider" }))
 
   expect(saveProvider).toHaveBeenCalledWith(
@@ -30,6 +31,7 @@ it("creates a Provider inline and never renders a credential readback", async ()
       credential: "credential-kept-in-memory-only",
     }),
   )
+  await user.click(screen.getByRole("button", { name: "Back to connection" }))
   expect(screen.getByLabelText(/^Credential/u)).toHaveValue(
     "credential-kept-in-memory-only",
   )
@@ -141,7 +143,7 @@ it("allows an enabled AI plugin to be disabled after all Providers are disabled"
   )
 })
 
-it("shows explicit keyring, plugin, and MCP availability without fake controls", () => {
+it("shows blocking availability errors and keeps unavailable capabilities out of primary setup", () => {
   activateLocale("en")
   renderPanel(
     fakeAiSettingsController({
@@ -156,9 +158,31 @@ it("shows explicit keyring, plugin, and MCP availability without fake controls",
 
   expect(screen.getByText("Provider keyring unavailable")).toBeVisible()
   expect(screen.getByText("Official AI plugin unavailable")).toBeVisible()
-  expect(screen.getByText("MCP transport is not available yet")).toBeVisible()
+  expect(screen.queryByText("MCP transport is not available yet")).not.toBeInTheDocument()
   expect(screen.queryByRole("checkbox", { name: /MCP/iu })).not.toBeInTheDocument()
   expect(screen.getByRole("button", { name: "Save AI settings" })).toBeDisabled()
+})
+
+it("reveals summary settings progressively and preserves an explicit summary opt-out", async () => {
+  activateLocale("en")
+  const user = userEvent.setup()
+  const saveConfig = vi.fn().mockResolvedValue(true)
+  renderPanel(fakeAiSettingsController({ saveConfig }))
+  expect(screen.queryByRole("combobox", { name: "Summary Provider" })).not.toBeInTheDocument()
+  await user.click(screen.getByRole("switch", { name: "Enable AI reading plugin" }))
+  expect(screen.getByRole("switch", { name: "Enable summary" })).toBeChecked()
+  expect(screen.getByRole("button", { name: "Output length and capabilities" })).toHaveAttribute("aria-expanded", "false")
+  await user.click(screen.getByRole("button", { name: "Output length and capabilities" }))
+  expect(screen.getByText("MCP transport is not available yet")).toBeVisible()
+  await user.click(screen.getByRole("switch", { name: "Enable summary" }))
+  await user.click(screen.getByRole("switch", { name: "Enable AI reading plugin" }))
+  await user.click(screen.getByRole("switch", { name: "Enable AI reading plugin" }))
+  expect(screen.getByRole("switch", { name: "Enable summary" })).not.toBeChecked()
+  await user.click(screen.getByRole("button", { name: "Save AI settings" }))
+  expect(saveConfig).toHaveBeenCalledWith(expect.objectContaining({
+    isEnabled: true, summary: expect.objectContaining({ enabled: false }),
+  }))
+  expect(screen.getByText("AI reading settings saved.")).toBeVisible()
 })
 
 function renderPanel(controller = fakeAiSettingsController()) {

@@ -6,6 +6,7 @@ import {
   createProviderDraft,
   editProviderDraft,
   providerDraftRequest,
+  validateProviderConnection,
   validateProviderDraft,
 } from "./providerDraft"
 
@@ -136,4 +137,22 @@ it("normalizes whitespace without retaining a create credential in output state"
   expect(result.request.displayName).toBe("Primary model")
   expect(result.request.model).toBe("gpt-5-mini")
   expect(result.request.credential).toBe("secret-value")
+})
+
+it("validates connection details independently of the model and advanced limits", () => {
+  const draft = { ...createProviderDraft(), displayName: "Gateway", credential: "key" }
+  expect(validateProviderConnection(draft)).toEqual({})
+  expect(validateProviderDraft(draft)).toMatchObject({ model: "REQUIRED" })
+  expect(validateProviderConnection({ ...draft, credential: "   " }))
+    .toMatchObject({ credential: "REQUIRED" })
+})
+
+it("trims pasted credentials and rejects control characters before sending", () => {
+  const draft = { ...createProviderDraft(), displayName: "Gateway", model: "model", credential: " key \n" }
+  const result = providerDraftRequest(draft)
+  expect(result.ok && result.request.credential).toBe("key")
+  expect(validateProviderConnection({ ...draft, credential: "key\nother" }))
+    .toMatchObject({ credential: "INVALID" })
+  const edited = providerDraftRequest({ ...editProviderDraft(provider), credential: "   " })
+  expect(edited.ok && edited.request).not.toHaveProperty("credential")
 })

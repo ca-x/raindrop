@@ -146,33 +146,30 @@ export function EntryQueue({
           onSearch={onSearchFeed}
         />
       ) : null}
-      {pendingCount > 0 ? (
-        <MountTransition preset="slideDown">
-          <Banner
-            container="section"
-            status="info"
-            title={i18n._("reader.newEntriesAvailable", { count: pendingCount })}
-            endContent={
+      <div className="reader-queue-update-notice" data-pending={pendingCount > 0}>
+        <span role="status" className="reader-queue-update-copy">
+          {i18n._(pendingCount > 0 ? "reader.newEntriesAvailable" : state.requestActivity.queue
+            ? "reader.backgroundUpdating" : "reader.backgroundUpdatesHint", { count: pendingCount })}
+        </span>
+        {pendingCount > 0 ? (
               <Button
                 label={i18n._("reader.showNewEntries", { count: pendingCount })}
                 isDisabled={!isRouteReady}
-                onClick={() => {
+                onClick={(event) => {
                   const firstPending = state.pendingNewEntriesBySource[key]?.[0]
                   smoothScrollCursorRef.current = firstPending ?? null
                   onMergePending()
                   scrollRef.current?.scrollTo({
                     top: 0,
-                    behavior: prefersReducedMotion() ? "auto" : "smooth",
+                    behavior: event.detail === 0 || prefersReducedMotion() ? "auto" : "smooth",
                   })
                   onRecordScroll(sourceRoute, 0)
                   if (firstPending) onMergedEntryFocus(firstPending)
                 }}
                 variant="ghost"
               />
-            }
-          />
-        </MountTransition>
-      ) : null}
+        ) : null}
+      </div>
       {state.errors.queue && hasQueueSnapshot ? (
         <Banner
           container="section"

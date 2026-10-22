@@ -5,7 +5,7 @@ import { Collapsible } from "@astryxdesign/core/Collapsible"
 import { Spinner } from "@astryxdesign/core/Spinner"
 import { Stack } from "@astryxdesign/core/Stack"
 import { useLingui } from "@lingui/react"
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import {
   createProviderDraft,
@@ -19,13 +19,22 @@ import { ProviderList } from "./ProviderList"
 
 export function ProviderSettingsPanel({
   controller,
+  onContinue,
 }: {
   controller: AiSettingsController
+  onContinue?: () => void
 }) {
   const { i18n } = useLingui()
   const [providerDraft, setProviderDraft] = useState<ProviderDraft | null>(null)
   const [deleting, setDeleting] = useState<Provider | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
+  const [notice, setNotice] = useState<"providerSaved" | "providerDeleted" | null>(null)
+  const returnFocus = useRef<HTMLElement | null>(null)
+  const editorWasOpen = useRef(false)
+  const isEditorOpen = providerDraft !== null
+  useEffect(() => {
+    if (!isEditorOpen && editorWasOpen.current) returnFocus.current?.focus({ preventScroll: true })
+    editorWasOpen.current = isEditorOpen
+  }, [isEditorOpen])
   if (controller.loadStatus === "idle" || controller.loadStatus === "loading") {
     return <Spinner label={i18n._("ai.settingsLoading")} />
   }
@@ -35,12 +44,20 @@ export function ProviderSettingsPanel({
         status="error"
         title={i18n._("ai.settingsLoadError")}
         description={i18n._("ai.settingsLoadErrorDescription")}
+        endContent={<Button label={i18n._("common.retry")} variant="secondary" onClick={() => void controller.load()} />}
       />
     )
   }
   return (
     <Stack gap={5} className="ai-settings-panel">
-      {notice ? <div role="status" className="reader-preference-description">{notice}</div> : null}
+      {notice ? (
+        <div className="ai-provider-saved">
+          <span role="status" className="reader-preference-description">{i18n._(`ai.${notice}`)}</span>
+          {notice === "providerSaved" && onContinue ? (
+            <Button label={i18n._("ai.providerContinueSetup")} variant="secondary" onClick={onContinue} />
+          ) : null}
+        </div>
+      ) : null}
       {controller.keyringStatus === "UNAVAILABLE" ? (
         <Banner
           status="warning"
@@ -68,6 +85,7 @@ export function ProviderSettingsPanel({
           <Button
             label={i18n._("ai.providerAdd")}
             onClick={() => {
+              returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
               controller.clearError()
               setNotice(null)
               setProviderDraft(createProviderDraft())
@@ -86,6 +104,7 @@ export function ProviderSettingsPanel({
           isBusy={controller.isSavingProvider || providerDraft !== null}
           onDelete={(provider) => { controller.clearError(); setDeleting(provider) }}
           onEdit={(provider) => {
+            returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
             controller.clearError()
             setNotice(null)
             setProviderDraft(editProviderDraft(provider))
@@ -111,12 +130,12 @@ export function ProviderSettingsPanel({
               isSaving={controller.isSavingProvider}
               saveError={controller.error ? i18n._(`ai.error.${controller.error}`) : null}
               credentialAvailable={controller.keyringStatus === "AVAILABLE"}
-              onChange={setProviderDraft}
+              onChange={(draft) => { controller.clearError(); setProviderDraft(draft) }}
               onSave={async (draft) => {
                 const saved = await controller.saveProvider(draft)
                 if (saved) {
                   setProviderDraft(null)
-                  setNotice(i18n._("ai.providerSaved"))
+                  setNotice("providerSaved")
                 }
                 return saved
               }}
@@ -142,7 +161,7 @@ export function ProviderSettingsPanel({
           const removed = await controller.removeProvider(deleting)
           if (removed) {
             if (providerDraft?.providerId === deleting.providerId) setProviderDraft(null)
-            setNotice(i18n._("ai.providerDeleted"))
+            setNotice("providerDeleted")
           }
           setDeleting(null)
         })()}

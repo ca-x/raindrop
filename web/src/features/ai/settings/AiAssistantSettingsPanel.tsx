@@ -1,4 +1,5 @@
 import { Banner } from "@astryxdesign/core/Banner"
+import { Button } from "@astryxdesign/core/Button"
 import { Spinner } from "@astryxdesign/core/Spinner"
 import { Stack } from "@astryxdesign/core/Stack"
 import { useLingui } from "@lingui/react"
@@ -8,8 +9,10 @@ import { AiContentForm } from "./AiContentForm"
 
 export function AiAssistantSettingsPanel({
   controller,
+  onOpenProviders,
 }: {
   controller: AiSettingsController
+  onOpenProviders?: () => void
 }) {
   const { i18n } = useLingui()
   if (controller.loadStatus === "idle" || controller.loadStatus === "loading") {
@@ -21,6 +24,7 @@ export function AiAssistantSettingsPanel({
         status="error"
         title={i18n._("ai.settingsLoadError")}
         description={i18n._("ai.settingsLoadErrorDescription")}
+        endContent={<Button label={i18n._("common.retry")} variant="secondary" onClick={() => void controller.load()} />}
       />
     )
   }
@@ -41,6 +45,9 @@ export function AiAssistantSettingsPanel({
             `ai.pluginState.${controller.configEnvelope.pluginState}`,
           )}
         />
+      ) : null}
+      {!controller.providers.some((provider) => provider.isEnabled) && onOpenProviders ? (
+        <Button label={i18n._("plugins.setupStart")} onClick={onOpenProviders} variant="primary" />
       ) : null}
       <AiContentForm
         providers={controller.providers}

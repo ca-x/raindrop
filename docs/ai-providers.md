@@ -11,7 +11,7 @@
 | OpenAI Chat Completions-compatible | `https://api.openai.com/` | `/v1/chat/completions` |
 | Google Gemini | `https://generativelanguage.googleapis.com/` | `/v1beta/models/{encodedModel}:generateContent` |
 
-用户可以修改自己 Provider 的 `kind`；修改会保留 ID，并在同一事务内以新 kind 重新加密凭据。兼容服务可以设置带固定 path prefix 的自定义 HTTPS endpoint，例如 `https://gateway.example/tenant-a/`；adapter path 会安全地追加到该 prefix 后。endpoint 不接受 HTTP、userinfo、query、fragment、反斜杠、点路径、编码的点或路径分隔符，也不接受私有或特殊用途 literal IP。
+用户可以修改自己 Provider 的 `kind`；修改会保留 ID，并在同一事务内以新 kind 重新加密凭据。兼容服务可以设置带固定 path prefix 的自定义 HTTPS endpoint，例如 `https://gateway.example/tenant-a/`；adapter path 会安全地追加到该 prefix 后。也支持 `https://gateway.example/tenant-a/v1/` 或 Gemini 的 `/v1beta/` 基础地址，不会重复追加相同 API 版本；不要填写完整的 `/chat/completions`、`/responses` 或生成接口地址。endpoint 不接受 HTTP、userinfo、query、fragment、反斜杠、点路径、编码的点或路径分隔符，也不接受私有或特殊用途 literal IP。
 
 ## Provider secret keyring
 
@@ -68,6 +68,10 @@ Credential 是 write-only 字段。创建或轮换时，它只存在于请求边
 ### 获取模型
 
 编辑时凭据留空会复用已保存的密钥，包括停用的个人 Provider；停用状态仍禁止新推理任务。模型获取使用表单当前的类型和 HTTPS 地址，不会自动保存修改。实例 Provider 的共享凭据只能发往原配置地址。支持 `/v1/models`（Anthropic、OpenAI）或 `/v1beta/models`（Gemini）；兼容服务未提供模型列表时可以手填模型名称。界面区分凭据被拒绝、接口不支持和限流，并在修改连接信息或关闭编辑器时取消旧请求。
+
+新建时先填写连接信息，再选择模型与可选策略；可返回上一步且保留草稿，已有 Provider 不必重走引导。获取模型是可选操作，不会发起生成请求，也不保证列表中的模型支持结构化输出。粘贴密钥时会清理首尾空白；编辑时全空白表示不轮换已有密钥。
+
+获取过程的总时限为 15 秒，覆盖 DNS、连接及响应体读取，连接和单次读取另有 5 秒上限。浏览器有 20 秒请求保护，并提供主动取消。未知长度的响应也会在流式收集时限制到 1 MiB，而不是读完再检查；最多返回 200 个去重后的模型。超时与超大列表有独立错误码 `MODEL_DISCOVERY_TIMEOUT`、`MODEL_DISCOVERY_RESPONSE_TOO_LARGE`。Gemini 使用 `x-goog-api-key` header，密钥不进入 URL。不会自动重试生成请求、切换协议或绕过 HTTPS 与公网校验。
 
 ## 轮换
 

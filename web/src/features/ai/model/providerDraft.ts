@@ -28,7 +28,7 @@ export type ProviderDraftField =
   | "credential"
   | keyof ProviderPolicy
 
-export type ProviderDraftError = "REQUIRED" | "TOO_LONG" | "HTTPS" | "RANGE"
+export type ProviderDraftError = "REQUIRED" | "TOO_LONG" | "HTTPS" | "RANGE" | "INVALID"
 export type ProviderDraftErrors = Partial<
   Record<ProviderDraftField, ProviderDraftError>
 >
@@ -127,26 +127,34 @@ export function changeProviderKind(
   }
 }
 
-export function validateProviderDraft(draft: ProviderDraft): ProviderDraftErrors {
+export function validateProviderConnection(draft: ProviderDraft): ProviderDraftErrors {
   const errors: ProviderDraftErrors = {}
   const displayName = draft.displayName.trim()
   const endpoint = draft.endpoint.trim()
-  const model = draft.model.trim()
+  const credential = draft.credential.trim()
 
   if (displayName.length === 0) errors.displayName = "REQUIRED"
   else if (byteLength(displayName) > 80) errors.displayName = "TOO_LONG"
-  if (model.length === 0) errors.model = "REQUIRED"
-  else if (byteLength(model) > 200) errors.model = "TOO_LONG"
   if (endpoint.length === 0 || !isSafeHttpsEndpoint(endpoint)) {
     errors.endpoint = "HTTPS"
   } else if (byteLength(endpoint) > 2048) {
     errors.endpoint = "TOO_LONG"
   }
-  if (draft.mode === "create" && draft.credential.length === 0) {
+  if (draft.mode === "create" && credential.length === 0) {
     errors.credential = "REQUIRED"
-  } else if (byteLength(draft.credential) > 8192) {
+  } else if (byteLength(credential) > 8192) {
     errors.credential = "TOO_LONG"
+  } else if (/[\u0000-\u0020\u007f]/u.test(credential)) {
+    errors.credential = "INVALID"
   }
+  return errors
+}
+
+export function validateProviderDraft(draft: ProviderDraft): ProviderDraftErrors {
+  const errors = validateProviderConnection(draft)
+  const model = draft.model.trim()
+  if (model.length === 0) errors.model = "REQUIRED"
+  else if (byteLength(model) > 200) errors.model = "TOO_LONG"
 
   validateInteger(errors, "maxConcurrency", draft.policy.maxConcurrency, 1, 64)
   validateNullableInteger(
@@ -215,7 +223,7 @@ export function providerDraftRequest(
       request: {
         ...shared,
         kind: draft.kind,
-        credential: draft.credential,
+        credential: draft.credential.trim(),
       },
     }
   }
@@ -231,7 +239,7 @@ export function providerDraftRequest(
       expectedRevision: draft.expectedRevision,
       kind: draft.kind,
       ...shared,
-      ...(draft.credential.length > 0 ? { credential: draft.credential } : {}),
+      ...(draft.credential.trim().length > 0 ? { credential: draft.credential.trim() } : {}),
     },
   }
 }

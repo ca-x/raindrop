@@ -14,6 +14,8 @@ it.each([
   renderSummary(makeRefresh({ state: "PENDING", pendingState }))
 
   expect(screen.getByText(title)).toBeVisible()
+  expect(screen.getByText(detail)).not.toBeVisible()
+  fireEvent.click(screen.getByText(title))
   expect(screen.getByText(detail)).toBeVisible()
 })
 
@@ -33,7 +35,10 @@ it("shows bounded duplicate entry feedback in both locales", () => {
     droppedCount: 2,
     entryIssues: [{ code: "DUPLICATE_ENTRY", count: 2 }],
   }))
-  expect(screen.getByRole("alert")).toHaveTextContent("2 duplicate entries were ignored.")
+  expect(screen.getByRole("status")).toBeVisible()
+  fireEvent.click(screen.getByRole("status"))
+  expect(screen.getByText("2 duplicate entries were ignored.")).toBeVisible()
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument()
   unmount()
 
   activateLocale("zh-CN")
@@ -42,7 +47,8 @@ it("shows bounded duplicate entry feedback in both locales", () => {
     droppedCount: 2,
     entryIssues: [{ code: "DUPLICATE_ENTRY", count: 2 }],
   }))
-  expect(screen.getByRole("alert")).toHaveTextContent("已忽略 2 个重复条目。")
+  fireEvent.click(screen.getByRole("status"))
+  expect(screen.getByText("已忽略 2 个重复条目。")).toBeVisible()
 })
 
 it("shows cooldown retry timing and preserves the prior success", () => {
@@ -53,6 +59,7 @@ it("shows cooldown retry timing and preserves the prior success", () => {
   }))
 
   expect(screen.getByText("Refresh cooling down")).toBeVisible()
+  fireEvent.click(screen.getByText("Refresh cooling down"))
   expect(screen.getByText(/Next attempt after/)).toBeVisible()
   expect(screen.getByText(/Last successful refresh:/)).toBeVisible()
 })
@@ -62,6 +69,7 @@ it("keeps the previous success visible after a refresh failure", () => {
   renderSummary(makeRefresh({ state: "ERROR" }))
 
   expect(screen.getByText("Refresh failed")).toBeVisible()
+  fireEvent.click(screen.getByText("Refresh failed"))
   expect(screen.getByText(/Last successful refresh:/)).toBeVisible()
 })
 

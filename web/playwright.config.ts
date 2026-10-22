@@ -19,6 +19,15 @@ export default defineConfig({
     video: "off",
   },
   projects: [
+    ...[
+      { width: 1280, height: 800 },
+      { width: 390, height: 844 },
+      { width: 360, height: 800 },
+    ].map((viewport) => ({
+      name: `settings-${viewport.width}x${viewport.height}`,
+      testMatch: /progressive-settings\.spec\.ts/,
+      use: { viewport, ...(viewport.width < 720 ? { hasTouch: true, isMobile: true } : {}) },
+    })),
     {
       name: "desktop-production",
       testMatch: /(setup-login|admin-only-setup)\.spec\.ts/,
