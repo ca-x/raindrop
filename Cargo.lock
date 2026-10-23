@@ -593,17 +593,16 @@ dependencies = [
 
 [[package]]
 name = "compact_str"
-version = "0.9.1"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9dfdd1c2274d9aa354115b09dc9a901d6c5576818cdf70d14cae2bdb47df00ab"
+checksum = "79fcda08c33bb58b97008b2cdada6622500e949e060f5913361763121abd2416"
 dependencies = [
  "castaway",
  "cfg-if",
  "itoa",
- "rustversion",
- "ryu",
  "serde",
  "static_assertions",
+ "zmij",
 ]
 
 [[package]]
@@ -1166,18 +1165,16 @@ checksum = "9f1f227452a390804cdb637b74a86990f2a7d7ba4b7d5693aac9b4dd6defd8d6"
 
 [[package]]
 name = "feedparser-rs"
-version = "0.5.5"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "56aaee69209d9688d6ab8a1f48bf5b83d3a82d6c56cc3d375595cf22a5e7aa4a"
+checksum = "77e04e7b4dbf8b72a24fec1492db2eaa96a3a6989dbcc0af563c0d0a1dcbfb55"
 dependencies = [
  "ammonia",
  "chrono",
  "compact_str",
  "encoding_rs",
  "html-escape",
- "memchr",
- "quick-xml",
- "regex",
+ "quick-xml 0.42.0",
  "serde",
  "serde_json",
  "thiserror 2.0.19",
@@ -2667,6 +2664,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "quick-xml"
+version = "0.42.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41b1177fdf999d2321d3fb46ff47159d9c1fb9ad66a4879f8c50a0b504615e9b"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "quinn"
 version = "0.11.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2780,7 +2786,7 @@ dependencies = [
  "ipnet",
  "mime",
  "mime_guess",
- "quick-xml",
+ "quick-xml 0.41.0",
  "raindrop-ai-content",
  "rand_core 0.6.4",
  "reqwest",
@@ -4096,7 +4102,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
