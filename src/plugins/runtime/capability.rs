@@ -993,6 +993,10 @@ impl CapabilitySession {
         self.enabled = true;
     }
 
+    pub(crate) fn deadline(&self) -> Instant {
+        self.deadline
+    }
+
     #[must_use]
     pub const fn usage(&self) -> &CapabilityUsage {
         &self.usage

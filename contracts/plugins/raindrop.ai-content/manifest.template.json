@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "pluginKey": "raindrop.ai-content",
   "version": "1.0.0",
-  "abi": "raindrop:content-plugin@1.0.0",
+  "abi": "raindrop:content-plugin-native@1.0.0",
   "distribution": "BUNDLED_OFFICIAL",
   "operations": [
     "summarize",
@@ -22,7 +22,7 @@
       "mcp.call_tool"
     ]
   },
-  "ambientPermissions": [],
+  "ambientPermissions": ["TRUSTED_NATIVE"],
   "configSchema": "raindrop://schemas/plugins/raindrop.ai-content/config/v1",
   "artifactSchemas": [
     "raindrop://schemas/artifacts/ai-summary/v1",

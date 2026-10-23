@@ -2,14 +2,17 @@
 mod support;
 
 use raindrop::{
-    db::{migrate, rollback},
-    plugins::{CapabilityGrantInput, PluginRegistryRepository},
+    db::{entities::plugin_installation, migrate, rollback},
+    plugins::{
+        CapabilityGrantInput, PluginRegistryErrorKind, PluginRegistryRepository, PluginSystemState,
+    },
 };
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, sea_query::Expr};
 use secrecy::SecretString;
 use serde_json::json;
 use support::{
-    database::{USER_A_ID, connect_for_contract, insert_user},
-    plugin::signed_bundle,
+    database::{USER_A_ID, USER_B_ID, connect_for_contract, insert_user},
+    plugin::{signed_bundle, signed_legacy_bundle},
 };
 
 const PLUGIN_KEY: &str = "raindrop.ai-content";
@@ -52,10 +55,11 @@ async fn backend_contract(url: &str) {
         .await
         .expect("plugin registry migrations should apply");
     insert_user(&database, USER_A_ID, "plugin-backend-user").await;
+    insert_user(&database, USER_B_ID, "plugin-backend-user-b").await;
 
     let repository = PluginRegistryRepository::new(database.clone());
     let installation = repository
-        .sync_bundled(&signed_bundle("1.0.0", b"backend component"))
+        .sync_bundled(&signed_legacy_bundle("1.0.0", b"legacy backend component"))
         .await
         .expect("backend bundled plugin should sync");
     assert_eq!(installation.plugin_key(), PLUGIN_KEY);
@@ -94,6 +98,73 @@ async fn backend_contract(url: &str) {
     assert_eq!(kv.value(), b"portable");
     assert_eq!(
         repository
+            .get_tambo_preferences(USER_A_ID)
+            .await
+            .unwrap()
+            .revision,
+        None
+    );
+    let interaction = repository
+        .replace_tambo_preferences(USER_A_ID, None, true)
+        .await
+        .unwrap();
+    assert_eq!(interaction.revision, Some(0));
+    assert!(
+        !repository
+            .get_tambo_preferences(USER_B_ID)
+            .await
+            .unwrap()
+            .enabled
+    );
+    let conflict = repository
+        .replace_tambo_preferences(USER_A_ID, None, false)
+        .await
+        .unwrap_err();
+    assert_eq!(conflict.kind(), PluginRegistryErrorKind::RevisionConflict);
+
+    plugin_installation::Entity::update_many()
+        .col_expr(
+            plugin_installation::Column::SystemState,
+            Expr::value("DISABLED"),
+        )
+        .filter(plugin_installation::Column::Id.eq(installation.id()))
+        .exec(&database)
+        .await
+        .unwrap();
+    let upgraded = repository
+        .sync_bundled(&signed_bundle("1.0.0", b"native backend identity"))
+        .await
+        .unwrap();
+    assert_eq!(upgraded.id(), installation.id());
+    assert_eq!(upgraded.system_state(), PluginSystemState::Disabled);
+    assert_eq!(upgraded.abi_version(), raindrop_ai_content::ABI);
+    assert_eq!(
+        repository
+            .get_ai_config(PLUGIN_KEY, USER_A_ID)
+            .await
+            .unwrap()
+            .unwrap()
+            .config_hash(),
+        config.config_hash()
+    );
+    assert_eq!(
+        repository
+            .get_kv(PLUGIN_KEY, USER_A_ID, "backend.value")
+            .await
+            .unwrap()
+            .unwrap()
+            .value(),
+        b"portable"
+    );
+    assert!(
+        repository
+            .get_tambo_preferences(USER_A_ID)
+            .await
+            .unwrap()
+            .enabled
+    );
+    assert_eq!(
+        repository
             .list_active_grants(PLUGIN_KEY, USER_A_ID)
             .await
             .expect("backend grants should list")
@@ -101,7 +172,38 @@ async fn backend_contract(url: &str) {
         1
     );
 
+    drop(repository);
     database.close().await.expect("database should close");
+    let reopened = connect_for_contract(SecretString::from(url.to_owned())).await;
+    let repository = PluginRegistryRepository::new(reopened.clone());
+    assert_eq!(
+        repository.get_tambo_preferences(USER_A_ID).await.unwrap(),
+        interaction
+    );
+    let disabled = repository
+        .replace_tambo_preferences(USER_A_ID, interaction.revision, false)
+        .await
+        .unwrap();
+    assert_eq!(disabled.revision, Some(1));
+    assert!(!disabled.enabled);
+    assert_eq!(
+        repository
+            .get_ai_config(PLUGIN_KEY, USER_A_ID)
+            .await
+            .unwrap()
+            .unwrap()
+            .revision(),
+        0
+    );
+    assert_eq!(
+        repository
+            .list_active_grants(PLUGIN_KEY, USER_A_ID)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    reopened.close().await.unwrap();
 }
 
 fn valid_config() -> Vec<u8> {

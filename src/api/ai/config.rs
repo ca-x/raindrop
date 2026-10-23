@@ -143,7 +143,7 @@ struct AiTranslationConfigRequest {
     max_output_tokens: u32,
 }
 
-struct RequiredNullableRevision(Option<u64>);
+pub(super) struct RequiredNullableRevision(pub(super) Option<u64>);
 
 impl<'de> Deserialize<'de> for RequiredNullableRevision {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>

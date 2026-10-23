@@ -13,7 +13,7 @@ use crate::{
     plugins::{
         EmbeddedOfficialAiPlugin, EmbeddedSignatureMode, PluginRegistryErrorKind,
         PluginRegistryRepository,
-        runtime::{AiCapabilityBroker, CompiledPlugin, PluginRuntime},
+        runtime::{AiCapabilityBroker, NativePlugin, PluginRuntime},
     },
     setup::SetupService,
 };
@@ -28,7 +28,7 @@ pub struct ProductionContentRuntime {
     provider_keyring: Option<Arc<ProviderSecretKeyring>>,
     bundle: EmbeddedOfficialAiPlugin,
     plugin_runtime: PluginRuntime,
-    compiled: Arc<CompiledPlugin>,
+    compiled: Arc<NativePlugin>,
     notify: Arc<Notify>,
     shutdown_rx: watch::Receiver<bool>,
 }
@@ -51,7 +51,7 @@ impl ProductionContentRuntime {
         }
         let compiled = Arc::new(
             bundle
-                .compile(&plugin_runtime)
+                .register(&plugin_runtime)
                 .map_err(|_| invalid_configuration())?,
         );
         let (handle, notify, shutdown_rx) = ContentRuntimeHandle::control();
@@ -131,13 +131,23 @@ impl ProductionContentRuntime {
             Arc::clone(&content_repository),
             plugin_repository,
             provider_repository,
-            self.plugin_runtime,
+            self.plugin_runtime.clone(),
             self.compiled,
             ai_broker,
         )?);
-        ContentRuntime::controlled(content_repository, processor, self.notify, self.shutdown_rx)
-            .run()
+        let result = ContentRuntime::controlled(
+            content_repository,
+            processor,
+            self.notify,
+            self.shutdown_rx,
+        )
+        .run()
+        .await;
+        self.plugin_runtime
+            .shutdown()
             .await
+            .map_err(|_| runtime_unavailable())?;
+        result
     }
 }
 

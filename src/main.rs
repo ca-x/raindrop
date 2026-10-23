@@ -53,6 +53,13 @@ async fn main() -> Result<()> {
     let data_dir = loaded.runtime.data_dir.clone();
     let database_kind = loaded.runtime.database_kind();
     let configured_provider_secret_keys = loaded.runtime.take_provider_secret_keys();
+    let tambo = loaded
+        .runtime
+        .take_tambo()
+        .map(raindrop::tambo::TamboClient::new)
+        .transpose()
+        .context("failed to initialize optional Tambo integration")?
+        .map(Arc::new);
     let address = loaded.runtime.bind;
     let public_url = loaded.runtime.public_url.clone();
     let feed_retention = loaded.runtime.feed_retention();
@@ -190,6 +197,7 @@ async fn main() -> Result<()> {
                 provider_keyring,
             )
             .with_backup_runtime(backup_handle.clone())
+            .with_tambo(tambo)
             .with_media_transport(media_transport),
         )
         .into_make_service_with_connect_info::<std::net::SocketAddr>(),

@@ -717,7 +717,8 @@ fn installation_from_model(
     validate_uuid(&model.id, PluginRegistryErrorKind::CorruptData)?;
     validate_plugin_key(&model.plugin_key).map_err(|_| corrupt_data())?;
     if model.distribution != OFFICIAL_DISTRIBUTION
-        || model.abi_version != "raindrop:content-plugin@1.0.0"
+        || (model.abi_version != "raindrop:content-plugin@1.0.0"
+            && model.abi_version != raindrop_ai_content::ABI)
         || model.version.is_empty()
         || model.version.len() > 64
         || model.installed_at > model.updated_at

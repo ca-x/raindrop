@@ -1,11 +1,11 @@
 pub mod bindings;
 
 mod capability;
-mod component;
 mod engine;
 mod error;
 mod execute;
 mod host;
+mod native;
 
 pub use capability::{
     AiBrokerError, AiBrokerErrorKind, AiBrokerRequest, AiBrokerResponse, AiCapabilityBroker,
@@ -14,9 +14,9 @@ pub use capability::{
     DenyAiBroker, DenyMcpBroker, McpBrokerError, McpBrokerErrorKind, McpBrokerRequest,
     McpBrokerResponse, McpCapabilityBroker,
 };
-pub use component::CompiledPlugin;
 pub use engine::PluginRuntime;
 pub use error::{
     PluginExecutionFailure, PluginExecutionSuccess, PluginFailureCode, PluginRuntimeError,
     PluginRuntimeErrorKind,
 };
+pub use native::NativePlugin;

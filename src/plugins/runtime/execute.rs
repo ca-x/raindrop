@@ -1,12 +1,13 @@
-use std::time::{Duration, Instant};
-
+use futures_util::FutureExt;
+use raindrop_ai_content::AiContentService;
 use serde_json::json;
 use url::Url;
-use wasmtime::{
-    CallHook, ResourceLimiter, Store, StoreLimits, StoreLimitsBuilder, Trap,
-    component::{HasSelf, Linker},
-};
 
+use super::{
+    CapabilitySession, NativePlugin, PluginExecutionFailure, PluginExecutionSuccess,
+    PluginFailureCode, PluginRuntime, PluginRuntimeError, PluginRuntimeErrorKind, bindings::types,
+    host::NativeHost,
+};
 use crate::plugins::{
     AiContentConfig, LifecycleEvent, SummaryArtifact, TranslationArtifact,
     json::{
@@ -15,21 +16,6 @@ use crate::plugins::{
     },
 };
 
-use super::{
-    CapabilitySession, CompiledPlugin, PluginExecutionFailure, PluginExecutionSuccess,
-    PluginFailureCode, PluginRuntime, PluginRuntimeError, PluginRuntimeErrorKind,
-    bindings::{ContentPluginV1, ContentPluginV1Pre, types},
-};
-
-const MAX_LINEAR_MEMORY_BYTES: usize = 64 * 1024 * 1024;
-const MAX_MEMORIES: usize = 2;
-const MAX_TABLES: usize = 4;
-const MAX_INSTANCES: usize = 4;
-const MAX_TABLE_ELEMENTS: usize = 10_000;
-const EXECUTE_FUEL: u64 = 50_000_000;
-const LIFECYCLE_FUEL: u64 = 5_000_000;
-const MAX_GUEST_CPU: Duration = Duration::from_secs(2);
-const EPOCH_TICK: Duration = Duration::from_millis(10);
 const MAX_REQUEST_BYTES: usize = 1024 * 1024;
 const MAX_ENTRY_TEXT_BYTES: usize = 512 * 1024;
 const MAX_CONFIG_BYTES: usize = 256 * 1024;
@@ -41,7 +27,7 @@ const TRANSLATION_SCHEMA: &str = "raindrop://schemas/artifacts/ai-translation/v1
 impl PluginRuntime {
     pub async fn execute(
         &self,
-        compiled: &CompiledPlugin,
+        compiled: &NativePlugin,
         session: CapabilitySession,
         request: types::OperationRequest,
     ) -> Result<types::ArtifactCandidate, PluginRuntimeError> {
@@ -53,297 +39,79 @@ impl PluginRuntime {
 
     pub async fn execute_detailed(
         &self,
-        compiled: &CompiledPlugin,
-        session: CapabilitySession,
+        compiled: &NativePlugin,
+        mut session: CapabilitySession,
         request: types::OperationRequest,
     ) -> Result<PluginExecutionSuccess, PluginExecutionFailure> {
-        let initial_usage = session.usage().clone();
-        let initial_hint = session.failure_hint();
-        if let Err(error) = validate_operation_request(compiled, &session, &request) {
-            return Err(PluginExecutionFailure::new(
+        let result = self.execute_native(compiled, &mut session, &request).await;
+        match result {
+            Ok(artifact) => Ok(PluginExecutionSuccess::new(
+                artifact,
+                session.usage().clone(),
+            )),
+            Err(error) => Err(PluginExecutionFailure::new(
                 error,
-                initial_usage,
-                initial_hint,
-            ));
+                session.usage().clone(),
+                session.failure_hint(),
+            )),
         }
-        let (mut store, guest) = match self.instantiate(compiled, session, EXECUTE_FUEL).await {
-            Ok(instantiated) => instantiated,
-            Err(error) => {
-                return Err(PluginExecutionFailure::new(
-                    error,
-                    initial_usage,
-                    initial_hint,
-                ));
+    }
+
+    async fn execute_native(
+        &self,
+        compiled: &NativePlugin,
+        session: &mut CapabilitySession,
+        request: &types::OperationRequest,
+    ) -> Result<types::ArtifactCandidate, PluginRuntimeError> {
+        validate_operation_request(compiled, session, request)?;
+        session.suspend();
+        let service = self.service().await?;
+        validate_descriptor(compiled, AiContentService::descriptor())?;
+        session.activate();
+        let deadline = session.deadline();
+        let mut host = NativeHost {
+            session,
+            error: None,
+        };
+        let result = {
+            let execution =
+                std::panic::AssertUnwindSafe(service.execute(&mut host, request.clone()))
+                    .catch_unwind();
+            tokio::select! {
+                biased;
+                () = service.cancelled() => return Err(PluginRuntimeError::new(PluginRuntimeErrorKind::RuntimeUnavailable)),
+                result = tokio::time::timeout_at(deadline, execution) => result,
             }
         };
-        let descriptor = match call_descriptor(&guest, &mut store).await {
-            Ok(descriptor) => descriptor,
-            Err(error) => return Err(execution_failure(&store, error)),
-        };
-        if let Err(error) = validate_descriptor(compiled, descriptor) {
-            return Err(execution_failure(&store, error));
+        if let Some(error) = host.error {
+            return Err(error);
         }
-        store.data_mut().capability.activate();
-        let result = match guest
-            .raindrop_content_plugin_content_plugin()
-            .call_execute(&mut store, &request)
-            .await
-        {
-            Ok(Ok(result)) => result,
-            Ok(Err(error)) => return Err(execution_failure(&store, map_plugin_error(error))),
-            Err(error) => return Err(execution_failure(&store, classify_guest_error(error))),
-        };
-        let artifact = match validate_artifact(&request, result) {
-            Ok(artifact) => artifact,
-            Err(error) => return Err(execution_failure(&store, error)),
-        };
-        Ok(PluginExecutionSuccess::new(
-            artifact,
-            store.data().capability.usage().clone(),
-        ))
+        let artifact = result
+            .map_err(|_| PluginRuntimeError::new(PluginRuntimeErrorKind::BrokerTimeout))?
+            .map_err(|_| PluginRuntimeError::new(PluginRuntimeErrorKind::NativeFailure))?
+            .map_err(map_plugin_error)?;
+        validate_artifact(request, artifact)
     }
 
     pub async fn on_event(
         &self,
-        compiled: &CompiledPlugin,
+        compiled: &NativePlugin,
         session: CapabilitySession,
         request: types::LifecycleRequest,
     ) -> Result<types::EventOutcome, PluginRuntimeError> {
         validate_lifecycle_request(compiled, &session, &request)?;
-        let (mut store, guest) = self.instantiate(compiled, session, LIFECYCLE_FUEL).await?;
-        validate_descriptor(compiled, call_descriptor(&guest, &mut store).await?)?;
-        let result = guest
-            .raindrop_content_plugin_content_plugin()
-            .call_on_event(&mut store, &request)
-            .await
-            .map_err(classify_guest_error)?
-            .map_err(map_plugin_error)?;
-        validate_event_outcome(result)
+        let service = self.service().await?;
+        validate_descriptor(compiled, AiContentService::descriptor())?;
+        let outcome =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| service.on_event(request)))
+                .map_err(|_| PluginRuntimeError::new(PluginRuntimeErrorKind::NativeFailure))?
+                .map_err(map_plugin_error)?;
+        validate_event_outcome(outcome)
     }
-
-    async fn instantiate(
-        &self,
-        compiled: &CompiledPlugin,
-        mut capability: CapabilitySession,
-        fuel: u64,
-    ) -> Result<(Store<StoreState>, ContentPluginV1), PluginRuntimeError> {
-        capability.suspend();
-        let mut linker = Linker::new(self.engine());
-        ContentPluginV1::add_to_linker::<StoreState, HasSelf<CapabilitySession>>(
-            &mut linker,
-            |state| &mut state.capability,
-        )
-        .map_err(|_| PluginRuntimeError::new(PluginRuntimeErrorKind::LinkDenied))?;
-        let pre = linker
-            .instantiate_pre(compiled.component())
-            .map_err(|_| PluginRuntimeError::new(PluginRuntimeErrorKind::LinkDenied))?;
-        let pre = ContentPluginV1Pre::new(pre)
-            .map_err(|_| PluginRuntimeError::new(PluginRuntimeErrorKind::LinkDenied))?;
-        let mut store = new_store(self, capability, fuel, MAX_GUEST_CPU)?;
-        let guest = pre
-            .instantiate_async(&mut store)
-            .await
-            .map_err(classify_instantiation_error)?;
-        Ok((store, guest))
-    }
-}
-
-struct StoreState {
-    capability: CapabilitySession,
-    limits: RuntimeLimits,
-    guest_cpu: GuestCpuBudget,
-}
-
-fn execution_failure(
-    store: &Store<StoreState>,
-    error: PluginRuntimeError,
-) -> PluginExecutionFailure {
-    PluginExecutionFailure::new(
-        error,
-        store.data().capability.usage().clone(),
-        store.data().capability.failure_hint(),
-    )
-}
-
-fn new_store(
-    runtime: &PluginRuntime,
-    capability: CapabilitySession,
-    fuel: u64,
-    guest_cpu: Duration,
-) -> Result<Store<StoreState>, PluginRuntimeError> {
-    let mut store = Store::new(
-        runtime.engine(),
-        StoreState {
-            capability,
-            limits: RuntimeLimits::new(),
-            guest_cpu: GuestCpuBudget::new(guest_cpu),
-        },
-    );
-    store.limiter(|state| &mut state.limits);
-    store
-        .set_fuel(fuel)
-        .map_err(|_| PluginRuntimeError::new(PluginRuntimeErrorKind::RuntimeUnavailable))?;
-    store.epoch_deadline_trap();
-    store.set_epoch_deadline(GuestCpuBudget::ticks(guest_cpu));
-    store.call_hook(|mut context, hook| {
-        let deadline = context
-            .data_mut()
-            .guest_cpu
-            .transition(hook)
-            .map_err(wasmtime::Error::new)?;
-        if let Some(deadline) = deadline {
-            context.set_epoch_deadline(deadline);
-        }
-        Ok(())
-    });
-    Ok(store)
-}
-
-struct RuntimeLimits {
-    inner: StoreLimits,
-}
-
-impl RuntimeLimits {
-    fn new() -> Self {
-        Self {
-            inner: StoreLimitsBuilder::new()
-                .memory_size(MAX_LINEAR_MEMORY_BYTES)
-                .memories(MAX_MEMORIES)
-                .tables(MAX_TABLES)
-                .instances(MAX_INSTANCES)
-                .table_elements(MAX_TABLE_ELEMENTS)
-                .trap_on_grow_failure(true)
-                .build(),
-        }
-    }
-
-    fn denied<T>() -> wasmtime::Result<T> {
-        Err(wasmtime::Error::new(PluginRuntimeError::new(
-            PluginRuntimeErrorKind::MemoryLimit,
-        )))
-    }
-}
-
-impl ResourceLimiter for RuntimeLimits {
-    fn memory_growing(
-        &mut self,
-        current: usize,
-        desired: usize,
-        maximum: Option<usize>,
-    ) -> wasmtime::Result<bool> {
-        match self.inner.memory_growing(current, desired, maximum) {
-            Ok(true) => Ok(true),
-            Ok(false) | Err(_) => Self::denied(),
-        }
-    }
-
-    fn memory_grow_failed(&mut self, _error: wasmtime::Error) -> wasmtime::Result<()> {
-        Self::denied()
-    }
-
-    fn table_growing(
-        &mut self,
-        current: usize,
-        desired: usize,
-        maximum: Option<usize>,
-    ) -> wasmtime::Result<bool> {
-        match self.inner.table_growing(current, desired, maximum) {
-            Ok(true) => Ok(true),
-            Ok(false) | Err(_) => Self::denied(),
-        }
-    }
-
-    fn table_grow_failed(&mut self, _error: wasmtime::Error) -> wasmtime::Result<()> {
-        Self::denied()
-    }
-
-    fn instances(&self) -> usize {
-        self.inner.instances()
-    }
-
-    fn tables(&self) -> usize {
-        self.inner.tables()
-    }
-
-    fn memories(&self) -> usize {
-        self.inner.memories()
-    }
-}
-
-struct GuestCpuBudget {
-    remaining: Duration,
-    entered_at: Option<Instant>,
-    terminal_error: Option<PluginRuntimeError>,
-}
-
-impl GuestCpuBudget {
-    const fn new(remaining: Duration) -> Self {
-        Self {
-            remaining,
-            entered_at: None,
-            terminal_error: None,
-        }
-    }
-
-    fn transition(&mut self, hook: CallHook) -> Result<Option<u64>, PluginRuntimeError> {
-        self.transition_at(hook, Instant::now())
-    }
-
-    fn transition_at(
-        &mut self,
-        hook: CallHook,
-        now: Instant,
-    ) -> Result<Option<u64>, PluginRuntimeError> {
-        if let Some(error) = self.terminal_error {
-            return Err(error);
-        }
-        if hook.exiting_host() {
-            if self.remaining.is_zero() || self.entered_at.is_some() {
-                return self.fail(PluginRuntimeErrorKind::GuestTimeout);
-            }
-            self.entered_at = Some(now);
-            Ok(Some(Self::ticks(self.remaining)))
-        } else {
-            let Some(entered_at) = self.entered_at.take() else {
-                return self.fail(PluginRuntimeErrorKind::GuestTrap);
-            };
-            self.remaining = self
-                .remaining
-                .saturating_sub(now.duration_since(entered_at));
-            if self.remaining.is_zero() {
-                self.fail(PluginRuntimeErrorKind::GuestTimeout)
-            } else {
-                Ok(None)
-            }
-        }
-    }
-
-    fn fail(&mut self, kind: PluginRuntimeErrorKind) -> Result<Option<u64>, PluginRuntimeError> {
-        let error = PluginRuntimeError::new(kind);
-        self.terminal_error = Some(error);
-        Err(error)
-    }
-
-    fn ticks(remaining: Duration) -> u64 {
-        let tick_nanos = EPOCH_TICK.as_nanos();
-        let ticks = remaining.as_nanos().div_ceil(tick_nanos);
-        u64::try_from(ticks.max(1)).unwrap_or(u64::MAX)
-    }
-}
-
-async fn call_descriptor(
-    guest: &ContentPluginV1,
-    store: &mut Store<StoreState>,
-) -> Result<types::PluginDescriptor, PluginRuntimeError> {
-    guest
-        .raindrop_content_plugin_content_plugin()
-        .call_descriptor(store)
-        .await
-        .map_err(classify_guest_error)
 }
 
 fn validate_descriptor(
-    compiled: &CompiledPlugin,
+    compiled: &NativePlugin,
     descriptor: types::PluginDescriptor,
 ) -> Result<(), PluginRuntimeError> {
     let valid = descriptor.plugin_key == compiled.plugin_key()
@@ -365,7 +133,7 @@ fn validate_descriptor(
 }
 
 fn validate_operation_request(
-    compiled: &CompiledPlugin,
+    compiled: &NativePlugin,
     session: &CapabilitySession,
     request: &types::OperationRequest,
 ) -> Result<(), PluginRuntimeError> {
@@ -440,7 +208,7 @@ fn valid_optional_title(value: &str) -> bool {
 }
 
 fn validate_lifecycle_request(
-    compiled: &CompiledPlugin,
+    compiled: &NativePlugin,
     session: &CapabilitySession,
     request: &types::LifecycleRequest,
 ) -> Result<(), PluginRuntimeError> {
@@ -677,33 +445,6 @@ fn valid_optional_url(value: Option<&str>) -> bool {
     })
 }
 
-fn classify_instantiation_error(error: wasmtime::Error) -> PluginRuntimeError {
-    classify_error(error, true)
-}
-
-fn classify_guest_error(error: wasmtime::Error) -> PluginRuntimeError {
-    classify_error(error, false)
-}
-
-fn classify_error(error: wasmtime::Error, instantiation: bool) -> PluginRuntimeError {
-    if let Some(error) = error.downcast_ref::<PluginRuntimeError>() {
-        return *error;
-    }
-    if let Some(trap) = error.downcast_ref::<Trap>() {
-        return PluginRuntimeError::new(match trap {
-            Trap::OutOfFuel => PluginRuntimeErrorKind::FuelExhausted,
-            Trap::Interrupt => PluginRuntimeErrorKind::GuestTimeout,
-            Trap::AllocationTooLarge => PluginRuntimeErrorKind::MemoryLimit,
-            _ => PluginRuntimeErrorKind::GuestTrap,
-        });
-    }
-    PluginRuntimeError::new(if instantiation {
-        PluginRuntimeErrorKind::MemoryLimit
-    } else {
-        PluginRuntimeErrorKind::GuestTrap
-    })
-}
-
 fn map_plugin_error(error: types::PluginError) -> PluginRuntimeError {
     let failure_code = PluginFailureCode::from_message_key(&error.message_key);
     PluginRuntimeError::new(match error.code {
@@ -714,9 +455,9 @@ fn map_plugin_error(error: types::PluginError) -> PluginRuntimeError {
         | types::PluginErrorCode::ConfigInvalid
         | types::PluginErrorCode::OutputInvalid => PluginRuntimeErrorKind::InvalidInvocation,
         types::PluginErrorCode::OutputTooLarge => PluginRuntimeErrorKind::OutputTooLarge,
-        types::PluginErrorCode::DeadlineExceeded => PluginRuntimeErrorKind::GuestTimeout,
+        types::PluginErrorCode::DeadlineExceeded => PluginRuntimeErrorKind::DeadlineExceeded,
         types::PluginErrorCode::BudgetExhausted | types::PluginErrorCode::HostFailure => {
-            PluginRuntimeErrorKind::GuestTrap
+            PluginRuntimeErrorKind::NativeFailure
         }
     })
     .with_failure_code(failure_code)
@@ -724,18 +465,7 @@ fn map_plugin_error(error: types::PluginError) -> PluginRuntimeError {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        sync::Arc,
-        time::{SystemTime, UNIX_EPOCH},
-    };
-
-    use tokio::time as tokio_time;
-    use wasmtime::{Instance, Module};
-
     use super::*;
-    use crate::plugins::runtime::{
-        BrokerInvocationContext, CapabilitySessionConfig, DenyAiBroker, DenyMcpBroker,
-    };
 
     #[test]
     fn translation_artifact_target_locale_must_match_the_request() {
@@ -879,89 +609,6 @@ mod tests {
         assert_eq!(lifecycle_request_size(&request), MAX_REQUEST_BYTES + 1);
     }
 
-    #[test]
-    fn guest_cpu_budget_excludes_time_spent_in_host_code() {
-        let start = Instant::now();
-        let mut budget = GuestCpuBudget::new(MAX_GUEST_CPU);
-        assert_eq!(
-            budget
-                .transition_at(CallHook::CallingWasm, start)
-                .expect("guest entry"),
-            Some(200)
-        );
-        assert_eq!(
-            budget
-                .transition_at(CallHook::CallingHost, start + Duration::from_millis(100))
-                .expect("host entry"),
-            None
-        );
-        assert_eq!(
-            budget
-                .transition_at(CallHook::ReturningFromHost, start + Duration::from_secs(5))
-                .expect("guest re-entry"),
-            Some(190)
-        );
-        budget
-            .transition_at(
-                CallHook::ReturningFromWasm,
-                start + Duration::from_secs(5) + Duration::from_millis(50),
-            )
-            .expect("guest return");
-        assert_eq!(budget.remaining, Duration::from_millis(1850));
-    }
-
-    #[test]
-    fn guest_cpu_budget_preserves_timeout_during_wasmtime_cleanup() {
-        let start = Instant::now();
-        let mut budget = GuestCpuBudget::new(EPOCH_TICK);
-        assert_eq!(
-            budget
-                .transition_at(CallHook::CallingWasm, start)
-                .expect("guest entry"),
-            Some(1),
-        );
-        assert_eq!(
-            budget
-                .transition_at(CallHook::CallingHost, start + EPOCH_TICK)
-                .expect_err("the exhausted guest budget must time out")
-                .kind(),
-            PluginRuntimeErrorKind::GuestTimeout,
-        );
-        assert_eq!(
-            budget
-                .transition_at(CallHook::ReturningFromWasm, start + EPOCH_TICK)
-                .expect_err("Wasmtime cleanup must preserve the timeout")
-                .kind(),
-            PluginRuntimeErrorKind::GuestTimeout,
-        );
-    }
-
-    #[tokio::test]
-    async fn epoch_ticker_interrupts_guest_before_fuel_when_policy_is_lowered() {
-        let runtime = PluginRuntime::new().expect("runtime should construct");
-        let wasm = wat::parse_str("(module (func (export \"run\") (loop $spin br $spin)))")
-            .expect("loop module should parse");
-        let module = Module::from_binary(runtime.engine(), &wasm).expect("module should compile");
-        let mut store = new_store(&runtime, capability_session(), EXECUTE_FUEL, EPOCH_TICK)
-            .expect("store should construct");
-        let instance = Instance::new_async(&mut store, &module, &[])
-            .await
-            .expect("module should instantiate");
-        let run = instance
-            .get_typed_func::<(), ()>(&mut store, "run")
-            .expect("run export should type-check");
-        let error = run
-            .call_async(&mut store, ())
-            .await
-            .expect_err("epoch should interrupt the loop");
-        let error_chain = format!("{error:#}");
-        assert_eq!(
-            classify_guest_error(error).kind(),
-            PluginRuntimeErrorKind::GuestTimeout,
-            "unexpected Wasmtime error chain: {error_chain}",
-        );
-    }
-
     fn operation_request_fixture() -> types::OperationRequest {
         types::OperationRequest {
             invocation_id: "invocation-1".to_owned(),
@@ -1000,42 +647,5 @@ mod tests {
                 remaining_cost_micros: 1,
             },
         }
-    }
-
-    fn capability_session() -> CapabilitySession {
-        let duration = Duration::from_secs(30);
-        let unix_now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system clock should follow Unix epoch");
-        let deadline_unix_ms =
-            u64::try_from((unix_now + duration).as_millis()).expect("deadline should fit u64");
-        CapabilitySession::new(
-            CapabilitySessionConfig {
-                invocation: BrokerInvocationContext {
-                    invocation_id: "test-invocation".to_owned(),
-                    job_id: "test-job".to_owned(),
-                    user_subject: "test-user".to_owned(),
-                    call_chain_id: "test-chain".to_owned(),
-                    operation: types::Operation::Summarize,
-                    trigger: types::Trigger::ManualApi,
-                    remaining_depth: 2,
-                    expected_provider_kind: "OPENAI_RESPONSES".to_owned(),
-                    expected_provider_model: "gpt-5-mini".to_owned(),
-                    expected_provider_revision: 0,
-                },
-                provider_binding_id: "test-provider".to_owned(),
-                tool_bindings: Vec::new(),
-                remaining_provider_requests: 3,
-                remaining_mcp_calls: 0,
-                remaining_input_tokens: 1024,
-                remaining_output_tokens: 1024,
-                remaining_cost_micros: 1,
-                deadline_unix_ms,
-                deadline: tokio_time::Instant::now() + duration,
-            },
-            Arc::new(DenyAiBroker),
-            Arc::new(DenyMcpBroker),
-        )
-        .expect("test capability session")
     }
 }

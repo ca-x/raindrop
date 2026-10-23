@@ -417,6 +417,7 @@ export function ReaderShell(props: ReaderShellProps) {
       onToggleRead={props.controller.toggleRead}
       onToggleStar={props.controller.toggleStar}
       csrfToken={props.aiSettingsController?.csrfToken}
+      userId={props.profileController?.profile.userId}
       summaryEnabled={summaryEnabled}
       translationConfig={translationConfig}
       translationSettingsController={props.translationController}

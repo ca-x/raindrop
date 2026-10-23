@@ -148,6 +148,8 @@ interface ArticleToolbarProps {
   onToggleRead: () => Promise<void>
   onToggleStar: () => Promise<void>
   onOpenSummary?: () => void
+  onOpenTambo?: () => void
+  tamboButtonRef?: Ref<HTMLButtonElement>
   summaryButtonRef?: Ref<HTMLButtonElement>
   isImmersive: boolean
   onToggleImmersive?: () => void
@@ -187,6 +189,7 @@ export function ArticleToolbar(props: ArticleToolbarProps) {
               variant="secondary"
             />
           ) : null}
+          {props.onOpenTambo ? <Button ref={props.tamboButtonRef} label={i18n._("tambo.action")} onClick={props.onOpenTambo} variant="ghost" /> : null}
           <span className="reader-toolbar-shortcut">
             <ToggleButton
               label={i18n._(props.isRead ? "reader.markUnread" : "reader.markRead")}

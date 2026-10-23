@@ -1,6 +1,7 @@
 mod config;
 mod content;
 mod providers;
+mod tambo;
 
 use axum::Router;
 
@@ -11,4 +12,5 @@ pub(super) fn router() -> Router<AppState> {
         .merge(providers::router())
         .merge(config::router())
         .merge(content::router())
+        .merge(tambo::router())
 }

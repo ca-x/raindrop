@@ -10,10 +10,25 @@ const TEST_KEY_ID: &str = "raindrop-test-release-2026";
 const TEST_SEED: [u8; 32] = [0x24; 32];
 
 pub fn signed_bundle(version: &str, component: &[u8]) -> BundledOfficialPlugin {
+    signed_bundle_with_abi(version, component, true)
+}
+
+pub fn signed_legacy_bundle(version: &str, component: &[u8]) -> BundledOfficialPlugin {
+    signed_bundle_with_abi(version, component, false)
+}
+
+fn signed_bundle_with_abi(version: &str, component: &[u8], native: bool) -> BundledOfficialPlugin {
     let digest = sha256_hex(component);
     let canonical_without_signature = format!(
-        "{{\"abi\":\"raindrop:content-plugin@1.0.0\",\"ambientPermissions\":[],\"artifactSchemas\":[\"raindrop://schemas/artifacts/ai-summary/v1\",\"raindrop://schemas/artifacts/ai-translation/v1\"],\"capabilities\":{{\"optional\":[\"mcp.call_tool\"],\"required\":[\"ai.generate_structured\"]}},\"componentDigest\":{{\"algorithm\":\"SHA-256\",\"value\":\"{digest}\",\"valueEncoding\":\"LOWER_HEX\"}},\"configSchema\":\"raindrop://schemas/plugins/raindrop.ai-content/config/v1\",\"distribution\":\"BUNDLED_OFFICIAL\",\"lifecycleSubscriptions\":[{{\"event\":\"feed.refresh.persisted\",\"schemaVersion\":1}}],\"manifestVersion\":1,\"operations\":[\"summarize\",\"translate\"],\"pluginKey\":\"raindrop.ai-content\",\"signature\":{{\"algorithm\":\"Ed25519\",\"keyId\":\"{TEST_KEY_ID}\",\"valueEncoding\":\"BASE64URL\"}},\"version\":\"{version}\"}}"
+        "{{\"abi\":\"raindrop:content-plugin-native@1.0.0\",\"ambientPermissions\":[\"TRUSTED_NATIVE\"],\"artifactSchemas\":[\"raindrop://schemas/artifacts/ai-summary/v1\",\"raindrop://schemas/artifacts/ai-translation/v1\"],\"capabilities\":{{\"optional\":[\"mcp.call_tool\"],\"required\":[\"ai.generate_structured\"]}},\"componentDigest\":{{\"algorithm\":\"SHA-256\",\"value\":\"{digest}\",\"valueEncoding\":\"LOWER_HEX\"}},\"configSchema\":\"raindrop://schemas/plugins/raindrop.ai-content/config/v1\",\"distribution\":\"BUNDLED_OFFICIAL\",\"lifecycleSubscriptions\":[{{\"event\":\"feed.refresh.persisted\",\"schemaVersion\":1}}],\"manifestVersion\":1,\"operations\":[\"summarize\",\"translate\"],\"pluginKey\":\"raindrop.ai-content\",\"signature\":{{\"algorithm\":\"Ed25519\",\"keyId\":\"{TEST_KEY_ID}\",\"valueEncoding\":\"BASE64URL\"}},\"version\":\"{version}\"}}"
     );
+    let canonical_without_signature = if native {
+        canonical_without_signature
+    } else {
+        canonical_without_signature
+            .replace("content-plugin-native@", "content-plugin@")
+            .replace("[\"TRUSTED_NATIVE\"]", "[]")
+    };
     let payload = signature_payload(canonical_without_signature.as_bytes(), &digest);
     let key_pair = Ed25519KeyPair::from_seed_unchecked(&TEST_SEED).unwrap();
     let signature = URL_SAFE_NO_PAD.encode(key_pair.sign(&payload).as_ref());

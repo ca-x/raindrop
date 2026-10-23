@@ -1,17 +1,10 @@
-#[cfg(any(test, target_arch = "wasm32"))]
 mod config;
-#[cfg(any(test, target_arch = "wasm32"))]
 mod json;
-#[cfg(any(test, target_arch = "wasm32"))]
 mod lifecycle;
-#[cfg(any(test, target_arch = "wasm32"))]
 mod operation;
-#[cfg(any(test, target_arch = "wasm32"))]
 mod prompt;
-#[cfg(any(test, target_arch = "wasm32"))]
 mod tool_plan;
 
-#[cfg(any(test, target_arch = "wasm32"))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Failure {
     Disabled,
@@ -28,7 +21,6 @@ pub(crate) enum Failure {
     OutputInvalid,
 }
 
-#[cfg(any(test, target_arch = "wasm32"))]
 impl Failure {
     pub(crate) const fn message_key(self) -> &'static str {
         match self {
@@ -48,8 +40,14 @@ impl Failure {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
-mod component;
+mod native;
+
+pub mod api;
+pub use native::{AiContentService, HostReady, OfficialAiPlugin};
+
+pub const PLUGIN_KEY: &str = "raindrop.ai-content";
+pub const VERSION: &str = "1.0.0";
+pub const ABI: &str = "raindrop:content-plugin-native@1.0.0";
 
 #[cfg(test)]
 mod tests {

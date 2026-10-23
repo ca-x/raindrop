@@ -1,7 +1,6 @@
 use std::{fs, path::PathBuf};
 
 use serde_json::Value;
-use wit_parser::Resolve;
 
 const MANIFEST_TEMPLATE: &str = "contracts/plugins/raindrop.ai-content/manifest.template.json";
 const CONFIG_SCHEMA: &str = "contracts/plugins/raindrop.ai-content/config.v1.schema.json";
@@ -17,33 +16,12 @@ const LIFECYCLE_FIXTURES: &[(&str, &str, i64)] = &[
 ];
 
 #[test]
-fn content_plugin_wit_package_resolves_the_frozen_world() {
-    let root = workspace_root().join("contracts/wit/raindrop-content-plugin-v1");
-    let mut resolve = Resolve::default();
-    let (package_id, _) = resolve.push_dir(&root).unwrap_or_else(|error| {
-        panic!("WIT package should parse at {}: {error:#}", root.display())
-    });
-
-    assert_eq!(
-        resolve.packages[package_id].name.to_string(),
-        "raindrop:content-plugin@1.0.0"
-    );
-    let world_id = resolve
-        .select_world(&[package_id], Some("content-plugin-v1"))
-        .expect("content-plugin-v1 should resolve");
-    let world = &resolve.worlds[world_id];
-    assert_eq!(world.name, "content-plugin-v1");
-    assert_eq!(world.imports.len(), 3, "types is a transitive import");
-    assert_eq!(world.exports.len(), 1);
-}
-
-#[test]
 fn official_manifest_template_is_not_a_production_installation() {
     let manifest = read_json(MANIFEST_TEMPLATE);
     assert_eq!(manifest["manifestVersion"], 1);
     assert_eq!(manifest["pluginKey"], "raindrop.ai-content");
     assert_eq!(manifest["version"], "1.0.0");
-    assert_eq!(manifest["abi"], "raindrop:content-plugin@1.0.0");
+    assert_eq!(manifest["abi"], raindrop_ai_content::ABI);
     assert_eq!(manifest["distribution"], "BUNDLED_OFFICIAL");
     assert_eq!(manifest["componentDigest"]["valueSource"], "RELEASE_BUILD");
     assert!(manifest["componentDigest"].get("value").is_none());

@@ -1,11 +1,11 @@
 use super::{
     BundledOfficialPlugin, OfficialSigningKey, PluginRegistryError, PluginRegistryErrorKind,
-    runtime::{CompiledPlugin, PluginRuntime, PluginRuntimeError},
+    runtime::{NativePlugin, PluginRuntime, PluginRuntimeError},
 };
 
 const COMPONENT: &[u8] = include_bytes!(concat!(
     env!("OUT_DIR"),
-    "/raindrop-ai-content.component.wasm"
+    "/raindrop-ai-content.native-build.json"
 ));
 const MANIFEST: &[u8] = include_bytes!(concat!(
     env!("OUT_DIR"),
@@ -46,7 +46,7 @@ impl EmbeddedOfficialAiPlugin {
         let bundle = BundledOfficialPlugin::verify(MANIFEST, COMPONENT, &[key])?;
         if bundle.plugin_key() != "raindrop.ai-content"
             || bundle.version() != "1.0.0"
-            || bundle.abi_version() != "raindrop:content-plugin@1.0.0"
+            || bundle.abi_version() != raindrop_ai_content::ABI
             || bundle.signature_key_id() != SIGNING_KEY_ID
         {
             return Err(invalid_manifest());
@@ -63,7 +63,7 @@ impl EmbeddedOfficialAiPlugin {
     }
 
     #[must_use]
-    pub const fn component(&self) -> &'static [u8] {
+    pub const fn identity() -> &'static [u8] {
         COMPONENT
     }
 
@@ -72,8 +72,8 @@ impl EmbeddedOfficialAiPlugin {
         self.signature_mode
     }
 
-    pub fn compile(&self, runtime: &PluginRuntime) -> Result<CompiledPlugin, PluginRuntimeError> {
-        CompiledPlugin::compile(runtime, &self.bundle, COMPONENT)
+    pub fn register(&self, runtime: &PluginRuntime) -> Result<NativePlugin, PluginRuntimeError> {
+        NativePlugin::register(runtime, &self.bundle, COMPONENT)
     }
 }
 

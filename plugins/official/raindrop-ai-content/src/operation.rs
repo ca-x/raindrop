@@ -140,12 +140,13 @@ pub(crate) enum McpError {
     RecursionBlocked,
 }
 
-pub(crate) trait HostCapabilities {
-    fn generate(&mut self, request: AiRequest) -> Result<AiResponse, AiError>;
-    fn call_tool(&mut self, request: McpRequest) -> Result<McpResponse, McpError>;
+#[async_trait::async_trait]
+pub(crate) trait HostCapabilities: Send {
+    async fn generate(&mut self, request: AiRequest) -> Result<AiResponse, AiError>;
+    async fn call_tool(&mut self, request: McpRequest) -> Result<McpResponse, McpError>;
 }
 
-pub(crate) fn execute(
+pub(crate) async fn execute(
     host: &mut impl HostCapabilities,
     input: ExecuteInput,
 ) -> Result<Artifact, Failure> {
@@ -172,7 +173,8 @@ pub(crate) fn execute(
             1,
             McpStatus::Disabled,
             0,
-        );
+        )
+        .await;
     }
 
     let max_calls = usize::try_from(input.budget.remaining_mcp_calls)
@@ -191,7 +193,8 @@ pub(crate) fn execute(
             1,
             McpStatus::Disabled,
             0,
-        );
+        )
+        .await;
     }
 
     let plan_schema = build_schema(
@@ -218,7 +221,7 @@ pub(crate) fn execute(
         plan_output_tokens,
         &mut budget,
     )?;
-    let plan_response = match host.generate(plan_request) {
+    let plan_response = match host.generate(plan_request).await {
         Ok(response) => response,
         Err(error) => {
             return handle_mcp_failure(
@@ -230,7 +233,8 @@ pub(crate) fn execute(
                 &mut budget,
                 operation_config.mcp.failure_policy,
                 map_ai_error(error),
-            );
+            )
+            .await;
         }
     };
     if plan_response.finish_reason != FinishReason::Completed {
@@ -243,7 +247,8 @@ pub(crate) fn execute(
             &mut budget,
             operation_config.mcp.failure_policy,
             Failure::McpSchemaInvalid,
-        );
+        )
+        .await;
     }
     let allowed_binding_ids = selected_bindings
         .iter()
@@ -261,7 +266,8 @@ pub(crate) fn execute(
                 &mut budget,
                 operation_config.mcp.failure_policy,
                 Failure::McpSchemaInvalid,
-            );
+            )
+            .await;
         }
     };
 
@@ -277,14 +283,18 @@ pub(crate) fn execute(
                 &mut budget,
                 operation_config.mcp.failure_policy,
                 Failure::McpBudgetExhausted,
-            );
+            )
+            .await;
         }
         budget.mcp_calls -= 1;
-        let response = match host.call_tool(McpRequest {
-            binding_id: call.binding_id,
-            arguments_json: call.arguments_json,
-            requested_timeout_ms: MCP_TIMEOUT_MS,
-        }) {
+        let response = match host
+            .call_tool(McpRequest {
+                binding_id: call.binding_id,
+                arguments_json: call.arguments_json,
+                requested_timeout_ms: MCP_TIMEOUT_MS,
+            })
+            .await
+        {
             Ok(response) => response,
             Err(error) => {
                 return handle_mcp_failure(
@@ -296,7 +306,8 @@ pub(crate) fn execute(
                     &mut budget,
                     operation_config.mcp.failure_policy,
                     map_mcp_error(error),
-                );
+                )
+                .await;
             }
         };
         let result = match parse_canonical_object(&response.result_json, MAX_MCP_RESULT_BYTES) {
@@ -311,7 +322,8 @@ pub(crate) fn execute(
                     &mut budget,
                     operation_config.mcp.failure_policy,
                     Failure::McpSchemaInvalid,
-                );
+                )
+                .await;
             }
         };
         contexts.push(json!({
@@ -333,7 +345,8 @@ pub(crate) fn execute(
                 &mut budget,
                 operation_config.mcp.failure_policy,
                 error,
-            );
+            )
+            .await;
         }
     };
     generate_final(
@@ -347,13 +360,14 @@ pub(crate) fn execute(
         McpStatus::Applied,
         successful_call_count,
     )
+    .await
 }
 
 #[allow(
     clippy::too_many_arguments,
     reason = "the fail-open handoff keeps every consumed budget and final-generation input explicit"
 )]
-fn handle_mcp_failure(
+async fn handle_mcp_failure(
     host: &mut impl HostCapabilities,
     input: &ExecuteInput,
     configured_output_tokens: u32,
@@ -365,17 +379,20 @@ fn handle_mcp_failure(
 ) -> Result<Artifact, Failure> {
     match policy {
         McpFailurePolicy::FailClosed => Err(failure),
-        McpFailurePolicy::FailOpen => generate_final(
-            host,
-            input,
-            configured_output_tokens,
-            target_locale,
-            base_input,
-            budget,
-            2,
-            McpStatus::Degraded,
-            0,
-        ),
+        McpFailurePolicy::FailOpen => {
+            generate_final(
+                host,
+                input,
+                configured_output_tokens,
+                target_locale,
+                base_input,
+                budget,
+                2,
+                McpStatus::Degraded,
+                0,
+            )
+            .await
+        }
     }
 }
 
@@ -383,7 +400,7 @@ fn handle_mcp_failure(
     clippy::too_many_arguments,
     reason = "the final request contract keeps provenance, locale, and budget values visible at each call site"
 )]
-fn generate_final(
+async fn generate_final(
     host: &mut impl HostCapabilities,
     input: &ExecuteInput,
     configured_output_tokens: u32,
@@ -421,7 +438,7 @@ fn generate_final(
         maximum_output,
         budget,
     )?;
-    let response = host.generate(request).map_err(map_ai_error)?;
+    let response = host.generate(request).await.map_err(map_ai_error)?;
     if response.finish_reason != FinishReason::Completed {
         return Err(Failure::ProviderOutputInvalid);
     }
@@ -730,13 +747,15 @@ mod tests {
     use super::*;
     use crate::{config::tests::fixture_config, json::canonical_json};
 
-    #[test]
-    fn direct_summary_keeps_entry_data_out_of_policy_and_returns_safe_provenance() {
+    #[tokio::test]
+    async fn direct_summary_keeps_entry_data_out_of_policy_and_returns_safe_provenance() {
         let mut host = FakeHost::new([Ok(AiResponse {
             output_json: summary_output(),
             finish_reason: FinishReason::Completed,
         })]);
-        let artifact = execute(&mut host, summary_input(false)).expect("summary artifact");
+        let artifact = execute(&mut host, summary_input(false))
+            .await
+            .expect("summary artifact");
         assert_eq!(host.ai_requests.len(), 1);
         let request = &host.ai_requests[0];
         assert_eq!(request.provider_request_ordinal, 1);
@@ -751,8 +770,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn translation_requires_exact_target_locale_and_schema() {
+    #[tokio::test]
+    async fn translation_requires_exact_target_locale_and_schema() {
         let mut input = summary_input(false);
         input.operation = OperationKind::Translate;
         input.provider_binding_id = "00000000-0000-4000-8000-000000000102".to_owned();
@@ -761,13 +780,15 @@ mod tests {
             output_json: translation_output(),
             finish_reason: FinishReason::Completed,
         })]);
-        let artifact = execute(&mut host, input).expect("translation artifact");
+        let artifact = execute(&mut host, input)
+            .await
+            .expect("translation artifact");
         assert_eq!(host.ai_requests[0].output_schema_id, TRANSLATION_SCHEMA_ID);
         assert_eq!(artifact.locale.as_deref(), Some("zh-CN"));
     }
 
-    #[test]
-    fn mcp_flow_uses_two_provider_requests_and_discards_partial_results_on_fail_open() {
+    #[tokio::test]
+    async fn mcp_flow_uses_two_provider_requests_and_discards_partial_results_on_fail_open() {
         let plan = r#"{"calls":[{"arguments":{"query":"rust"},"toolBindingId":"binding-a"}],"schemaVersion":1}"#;
         let mut host = FakeHost::new([
             Ok(AiResponse {
@@ -784,7 +805,9 @@ mod tests {
             connection_label: "Search".to_owned(),
             tool_label: "Read".to_owned(),
         }));
-        let artifact = execute(&mut host, summary_input(true)).expect("MCP artifact");
+        let artifact = execute(&mut host, summary_input(true))
+            .await
+            .expect("MCP artifact");
         assert_eq!(host.ai_requests.len(), 2);
         assert_eq!(host.ai_requests[0].provider_request_ordinal, 1);
         assert_eq!(host.ai_requests[0].output_schema_id, TOOL_PLAN_SCHEMA_ID);
@@ -808,7 +831,9 @@ mod tests {
             }),
         ]);
         host.mcp_responses.push_back(Err(McpError::Timeout));
-        let artifact = execute(&mut host, summary_input(true)).expect("fail-open artifact");
+        let artifact = execute(&mut host, summary_input(true))
+            .await
+            .expect("fail-open artifact");
         assert_eq!(host.ai_requests.len(), 2);
         assert!(
             !host.ai_requests[1]
@@ -818,20 +843,20 @@ mod tests {
         assert!(artifact.provenance_json.contains(r#""status":"DEGRADED""#));
     }
 
-    #[test]
-    fn direct_failures_are_fixed_and_never_return_partial_artifacts() {
+    #[tokio::test]
+    async fn direct_failures_are_fixed_and_never_return_partial_artifacts() {
         let mut disabled = summary_input(false);
         let mut config: Value = serde_json::from_str(&disabled.config_json).expect("config JSON");
         config["operations"]["summarize"]["enabled"] = json!(false);
         config["automatic"]["enabled"] = json!(false);
         disabled.config_json = canonical_json(config, 256 * 1024).expect("disabled config");
         let mut host = FakeHost::new([]);
-        assert_eq!(execute(&mut host, disabled), Err(Failure::Disabled));
+        assert_eq!(execute(&mut host, disabled).await, Err(Failure::Disabled));
         assert!(host.ai_requests.is_empty());
 
         let mut host = FakeHost::new([Err(AiError::Timeout)]);
         assert_eq!(
-            execute(&mut host, summary_input(false)),
+            execute(&mut host, summary_input(false)).await,
             Err(Failure::ProviderTimeout),
         );
 
@@ -840,13 +865,13 @@ mod tests {
             finish_reason: FinishReason::Length,
         })]);
         assert_eq!(
-            execute(&mut host, summary_input(false)),
+            execute(&mut host, summary_input(false)).await,
             Err(Failure::ProviderOutputInvalid),
         );
     }
 
-    #[test]
-    fn invalid_plan_and_aggregate_overflow_fail_open_without_leaking_tool_results() {
+    #[tokio::test]
+    async fn invalid_plan_and_aggregate_overflow_fail_open_without_leaking_tool_results() {
         let mut invalid_plan_host = FakeHost::new([
             Ok(AiResponse {
                 output_json:
@@ -860,6 +885,7 @@ mod tests {
             }),
         ]);
         let artifact = execute(&mut invalid_plan_host, summary_input(true))
+            .await
             .expect("invalid plan should fail open");
         assert_eq!(invalid_plan_host.ai_requests.len(), 2);
         assert!(invalid_plan_host.mcp_requests.is_empty());
@@ -893,6 +919,7 @@ mod tests {
             }));
         }
         let artifact = execute(&mut aggregate_host, two_tool_input())
+            .await
             .expect("aggregate overflow should fail open");
         assert_eq!(aggregate_host.mcp_requests.len(), 2);
         assert_eq!(aggregate_host.ai_requests.len(), 2);
@@ -1059,13 +1086,14 @@ mod tests {
         }
     }
 
+    #[async_trait::async_trait]
     impl HostCapabilities for FakeHost {
-        fn generate(&mut self, request: AiRequest) -> Result<AiResponse, AiError> {
+        async fn generate(&mut self, request: AiRequest) -> Result<AiResponse, AiError> {
             self.ai_requests.push(request);
             self.ai_responses.pop_front().expect("AI fixture response")
         }
 
-        fn call_tool(&mut self, request: McpRequest) -> Result<McpResponse, McpError> {
+        async fn call_tool(&mut self, request: McpRequest) -> Result<McpResponse, McpError> {
             self.mcp_requests.push(request);
             self.mcp_responses
                 .pop_front()

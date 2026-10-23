@@ -16,7 +16,7 @@ use super::{
 const MAX_MANIFEST_BYTES: usize = 64 * 1024;
 const SIGNATURE_CONTEXT: &[u8] = b"raindrop.plugin-signature.v1";
 const OFFICIAL_PLUGIN_KEY: &str = "raindrop.ai-content";
-const OFFICIAL_ABI: &str = "raindrop:content-plugin@1.0.0";
+const LEGACY_ABI: &str = "raindrop:content-plugin@1.0.0";
 const OFFICIAL_DISTRIBUTION: &str = "BUNDLED_OFFICIAL";
 const CONFIG_SCHEMA: &str = "raindrop://schemas/plugins/raindrop.ai-content/config/v1";
 const SUMMARY_SCHEMA: &str = "raindrop://schemas/artifacts/ai-summary/v1";
@@ -190,7 +190,7 @@ impl ManifestDocument {
         let valid = self.manifest_version == 1
             && self.plugin_key == OFFICIAL_PLUGIN_KEY
             && valid_plugin_version(&self.version)
-            && self.abi == OFFICIAL_ABI
+            && (self.abi == LEGACY_ABI || self.abi == raindrop_ai_content::ABI)
             && self.distribution == OFFICIAL_DISTRIBUTION
             && self.operations == ["summarize", "translate"]
             && self.lifecycle_subscriptions.len() == 1
@@ -198,7 +198,11 @@ impl ManifestDocument {
             && self.lifecycle_subscriptions[0].schema_version == 1
             && self.capabilities.required == ["ai.generate_structured"]
             && self.capabilities.optional == ["mcp.call_tool"]
-            && self.ambient_permissions.is_empty()
+            && if self.abi == LEGACY_ABI {
+                self.ambient_permissions.is_empty()
+            } else {
+                self.ambient_permissions == [Value::String("TRUSTED_NATIVE".to_owned())]
+            }
             && self.config_schema == CONFIG_SCHEMA
             && self.artifact_schemas == [SUMMARY_SCHEMA, TRANSLATION_SCHEMA]
             && self.component_digest.algorithm == "SHA-256"

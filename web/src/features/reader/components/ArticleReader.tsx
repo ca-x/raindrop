@@ -4,10 +4,12 @@ import { Icon } from "@astryxdesign/core/Icon"
 import { EmptyState } from "@astryxdesign/core/EmptyState"
 import { Skeleton } from "@astryxdesign/core/Skeleton"
 import { useLingui } from "@lingui/react"
-import { useEffect, useLayoutEffect, useMemo, useRef } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 
 import { AiReaderSidecar } from "../../ai/reader/AiReaderSidecar"
 import { useEntryAiController } from "../../ai/model/useEntryAiController"
+import { useTamboSettings } from "../../ai/tambo/useTamboSettings"
+import { TamboReaderPanel } from "../../ai/tambo/TamboReaderPanel"
 import type { TranslationConfig } from "../../translation/api/translation.generated"
 import { useEntryTranslationController } from "../../translation/model/useEntryTranslationController"
 import type { TranslationSettingsController } from "../../translation/model/useTranslationSettingsController"
@@ -35,6 +37,7 @@ interface ArticleReaderProps {
   onToggleRead: (entryId: string) => Promise<void>
   onToggleStar: (entryId: string) => Promise<void>
   csrfToken?: string
+  userId?: string
   onUnauthenticated?: () => void
   onOpenAiSettings?: () => void
   summaryEnabled?: boolean
@@ -77,6 +80,10 @@ export function ArticleReader(props: ArticleReaderProps) {
   const bodyRef = useRef<HTMLDivElement>(null)
   const headingRef = useRef<HTMLHeadingElement>(null)
   const summaryButtonRef = useRef<HTMLButtonElement>(null)
+  const tamboButtonRef = useRef<HTMLButtonElement>(null)
+  const [tamboOpen, setTamboOpen] = useState(false)
+  const { settings: tambo } = useTamboSettings(props.userId)
+  useEffect(() => { setTamboOpen(false) }, [props.routeEntryId, props.userId])
   const activeAiTrigger = useRef<HTMLButtonElement | null>(null)
   const detail = props.state.selectedEntryId ? props.state.detailsById[props.state.selectedEntryId] : undefined
   const detailMatchesRoute = Boolean(detail && detail.entryId === props.routeEntryId)
@@ -212,14 +219,30 @@ export function ArticleReader(props: ArticleReaderProps) {
           props.csrfToken && props.summaryEnabled
             ? () => {
                 activeAiTrigger.current = summaryButtonRef.current
+                setTamboOpen(false)
                 aiController.open("summary")
               }
             : undefined
         }
         summaryButtonRef={summaryButtonRef}
+        tamboButtonRef={tamboButtonRef}
+        onOpenTambo={props.csrfToken && tambo?.enabled && tambo.configured ? () => {
+          aiController.close()
+          setTamboOpen(true)
+        } : undefined}
         isImmersive={props.isImmersive ?? false}
         onToggleImmersive={props.canToggleImmersive ? props.onToggleImmersive : undefined}
       />
+      {tamboOpen && tambo?.enabled && tambo.configured && tambo.origin && props.csrfToken ? <TamboReaderPanel
+        key={`${props.userId}:${detail.entryId}`}
+        csrfToken={props.csrfToken}
+        origin={tambo.origin}
+        article={{ title: detail.title ?? "", text: bodyRef.current?.textContent ?? detail.summary ?? "" }}
+        onClose={() => {
+          setTamboOpen(false)
+          requestAnimationFrame(() => tamboButtonRef.current?.focus())
+        }}
+      /> : null}
       {aiController.openTab ? (
         <AiReaderSidecar
           controller={aiController}

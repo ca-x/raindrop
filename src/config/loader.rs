@@ -71,6 +71,24 @@ pub fn load(args: &ConfigArgs, env: &impl EnvSource) -> Result<LoadedConfig, Con
         .map(validate_session_secret)
         .transpose()?;
     let provider_secret_keys = load_provider_secret_keys(env, file.provider_secret_keys)?;
+    let tambo = match (
+        env.get("RAINDROP_TAMBO_URL").or(file.tambo_url),
+        env.get("RAINDROP_TAMBO_API_KEY").or(file.tambo_api_key),
+    ) {
+        (None, None) => None,
+        (Some(url), Some(key)) => Some(crate::tambo::TamboConfig::new(&url, secret(key)).map_err(
+            |reason| ConfigError::InvalidValue {
+                name: "RAINDROP_TAMBO_URL / RAINDROP_TAMBO_API_KEY",
+                reason,
+            },
+        )?),
+        _ => {
+            return Err(ConfigError::InvalidValue {
+                name: "RAINDROP_TAMBO_URL / RAINDROP_TAMBO_API_KEY",
+                reason: "configure both the self-hosted URL and the project API key, or neither",
+            });
+        }
+    };
     let feed_retention = load_feed_retention(env, file.feed_orphan_retention_days)?;
     let bootstrap_admin = load_bootstrap_admin(env, file.bootstrap_admin)?;
 
@@ -93,6 +111,7 @@ pub fn load(args: &ConfigArgs, env: &impl EnvSource) -> Result<LoadedConfig, Con
             database_kind,
         )
         .with_provider_secret_keys(provider_secret_keys)
+        .with_tambo(tambo)
         .with_feed_retention(feed_retention),
         mode,
         sources: ConfigSources {

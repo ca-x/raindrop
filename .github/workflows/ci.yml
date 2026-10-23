@@ -132,7 +132,6 @@ jobs:
         with:
           toolchain: 1.94.0
           components: clippy, rustfmt
-          targets: wasm32-unknown-unknown
 
       - name: Restore Cargo cache
         uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
@@ -166,11 +165,11 @@ jobs:
       - name: Run Clippy
         run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
 
-      - name: Verify official AI guest target
-        run: cargo check --locked --manifest-path plugins/official/raindrop-ai-content/Cargo.toml --target wasm32-unknown-unknown --release
+      - name: Verify linked official Rust plugin
+        run: cargo check --locked --manifest-path plugins/official/raindrop-ai-content/Cargo.toml --release
 
-      - name: Execute real official AI component
-        run: cargo test --locked --test official_ai_component -- --nocapture --test-threads=1
+      - name: Execute native official AI service
+        run: cargo test --locked --test official_ai_native -- --nocapture --test-threads=1
 
       - name: Verify RSS schema on SQLite
         run: cargo test --locked --test rss_migrations sqlite -- --nocapture --test-threads=1
@@ -274,7 +273,6 @@ jobs:
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable snapshot
         with:
           toolchain: stable
-          targets: wasm32-unknown-unknown
 
       - name: Check current stable compatibility
         run: cargo check --locked --all-targets --all-features
@@ -293,7 +291,7 @@ jobs:
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable snapshot
         with:
           toolchain: 1.94.0
-          targets: x86_64-pc-windows-msvc,wasm32-unknown-unknown
+          targets: x86_64-pc-windows-msvc
 
       - name: Compile Windows durable replacement path
         run: cargo check --locked --target x86_64-pc-windows-msvc
@@ -320,7 +318,6 @@ jobs:
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable snapshot
         with:
           toolchain: 1.94.0
-          targets: wasm32-unknown-unknown
 
       - name: Restore Cargo cache
         uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3

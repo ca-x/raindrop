@@ -1,3 +1,15 @@
+# v0.5.0 Native official plugins and optional interaction
+
+- [x] Replace Wasmtime execution with a Cargo-linked Rust official plugin and Rutis lifecycle.
+- [x] Preserve broker authorization, budgets, output validation and snapshot fencing.
+- [x] Replace nested WASM builds with signed native-build metadata and update delivery gates.
+- [x] Add optional self-hosted Tambo behind authenticated same-origin v1 routes and explicit consent.
+- [x] Persist per-user interaction settings in revisioned plugin KV, separate from AI config and secrets.
+- [x] Add native cancellation/panic, migration/restart, tenant/CSRF and bounded UI regression tests.
+- [x] Complete full Rust/frontend, production-embedding and real-browser verification.
+- [ ] Resolve the pre-existing development-dependency audit gate before publishing the new tag; do not weaken CI or upgrade unrelated dependencies without authorization.
+- [ ] Review and publish a fresh version/tag without moving historical tags.
+
 # v0.3.5 checklist
 
 - [x] Mark an unread entry read when pointer interaction opens its article.

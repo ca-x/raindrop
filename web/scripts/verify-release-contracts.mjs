@@ -57,15 +57,9 @@ requireMatch(
   /cfg\(raindrop_embedded_web\)/u,
   "embedded Web module uses the build cfg",
 )
-requireAlignedCargoDependencies(
-  cargoManifest,
-  {
-    wasmprinter: 2,
-    "wit-component": 2,
-    "wit-parser": 1,
-  },
-  "wasm-tools public type dependencies",
-)
+requireNoMatch(cargoManifest, /^(?:wasmtime|wasmprinter|wit-component|wit-parser|wat)\s*=/mu, "native-only plugin dependencies")
+requireMatch(cargoManifest, /^rutis = "=0\.13\.0"$/mu, "pinned Rutis runtime")
+requireMatch(cargoManifest, /^raindrop-ai-content = \{ path = /mu, "Cargo-linked official plugin")
 const repositoryUrl = "https://github.com/ca-x/raindrop"
 requireMatch(cargoManifest, new RegExp(escapeRegExp(repositoryUrl), "u"), "Cargo repository URL")
 requireMatch(dockerfile, new RegExp(escapeRegExp(repositoryUrl), "u"), "Docker source URL")
@@ -110,8 +104,8 @@ requireMatch(
 )
 requireMatch(
   dockerfile,
-  /rustup target add --toolchain "\$RUSTUP_TOOLCHAIN" wasm32-unknown-unknown/u,
-  "Docker official guest target",
+  /^COPY \. \.\/$/mu,
+  "Docker native official plugin source",
 )
 requireMatch(
   dockerfile,
@@ -210,8 +204,8 @@ requireCount(
 )
 requireMatch(
   binaryWorkflow,
-  /targets: \$\{\{ matrix\.target \}\},wasm32-unknown-unknown/u,
-  "binary workflow official guest target",
+  /targets: \$\{\{ matrix\.target \}\}/u,
+  "binary workflow native target",
 )
 requireMatch(
   binaryWorkflow,
@@ -331,8 +325,8 @@ requireMatch(ciWorkflow, /\/api\/v1\/health\/live/u, "container liveness smoke")
 requireCount(
   ciWorkflow,
   /wasm32-unknown-unknown/gu,
-  5,
-  "CI root-compilation official guest targets",
+  0,
+  "CI must not require a WASM guest target",
 )
 requireNoMatch(
   ciWorkflow,
@@ -402,27 +396,6 @@ function requirePinnedActions(source, file) {
   for (const match of source.matchAll(/uses:\s*[^@\s]+@([^\s#]+)/gu)) {
     if (!/^[0-9a-f]{40}$/u.test(match[1])) {
       fail(`unpinned action in ${file}: ${match[0]}`)
-    }
-  }
-}
-
-function requireAlignedCargoDependencies(manifest, dependencies, message) {
-  let alignedVersion
-  for (const [dependency, expectedCount] of Object.entries(dependencies)) {
-    const pattern = new RegExp(
-      `^${escapeRegExp(dependency)}\\s*=\\s*\\{\\s*version\\s*=\\s*"=?([^"]+)"`,
-      "gmu",
-    )
-    const versions = [...manifest.matchAll(pattern)].map((match) => match[1])
-    if (versions.length !== expectedCount) {
-      fail(`${message}: expected ${expectedCount} ${dependency} declarations`)
-    }
-    if (new Set(versions).size !== 1) {
-      fail(`${message}: ${dependency} declarations disagree`)
-    }
-    alignedVersion ??= versions[0]
-    if (versions[0] !== alignedVersion) {
-      fail(`${message}: ${dependency} ${versions[0]} does not match ${alignedVersion}`)
     }
   }
 }

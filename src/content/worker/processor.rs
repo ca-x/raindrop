@@ -20,7 +20,7 @@ use crate::{
         json::parse_unique_json,
         runtime::{
             AiCapabilityBroker, BrokerInvocationContext, CapabilityFailureHint, CapabilitySession,
-            CapabilitySessionConfig, CapabilityUsage, CompiledPlugin, DenyMcpBroker,
+            CapabilitySessionConfig, CapabilityUsage, DenyMcpBroker, NativePlugin,
             PluginExecutionFailure, PluginFailureCode, PluginRuntime, PluginRuntimeErrorKind,
             bindings::types,
         },
@@ -54,7 +54,7 @@ pub struct OfficialAiProcessor {
     plugin_repository: Arc<PluginRegistryRepository>,
     provider_repository: Arc<ProviderRepository>,
     runtime: PluginRuntime,
-    compiled: Arc<CompiledPlugin>,
+    compiled: Arc<NativePlugin>,
     ai_broker: Arc<dyn AiCapabilityBroker>,
 }
 
@@ -64,7 +64,7 @@ impl OfficialAiProcessor {
         plugin_repository: Arc<PluginRegistryRepository>,
         provider_repository: Arc<ProviderRepository>,
         runtime: PluginRuntime,
-        compiled: Arc<CompiledPlugin>,
+        compiled: Arc<NativePlugin>,
         ai_broker: Arc<dyn AiCapabilityBroker>,
     ) -> Result<Self, ContentWorkerError> {
         if compiled.plugin_key() != OFFICIAL_AI_PLUGIN_KEY
@@ -406,18 +406,15 @@ fn map_execution_failure(failure: PluginExecutionFailure) -> ContentProcessFailu
         }
     } else {
         match failure.error().kind() {
-            PluginRuntimeErrorKind::InvalidComponent
+            PluginRuntimeErrorKind::InvalidIdentity
             | PluginRuntimeErrorKind::ComponentDigestMismatch
-            | PluginRuntimeErrorKind::LinkDenied
             | PluginRuntimeErrorKind::DescriptorMismatch
             | PluginRuntimeErrorKind::CapabilityDenied => ("PLUGIN_UNAVAILABLE", false, false),
             PluginRuntimeErrorKind::InvalidInvocation => ("PLUGIN_OUTPUT_INVALID", false, false),
             PluginRuntimeErrorKind::BrokerTimeout => ("PROVIDER_TIMEOUT", true, true),
             PluginRuntimeErrorKind::BrokerFailure => ("PROVIDER_UNAVAILABLE", true, false),
-            PluginRuntimeErrorKind::FuelExhausted => ("PLUGIN_FUEL_EXHAUSTED", false, false),
-            PluginRuntimeErrorKind::MemoryLimit => ("PLUGIN_MEMORY_LIMIT", false, false),
-            PluginRuntimeErrorKind::GuestTimeout => ("PLUGIN_GUEST_TIMEOUT", false, false),
-            PluginRuntimeErrorKind::GuestTrap => ("PLUGIN_GUEST_TRAP", false, false),
+            PluginRuntimeErrorKind::DeadlineExceeded => ("PLUGIN_GUEST_TIMEOUT", false, false),
+            PluginRuntimeErrorKind::NativeFailure => ("PLUGIN_GUEST_TRAP", false, false),
             PluginRuntimeErrorKind::OutputTooLarge => ("PLUGIN_OUTPUT_TOO_LARGE", false, false),
             PluginRuntimeErrorKind::RuntimeUnavailable => {
                 ("PLUGIN_RUNTIME_UNAVAILABLE", true, false)

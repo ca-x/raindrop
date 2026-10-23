@@ -1,3 +1,16 @@
+# v0.5.0 Native official plugins and optional interaction
+
+The 2026-10-23 user authorization supersedes the historical WASM-only designs below.
+Use the existing workspace: statically linked Rust official plugins, Rutis 0.13.0
+typed dependencies and cancellation, and signed native-build metadata. Do not load
+untrusted native libraries. Preserve installation identity, tenant-scoped config,
+grants, KV and job/artifact history when updating the ABI. Tambo is optional,
+self-hosted, default-off and lazy-loaded after consent; its opt-in uses revisioned
+`plugin_kv`, not browser storage or a duplicate AI config document. Verify migration,
+restart, concurrency, shutdown, proxy identity/CSRF and UI fallback before release.
+
+Current specification: `docs/superpowers/specs/2026-10-23-native-plugins-and-optional-tambo.md`.
+
 # v0.3.5 Settings profile and plugin management redesign
 
 ## Objective

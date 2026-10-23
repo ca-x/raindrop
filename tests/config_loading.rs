@@ -36,6 +36,42 @@ fn no_database_source_enters_setup_mode() {
 }
 
 #[test]
+fn tambo_is_optional_and_validated_without_echoing_secrets() {
+    let data = tempdir().unwrap();
+    let mut loaded = load(&ConfigArgs::for_test(data.path()), &MapEnv::default()).unwrap();
+    assert!(loaded.runtime.take_tambo().is_none());
+    for env in [
+        MapEnv::from([("RAINDROP_TAMBO_URL", "http://tambo:3001/api")]),
+        MapEnv::from([("RAINDROP_TAMBO_API_KEY", "private-project-key")]),
+        MapEnv::from([
+            ("RAINDROP_TAMBO_URL", "https://user:password@tambo.example"),
+            ("RAINDROP_TAMBO_API_KEY", "private-project-key"),
+        ]),
+    ] {
+        let error = load(&ConfigArgs::for_test(data.path()), &env).unwrap_err();
+        let message = error_chain(&error);
+        assert!(!message.contains("private-project-key"));
+        assert!(!message.contains("password"));
+    }
+    fs::write(
+        data.path().join("config.toml"),
+        "tambo_url = 'http://tambo:3001/api'\ntambo_api_key = 'file-private-key'\n",
+    )
+    .unwrap();
+    let env = MapEnv::from([
+        ("RAINDROP_TAMBO_URL", "https://tambo.example/api"),
+        ("RAINDROP_TAMBO_API_KEY", "env-private-key"),
+    ]);
+    let mut loaded = load(&ConfigArgs::for_test(data.path()), &env).unwrap();
+    assert!(!format!("{loaded:?}").contains("env-private-key"));
+    assert_eq!(
+        loaded.runtime.take_tambo().unwrap().origin(),
+        "https://tambo.example"
+    );
+    assert!(loaded.runtime.take_tambo().is_none());
+}
+
+#[test]
 fn feed_orphan_retention_defaults_to_thirty_days() {
     let data = tempdir().expect("temporary directory should be created");
     let loaded = load(&ConfigArgs::for_test(data.path()), &MapEnv::default())

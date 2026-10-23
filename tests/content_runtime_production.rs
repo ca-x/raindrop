@@ -95,7 +95,7 @@ async fn setup_completion_synchronizes_official_installation_without_restart() {
     .expect("official installation should be synchronized");
     assert_eq!(installation.plugin_key(), "raindrop.ai-content");
     assert_eq!(installation.version(), "1.0.0");
-    assert_eq!(installation.abi_version(), "raindrop:content-plugin@1.0.0");
+    assert_eq!(installation.abi_version(), raindrop_ai_content::ABI);
     assert_eq!(installation.system_state(), PluginSystemState::Enabled);
 
     handle.shutdown();

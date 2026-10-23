@@ -1,0 +1,152 @@
+.tambo-settings {
+  display: grid;
+  gap: 12px;
+  padding-block-start: 24px;
+  border-block-start: 1px solid var(--color-border);
+}
+
+.tambo-settings-heading,
+.tambo-composer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tambo-settings h4,
+.tambo-panel h2,
+.tambo-reading-card h3,
+.tambo-settings p {
+  margin: 0;
+}
+
+.tambo-optional,
+.tambo-message-role,
+.tambo-composer-actions span {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.tambo-optional {
+  padding: 3px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 99px;
+}
+
+.tambo-deployment summary,
+.tambo-reading-card summary {
+  cursor: pointer;
+  min-block-size: 44px;
+  padding-block: 8px;
+}
+
+.tambo-composer-actions button {
+  min-block-size: 44px;
+  min-inline-size: 64px;
+}
+
+.tambo-panel h2 {
+  font-size: 16px;
+}
+
+.tambo-panel[data-started="true"] {
+  block-size: min(460px, 70svh);
+  max-block-size: min(460px, 70svh);
+}
+
+.tambo-panel[data-started="true"] .reader-ai-sidecar-content {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.tambo-introduction,
+.tambo-composer {
+  display: grid;
+  gap: 16px;
+}
+
+.tambo-conversation {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-block-size: 0;
+  min-inline-size: 0;
+  gap: 12px;
+}
+
+.tambo-composer {
+  flex: none;
+  gap: 8px;
+}
+
+.tambo-messages {
+  display: grid;
+  flex: 1;
+  align-content: start;
+  min-block-size: 0;
+  gap: 20px;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.tambo-message p {
+  white-space: pre-wrap;
+  line-height: 1.65;
+}
+
+.tambo-reading-card {
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-background-surface);
+}
+
+.tambo-reading-card h3 {
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.tambo-reading-card li + li {
+  margin-block-start: 8px;
+}
+
+.tambo-reading-card details + details {
+  border-block-start: 1px solid var(--color-border);
+}
+
+.tambo-composer textarea {
+  width: 100%;
+  min-block-size: 90px;
+  max-block-size: 180px;
+  resize: vertical;
+  padding: 12px;
+  color: var(--color-text-primary);
+  background: var(--color-background-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.tambo-composer textarea:focus-visible,
+.tambo-messages:focus-visible,
+.tambo-deployment summary:focus-visible,
+.tambo-reading-card summary:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .tambo-reading-card {
+    animation: tambo-card-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+}
+
+@keyframes tambo-card-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}

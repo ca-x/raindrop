@@ -10,6 +10,11 @@ const repositoryRoot = resolve(scriptDirectory, "../..")
 const webRoot = resolve(repositoryRoot, "web")
 const artifacts = [
   {
+    source: "docs/openapi/tambo-v1.json",
+    output: "src/features/ai/tambo/tambo.generated.ts",
+    aliases: {},
+  },
+  {
     source: "docs/openapi/ai-provider-v1.json",
     output: "src/features/ai/api/provider.generated.ts",
     aliases: {},

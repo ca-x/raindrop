@@ -19,7 +19,6 @@ ENV RUSTUP_TOOLCHAIN=1.94.0
 ARG RAINDROP_REQUIRE_OFFICIAL_PLUGIN_SIGNATURE=0
 ARG RAINDROP_OFFICIAL_PLUGIN_SIGNING_KEY_ID
 ARG RAINDROP_SIGNING_CACHE_EPOCH=development
-RUN rustup target add --toolchain "$RUSTUP_TOOLCHAIN" wasm32-unknown-unknown
 COPY . ./
 COPY --from=web-builder /src/web/dist /src/web/dist
 RUN --mount=type=secret,id=raindrop_official_plugin_signing_seed \

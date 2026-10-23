@@ -48,7 +48,7 @@ use support::{
         ENTRY_A_ID, HASH_A, HASH_D, SUBSCRIPTION_A_ID, USER_A_ID, connect_for_contract,
         insert_entry, insert_feed, insert_subscription, insert_user,
     },
-    official_ai_component::{compiled_official_ai_plugin, official_ai_component},
+    official_ai_native::{official_ai_native, registered_official_ai_plugin},
     plugin::signed_bundle,
 };
 use time::{OffsetDateTime, macros::datetime};
@@ -478,7 +478,7 @@ impl Fixture {
             .expect("provider creation");
 
         let runtime = PluginRuntime::new().expect("plugin runtime");
-        let component = official_ai_component();
+        let component = official_ai_native();
         let bundle = signed_bundle("1.0.0", component);
         let plugin_repository = Arc::new(PluginRegistryRepository::new(database.clone()));
         plugin_repository
@@ -495,7 +495,7 @@ impl Fixture {
             )
             .await
             .expect("official plugin config");
-        let compiled = Arc::new(compiled_official_ai_plugin(&runtime));
+        let compiled = Arc::new(registered_official_ai_plugin(&runtime));
         let component_digest = compiled.component_digest().to_owned();
         let transport_state = Arc::new(TransportState::default());
         let broker_observation = Arc::new(BrokerObservation::default());

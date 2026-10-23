@@ -3,7 +3,10 @@ mod support;
 
 use std::{
     collections::VecDeque,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -13,20 +16,20 @@ use raindrop::plugins::{
     runtime::{
         AiBrokerError, AiBrokerRequest, AiBrokerResponse, AiCapabilityBroker, AiFinishReason,
         BrokerInvocationContext, CapabilitySession, CapabilitySessionConfig, CapabilityToolBinding,
-        CapabilityToolBindingInput, CompiledPlugin, DenyMcpBroker, McpBrokerError,
-        McpBrokerErrorKind, McpBrokerRequest, McpBrokerResponse, McpCapabilityBroker,
-        PluginFailureCode, PluginRuntime, PluginRuntimeErrorKind, bindings::types,
+        CapabilityToolBindingInput, DenyMcpBroker, McpBrokerError, McpBrokerErrorKind,
+        McpBrokerRequest, McpBrokerResponse, McpCapabilityBroker, NativePlugin, PluginFailureCode,
+        PluginRuntime, PluginRuntimeErrorKind, bindings::types,
     },
 };
 use serde_json::{Value, json};
-use support::{official_ai_component::official_ai_component, plugin::signed_bundle};
-use tokio::time::Instant;
+use support::{official_ai_native::official_ai_native, plugin::signed_bundle};
+use tokio::{sync::Notify, time::Instant};
 
 const PROVIDER_ID: &str = "00000000-0000-4000-8000-000000000101";
 const CONNECTION_ID: &str = "00000000-0000-4000-8000-000000000201";
 
 #[tokio::test]
-async fn real_component_executes_direct_summary_and_translation() {
+async fn native_service_executes_direct_summary_and_translation() {
     let runtime = PluginRuntime::new().expect("runtime");
     let compiled = compile(&runtime);
 
@@ -92,7 +95,7 @@ async fn real_component_executes_direct_summary_and_translation() {
 }
 
 #[tokio::test]
-async fn real_component_executes_mcp_applied_fail_open_and_fail_closed() {
+async fn native_service_executes_mcp_applied_fail_open_and_fail_closed() {
     let runtime = PluginRuntime::new().expect("runtime");
     let compiled = compile(&runtime);
     let binding = tool_binding();
@@ -186,7 +189,10 @@ async fn real_component_executes_mcp_applied_fail_open_and_fail_closed() {
         .execute_detailed(&compiled, fail_closed_session, fail_closed_request)
         .await
         .expect_err("MCP fail-closed should stop before final generation");
-    assert_eq!(failure.error().kind(), PluginRuntimeErrorKind::GuestTrap);
+    assert_eq!(
+        failure.error().kind(),
+        PluginRuntimeErrorKind::NativeFailure
+    );
     assert_eq!(
         failure.error().failure_code(),
         Some(PluginFailureCode::McpTimeout)
@@ -203,7 +209,7 @@ async fn real_component_executes_mcp_applied_fail_open_and_fail_closed() {
 }
 
 #[tokio::test]
-async fn real_component_emits_lifecycle_intents_without_capability_calls() {
+async fn native_service_emits_lifecycle_intents_without_capability_calls() {
     let runtime = PluginRuntime::new().expect("runtime");
     let compiled = compile(&runtime);
     let config = ai_config(types::Operation::Summarize, false, "FAIL_OPEN", true);
@@ -235,14 +241,127 @@ async fn real_component_emits_lifecycle_intents_without_capability_calls() {
     assert!(mcp.requests().is_empty());
 }
 
-fn compile(runtime: &PluginRuntime) -> CompiledPlugin {
-    let component = official_ai_component();
+#[tokio::test]
+async fn runtime_shutdown_drops_in_flight_broker_work_and_retains_attempt_usage() {
+    let runtime = PluginRuntime::new().unwrap();
+    let plugin = compile(&runtime);
+    let broker = Arc::new(BlockingBroker {
+        started: Notify::new(),
+        dropped: Arc::new(AtomicBool::new(false)),
+    });
+    let config = ai_config(types::Operation::Summarize, false, "FAIL_OPEN", false);
+    let (session, request) = operation_inputs(
+        &plugin,
+        types::Operation::Summarize,
+        &config,
+        Vec::new(),
+        broker.clone(),
+        Arc::new(DenyMcpBroker),
+    );
+    let execution = runtime.execute_detailed(&plugin, session, request);
+    tokio::pin!(execution);
+    tokio::time::timeout(Duration::from_secs(2), async {
+        tokio::select! {
+            () = broker.started.notified() => {},
+            result = &mut execution => panic!("execution completed before cancellation: {result:?}"),
+        }
+    }).await.unwrap();
+    runtime.shutdown().await.unwrap();
+    let failure = tokio::time::timeout(Duration::from_secs(2), execution)
+        .await
+        .unwrap()
+        .unwrap_err();
+    assert_eq!(
+        failure.error().kind(),
+        PluginRuntimeErrorKind::RuntimeUnavailable
+    );
+    assert_eq!(failure.usage().provider_request_count(), 1);
+    assert!(broker.dropped.load(Ordering::SeqCst));
+    assert!(runtime.ready().await.is_err());
+}
+
+#[tokio::test]
+async fn native_panic_is_contained_and_does_not_break_subsequent_invocations() {
+    let runtime = PluginRuntime::new().unwrap();
+    let plugin = compile(&runtime);
+    let config = ai_config(types::Operation::Summarize, false, "FAIL_OPEN", false);
+    let (session, request) = operation_inputs(
+        &plugin,
+        types::Operation::Summarize,
+        &config,
+        Vec::new(),
+        Arc::new(PanicBroker),
+        Arc::new(DenyMcpBroker),
+    );
+    let failure = runtime
+        .execute_detailed(&plugin, session, request)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        failure.error().kind(),
+        PluginRuntimeErrorKind::NativeFailure
+    );
+    assert_eq!(failure.usage().provider_request_count(), 1);
+    let broker = Arc::new(RecordingAiBroker::new([Ok(ai_response(summary_output()))]));
+    let (session, request) = operation_inputs(
+        &plugin,
+        types::Operation::Summarize,
+        &config,
+        Vec::new(),
+        broker,
+        Arc::new(DenyMcpBroker),
+    );
+    assert!(runtime.execute(&plugin, session, request).await.is_ok());
+    runtime.shutdown().await.unwrap();
+}
+
+struct BlockingBroker {
+    started: Notify,
+    dropped: Arc<AtomicBool>,
+}
+
+struct BrokerDropGuard(Arc<AtomicBool>);
+
+impl Drop for BrokerDropGuard {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+}
+
+#[async_trait]
+impl AiCapabilityBroker for BlockingBroker {
+    async fn generate_structured(
+        &self,
+        _context: &BrokerInvocationContext,
+        _request: AiBrokerRequest,
+    ) -> Result<AiBrokerResponse, AiBrokerError> {
+        let _guard = BrokerDropGuard(self.dropped.clone());
+        self.started.notify_one();
+        std::future::pending().await
+    }
+}
+
+struct PanicBroker;
+
+#[async_trait]
+impl AiCapabilityBroker for PanicBroker {
+    async fn generate_structured(
+        &self,
+        _context: &BrokerInvocationContext,
+        _request: AiBrokerRequest,
+    ) -> Result<AiBrokerResponse, AiBrokerError> {
+        panic!("trusted native failure fixture")
+    }
+}
+
+fn compile(runtime: &PluginRuntime) -> NativePlugin {
+    let component = official_ai_native();
     let bundle = signed_bundle("1.0.0", component);
-    CompiledPlugin::compile(runtime, &bundle, component).expect("real component should compile")
+    NativePlugin::register(runtime, &bundle, component).expect("real component should compile")
 }
 
 fn operation_inputs(
-    compiled: &CompiledPlugin,
+    compiled: &NativePlugin,
     operation: types::Operation,
     config: &AiContentConfig,
     bindings: Vec<CapabilityToolBinding>,
@@ -342,7 +461,7 @@ fn session(
 }
 
 fn operation_request(
-    compiled: &CompiledPlugin,
+    compiled: &NativePlugin,
     operation: types::Operation,
     config: &AiContentConfig,
     tool_bindings: Vec<types::ToolBinding>,
@@ -388,10 +507,7 @@ fn operation_request(
     }
 }
 
-fn lifecycle_request(
-    compiled: &CompiledPlugin,
-    config: &AiContentConfig,
-) -> types::LifecycleRequest {
+fn lifecycle_request(compiled: &NativePlugin, config: &AiContentConfig) -> types::LifecycleRequest {
     types::LifecycleRequest {
         invocation_id: "invocation-1".to_owned(),
         plugin_key: compiled.plugin_key().to_owned(),

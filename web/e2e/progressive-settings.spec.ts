@@ -2,7 +2,8 @@ import { expect, test } from "@playwright/test"
 
 import type { AiConfigEnvelope, PutAiConfigRequest } from "../src/features/ai/api/content.generated"
 import type { CreateProviderRequest, Provider } from "../src/features/ai/api/provider.generated"
-import { installReaderApiFixture } from "./support/readerApiFixture"
+import { completeSetup, createCredentials } from "./support/app"
+import { installReaderApiFixture, readerIds } from "./support/readerApiFixture"
 import { expectDialogContained, expectNoHorizontalOverflow } from "./support/readerAssertions"
 import { startProductionServer, type ProductionServer } from "./support/productionServer"
 
@@ -37,6 +38,7 @@ test("progressive AI setup preserves drafts and stays usable on compact screens"
     deepLx: { displayName: "DeepLX", description: null, baseUrl: null, isProgressive: true, hasApiKey: false }, revision: null,
   } }))
   await page.route("**/api/v1/events", (route) => route.fulfill({ contentType: "text/event-stream", body: "" }))
+  await page.route("**/api/v1/ai/tambo", (route) => route.fulfill({ json: { configured: false, enabled: false, origin: null, revision: null } }))
 
   const providers: Provider[] = []
   await page.route("**/api/v1/ai/providers", async (route) => {
@@ -132,5 +134,90 @@ test("progressive AI setup preserves drafts and stays usable on compact screens"
   await expectDialogContained(dialog, page)
   await expectNoHorizontalOverflow(page)
   await page.screenshot({ path: testInfo.outputPath("summaries.png") })
+  expect(pageErrors).toEqual([])
+})
+
+test("optional interaction stays lazy, streams through the local SDK endpoint, and restores focus", async ({ page }, testInfo) => {
+  testInfo.setTimeout(60_000)
+  const pageErrors: string[] = []
+  const sdkLoads: string[] = []
+  const requests: string[] = []
+  page.on("pageerror", (error) => pageErrors.push(error.message))
+  page.on("request", (request) => {
+    if (/\/assets\/TamboConversation-/u.test(request.url())) sdkLoads.push(request.url())
+  })
+  await installReaderApiFixture(page)
+  let preference = { configured: true, enabled: false, origin: "https://tambo.example", revision: null as number | null }
+  await page.route("**/api/v1/ai/tambo", async (route) => {
+    if (route.request().method() === "PUT") {
+      expect(route.request().headers()["x-csrf-token"]).toBeTruthy()
+      const body = route.request().postDataJSON() as { expectedRevision: number | null; enabled: boolean }
+      expect(body.expectedRevision).toBe(preference.revision)
+      preference = { ...preference, enabled: body.enabled, revision: (preference.revision ?? -1) + 1 }
+    }
+    await route.fulfill({ json: preference })
+  })
+  await page.route("**/api/v1/ai/tambo/api/**", async (route) => {
+    const request = route.request()
+    requests.push(request.url())
+    if (request.method() === "POST") {
+      expect(new URL(request.url()).pathname).toBe("/api/v1/ai/tambo/api/v1/threads/runs")
+      expect(request.headers()["x-api-key"]).toBeTruthy()
+      const body = request.postDataJSON() as { thread: { userKey: string }; message: { additionalContext: { article: { title: string; text: string } } } }
+      expect(body.thread.userKey).toBe("authenticated-session")
+      expect(body.message.additionalContext.article.title).toBe("First quiet article")
+      expect(body.message.additionalContext.article.text.length).toBeLessThanOrEqual(12000)
+      const events = [
+        { type: "RUN_STARTED", threadId: "thread_1", runId: "run_1" },
+        { type: "TEXT_MESSAGE_START", messageId: "answer_1", role: "assistant" },
+        { type: "TEXT_MESSAGE_CONTENT", messageId: "answer_1", delta: "A streamed reading answer." },
+        { type: "TEXT_MESSAGE_END", messageId: "answer_1" },
+        { type: "RUN_FINISHED", threadId: "thread_1", runId: "run_1" },
+      ]
+      await route.fulfill({ contentType: "text/event-stream", body: events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("") })
+    } else {
+      await route.fulfill({ json: { threads: [], messages: [], hasMore: false } })
+    }
+  })
+  await completeSetup(page, server, createCredentials())
+  const menu = page.getByRole("button", { name: "Open menu" })
+  if (!(await menu.isVisible())) await page.getByRole("button", { name: "Open sources" }).click()
+  await menu.click()
+  await page.getByRole("menuitem", { name: "Settings", exact: true }).click()
+  const dialog = page.getByRole("dialog", { name: "Settings" })
+  await dialog.getByRole("button", { name: /^Plugins/u }).click()
+  await dialog.getByRole("button", { name: "Settings for AI Assistant", exact: true }).click()
+  const enable = dialog.getByRole("switch", { name: "Enable interactive reading" })
+  await enable.click()
+  await expect(enable).toBeChecked()
+  await expectDialogContained(dialog, page)
+  await page.screenshot({ path: testInfo.outputPath("tambo-settings.png") })
+  await page.goto(`${server.baseURL}/reader/unread/entry/${readerIds.firstEntry}`)
+  const discuss = page.getByRole("button", { name: "Discuss article" })
+  await discuss.click()
+  const panel = page.getByRole("region", { name: "Interactive reading" })
+  await expect(panel.getByText(/12,000 characters/u)).toContainText("https://tambo.example")
+  expect(sdkLoads).toHaveLength(0)
+  expect(requests).toHaveLength(0)
+  await panel.getByRole("button", { name: "Start conversation" }).click()
+  const composer = panel.getByRole("textbox")
+  await expect(composer).toBeFocused()
+  expect(sdkLoads).toHaveLength(1)
+  await composer.fill("Summarize the key points")
+  await panel.getByRole("button", { name: "Send", exact: true }).click()
+  await expect(panel.getByText("A streamed reading answer.")).toBeVisible()
+  const panelBounds = await panel.boundingBox()
+  const sendBounds = await panel.getByRole("button", { name: "Send", exact: true }).boundingBox()
+  expect(panelBounds).not.toBeNull()
+  expect(sendBounds).not.toBeNull()
+  expect(sendBounds!.height).toBeGreaterThanOrEqual(44)
+  expect(sendBounds!.y + sendBounds!.height).toBeLessThanOrEqual(panelBounds!.y + panelBounds!.height)
+  await page.emulateMedia({ reducedMotion: "reduce" })
+  await expectNoHorizontalOverflow(page)
+  await page.screenshot({ path: testInfo.outputPath("tambo-reading.png") })
+  await panel.getByRole("textbox").focus()
+  await page.keyboard.press("Escape")
+  await expect(panel).toBeHidden()
+  await expect(discuss).toBeFocused()
   expect(pageErrors).toEqual([])
 })

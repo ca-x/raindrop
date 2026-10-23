@@ -9,22 +9,54 @@ use crate::{
     },
 };
 
-wit_bindgen::generate!({
-    path: "../../../contracts/wit/raindrop-content-plugin-v1",
-    world: "content-plugin-v1",
-});
+use crate::api::{ContentHost, host_ai, host_mcp, types};
+use rutis::{BoxFuture, CordisError, Ctx, Effect, Plugin, TypeKey};
+use tokio_util::sync::CancellationToken;
 
-use exports::raindrop::content_plugin::content_plugin::Guest;
-use raindrop::content_plugin::{host_ai, host_mcp, types};
+#[derive(Clone)]
+pub struct AiContentService {
+    cancellation: CancellationToken,
+}
+pub struct HostReady;
+pub struct OfficialAiPlugin {
+    dependencies: [TypeKey; 1],
+}
+impl Default for OfficialAiPlugin {
+    fn default() -> Self {
+        Self {
+            dependencies: [TypeKey::of::<HostReady>()],
+        }
+    }
+}
+impl Plugin for OfficialAiPlugin {
+    fn name(&self) -> &str {
+        crate::PLUGIN_KEY
+    }
+    fn injects(&self) -> &[TypeKey] {
+        &self.dependencies
+    }
+    fn apply<'a>(&'a self, ctx: &'a Ctx) -> BoxFuture<'a, Result<Effect, CordisError>> {
+        Box::pin(async move {
+            ctx.provide(AiContentService {
+                cancellation: ctx.cancellation_token(),
+            })?;
+            Ok(Effect::Done)
+        })
+    }
+}
+impl AiContentService {
+    pub async fn cancelled(&self) {
+        self.cancellation.cancelled().await;
+    }
+    pub fn is_cancelled(&self) -> bool {
+        self.cancellation.is_cancelled()
+    }
 
-struct Component;
-
-impl Guest for Component {
-    fn descriptor() -> types::PluginDescriptor {
+    pub fn descriptor() -> types::PluginDescriptor {
         types::PluginDescriptor {
             plugin_key: "raindrop.ai-content".to_owned(),
             version: "1.0.0".to_owned(),
-            abi: "raindrop:content-plugin@1.0.0".to_owned(),
+            abi: crate::ABI.to_owned(),
             operations: vec![types::Operation::Summarize, types::Operation::Translate],
             lifecycle_subscriptions: vec![types::LifecycleSubscription {
                 event: "feed.refresh.persisted".to_owned(),
@@ -35,17 +67,21 @@ impl Guest for Component {
         }
     }
 
-    fn execute(
+    pub async fn execute(
+        &self,
+        host: &mut impl ContentHost,
         request: types::OperationRequest,
     ) -> Result<types::ArtifactCandidate, types::PluginError> {
         let input = map_execute_input(request)?;
-        let mut host = WitHost;
+        let mut host = NativeHost(host);
         execute(&mut host, input)
+            .await
             .map(map_artifact)
             .map_err(map_failure)
     }
 
-    fn on_event(
+    pub fn on_event(
+        &self,
         request: types::LifecycleRequest,
     ) -> Result<types::EventOutcome, types::PluginError> {
         if request.event.event_type != "feed.refresh.persisted" || request.event.schema_version != 1
@@ -78,68 +114,75 @@ impl Guest for Component {
     }
 }
 
-struct WitHost;
+struct NativeHost<'a, Host>(&'a mut Host);
 
-impl HostCapabilities for WitHost {
-    fn generate(&mut self, request: AiRequest) -> Result<AiResponse, AiError> {
-        host_ai::generate_structured(&host_ai::GenerateRequest {
-            provider_binding_id: request.provider_binding_id,
-            operation: map_operation_to_wit(request.operation),
-            system_instruction: request.system_instruction.to_owned(),
-            untrusted_input_json: request.untrusted_input_json,
-            output_schema_id: request.output_schema_id.to_owned(),
-            output_schema_json: request.output_schema_json,
-            provider_request_ordinal: request.provider_request_ordinal,
-            max_input_tokens: request.max_input_tokens,
-            max_output_tokens: request.max_output_tokens,
-        })
-        .map(|response| AiResponse {
-            output_json: response.output_json,
-            finish_reason: match response.finish_reason {
-                host_ai::FinishReason::Completed => FinishReason::Completed,
-                host_ai::FinishReason::Length => FinishReason::Length,
-                host_ai::FinishReason::ContentFilter => FinishReason::ContentFilter,
-                host_ai::FinishReason::ToolPlan => FinishReason::ToolPlan,
-                host_ai::FinishReason::Unknown => FinishReason::Unknown,
-            },
-        })
-        .map_err(|error| match error.code {
-            host_ai::GenerateErrorCode::CapabilityDenied => AiError::CapabilityDenied,
-            host_ai::GenerateErrorCode::ProviderUnavailable => AiError::ProviderUnavailable,
-            host_ai::GenerateErrorCode::QuotaExceeded => AiError::QuotaExceeded,
-            host_ai::GenerateErrorCode::RateLimited => AiError::RateLimited,
-            host_ai::GenerateErrorCode::Timeout => AiError::Timeout,
-            host_ai::GenerateErrorCode::OutputSchemaInvalid => AiError::OutputSchemaInvalid,
-            host_ai::GenerateErrorCode::CostLimitExceeded => AiError::CostLimitExceeded,
-            host_ai::GenerateErrorCode::InvalidRequest => AiError::InvalidRequest,
-        })
+#[async_trait::async_trait]
+impl<Host: ContentHost> HostCapabilities for NativeHost<'_, Host> {
+    async fn generate(&mut self, request: AiRequest) -> Result<AiResponse, AiError> {
+        self.0
+            .generate_structured(host_ai::GenerateRequest {
+                provider_binding_id: request.provider_binding_id,
+                operation: map_operation_to_wit(request.operation),
+                system_instruction: request.system_instruction.to_owned(),
+                untrusted_input_json: request.untrusted_input_json,
+                output_schema_id: request.output_schema_id.to_owned(),
+                output_schema_json: request.output_schema_json,
+                provider_request_ordinal: request.provider_request_ordinal,
+                max_input_tokens: request.max_input_tokens,
+                max_output_tokens: request.max_output_tokens,
+            })
+            .await
+            .map_err(|()| AiError::ProviderUnavailable)?
+            .map(|response| AiResponse {
+                output_json: response.output_json,
+                finish_reason: match response.finish_reason {
+                    host_ai::FinishReason::Completed => FinishReason::Completed,
+                    host_ai::FinishReason::Length => FinishReason::Length,
+                    host_ai::FinishReason::ContentFilter => FinishReason::ContentFilter,
+                    host_ai::FinishReason::ToolPlan => FinishReason::ToolPlan,
+                    host_ai::FinishReason::Unknown => FinishReason::Unknown,
+                },
+            })
+            .map_err(|error| match error.code {
+                host_ai::GenerateErrorCode::CapabilityDenied => AiError::CapabilityDenied,
+                host_ai::GenerateErrorCode::ProviderUnavailable => AiError::ProviderUnavailable,
+                host_ai::GenerateErrorCode::QuotaExceeded => AiError::QuotaExceeded,
+                host_ai::GenerateErrorCode::RateLimited => AiError::RateLimited,
+                host_ai::GenerateErrorCode::Timeout => AiError::Timeout,
+                host_ai::GenerateErrorCode::OutputSchemaInvalid => AiError::OutputSchemaInvalid,
+                host_ai::GenerateErrorCode::CostLimitExceeded => AiError::CostLimitExceeded,
+                host_ai::GenerateErrorCode::InvalidRequest => AiError::InvalidRequest,
+            })
     }
 
-    fn call_tool(&mut self, request: McpRequest) -> Result<McpResponse, McpError> {
-        host_mcp::call_tool(&host_mcp::CallRequest {
-            tool_binding_id: request.binding_id,
-            arguments_json: request.arguments_json,
-            requested_timeout_ms: request.requested_timeout_ms,
-        })
-        .map(|response| McpResponse {
-            result_json: response.result_json,
-            connection_label: response.connection_label,
-            tool_label: response.tool_label,
-        })
-        .map_err(|error| match error.code {
-            host_mcp::CallErrorCode::Disabled => McpError::Disabled,
-            host_mcp::CallErrorCode::CapabilityDenied => McpError::CapabilityDenied,
-            host_mcp::CallErrorCode::ConnectionDenied => McpError::ConnectionDenied,
-            host_mcp::CallErrorCode::ToolDenied => McpError::ToolDenied,
-            host_mcp::CallErrorCode::SideEffectConfirmationRequired => {
-                McpError::SideEffectConfirmationRequired
-            }
-            host_mcp::CallErrorCode::SchemaInvalid => McpError::SchemaInvalid,
-            host_mcp::CallErrorCode::Timeout => McpError::Timeout,
-            host_mcp::CallErrorCode::ResultTooLarge => McpError::ResultTooLarge,
-            host_mcp::CallErrorCode::BudgetExhausted => McpError::BudgetExhausted,
-            host_mcp::CallErrorCode::RecursionBlocked => McpError::RecursionBlocked,
-        })
+    async fn call_tool(&mut self, request: McpRequest) -> Result<McpResponse, McpError> {
+        self.0
+            .call_tool(host_mcp::CallRequest {
+                tool_binding_id: request.binding_id,
+                arguments_json: request.arguments_json,
+                requested_timeout_ms: request.requested_timeout_ms,
+            })
+            .await
+            .map_err(|()| McpError::CapabilityDenied)?
+            .map(|response| McpResponse {
+                result_json: response.result_json,
+                connection_label: response.connection_label,
+                tool_label: response.tool_label,
+            })
+            .map_err(|error| match error.code {
+                host_mcp::CallErrorCode::Disabled => McpError::Disabled,
+                host_mcp::CallErrorCode::CapabilityDenied => McpError::CapabilityDenied,
+                host_mcp::CallErrorCode::ConnectionDenied => McpError::ConnectionDenied,
+                host_mcp::CallErrorCode::ToolDenied => McpError::ToolDenied,
+                host_mcp::CallErrorCode::SideEffectConfirmationRequired => {
+                    McpError::SideEffectConfirmationRequired
+                }
+                host_mcp::CallErrorCode::SchemaInvalid => McpError::SchemaInvalid,
+                host_mcp::CallErrorCode::Timeout => McpError::Timeout,
+                host_mcp::CallErrorCode::ResultTooLarge => McpError::ResultTooLarge,
+                host_mcp::CallErrorCode::BudgetExhausted => McpError::BudgetExhausted,
+                host_mcp::CallErrorCode::RecursionBlocked => McpError::RecursionBlocked,
+            })
     }
 }
 
@@ -231,5 +274,3 @@ fn map_failure(failure: Failure) -> types::PluginError {
         message_key: failure.message_key().to_owned(),
     }
 }
-
-export!(Component);

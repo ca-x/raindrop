@@ -1,7 +1,6 @@
 use std::{
     env, fs,
     path::{Path, PathBuf},
-    process::Command,
 };
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -10,10 +9,9 @@ use ring::{
     signature::{Ed25519KeyPair, KeyPair as _},
 };
 use serde_json::{Map, Value};
-use wit_component::ComponentEncoder;
 use zeroize::Zeroize;
 
-const COMPONENT_FILE: &str = "raindrop-ai-content.component.wasm";
+const COMPONENT_FILE: &str = "raindrop-ai-content.native-build.json";
 const MANIFEST_FILE: &str = "raindrop-ai-content.manifest.json";
 const PUBLIC_KEY_FILE: &str = "raindrop-ai-content.public-key.bin";
 const GUEST_MANIFEST: &str = "plugins/official/raindrop-ai-content/Cargo.toml";
@@ -31,7 +29,7 @@ pub fn build() -> Result<(), String> {
     emit_inputs();
     let root = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").ok_or("workspace root is missing")?);
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").ok_or("Cargo OUT_DIR is missing")?);
-    let component = build_component(&root, &out_dir)?;
+    let component = build_identity(&root)?;
     let digest = sha256_hex(&component);
     let signing = signing_material()?;
     let (manifest, public_key) = finalize_manifest(&root, &component, &digest, signing)?;
@@ -49,7 +47,9 @@ fn emit_inputs() {
     for path in [
         GUEST_MANIFEST,
         "plugins/official/raindrop-ai-content/src",
-        "contracts/wit/raindrop-content-plugin-v1",
+        "src/plugins/runtime",
+        "Cargo.toml",
+        "Cargo.lock",
         MANIFEST_TEMPLATE,
         "contracts/plugins/raindrop.ai-content/config.v1.schema.json",
         "contracts/artifacts/ai-summary.v1.schema.json",
@@ -62,59 +62,43 @@ fn emit_inputs() {
     }
 }
 
-fn build_component(root: &Path, out_dir: &Path) -> Result<Vec<u8>, String> {
-    let target_dir = out_dir.join("official-ai-target");
-    let cargo = env::var_os("CARGO").ok_or("Cargo executable is missing")?;
-    let output = Command::new(cargo)
-        .args(["build", "--locked", "--manifest-path"])
-        .arg(root.join(GUEST_MANIFEST))
-        .args(["--target", "wasm32-unknown-unknown", "--release"])
-        .current_dir(root)
-        .env("CARGO_TARGET_DIR", &target_dir)
-        .env_remove("CARGO_BUILD_TARGET")
-        .env_remove("CARGO_ENCODED_RUSTFLAGS")
-        .env_remove("RUSTFLAGS")
-        .env_remove("RUSTC_WRAPPER")
-        .env_remove("RUSTC_WORKSPACE_WRAPPER")
-        .env_remove(SIGNING_SEED_ENV)
-        .env_remove(SIGNING_KEY_ID_ENV)
-        .env_remove(REQUIRE_OFFICIAL_ENV)
-        .output()
-        .map_err(|_| "official guest build could not start".to_owned())?;
-    if !output.status.success() {
-        return Err(format!(
-            "official guest build failed\n{}\n{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        ));
+fn build_identity(root: &Path) -> Result<Vec<u8>, String> {
+    let mut paths = vec![
+        root.join(GUEST_MANIFEST),
+        root.join("Cargo.lock"),
+        root.join("Cargo.toml"),
+    ];
+    for directory in [
+        "plugins/official/raindrop-ai-content/src",
+        "src/plugins/runtime",
+        "contracts/artifacts",
+    ] {
+        for entry in
+            fs::read_dir(root.join(directory)).map_err(|_| "native plugin inputs are missing")?
+        {
+            let entry = entry.map_err(|_| "native plugin input is unreadable")?;
+            if entry
+                .file_type()
+                .map_err(|_| "native plugin input is invalid")?
+                .is_file()
+            {
+                paths.push(entry.path());
+            }
+        }
     }
-
-    let core_path = target_dir.join("wasm32-unknown-unknown/release/raindrop_ai_content.wasm");
-    let core = fs::read(core_path).map_err(|_| "official guest output is missing".to_owned())?;
-    let first = componentize(&core)?;
-    let second = componentize(&core)?;
-    if first != second {
-        return Err("official componentization is not deterministic".to_owned());
+    paths.sort();
+    let mut inputs = Map::new();
+    for path in paths {
+        let relative = path
+            .strip_prefix(root)
+            .map_err(|_| "native plugin input path is invalid")?
+            .to_string_lossy()
+            .replace('\\', "/");
+        println!("cargo:rerun-if-changed={relative}");
+        let bytes = fs::read(path).map_err(|_| "native plugin input could not be read")?;
+        inputs.insert(relative, Value::String(sha256_hex(&bytes)));
     }
-    let text = wasmprinter::print_bytes(&first)
-        .map_err(|_| "official component could not be inspected".to_owned())?;
-    if text.contains("wasi:")
-        || !text.contains("raindrop:content-plugin/host-ai@1.0.0")
-        || !text.contains("raindrop:content-plugin/host-mcp@1.0.0")
-        || !text.contains("raindrop:content-plugin/content-plugin@1.0.0")
-    {
-        return Err("official component imports or exports are invalid".to_owned());
-    }
-    Ok(first)
-}
-
-fn componentize(core: &[u8]) -> Result<Vec<u8>, String> {
-    ComponentEncoder::default()
-        .module(core)
-        .map_err(|_| "official guest metadata is invalid".to_owned())?
-        .validate(true)
-        .encode()
-        .map_err(|_| "official guest componentization failed".to_owned())
+    canonical_json(Value::Object(inputs))
 }
 
 struct SigningMaterial {

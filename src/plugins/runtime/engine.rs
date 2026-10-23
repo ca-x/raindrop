@@ -1,19 +1,9 @@
-use std::{
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-    thread::{self, JoinHandle},
-    time::Duration,
-};
+use std::sync::Arc;
 
-use tokio::runtime::Handle;
-use wasmtime::{Config, Engine};
+use raindrop_ai_content::{AiContentService, HostReady, OfficialAiPlugin};
+use rutis::{Ctx, FiberState, FiberView};
 
 use super::{PluginRuntimeError, PluginRuntimeErrorKind};
-
-const EPOCH_TICK_INTERVAL: Duration = Duration::from_millis(10);
-const MAX_WASM_STACK_BYTES: usize = 512 * 1024;
 
 #[derive(Clone)]
 pub struct PluginRuntime {
@@ -21,59 +11,47 @@ pub struct PluginRuntime {
 }
 
 struct RuntimeInner {
-    engine: Engine,
-    epoch_ticker_stop: Arc<AtomicBool>,
-    epoch_ticker: Option<JoinHandle<()>>,
+    ctx: Ctx,
+    official: FiberView,
 }
 
 impl PluginRuntime {
     pub fn new() -> Result<Self, PluginRuntimeError> {
-        Handle::try_current()
-            .map_err(|_| PluginRuntimeError::new(PluginRuntimeErrorKind::RuntimeUnavailable))?;
-        let mut config = Config::new();
-        config
-            .wasm_component_model(true)
-            .wasm_component_model_async(true)
-            .consume_fuel(true)
-            .epoch_interruption(true)
-            .max_wasm_stack(MAX_WASM_STACK_BYTES);
-        let engine = Engine::new(&config)
-            .map_err(|_| PluginRuntimeError::new(PluginRuntimeErrorKind::RuntimeUnavailable))?;
-        let epoch_ticker_stop = Arc::new(AtomicBool::new(false));
-        let ticker_stop = Arc::clone(&epoch_ticker_stop);
-        let ticker_engine = engine.clone();
-        let epoch_ticker = thread::Builder::new()
-            .name("raindrop-plugin-epoch".to_owned())
-            .spawn(move || {
-                while !ticker_stop.load(Ordering::Acquire) {
-                    thread::park_timeout(EPOCH_TICK_INTERVAL);
-                    if !ticker_stop.load(Ordering::Acquire) {
-                        ticker_engine.increment_epoch();
-                    }
-                }
-            })
-            .map_err(|_| PluginRuntimeError::new(PluginRuntimeErrorKind::RuntimeUnavailable))?;
-
+        let ctx = Ctx::root().map_err(|_| unavailable())?;
+        ctx.provide(HostReady).map_err(|_| unavailable())?;
+        let official = ctx.plugin(OfficialAiPlugin::default());
         Ok(Self {
-            inner: Arc::new(RuntimeInner {
-                engine,
-                epoch_ticker_stop,
-                epoch_ticker: Some(epoch_ticker),
-            }),
+            inner: Arc::new(RuntimeInner { ctx, official }),
         })
     }
 
-    pub(crate) fn engine(&self) -> &Engine {
-        &self.inner.engine
+    pub async fn ready(&self) -> Result<(), PluginRuntimeError> {
+        self.service().await.map(|_| ())
+    }
+
+    pub async fn shutdown(&self) -> Result<(), PluginRuntimeError> {
+        self.inner.ctx.shutdown().await.map_err(|_| unavailable())
+    }
+
+    pub(crate) async fn service(&self) -> Result<Arc<AiContentService>, PluginRuntimeError> {
+        (&self.inner.official).await.map_err(|_| unavailable())?;
+        if self.inner.official.state().state != FiberState::Active {
+            return Err(unavailable());
+        }
+        self.inner
+            .ctx
+            .get::<AiContentService>()
+            .filter(|service| !service.is_cancelled())
+            .ok_or_else(unavailable)
     }
 }
 
 impl Drop for RuntimeInner {
     fn drop(&mut self) {
-        self.epoch_ticker_stop.store(true, Ordering::Release);
-        if let Some(epoch_ticker) = self.epoch_ticker.take() {
-            epoch_ticker.thread().unpark();
-            let _ = epoch_ticker.join();
-        }
+        drop(self.ctx.shutdown());
     }
+}
+
+fn unavailable() -> PluginRuntimeError {
+    PluginRuntimeError::new(PluginRuntimeErrorKind::RuntimeUnavailable)
 }

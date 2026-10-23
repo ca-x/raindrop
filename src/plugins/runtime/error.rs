@@ -7,18 +7,15 @@ use super::{
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PluginRuntimeErrorKind {
-    InvalidComponent,
+    InvalidIdentity,
     ComponentDigestMismatch,
-    LinkDenied,
     DescriptorMismatch,
     InvalidInvocation,
     CapabilityDenied,
     BrokerTimeout,
     BrokerFailure,
-    FuelExhausted,
-    MemoryLimit,
-    GuestTimeout,
-    GuestTrap,
+    DeadlineExceeded,
+    NativeFailure,
     OutputTooLarge,
     RuntimeUnavailable,
 }
@@ -104,20 +101,17 @@ impl fmt::Debug for PluginRuntimeError {
 impl fmt::Display for PluginRuntimeError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self.kind {
-            PluginRuntimeErrorKind::InvalidComponent => "plugin component is invalid",
+            PluginRuntimeErrorKind::InvalidIdentity => "native plugin identity is invalid",
             PluginRuntimeErrorKind::ComponentDigestMismatch => {
                 "plugin component digest does not match"
             }
-            PluginRuntimeErrorKind::LinkDenied => "plugin component import is denied",
             PluginRuntimeErrorKind::DescriptorMismatch => "plugin descriptor does not match",
             PluginRuntimeErrorKind::InvalidInvocation => "plugin invocation is invalid",
             PluginRuntimeErrorKind::CapabilityDenied => "plugin capability is denied",
             PluginRuntimeErrorKind::BrokerTimeout => "plugin capability broker timed out",
             PluginRuntimeErrorKind::BrokerFailure => "plugin capability broker failed",
-            PluginRuntimeErrorKind::FuelExhausted => "plugin fuel is exhausted",
-            PluginRuntimeErrorKind::MemoryLimit => "plugin memory limit was exceeded",
-            PluginRuntimeErrorKind::GuestTimeout => "plugin guest execution timed out",
-            PluginRuntimeErrorKind::GuestTrap => "plugin guest execution trapped",
+            PluginRuntimeErrorKind::DeadlineExceeded => "plugin invocation deadline was exceeded",
+            PluginRuntimeErrorKind::NativeFailure => "native plugin execution failed",
             PluginRuntimeErrorKind::OutputTooLarge => "plugin output is too large",
             PluginRuntimeErrorKind::RuntimeUnavailable => "plugin runtime is unavailable",
         })

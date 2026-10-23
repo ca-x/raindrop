@@ -42,6 +42,8 @@ pub struct AppState {
     pub backup_runtime: BackupRuntimeHandle,
     pub(crate) backup_transport: Option<Arc<dyn BackupTransport>>,
     pub(crate) provider_keyring: Option<Arc<ProviderSecretKeyring>>,
+    pub(crate) tambo: Option<Arc<crate::tambo::TamboClient>>,
+    pub(crate) tambo_mutation_limiter: UserMutationLimiter,
     pub(crate) translation_deeplx_transport: Arc<dyn DeepLxTransport>,
     pub(crate) translation_openai_transport: Option<Arc<dyn OpenAiTranslationTransport>>,
     pub(crate) translation_request_semaphore: Arc<Semaphore>,
@@ -108,6 +110,8 @@ impl AppState {
             backup_runtime: BackupRuntimeHandle::inert(),
             backup_transport: None,
             provider_keyring,
+            tambo: None,
+            tambo_mutation_limiter: UserMutationLimiter::new(),
             translation_deeplx_transport: Arc::new(ProductionDeepLxTransport),
             translation_openai_transport: None,
             translation_request_semaphore: Arc::new(Semaphore::new(4)),
@@ -130,6 +134,12 @@ impl AppState {
     #[must_use]
     pub fn with_backup_transport(mut self, transport: Arc<dyn BackupTransport>) -> Self {
         self.backup_transport = Some(transport);
+        self
+    }
+
+    #[must_use]
+    pub fn with_tambo(mut self, tambo: Option<Arc<crate::tambo::TamboClient>>) -> Self {
+        self.tambo = tambo;
         self
     }
 

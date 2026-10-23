@@ -2,6 +2,7 @@
 
 import react from "@vitejs/plugin-react"
 import { readFileSync } from "node:fs"
+import { fileURLToPath } from "node:url"
 import { defineConfig } from "vite"
 
 const packageVersion = (JSON.parse(
@@ -13,6 +14,12 @@ export default defineConfig({
     __RAINDROP_VERSION__: JSON.stringify(packageVersion),
   },
   plugins: [react()],
+  resolve: {
+    alias: [{
+      find: /^@standard-community\/standard-json$/u,
+      replacement: fileURLToPath(import.meta.resolve("@standard-community/standard-json")),
+    }],
+  },
   server: {
     proxy: {
       "/api": {

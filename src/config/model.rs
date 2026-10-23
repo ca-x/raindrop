@@ -34,12 +34,22 @@ pub struct RuntimeConfig {
     pub database_url: Option<SecretString>,
     pub session_secret: Option<SecretString>,
     provider_secret_keys: Vec<SecretString>,
+    tambo: Option<crate::tambo::TamboConfig>,
     pub bootstrap_admin: Option<BootstrapAdmin>,
     feed_retention: FeedRetentionConfig,
     database_kind: Option<DatabaseKind>,
 }
 
 impl RuntimeConfig {
+    pub fn take_tambo(&mut self) -> Option<crate::tambo::TamboConfig> {
+        self.tambo.take()
+    }
+
+    pub(crate) fn with_tambo(mut self, tambo: Option<crate::tambo::TamboConfig>) -> Self {
+        self.tambo = tambo;
+        self
+    }
+
     #[must_use]
     pub const fn database_kind(&self) -> Option<DatabaseKind> {
         self.database_kind
@@ -75,6 +85,7 @@ impl RuntimeConfig {
             database_url,
             session_secret,
             provider_secret_keys: Vec::new(),
+            tambo: None,
             bootstrap_admin,
             feed_retention: FeedRetentionConfig::DEFAULT,
             database_kind,
@@ -110,6 +121,7 @@ impl fmt::Debug for RuntimeConfig {
             .field("database_url", &self.database_url)
             .field("session_secret", &self.session_secret)
             .field("provider_secret_key_ids", &provider_secret_key_ids)
+            .field("tambo", &self.tambo)
             .field(
                 "provider_secret_key_count",
                 &self.provider_secret_keys.len(),
@@ -193,6 +205,8 @@ pub(crate) struct FileConfig {
     pub database_url: Option<String>,
     pub session_secret: Option<String>,
     pub provider_secret_keys: Option<Vec<String>>,
+    pub tambo_url: Option<String>,
+    pub tambo_api_key: Option<String>,
     pub feed_orphan_retention_days: Option<u32>,
     pub bootstrap_admin: Option<FileBootstrapAdmin>,
 }

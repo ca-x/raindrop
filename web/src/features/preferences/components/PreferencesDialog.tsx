@@ -246,6 +246,7 @@ export function PreferencesDialog(props: PreferencesDialogProps) {
                   />
                 ) : activeTab === "plugins" && props.aiController && props.translationController ? (
                   <PluginSettingsPanel
+                    userId={props.profile.userId}
                     aiController={props.aiController}
                     translationController={props.translationController}
                   />

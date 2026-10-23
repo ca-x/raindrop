@@ -1,0 +1,95 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Raindrop Optional Tambo Interaction API",
+    "version": "1.0.0",
+    "description": "Durable per-user opt-in in plugin_kv. Project credentials remain server-side. Conversation traffic uses the authenticated same-origin /api/v1/ai/tambo/api/v1 proxy; only user-scoped v1 thread, run, message and component-state routes are allowed. Mutations carry the session CSRF token in x-api-key for SDK compatibility. The proxy overwrites all user identity fields and never forwards cookies or client authorization. Core reading and AI jobs do not depend on Tambo."
+  },
+  "servers": [{ "url": "/" }],
+  "paths": {
+    "/api/v1/ai/tambo": {
+      "get": {
+        "operationId": "getTamboSettings",
+        "security": [{ "sessionCookie": [] }],
+        "responses": {
+          "200": { "$ref": "#/components/responses/Settings" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "500": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "put": {
+        "operationId": "replaceTamboSettings",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [{ "name": "x-csrf-token", "in": "header", "required": true, "schema": { "type": "string" } }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PutTamboSettingsRequest" } } }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/Settings" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" },
+          "422": { "$ref": "#/components/responses/Error" },
+          "429": { "$ref": "#/components/responses/Error" },
+          "503": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "sessionCookie": { "type": "apiKey", "in": "cookie", "name": "raindrop_session" }
+    },
+    "schemas": {
+      "TamboSettings": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["configured", "enabled", "origin", "revision"],
+        "properties": {
+          "configured": { "type": "boolean" },
+          "enabled": { "type": "boolean", "description": "Stored opt-in, preserved even if the administrator removes the service configuration or disables the plugin." },
+          "origin": { "type": ["string", "null"], "description": "Administrator-configured HTTP(S) origin only; never contains credentials or path." },
+          "revision": { "type": ["integer", "null"], "minimum": 0, "maximum": 9007199254740991 }
+        }
+      },
+      "PutTamboSettingsRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["expectedRevision", "enabled"],
+        "properties": {
+          "expectedRevision": { "type": ["integer", "null"], "minimum": 0, "maximum": 9007199254740991, "description": "Null only for first save; stale revisions return 409 without overwriting." },
+          "enabled": { "type": "boolean" }
+        }
+      },
+      "ApiError": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "message", "requestId"],
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string" },
+          "requestId": { "type": "string", "format": "uuid" },
+          "fields": { "type": "object", "additionalProperties": { "type": "string" } }
+        }
+      },
+      "ApiErrorEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["error"],
+        "properties": { "error": { "$ref": "#/components/schemas/ApiError" } }
+      }
+    },
+    "responses": {
+      "Settings": {
+        "description": "Current user's persisted opt-in and public service availability.",
+        "headers": { "Cache-Control": { "schema": { "type": "string", "const": "no-store" } } },
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TamboSettings" } } }
+      },
+      "Error": {
+        "description": "Sanitized error envelope. Never contains upstream responses or credentials.",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiErrorEnvelope" } } }
+      }
+    }
+  }
+}

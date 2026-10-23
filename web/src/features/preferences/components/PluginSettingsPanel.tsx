@@ -15,6 +15,7 @@ import { TranslationSettingsPanel } from "../../translation/settings/Translation
 interface PluginSettingsPanelProps {
   aiController: AiSettingsController
   translationController: TranslationSettingsController
+  userId?: string
 }
 
 type PluginKey = "provider" | "assistant" | "translation"
@@ -22,6 +23,7 @@ type PluginKey = "provider" | "assistant" | "translation"
 export function PluginSettingsPanel({
   aiController,
   translationController,
+  userId,
 }: PluginSettingsPanelProps) {
   const { i18n } = useLingui()
   const [activePlugin, setActivePlugin] = useState<PluginKey | null>(null)
@@ -52,7 +54,7 @@ export function PluginSettingsPanel({
           {activePlugin === "provider" ? (
             <ProviderSettingsPanel controller={aiController} onContinue={() => setActivePlugin(null)} />
           ) : activePlugin === "assistant" ? (
-            <AiAssistantSettingsPanel controller={aiController} onOpenProviders={() => setActivePlugin("provider")} />
+            <AiAssistantSettingsPanel controller={aiController} userId={userId} onOpenProviders={() => setActivePlugin("provider")} />
           ) : (
             <TranslationSettingsPanel
               controller={translationController}

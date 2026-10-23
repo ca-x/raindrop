@@ -6,13 +6,16 @@ import { useLingui } from "@lingui/react"
 
 import type { AiSettingsController } from "../model/useAiSettingsController"
 import { AiContentForm } from "./AiContentForm"
+import { TamboSettingsPanel } from "../tambo/TamboSettingsPanel"
 
 export function AiAssistantSettingsPanel({
   controller,
   onOpenProviders,
+  userId,
 }: {
   controller: AiSettingsController
   onOpenProviders?: () => void
+  userId?: string
 }) {
   const { i18n } = useLingui()
   if (controller.loadStatus === "idle" || controller.loadStatus === "loading") {
@@ -55,6 +58,7 @@ export function AiAssistantSettingsPanel({
         isSaving={controller.isSavingConfig}
         onSave={controller.saveConfig}
       />
+      {userId ? <TamboSettingsPanel userId={userId} csrfToken={controller.csrfToken} /> : null}
     </Stack>
   )
 }

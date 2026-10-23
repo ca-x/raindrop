@@ -1,7 +1,7 @@
 use crate::content::jobs::ContentJobOperation;
 
 pub const OFFICIAL_AI_PLUGIN_KEY: &str = "raindrop.ai-content";
-pub const OFFICIAL_AI_ABI_VERSION: &str = "raindrop:content-plugin@1.0.0";
+pub const OFFICIAL_AI_ABI_VERSION: &str = raindrop_ai_content::ABI;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct OfficialAiOperationContract {

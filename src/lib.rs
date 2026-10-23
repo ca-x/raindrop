@@ -12,5 +12,6 @@ pub mod plugins;
 pub mod preferences;
 pub mod realtime;
 pub mod setup;
+pub mod tambo;
 pub mod translation;
 pub mod web;

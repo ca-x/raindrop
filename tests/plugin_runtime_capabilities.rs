@@ -714,18 +714,18 @@ async fn mcp_session_times_out_validates_results_and_defaults_to_denied() {
 }
 
 #[tokio::test]
-async fn generated_host_traits_delegate_to_the_same_capability_session() {
+async fn native_host_requests_delegate_to_the_same_capability_session() {
     let ai_broker = Arc::new(RecordingAiBroker::success());
     let mcp_broker = Arc::new(RecordingMcpBroker::success());
     let mut session =
         CapabilitySession::new(session_config(), ai_broker.clone(), mcp_broker.clone())
             .expect("valid host session should construct");
 
-    host_ai::Host::generate_structured(&mut session, ai_request(1))
+    CapabilitySession::generate_structured(&mut session, ai_request(1))
         .await
         .expect("generated AI host call should not trap")
         .expect("generated AI host call should delegate");
-    host_mcp::Host::call_tool(&mut session, mcp_request())
+    CapabilitySession::call_tool(&mut session, mcp_request())
         .await
         .expect("generated MCP host call should not trap")
         .expect("generated MCP host call should delegate");

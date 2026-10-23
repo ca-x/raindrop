@@ -2,6 +2,14 @@
 
 Raindrop 是使用 Rust、Axum、SeaORM 和 React 构建的自托管 RSS 阅读器。它提供安全的 Feed 抓取与正文清洗、分类管理、未读与收藏状态、Feed 内搜索、批量已读、键盘导航、响应式阅读界面，以及 SQLite、PostgreSQL、MySQL 三种数据库支持。生产 Web 界面会嵌入单个 Rust 可执行文件。
 
+## v0.5.0
+
+- 官方 AI 插件改为 Rust 原生 crate，随 Cargo 自动构建并静态集成，由 Rutis 管理依赖、启停与取消；不再需要 WASM target 或额外运行时。
+- 升级保持插件 installation ID、用户配置、授权、KV 与任务/结果历史；交互开关存入用户隔离的数据库，带 schema 版本与修订号，关闭、重启和升级均不重置。
+- 可选接入自托管 Tambo，默认关闭；在阅读侧栏按需加载对话、要点卡片与折叠问答，发送前明确披露文章上下文与目的地。
+- Tambo 请求经同源鉴权代理，服务端绑定当前用户、隔离项目密钥，保留 CSRF、并发与流大小限制；不可用时不影响阅读、摘要和翻译。
+- 原生官方插件属于可信代码，不提供 WASM 级沙箱；保留 broker 授权、预算、截止时间和输出校验，不开放第三方原生代码加载。
+
 ## v0.4.22
 
 - AI 接入改为「连接服务 → 选择模型」渐进式设置，保留已有 Provider 的直接编辑；插件页提示可选能力与下一步。
@@ -215,12 +223,29 @@ Raindrop 是使用 Rust、Axum、SeaORM 和 React 构建的自托管 RSS 阅读�
   <img src="docs/assets/screenshots/reader-mobile.png" width="390" alt="Raindrop 移动端文章阅读视图">
 </p>
 
-当前 binary 会内嵌、验签并编译官方 `raindrop.ai-content@1.0.0` Wasm Component。完成设置后，进程会把该 installation 幂等同步到数据库。SQLite 和交互式设置会在数据目录中创建持久化 `provider-secret.key`；显式配置 `RAINDROP_PROVIDER_SECRET_KEYS` 时始终优先使用配置的可轮换 keyring。用户可以在“设置 > 插件”中管理 Anthropic Messages-compatible、OpenAI Responses、OpenAI Chat Completions-compatible 和 Google Gemini Provider，AI Assistant 负责摘要与归纳，独立翻译插件负责 OpenAI 或 DeepLX 全文翻译与查词。Provider Credential 和 DeepLX API Key 均只写入、按用户加密保存，不会从 API 或界面回读；摘要与译文都不替换原文，关闭、切换或执行失败不会阻塞阅读。自动入队、Feed 生命周期投递、MCP transport 和第三方插件分发仍是后续工作。
+当前 binary 会随 Cargo 自动构建并静态链接官方 Rust 插件 `raindrop.ai-content@1.0.0`，由 Rutis 管理类型化服务与生命周期，并验签内嵌的构建输入清单。完成设置后，进程会把 installation 幂等同步到数据库；旧 installation 原地更新 ABI 与构建摘要，用户配置、授权、KV 和已有结果不会被删除。插件属于可信原生代码，不是隔离沙箱；不支持第三方动态库加载。SQLite 和交互式设置会在数据目录中创建持久化 `provider-secret.key`；显式配置 `RAINDROP_PROVIDER_SECRET_KEYS` 时始终优先使用配置的可轮换 keyring。用户可以在“设置 > 插件”中管理 Anthropic Messages-compatible、OpenAI Responses、OpenAI Chat Completions-compatible 和 Google Gemini Provider，AI Assistant 负责摘要与归纳，独立翻译插件负责 OpenAI 或 DeepLX 全文翻译与查词。Provider Credential 和 DeepLX API Key 均只写入、按用户加密保存，不会从 API 或界面回读；摘要与译文都不替换原文，关闭、切换或执行失败不会阻塞阅读。自动入队、Feed 生命周期投递、MCP transport 和第三方插件分发仍是后续工作。
+
+### 可选 Tambo 交互阅读
+
+默认不连接 Tambo，也不加载其 SDK。管理员先部署支持 v1 API 的自托管 Tambo，并在其中独立配置模型和项目密钥，然后为 Raindrop 配置：
+
+```bash
+RAINDROP_TAMBO_URL=http://tambo:3001/api
+RAINDROP_TAMBO_API_KEY=your-self-hosted-project-key
+```
+
+两项必须同时设置，也可在 `config.toml` 中使用 `tambo_url`、`tambo_api_key`。环境变量优先；URL 不能带凭据、query 或 fragment。项目密钥只留在服务端，浏览器通过同源会话代理访问；现有 Provider 密钥不会复制给 Tambo。保持现有 `connect-src 'self'`，无需放宽 CSP。
+
+用户在“设置 > 插件 > AI Assistant”中启用“交互阅读”，打开文章侧栏后还需点击“开始对话”。只有发送消息时才向已披露的服务提交当前文章标题和最多 12,000 字符正文，不提供其他文章、账户数据或工具执行权限。模型只能输出文本和预先注册的安全卡片，不执行 HTML 或模型代码。停止、关闭或切换文章会取消当前交互；正常阅读、摘要和翻译独立运行。
+
+开关由后端保存在现有 `plugin_kv`，按 installation 与用户隔离，文档带 `schemaVersion: 1`，保存时使用修订号 CAS 防止并发覆盖。关闭功能、停用插件、重启或更新均不删除配置，Tambo 服务暂时移除后仍保留 opt-in；更改摘要设置不会覆盖交互开关。新 ABI/构建摘要会使旧 invocation snapshot 与结果缓存过期，但不删除原有任务和结果历史。
+
+备份插件配置需要备份 Raindrop 数据库；Provider 密钥还需要原有 keyring 或 `provider-secret.key`。现有 OPML 导出/备份只覆盖订阅，不包含插件配置。会话历史位于自托管 Tambo，需单独备份其数据库。部署前请查阅 Tambo 官方自托管指南，不依赖其托管云服务。
 
 ## 环境要求
 
 - Rust 1.94.0，仓库中的 `rust-toolchain.toml` 会选择该版本。
-- `wasm32-unknown-unknown` target；仓库工具链文件、CI 和 Docker builder 会自动安装。
+- 原生插件在同一 workspace 中构建，无需 WASM target、Go 编译器或独立插件进程。
 - Node.js 26.4.0 和 npm 12.0.1。
 
 仓库提交了 `Cargo.lock` 与 `web/package-lock.json`。安装前端依赖时禁用依赖脚本，并使用 `npm ci` 保持锁文件不变。
