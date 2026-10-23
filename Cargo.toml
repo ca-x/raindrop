@@ -29,7 +29,7 @@ dlx = { version = "3", git = "https://github.com/hominsu/deeplx-rs", rev = "0305
 encoding_rs = "=0.8.35"
 feedparser-rs = { version = "=0.5.5", default-features = false }
 futures-util = "0.3.32"
-hickory-resolver = { version = "=0.26.1", default-features = false, features = ["system-config", "tokio"] }
+hickory-resolver = { version = "=0.26.2", default-features = false, features = ["system-config", "tokio"] }
 http = { version = "1.4.2", default-features = false }
 html5ever = "=0.39.0"
 httpdate = "1.0.3"

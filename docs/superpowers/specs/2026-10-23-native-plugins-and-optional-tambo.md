@@ -95,3 +95,9 @@ is introduced by this migration.
   extraction configuration is removed because its braces dependency has no patched
   release; the application continues loading its existing static Chinese/English
   catalogs through the unchanged Lingui runtime. No audit gate is weakened.
+- Review of default-branch security alerts also identifies reachable runtime DNS
+  findings. Hickory resolver, network and protocol crates are updated together
+  from 0.26.1 to 0.26.2, with the existing explicit DNS/CNAME and SSRF guards
+  retained. Keep this crate family synchronized in the lockfile: updating only
+  the resolver can retain an incompatible older network error API. The full
+  all-feature Rust regression and warnings-as-errors Clippy pass after the update.
