@@ -132,8 +132,9 @@ async fn ithome_feed_securely_ingests_and_deduplicates() {
         .all(&database)
         .await
         .expect("entry identities should query");
+    let before_identity_set = before_identities.iter().collect::<HashSet<_>>();
     assert_eq!(
-        before_identities.iter().collect::<HashSet<_>>().len(),
+        before_identity_set.len(),
         before_identities.len(),
         "persisted identities must be unique"
     );
@@ -171,17 +172,45 @@ async fn ithome_feed_securely_ingests_and_deduplicates() {
             second.status,
             RefreshStatus::NotModified | RefreshStatus::Success | RefreshStatus::Partial
         ),
-        "second request must be 304 or a deduplicated 200"
-    );
-    assert_eq!(
-        second.new_count, 0,
-        "second request must not duplicate entries"
+        "second request must be 304 or a deduplicated 200: {second:?}"
     );
     let after_count = entry::Entity::find()
         .count(&database)
         .await
         .expect("entry count should query");
-    assert_eq!(after_count, before_count);
+    let after_entries = entry::Entity::find()
+        .select_only()
+        .column(entry::Column::Id)
+        .column(entry::Column::IdentityHash)
+        .into_tuple::<(String, String)>()
+        .all(&database)
+        .await
+        .expect("refreshed entry identities should query");
+    let after_identity_set = after_entries
+        .iter()
+        .map(|(_, identity)| identity)
+        .collect::<HashSet<_>>();
+    let after_ids = after_entries
+        .iter()
+        .map(|(entry_id, _)| entry_id.as_str())
+        .collect::<HashSet<_>>();
+    assert_eq!(after_identity_set.len(), after_entries.len());
+    assert_eq!(after_ids.len(), after_entries.len());
+    assert!(before_identity_set.is_subset(&after_identity_set));
+    assert!(unique_ids.is_subset(&after_ids));
+    let new_identity_count = after_identity_set.difference(&before_identity_set).count();
+    assert_eq!(
+        second.new_count,
+        i32::try_from(new_identity_count).expect("live entry count should fit i32"),
+        "only genuinely new identities may increase the entry count"
+    );
+    assert_eq!(
+        after_count,
+        before_count + u64::try_from(new_identity_count).expect("live entry count should fit u64")
+    );
+    if second.status == RefreshStatus::NotModified {
+        assert_eq!(new_identity_count, 0);
+    }
     assert_eq!(
         execution_counter.count(),
         2,
@@ -189,12 +218,13 @@ async fn ithome_feed_securely_ingests_and_deduplicates() {
     );
 
     eprintln!(
-        "live RSS observation date={} count={} first_status={} second_status={} second_http={:?}",
+        "live RSS observation date={} count={} first_status={} second_status={} second_http={:?} new_on_refresh={}",
         time::OffsetDateTime::now_utc().date(),
         items.len(),
         first.status,
         second.status,
-        second.http_status
+        second.http_status,
+        new_identity_count
     );
 }
 

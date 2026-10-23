@@ -9,6 +9,7 @@
 - [x] Complete full Rust/frontend, production-embedding and real-browser verification.
 - [x] Resolve the development-dependency audit gate with authorized security updates and removal of the unused extraction toolchain; full npm audit and registry signatures pass without weakening CI.
 - [x] Resolve reachable Hickory DNS security alerts with matching resolver/network/protocol patches and full Rust regression verification.
+- [x] Verify live DNS/HTTPS ingestion and repair the smoke's frozen-upstream assumption without weakening identity or request-count assertions.
 - [ ] Review and publish a fresh version/tag without moving historical tags.
 
 # v0.3.5 checklist

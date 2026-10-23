@@ -101,3 +101,6 @@ is introduced by this migration.
   retained. Keep this crate family synchronized in the lockfile: updating only
   the resolver can retain an incompatible older network error API. The full
   all-feature Rust regression and warnings-as-errors Clippy pass after the update.
+- The optional public-network RSS smoke passes with 60 real entries and a 304
+  refresh. It now verifies retained IDs, unique hashes and exact new-identity
+  accounting instead of assuming the upstream cannot publish during cooldown.
