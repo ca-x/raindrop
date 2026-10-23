@@ -21,8 +21,7 @@
     "test:e2e:prepare": "npm run test:embedded && cargo build --release --locked --manifest-path ../Cargo.toml",
     "test:e2e:install-browser": "playwright install chromium",
     "lint": "tsc -b --pretty false",
-    "astryx:check": "node node_modules/@astryxdesign/core/docs.mjs --list --brief",
-    "i18n:extract": "lingui extract"
+    "astryx:check": "node node_modules/@astryxdesign/core/docs.mjs --list --brief"
   },
   "dependencies": {
     "@astryxdesign/core": "0.1.6",
@@ -38,9 +37,6 @@
   },
   "devDependencies": {
     "@astryxdesign/cli": "0.1.6",
-    "@lingui/cli": "6.5.0",
-    "@lingui/conf": "6.5.0",
-    "@lingui/format-po": "6.5.0",
     "@playwright/test": "1.61.1",
     "@testing-library/jest-dom": "6.9.1",
     "@testing-library/react": "16.3.2",
@@ -51,7 +47,7 @@
     "@vitejs/plugin-react": "6.0.3",
     "jsdom": "29.1.1",
     "typescript": "7.0.2",
-    "vite": "8.1.4",
-    "vitest": "4.1.10"
+    "vite": "8.1.6",
+    "vitest": "4.1.12"
   }
 }

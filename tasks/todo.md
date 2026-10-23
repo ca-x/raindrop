@@ -7,7 +7,7 @@
 - [x] Persist per-user interaction settings in revisioned plugin KV, separate from AI config and secrets.
 - [x] Add native cancellation/panic, migration/restart, tenant/CSRF and bounded UI regression tests.
 - [x] Complete full Rust/frontend, production-embedding and real-browser verification.
-- [ ] Resolve the pre-existing development-dependency audit gate before publishing the new tag; do not weaken CI or upgrade unrelated dependencies without authorization.
+- [x] Resolve the development-dependency audit gate with authorized security updates and removal of the unused extraction toolchain; full npm audit and registry signatures pass without weakening CI.
 - [ ] Review and publish a fresh version/tag without moving historical tags.
 
 # v0.3.5 checklist

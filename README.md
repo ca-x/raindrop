@@ -381,6 +381,8 @@ npm --prefix web run dev
 
 打开 `http://127.0.0.1:5173`。Vite 会把 `/api` 请求代理到 `http://127.0.0.1:8080`，setup token 仍由后端终端输出。
 
+中文和英文词条直接维护在 `web/src/shared/i18n/i18n.ts`，由 Lingui 运行时加载；当前不使用 PO catalog、宏提取或编译命令，因此不安装 Lingui CLI 工具链。
+
 ## Production single binary
 
 release build 会在编译时嵌入 `web/dist`。构建完成后，运行环境不再需要 Node.js 或单独的静态文件服务器。

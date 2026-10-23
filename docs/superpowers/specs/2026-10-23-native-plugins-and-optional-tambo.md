@@ -87,10 +87,11 @@ is introduced by this migration.
   restarts against the same SQLite database without Tambo environment settings;
   the existing session still reads `enabled: true`, `revision: 0`, and
   `configured: false`. Temporary review processes are shut down afterward.
-- Production npm dependencies audit clean; 445 registry signatures verify.
-  Full npm audit still reports nine pre-existing development dependency findings
-  (one critical, six high, two moderate). Their affected versions are unchanged
-  from `ab06ef4`; that baseline's CI run `39805296803` also fails specifically
-  at Supply-chain audit / Audit known vulnerabilities. Do not disable this gate
-  or silently include unrelated dependency upgrades. A new release tag remains
-  gated on an authorized resolution.
+- Full npm audit reports zero vulnerabilities, including development dependencies;
+  406 registry signatures and 126 attestations verify. Release preparation found
+  nine pre-existing development dependency findings, which the user authorized
+  fixing before publication. Vite and Vitest receive security patch updates and
+  affected transitive dependencies are refreshed. The unused Lingui CLI/PO
+  extraction configuration is removed because its braces dependency has no patched
+  release; the application continues loading its existing static Chinese/English
+  catalogs through the unchanged Lingui runtime. No audit gate is weakened.
