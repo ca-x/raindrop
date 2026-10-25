@@ -130,7 +130,9 @@ fn is_api_path(path: &str) -> bool {
 
 #[cfg(raindrop_embedded_web)]
 fn is_asset_path(path: &str) -> bool {
-    path.starts_with("/assets/") || path.starts_with("/brand/") || path == "/favicon.ico"
+    path.starts_with("/assets/")
+        || path.starts_with("/brand/")
+        || matches!(path, "/favicon.ico" | "/theme-bootstrap.js")
 }
 
 fn response(
@@ -200,7 +202,9 @@ fn embedded_asset(method: Method, path: &str) -> Response {
     representation_response(
         StatusCode::OK,
         &content_type,
-        if is_content_hashed_asset(key) {
+        if key == "theme-bootstrap.js" {
+            HTML_CACHE_CONTROL
+        } else if is_content_hashed_asset(key) {
             IMMUTABLE_CACHE_CONTROL
         } else {
             SHORT_ASSET_CACHE_CONTROL

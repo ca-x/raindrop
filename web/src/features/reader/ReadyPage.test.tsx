@@ -209,6 +209,8 @@ describe("ReadyPage lifecycle", () => {
       readingFontFamily: "SANS",
       readingCustomFontId: null,
       readingColorScheme: "SEPIA",
+      interfaceBlur: true,
+      interfaceShadows: true,
       linkOpenMode: "CURRENT_TAB",
     }))
     await waitFor(() => {
@@ -311,6 +313,8 @@ function responseBody(url: string): unknown {
       readingFontFamily: "SERIF",
       readingCustomFontId: null,
       readingColorScheme: "AUTO",
+      interfaceBlur: true,
+      interfaceShadows: true,
       linkOpenMode: "NEW_TAB",
     }
   }

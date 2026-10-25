@@ -31,6 +31,12 @@
 
 `RUST_LOG` 由 `tracing` 读取，不属于 `RAINDROP_*` 配置。未设置时使用 `raindrop=info,tower_http=info`。
 
+## 可选交互助手的前端依赖
+
+Web 锁定 Zod 4.6.7 和 AG-UI Core 1.0.3，避免旧版 Zod 的受限集合内存耗尽问题。Tambo 1.4.0 仍声明旧的 AG-UI 版本范围，因此通过 npm override 统一到已验证的新版本；不能仅覆盖 Zod 的主版本来强行运行依赖旧 `z.record` API 的 AG-UI。
+
+`agUiCompatibility.ts` 在加载可选 Tambo SDK 前补齐其仍引用的五个 `THINKING_*` 事件名称，不引入旧验证器。Vite 将 SDK 的 CommonJS 引用和应用的 ESM 引用统一到同一入口，避免修补了一个枚举实例而 SDK 仍读到另一个实例。升级 SDK 或 AG-UI 时须同时验证兼容事件、阅读卡片的 JSON Schema，以及真实 SDK 的流式交互 E2E；上游不再引用这些事件后可移除桥接。不要关闭 npm audit/signature 门禁，或用强制自动修复代替兼容性验证。
+
 ## 构建期官方插件签名
 
 以下变量只由 Cargo build script、binary 发布 workflow 和 Docker builder 消费，不属于 `RuntimeConfig`，部署容器或 binary 时设置它们没有运行时效果：

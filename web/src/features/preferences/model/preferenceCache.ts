@@ -5,8 +5,8 @@ import {
 
 export const PREFERENCE_HINT_KEY = "raindrop.preferences.v1"
 
-interface PreferenceHintV3 {
-  schemaVersion: 3
+interface PreferenceHintV4 {
+  schemaVersion: 4
   preferences: UserPreferences
 }
 
@@ -37,7 +37,7 @@ export function readPreferenceHint(): UserPreferences | null {
 
 export function writePreferenceHint(preferences: UserPreferences): void {
   if (!isUserPreferences(preferences)) return
-  const hint: PreferenceHintV3 = { schemaVersion: 3, preferences }
+  const hint: PreferenceHintV4 = { schemaVersion: 4, preferences }
   try {
     localStorage.setItem(PREFERENCE_HINT_KEY, JSON.stringify(hint))
   } catch {
@@ -53,16 +53,29 @@ export function clearPreferenceHint(): void {
   }
 }
 
-function isPreferenceHint(value: unknown): value is PreferenceHintV3 {
+function isPreferenceHint(value: unknown): value is PreferenceHintV4 {
   return (
     isRecord(value) &&
     hasOnlyKeys(value, ["schemaVersion", "preferences"]) &&
-    value.schemaVersion === 3 &&
+    value.schemaVersion === 4 &&
     isUserPreferences(value.preferences)
   )
 }
 
 function migrateLegacyHint(value: unknown): UserPreferences | null {
+  if (
+    isRecord(value) &&
+    hasOnlyKeys(value, ["schemaVersion", "preferences"]) &&
+    value.schemaVersion === 3 &&
+    isRecord(value.preferences) &&
+    hasOnlyKeys(value.preferences, [
+      "locale", "themeMode", "layoutDensity", "readingFontScale",
+      "readingFontFamily", "readingCustomFontId", "readingColorScheme", "linkOpenMode",
+    ])
+  ) {
+    const candidate = { ...value.preferences, interfaceBlur: true, interfaceShadows: true }
+    return isUserPreferences(candidate) ? candidate : null
+  }
   if (
     isRecord(value) &&
     hasOnlyKeys(value, ["schemaVersion", "preferences"]) &&
@@ -78,7 +91,10 @@ function migrateLegacyHint(value: unknown): UserPreferences | null {
       "linkOpenMode",
     ])
   ) {
-    const candidate = { ...value.preferences, readingCustomFontId: null }
+    const candidate = {
+      ...value.preferences, readingCustomFontId: null,
+      interfaceBlur: true, interfaceShadows: true,
+    }
     return isUserPreferences(candidate) ? candidate : null
   }
   if (
@@ -106,6 +122,8 @@ function migrateLegacyHint(value: unknown): UserPreferences | null {
   return {
     locale: value.preferences.locale as UserPreferences["locale"],
     themeMode: value.preferences.themeMode as UserPreferences["themeMode"],
+    interfaceBlur: true,
+    interfaceShadows: true,
     layoutDensity:
       value.preferences.layoutDensity as UserPreferences["layoutDensity"],
     readingFontScale: value.preferences.readingFontScale as number,

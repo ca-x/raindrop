@@ -1,6 +1,6 @@
 {
   "name": "raindrop-web",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "type": "module",
   "packageManager": "npm@12.0.1",
@@ -24,6 +24,7 @@
     "astryx:check": "node node_modules/@astryxdesign/core/docs.mjs --list --brief"
   },
   "dependencies": {
+    "@ag-ui/core": "1.0.3",
     "@astryxdesign/core": "0.1.6",
     "@astryxdesign/theme-neutral": "0.1.6",
     "@lingui/core": "6.5.0",
@@ -33,7 +34,10 @@
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "react-router": "8.3.0",
-    "zod": "3.25.76"
+    "zod": "4.6.7"
+  },
+  "overrides": {
+    "@ag-ui/core": "$@ag-ui/core"
   },
   "devDependencies": {
     "@astryxdesign/cli": "0.1.6",

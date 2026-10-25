@@ -94,6 +94,8 @@ async fn partial_updates_preserve_every_untouched_field() {
             UpdateUserPreferences {
                 locale: Some(Locale::En),
                 theme_mode: Some(ThemeMode::Light),
+                interface_blur: Some(false),
+                interface_shadows: Some(false),
                 layout_density: Some(LayoutDensity::Spacious),
                 reading_font_scale: Some(120),
                 reading_font_family: Some(ReadingFontFamily::Sans),
@@ -106,6 +108,8 @@ async fn partial_updates_preserve_every_untouched_field() {
         .expect("complete preference patch should update");
     assert_eq!(complete.locale, Locale::En);
     assert_eq!(complete.theme_mode, ThemeMode::Light);
+    assert!(!complete.interface_blur);
+    assert!(!complete.interface_shadows);
     assert_eq!(complete.layout_density, LayoutDensity::Spacious);
     assert_eq!(complete.reading_font_scale, 120);
     assert_eq!(complete.reading_font_family, ReadingFontFamily::Sans);
@@ -249,6 +253,8 @@ async fn corrupt_storage_is_redacted_and_fails_closed() {
         user_id: Set(USER_A_ID.to_owned()),
         locale: Set("en".to_owned()),
         theme_mode: Set("SECRET-BROKEN-THEME".to_owned()),
+        interface_blur: Set(true),
+        interface_shadows: Set(true),
         layout_density: Set("BALANCED".to_owned()),
         reading_font_scale: Set(100),
         reading_font_family: Set("SERIF".to_owned()),

@@ -1,5 +1,6 @@
 @layer raindrop-theme {
-  [data-astryx-theme="neutral"] {
+  [data-astryx-theme="neutral"],
+  .reader-appearance-preview {
     --font-family-body: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
       "Noto Sans SC", sans-serif;
     --font-family-heading: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC",
@@ -36,6 +37,12 @@
     --shadow-control: 0 1px 2px color-mix(in oklch, var(--shadow-color) 68%, transparent),
       0 4px 10px -8px var(--shadow-color);
     --shadow-control-pressed: inset 0 1px 2px color-mix(in oklch, var(--shadow-color) 82%, transparent);
+    --shadow-floating: 0 20px 56px -18px var(--shadow-color), 0 2px 8px -4px var(--shadow-color);
+    --shadow-auth: 0 18px 54px -34px var(--shadow-color);
+    --shadow-selection: 0 1px 2px var(--shadow-color), 0 6px 18px var(--shadow-color);
+    --shadow-drop: 0 2px 12px var(--shadow-color);
+    --surface-overlay-background: var(--color-background-surface);
+    --surface-overlay-filter: none;
     --scrollbar-thumb: color-mix(in oklch, var(--color-text-secondary) 28%, transparent);
     --scrollbar-thumb-hover: color-mix(in oklch, var(--color-text-secondary) 52%, transparent);
     --scrollbar-thumb-active: color-mix(in oklch, var(--color-text-secondary) 68%, transparent);
@@ -48,6 +55,46 @@
     --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
     --ease-standard: cubic-bezier(0.32, 0.72, 0, 1);
   }
+
+  @supports (backdrop-filter: blur(1px)) {
+    [data-astryx-theme="neutral"],
+    .reader-appearance-preview {
+      --surface-overlay-background: color-mix(in oklch, var(--color-background-surface) 88%, transparent);
+      --surface-overlay-filter: blur(20px) saturate(1.18);
+    }
+  }
+
+  html[data-raindrop-blur="false"],
+  html[data-raindrop-blur="false"] [data-astryx-theme="neutral"],
+  .reader-appearance-preview[data-raindrop-blur="false"] {
+    --surface-overlay-background: var(--color-background-surface);
+    --surface-overlay-filter: none;
+  }
+
+  html[data-raindrop-shadows="false"],
+  html[data-raindrop-shadows="false"] [data-astryx-theme="neutral"],
+  .reader-appearance-preview[data-raindrop-shadows="false"] {
+    --shadow-color: transparent;
+    --shadow-low: 0 0 0 transparent;
+    --shadow-med: 0 0 0 transparent;
+    --shadow-high: 0 0 0 transparent;
+  }
+
+  @media (prefers-reduced-transparency: reduce) {
+    [data-astryx-theme="neutral"],
+    .reader-appearance-preview {
+      --surface-overlay-background: var(--color-background-surface);
+      --surface-overlay-filter: none;
+    }
+  }
+}
+
+.astryx-dialog,
+.astryx-popover,
+.astryx-menu {
+  border: 1px solid var(--color-border);
+  background: var(--surface-overlay-background);
+  backdrop-filter: var(--surface-overlay-filter);
 }
 
 .astryx-button[data-variant="primary"]:not(:disabled, [aria-disabled="true"]),
@@ -100,7 +147,7 @@ body {
 }
 
 .raindrop-auth-card {
-  box-shadow: 0 18px 54px -34px color-mix(in oklch, var(--color-text-primary) 35%, transparent);
+  box-shadow: var(--shadow-auth);
 }
 
 .raindrop-reading-heading {
@@ -133,7 +180,7 @@ body {
 
 @media (hover: hover) and (pointer: fine) {
   .raindrop-auth-card:hover {
-    box-shadow: 0 20px 58px -34px color-mix(in oklch, var(--color-text-primary) 40%, transparent);
+    box-shadow: var(--shadow-auth);
   }
 }
 

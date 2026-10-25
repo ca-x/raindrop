@@ -72,6 +72,8 @@ impl PreferenceRepository {
                     let mut active = stored.into_active_model();
                     active.locale = Set(updated.locale.as_str().to_owned());
                     active.theme_mode = Set(updated.theme_mode.as_str().to_owned());
+                    active.interface_blur = Set(updated.interface_blur);
+                    active.interface_shadows = Set(updated.interface_shadows);
                     active.layout_density = Set(updated.layout_density.as_str().to_owned());
                     active.reading_font_scale = Set(updated.reading_font_scale);
                     active.reading_font_family =
@@ -88,6 +90,8 @@ impl PreferenceRepository {
                         user_id: Set(user_id.to_owned()),
                         locale: Set(updated.locale.as_str().to_owned()),
                         theme_mode: Set(updated.theme_mode.as_str().to_owned()),
+                        interface_blur: Set(updated.interface_blur),
+                        interface_shadows: Set(updated.interface_shadows),
                         layout_density: Set(updated.layout_density.as_str().to_owned()),
                         reading_font_scale: Set(updated.reading_font_scale),
                         reading_font_family: Set(updated.reading_font_family.as_str().to_owned()),

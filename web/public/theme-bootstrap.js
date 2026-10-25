@@ -18,6 +18,8 @@
       root.setAttribute("data-theme", preferences.themeMode.toLowerCase())
     }
     root.lang = preferences.locale
+    root.dataset.raindropBlur = String(preferences.interfaceBlur)
+    root.dataset.raindropShadows = String(preferences.interfaceShadows)
     root.dataset.raindropDensity = preferences.layoutDensity.toLowerCase()
     root.style.setProperty(
       "--raindrop-reading-scale",
@@ -44,15 +46,23 @@
 
   function preferencesFromHint(value) {
     if (!hasOnlyKeys(value, ["schemaVersion", "preferences"])) return null
-    if (value.schemaVersion === 3 && isPreferences(value.preferences)) {
+    if (value.schemaVersion === 4 && isPreferences(value.preferences)) {
       return value.preferences
     }
+    if (value.schemaVersion === 3 && isV3Preferences(value.preferences)) {
+      return { ...value.preferences, interfaceBlur: true, interfaceShadows: true }
+    }
     if (value.schemaVersion === 2 && isV2Preferences(value.preferences)) {
-      return { ...value.preferences, readingCustomFontId: null }
+      return {
+        ...value.preferences, readingCustomFontId: null,
+        interfaceBlur: true, interfaceShadows: true,
+      }
     }
     if (value.schemaVersion === 1 && isLegacyPreferences(value.preferences)) {
       return {
         ...value.preferences,
+        interfaceBlur: true,
+        interfaceShadows: true,
         readingFontFamily: "SERIF",
         readingCustomFontId: null,
         readingColorScheme: "AUTO",
@@ -67,6 +77,8 @@
       hasOnlyKeys(value, [
         "locale",
         "themeMode",
+        "interfaceBlur",
+        "interfaceShadows",
         "layoutDensity",
         "readingFontScale",
         "readingFontFamily",
@@ -76,6 +88,8 @@
       ]) &&
       ["zh-CN", "en"].includes(value.locale) &&
       ["SYSTEM", "LIGHT", "DARK"].includes(value.themeMode) &&
+      typeof value.interfaceBlur === "boolean" &&
+      typeof value.interfaceShadows === "boolean" &&
       ["COMPACT", "BALANCED", "SPACIOUS"].includes(value.layoutDensity) &&
       Number.isInteger(value.readingFontScale) &&
       value.readingFontScale >= 85 &&
@@ -98,7 +112,20 @@
         "readingColorScheme",
         "linkOpenMode",
       ]) &&
-      isPreferences({ ...value, readingCustomFontId: null })
+      isPreferences({
+        ...value, readingCustomFontId: null,
+        interfaceBlur: true, interfaceShadows: true,
+      })
+    )
+  }
+
+  function isV3Preferences(value) {
+    return (
+      hasOnlyKeys(value, [
+        "locale", "themeMode", "layoutDensity", "readingFontScale",
+        "readingFontFamily", "readingCustomFontId", "readingColorScheme", "linkOpenMode",
+      ]) &&
+      isPreferences({ ...value, interfaceBlur: true, interfaceShadows: true })
     )
   }
 

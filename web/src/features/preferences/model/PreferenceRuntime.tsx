@@ -43,6 +43,8 @@ export function PreferenceRuntimeProvider({ children }: { children: ReactNode })
 
   useLayoutEffect(() => {
     activateLocale(preferences.locale)
+    document.documentElement.dataset.raindropBlur = String(preferences.interfaceBlur)
+    document.documentElement.dataset.raindropShadows = String(preferences.interfaceShadows)
     document.documentElement.dataset.raindropDensity = toDensityAttribute(
       preferences.layoutDensity,
     )

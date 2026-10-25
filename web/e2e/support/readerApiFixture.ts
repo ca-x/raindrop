@@ -247,6 +247,8 @@ async function installPreferenceFixture(page: Page): Promise<ReaderPreferenceFix
     readingFontFamily: "SERIF",
     readingCustomFontId: null,
     readingColorScheme: "AUTO",
+    interfaceBlur: true,
+    interfaceShadows: true,
     linkOpenMode: "NEW_TAB",
   }
   let shouldFailNextPatch = false

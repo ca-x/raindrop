@@ -6,7 +6,8 @@ use raindrop::db::{
     migrate, rollback,
 };
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, DatabaseConnection, EntityTrait, PaginatorTrait,
+    ActiveModelTrait, ActiveValue::Set, ConnectionTrait, DatabaseConnection, EntityTrait,
+    PaginatorTrait,
 };
 use sea_orm_migration::SchemaManager;
 use secrecy::SecretString;
@@ -88,6 +89,31 @@ async fn preference_schema_contract(database_url: SecretString) {
     .insert(&database)
     .await
     .expect("valid preferences should insert");
+    for statement in [
+        "ALTER TABLE user_preferences DROP COLUMN interface_blur",
+        "ALTER TABLE user_preferences DROP COLUMN interface_shadows",
+        "DELETE FROM seaql_migrations WHERE version = 'appearance_preferences'",
+    ] {
+        database
+            .execute_unprepared(statement)
+            .await
+            .expect("pre-appearance schema should be restored");
+    }
+    migrate(&database)
+        .await
+        .expect("existing preferences should upgrade");
+    migrate(&database)
+        .await
+        .expect("appearance migration should be idempotent");
+    let upgraded = user_preference::Entity::find_by_id(USER_A_ID)
+        .one(&database)
+        .await
+        .expect("upgraded preferences should query")
+        .expect("existing row should remain");
+    assert!(upgraded.interface_blur);
+    assert!(upgraded.interface_shadows);
+    assert_eq!(upgraded.theme_mode, "SYSTEM");
+    assert_eq!(upgraded.reading_color_scheme, "AUTO");
     assert!(
         preference_model(
             USER_A_ID,
@@ -186,6 +212,8 @@ async fn assert_schema(database: &DatabaseConnection) {
         "user_id",
         "locale",
         "theme_mode",
+        "interface_blur",
+        "interface_shadows",
         "layout_density",
         "reading_font_scale",
         "reading_font_family",
@@ -245,6 +273,8 @@ fn preference_model(
         user_id: Set(user_id.to_owned()),
         locale: Set(locale.to_owned()),
         theme_mode: Set(theme_mode.to_owned()),
+        interface_blur: Set(true),
+        interface_shadows: Set(true),
         layout_density: Set(layout_density.to_owned()),
         reading_font_scale: Set(reading_font_scale),
         reading_font_family: Set(reading_font_family.to_owned()),

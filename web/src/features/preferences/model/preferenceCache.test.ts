@@ -16,6 +16,8 @@ const preferences: UserPreferences = {
   readingFontFamily: "SANS",
   readingCustomFontId: null,
   readingColorScheme: "SEPIA",
+  interfaceBlur: true,
+  interfaceShadows: true,
   linkOpenMode: "CURRENT_TAB",
 }
 
@@ -26,7 +28,7 @@ describe("preference presentation hint", () => {
     writePreferenceHint(preferences)
 
     expect(JSON.parse(localStorage.getItem(PREFERENCE_HINT_KEY) ?? "null")).toEqual({
-      schemaVersion: 3,
+      schemaVersion: 4,
       preferences,
     })
     expect(readPreferenceHint()).toEqual(preferences)
@@ -37,7 +39,7 @@ describe("preference presentation hint", () => {
     ["invalid JSON", "{"],
     ["array", JSON.stringify([])],
     ["missing version", JSON.stringify({ preferences })],
-    ["wrong version", JSON.stringify({ schemaVersion: 4, preferences })],
+    ["wrong version", JSON.stringify({ schemaVersion: 5, preferences })],
     [
       "unknown top-level field",
       JSON.stringify({ schemaVersion: 2, preferences, csrfToken: "must-not-persist" }),
@@ -96,10 +98,12 @@ describe("preference presentation hint", () => {
       readingFontFamily: "SERIF",
       readingCustomFontId: null,
       readingColorScheme: "AUTO",
+      interfaceBlur: true,
+      interfaceShadows: true,
       linkOpenMode: "NEW_TAB",
     })
     expect(JSON.parse(localStorage.getItem(PREFERENCE_HINT_KEY) ?? "null")).toEqual({
-      schemaVersion: 3,
+      schemaVersion: 4,
       preferences: expect.objectContaining({ readingFontFamily: "SERIF" }),
     })
   })
@@ -114,6 +118,26 @@ describe("preference presentation hint", () => {
       throw new DOMException("full", "QuotaExceededError")
     })
     expect(() => writePreferenceHint(preferences)).not.toThrow()
+  })
+
+  it.each([2, 3])("migrates v%s without discarding reading or theme choices", (schemaVersion) => {
+    const { interfaceBlur: _blur, interfaceShadows: _shadows, ...previous } = preferences
+    const legacy = schemaVersion === 2
+      ? Object.fromEntries(Object.entries(previous).filter(([key]) => key !== "readingCustomFontId"))
+      : previous
+    localStorage.setItem(PREFERENCE_HINT_KEY, JSON.stringify({ schemaVersion, preferences: legacy }))
+    expect(readPreferenceHint()).toEqual(preferences)
+    expect(JSON.parse(localStorage.getItem(PREFERENCE_HINT_KEY) ?? "null").schemaVersion).toBe(4)
+  })
+
+  it("preserves independently disabled effects and rejects incorrectly typed flags", () => {
+    const disabled = { ...preferences, interfaceBlur: false, interfaceShadows: true }
+    writePreferenceHint(disabled)
+    expect(readPreferenceHint()).toEqual(disabled)
+    localStorage.setItem(PREFERENCE_HINT_KEY, JSON.stringify({
+      schemaVersion: 4, preferences: { ...preferences, interfaceShadows: null },
+    }))
+    expect(readPreferenceHint()).toBeNull()
   })
 
   it("clears the presentation hint", () => {

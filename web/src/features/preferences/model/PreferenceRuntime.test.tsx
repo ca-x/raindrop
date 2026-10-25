@@ -20,6 +20,8 @@ const appliedPreferences: UserPreferences = {
   readingFontFamily: "SANS",
   readingCustomFontId: null,
   readingColorScheme: "SEPIA",
+  interfaceBlur: false,
+  interfaceShadows: false,
   linkOpenMode: "CURRENT_TAB",
 }
 
@@ -29,6 +31,8 @@ beforeEach(() => {
   document.documentElement.removeAttribute("data-raindrop-density")
   document.documentElement.removeAttribute("data-raindrop-reading-font")
   document.documentElement.removeAttribute("data-raindrop-reading-color")
+  document.documentElement.removeAttribute("data-raindrop-blur")
+  document.documentElement.removeAttribute("data-raindrop-shadows")
   document.documentElement.style.removeProperty("--raindrop-reading-scale")
   Object.defineProperty(navigator, "language", {
     configurable: true,
@@ -49,6 +53,8 @@ describe("PreferenceRuntime", () => {
       readingFontFamily: "SERIF",
       readingCustomFontId: null,
       readingColorScheme: "AUTO",
+      interfaceBlur: true,
+      interfaceShadows: true,
       linkOpenMode: "NEW_TAB",
     })
     await expectPresentation({
@@ -98,7 +104,7 @@ describe("PreferenceRuntime", () => {
       color: "sepia",
     })
     expect(JSON.parse(localStorage.getItem(PREFERENCE_HINT_KEY) ?? "null")).toEqual({
-      schemaVersion: 3,
+      schemaVersion: 4,
       preferences: appliedPreferences,
     })
   })
@@ -135,6 +141,32 @@ describe("theme-bootstrap.js", () => {
     ).toBe("130%")
     expect(document.documentElement.dataset.raindropReadingFont).toBe("sans")
     expect(document.documentElement.dataset.raindropReadingColor).toBe("sepia")
+    expect(document.documentElement.dataset.raindropBlur).toBe("false")
+    expect(document.documentElement.dataset.raindropShadows).toBe("false")
+  })
+
+  it.each([1, 2, 3])("keeps pre-paint defaults compatible with a v%s hint", (schemaVersion) => {
+    const { interfaceBlur: _blur, interfaceShadows: _shadows, ...previous } = appliedPreferences
+    const legacy = schemaVersion === 1
+      ? { locale: previous.locale, themeMode: previous.themeMode, layoutDensity: previous.layoutDensity, readingFontScale: previous.readingFontScale }
+      : schemaVersion === 2
+        ? Object.fromEntries(Object.entries(previous).filter(([key]) => key !== "readingCustomFontId"))
+        : previous
+    localStorage.setItem(PREFERENCE_HINT_KEY, JSON.stringify({ schemaVersion, preferences: legacy }))
+    window.eval(source())
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark")
+    expect(document.documentElement.dataset.raindropBlur).toBe("true")
+    expect(document.documentElement.dataset.raindropShadows).toBe("true")
+    expect(document.documentElement.dataset.raindropReadingColor).toBe(schemaVersion === 1 ? "auto" : "sepia")
+  })
+
+  it("rejects non-boolean effects before painting", () => {
+    localStorage.setItem(PREFERENCE_HINT_KEY, JSON.stringify({
+      schemaVersion: 4, preferences: { ...appliedPreferences, interfaceBlur: "false" },
+    }))
+    window.eval(source())
+    expect(localStorage.getItem(PREFERENCE_HINT_KEY)).toBeNull()
+    expect(document.documentElement.dataset.raindropBlur).toBeUndefined()
   })
 
   it("removes a malformed hint without applying any of its values", () => {

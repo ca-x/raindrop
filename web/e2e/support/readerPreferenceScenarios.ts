@@ -27,6 +27,8 @@ export async function verifyWidePreferences(
     readingFontFamily: "SANS",
     readingCustomFontId: null,
     readingColorScheme: "SEPIA",
+    interfaceBlur: true,
+    interfaceShadows: true,
     linkOpenMode: "CURRENT_TAB",
   })
   await dialog.locator('input[type="file"][accept*=".woff2"]').setInputFiles({
@@ -46,6 +48,8 @@ export async function verifyWidePreferences(
     readingFontFamily: "SANS",
     readingCustomFontId: null,
     readingColorScheme: "SEPIA",
+    interfaceBlur: true,
+    interfaceShadows: true,
     linkOpenMode: "CURRENT_TAB",
   })
   await expect(page.getByRole("button", { name: "打开菜单" })).toBeFocused()
@@ -154,6 +158,8 @@ export async function verifyCompactPreferences(
     readingFontFamily: "SERIF",
     readingCustomFontId: null,
     readingColorScheme: "SEPIA",
+    interfaceBlur: true,
+    interfaceShadows: true,
     linkOpenMode: "CURRENT_TAB",
   }
   await choosePreferences(dialog, desired)
@@ -177,8 +183,9 @@ export async function verifyCompactPreferences(
     await expect(dialog.getByRole("radio", { name: "Current page" })).toBeChecked()
     await expect(dialog.getByRole("spinbutton", { name: "Reading size" })).toHaveValue("100")
     await dialog.getByRole("button", { name: "Personal" }).click()
-    await expect(dialog.getByRole("radio", { name: "Dark" })).toBeChecked()
     await expect(dialog.getByRole("radio", { name: "中文" })).toBeChecked()
+    await dialog.getByRole("button", { name: /^Appearance/u }).click()
+    await expect(dialog.getByRole("radio", { name: "Dark" })).toBeChecked()
     await expect(dialog.getByRole("radio", { name: "Spacious" })).toBeChecked()
     await expectPresentation(page, {
       locale: "en",
@@ -188,6 +195,8 @@ export async function verifyCompactPreferences(
       readingFontFamily: "SERIF",
       readingCustomFontId: null,
       readingColorScheme: "AUTO",
+      interfaceBlur: true,
+      interfaceShadows: true,
       linkOpenMode: "NEW_TAB",
     })
     expect(fixture.preferences.current()).toEqual({
@@ -198,6 +207,8 @@ export async function verifyCompactPreferences(
       readingFontFamily: "SERIF",
       readingCustomFontId: null,
       readingColorScheme: "AUTO",
+      interfaceBlur: true,
+      interfaceShadows: true,
       linkOpenMode: "NEW_TAB",
     })
   }
@@ -247,12 +258,14 @@ async function choosePreferences(
   dialog: Locator,
   preferences: UserPreferences,
 ): Promise<void> {
+  await dialog.getByRole("button", { name: /^Appearance/u }).click()
   await dialog.getByRole("radio", { name: themeLabel(preferences.themeMode) }).click()
   await dialog.getByRole("radio", {
-    name: preferences.locale === "zh-CN" ? "中文" : "English",
-  }).click()
-  await dialog.getByRole("radio", {
     name: densityLabel(preferences.layoutDensity),
+  }).click()
+  await dialog.getByRole("button", { name: /^Personal/u }).click()
+  await dialog.getByRole("radio", {
+    name: preferences.locale === "zh-CN" ? "中文" : "English",
   }).click()
   await dialog.getByRole("button", { name: /^(?:Reading\b|阅读)/u }).click()
   await dialog.getByRole("radio", {

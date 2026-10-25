@@ -24,6 +24,8 @@ const preferences = {
   readingFontFamily: "SANS",
   readingCustomFontId: null,
   readingColorScheme: "PAPER",
+  interfaceBlur: true,
+  interfaceShadows: true,
   linkOpenMode: "CURRENT_TAB",
 } as const
 

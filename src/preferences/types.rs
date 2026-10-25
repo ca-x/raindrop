@@ -168,6 +168,8 @@ impl LayoutDensity {
 pub struct UserPreferences {
     pub locale: Locale,
     pub theme_mode: ThemeMode,
+    pub interface_blur: bool,
+    pub interface_shadows: bool,
     pub layout_density: LayoutDensity,
     pub reading_font_scale: i32,
     pub reading_font_family: ReadingFontFamily,
@@ -182,6 +184,8 @@ impl UserPreferences {
         Self {
             locale,
             theme_mode: ThemeMode::System,
+            interface_blur: true,
+            interface_shadows: true,
             layout_density: LayoutDensity::Balanced,
             reading_font_scale: 100,
             reading_font_family: ReadingFontFamily::Serif,
@@ -205,6 +209,8 @@ impl UserPreferences {
         Ok(Self {
             locale: Locale::from_storage(&model.locale)?,
             theme_mode: ThemeMode::from_storage(&model.theme_mode)?,
+            interface_blur: model.interface_blur,
+            interface_shadows: model.interface_shadows,
             layout_density: LayoutDensity::from_storage(&model.layout_density)?,
             reading_font_scale: model.reading_font_scale,
             reading_font_family: ReadingFontFamily::from_storage(&model.reading_font_family)?,
@@ -218,6 +224,8 @@ impl UserPreferences {
         Self {
             locale: patch.locale.unwrap_or(self.locale),
             theme_mode: patch.theme_mode.unwrap_or(self.theme_mode),
+            interface_blur: patch.interface_blur.unwrap_or(self.interface_blur),
+            interface_shadows: patch.interface_shadows.unwrap_or(self.interface_shadows),
             layout_density: patch.layout_density.unwrap_or(self.layout_density),
             reading_font_scale: patch.reading_font_scale.unwrap_or(self.reading_font_scale),
             reading_font_family: patch
@@ -239,6 +247,8 @@ impl UserPreferences {
 pub struct UpdateUserPreferences {
     pub locale: Option<Locale>,
     pub theme_mode: Option<ThemeMode>,
+    pub interface_blur: Option<bool>,
+    pub interface_shadows: Option<bool>,
     pub layout_density: Option<LayoutDensity>,
     pub reading_font_scale: Option<i32>,
     pub reading_font_family: Option<ReadingFontFamily>,
@@ -251,6 +261,8 @@ impl UpdateUserPreferences {
     pub(super) fn validate(&self) -> Result<(), PreferenceError> {
         if self.locale.is_none()
             && self.theme_mode.is_none()
+            && self.interface_blur.is_none()
+            && self.interface_shadows.is_none()
             && self.layout_density.is_none()
             && self.reading_font_scale.is_none()
             && self.reading_font_family.is_none()

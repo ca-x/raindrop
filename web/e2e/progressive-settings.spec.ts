@@ -140,9 +140,13 @@ test("progressive AI setup preserves drafts and stays usable on compact screens"
 test("optional interaction stays lazy, streams through the local SDK endpoint, and restores focus", async ({ page }, testInfo) => {
   testInfo.setTimeout(60_000)
   const pageErrors: string[] = []
+  const consoleErrors: string[] = []
   const sdkLoads: string[] = []
   const requests: string[] = []
   page.on("pageerror", (error) => pageErrors.push(error.message))
+  page.on("console", (message) => {
+    if (message.type() === "error" && message.text().includes("Error:")) consoleErrors.push(message.text())
+  })
   page.on("request", (request) => {
     if (/\/assets\/TamboConversation-/u.test(request.url())) sdkLoads.push(request.url())
   })
@@ -169,6 +173,11 @@ test("optional interaction stays lazy, streams through the local SDK endpoint, a
       expect(body.message.additionalContext.article.text.length).toBeLessThanOrEqual(12000)
       const events = [
         { type: "RUN_STARTED", threadId: "thread_1", runId: "run_1" },
+        { type: "THINKING_START" },
+        { type: "THINKING_TEXT_MESSAGE_START", messageId: "thinking_1" },
+        { type: "THINKING_TEXT_MESSAGE_CONTENT", messageId: "thinking_1", delta: "Reviewing the article." },
+        { type: "THINKING_TEXT_MESSAGE_END", messageId: "thinking_1" },
+        { type: "THINKING_END" },
         { type: "TEXT_MESSAGE_START", messageId: "answer_1", role: "assistant" },
         { type: "TEXT_MESSAGE_CONTENT", messageId: "answer_1", delta: "A streamed reading answer." },
         { type: "TEXT_MESSAGE_END", messageId: "answer_1" },
@@ -205,7 +214,10 @@ test("optional interaction stays lazy, streams through the local SDK endpoint, a
   expect(sdkLoads).toHaveLength(1)
   await composer.fill("Summarize the key points")
   await panel.getByRole("button", { name: "Send", exact: true }).click()
-  await expect(panel.getByText("A streamed reading answer.")).toBeVisible()
+  await expect.poll(async () => ({
+    errors: [...pageErrors, ...consoleErrors],
+    answerVisible: await panel.getByText("A streamed reading answer.").isVisible(),
+  })).toEqual({ errors: [], answerVisible: true })
   const panelBounds = await panel.boundingBox()
   const sendBounds = await panel.getByRole("button", { name: "Send", exact: true }).boundingBox()
   expect(panelBounds).not.toBeNull()

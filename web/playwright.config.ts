@@ -25,7 +25,7 @@ export default defineConfig({
       { width: 360, height: 800 },
     ].map((viewport) => ({
       name: `settings-${viewport.width}x${viewport.height}`,
-      testMatch: /progressive-settings\.spec\.ts/,
+      testMatch: /(?:progressive|appearance)-settings\.spec\.ts/,
       use: { viewport, ...(viewport.width < 720 ? { hasTouch: true, isMobile: true } : {}) },
     })),
     {

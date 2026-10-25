@@ -458,6 +458,8 @@ describe("Reader workspace", () => {
               readingFontFamily: "SERIF",
               readingCustomFontId: null,
               readingColorScheme: "AUTO",
+              interfaceBlur: true,
+              interfaceShadows: true,
               linkOpenMode: "NEW_TAB",
             },
           })}

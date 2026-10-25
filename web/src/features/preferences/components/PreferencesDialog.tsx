@@ -22,6 +22,7 @@ import {
 } from "./AppearancePreferencesForm"
 import { DatabaseSettingsPanel } from "../../database/DatabaseSettingsPanel"
 import { PluginSettingsPanel } from "./PluginSettingsPanel"
+import { InterfacePreferencesForm } from "./InterfacePreferencesForm"
 
 interface PreferencesDialogProps {
   databaseCsrfToken?: string
@@ -50,7 +51,7 @@ interface PreferencesDialogProps {
   onDeleteFont: (fontId: string) => Promise<boolean>
 }
 
-export type PreferencesTab = "personal" | "reading" | "plugins" | "backup" | "database" | "about"
+export type PreferencesTab = "personal" | "appearance" | "reading" | "plugins" | "backup" | "database" | "about"
 
 export function PreferencesDialog(props: PreferencesDialogProps) {
   const { i18n } = useLingui()
@@ -155,6 +156,13 @@ export function PreferencesDialog(props: PreferencesDialogProps) {
                   onClick={() => setActiveTab("personal")}
                 />
                 <SettingsNavButton
+                  isActive={activeTab === "appearance"}
+                  label={i18n._("preferences.appearance")}
+                  description={i18n._("preferences.tabAppearanceDescription")}
+                  icon={<AppearanceIcon />}
+                  onClick={() => setActiveTab("appearance")}
+                />
+                <SettingsNavButton
                   isActive={activeTab === "reading"}
                   label={i18n._("preferences.tabReading")}
                   description={i18n._("preferences.tabReadingDescription")}
@@ -198,12 +206,14 @@ export function PreferencesDialog(props: PreferencesDialogProps) {
                 key={activeTab}
                 className="reader-preferences-panel reader-panel-transition"
               >
-                {activeTab === "personal" || activeTab === "reading" ? (
+                {activeTab === "personal" || activeTab === "appearance" || activeTab === "reading" ? (
                   <div className="reader-settings-panel-intro">
                     <div className="reader-settings-title">
                       {i18n._(
                         activeTab === "personal"
                           ? "preferences.personalTitle"
+                          : activeTab === "appearance"
+                          ? "preferences.appearanceTitle"
                           : "preferences.readingTitle",
                       )}
                     </div>
@@ -211,6 +221,8 @@ export function PreferencesDialog(props: PreferencesDialogProps) {
                       {i18n._(
                         activeTab === "personal"
                           ? "preferences.personalDescription"
+                          : activeTab === "appearance"
+                          ? "preferences.appearancePageDescription"
                           : "preferences.readingDescription",
                       )}
                     </div>
@@ -227,6 +239,14 @@ export function PreferencesDialog(props: PreferencesDialogProps) {
                     onProfileChange={updateProfile}
                     value={draft}
                     isSaving={props.isSaving || props.isProfileSaving}
+                    error={props.error}
+                    onChange={update}
+                    onSubmit={submit}
+                  />
+                ) : activeTab === "appearance" ? (
+                  <InterfacePreferencesForm
+                    value={draft}
+                    isSaving={props.isSaving}
                     error={props.error}
                     onChange={update}
                     onSubmit={submit}
@@ -264,7 +284,7 @@ export function PreferencesDialog(props: PreferencesDialogProps) {
         footer={
           <LayoutFooter hasDivider padding={3}>
             <div className="reader-dialog-actions">
-              {activeTab === "personal" || activeTab === "reading" ? (
+              {activeTab === "personal" || activeTab === "appearance" || activeTab === "reading" ? (
                 <>
                   <Button
                     label={i18n._("common.cancel")}
@@ -330,6 +350,10 @@ function AboutPanel() {
       <p className="reader-preference-description">{i18n._("preferences.aboutDescription")}</p>
     </section>
   )
+}
+
+function AppearanceIcon() {
+  return <svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><circle cx="10" cy="10" r="3.5" /><path d="M10 1.5v2M10 16.5v2M1.5 10h2M16.5 10h2M4 4l1.5 1.5M14.5 14.5 16 16M4 16l1.5-1.5M14.5 5.5 16 4" strokeLinecap="round" /></svg>
 }
 
 function PersonalIcon() {

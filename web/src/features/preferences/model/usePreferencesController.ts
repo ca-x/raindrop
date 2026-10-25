@@ -221,6 +221,8 @@ function preferencePatch(
   const patch: Partial<UserPreferences> = {}
   if (current.locale !== draft.locale) patch.locale = draft.locale
   if (current.themeMode !== draft.themeMode) patch.themeMode = draft.themeMode
+  if (current.interfaceBlur !== draft.interfaceBlur) patch.interfaceBlur = draft.interfaceBlur
+  if (current.interfaceShadows !== draft.interfaceShadows) patch.interfaceShadows = draft.interfaceShadows
   if (current.layoutDensity !== draft.layoutDensity) {
     patch.layoutDensity = draft.layoutDensity
   }

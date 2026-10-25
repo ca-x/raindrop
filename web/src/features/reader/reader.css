@@ -36,10 +36,8 @@
   overflow: hidden;
   border: 1px solid color-mix(in oklch, var(--color-border) 82%, transparent);
   border-radius: 12px;
-  background: color-mix(in oklch, var(--color-background-surface) 88%, transparent);
-  box-shadow:
-    0 20px 56px -18px color-mix(in oklch, var(--color-text-primary) 34%, transparent),
-    0 2px 8px -4px color-mix(in oklch, var(--color-text-primary) 22%, transparent);
+  background: var(--surface-overlay-background);
+  box-shadow: var(--shadow-floating);
   opacity: 0;
   pointer-events: none;
   visibility: hidden;
@@ -47,7 +45,7 @@
     opacity 190ms cubic-bezier(0.23, 1, 0.32, 1),
     transform 210ms cubic-bezier(0.23, 1, 0.32, 1),
     visibility 0s linear 210ms;
-  backdrop-filter: blur(20px) saturate(1.18);
+  backdrop-filter: var(--surface-overlay-filter);
 }
 
 .reader-workspace-layout.reader-workspace-immersive .reader-immersive-source-panel {
@@ -379,7 +377,7 @@
   background: var(--color-interaction-selected);
   box-shadow:
     inset 0 0 0 2px var(--color-accent),
-    0 2px 12px color-mix(in oklch, var(--color-accent) 16%, transparent);
+    var(--shadow-drop);
 }
 
 .reader-category-drop-label[data-drop-zone="true"][data-drop-pending="true"] {
@@ -894,21 +892,24 @@ html[data-raindrop-reading-custom-font] .reader-article-plane {
     var(--reader-built-in-font);
 }
 
-html[data-raindrop-reading-color="paper"] .reader-article-plane {
+html[data-raindrop-reading-color="paper"] .reader-article-plane,
+.reader-reading-sample[data-color="paper"] {
   --reader-article-background: #fcfaf5;
   --reader-article-foreground: #24221f;
   --reader-article-muted: #6f6961;
   --reader-article-link: #1f5f8f;
 }
 
-html[data-raindrop-reading-color="sepia"] .reader-article-plane {
+html[data-raindrop-reading-color="sepia"] .reader-article-plane,
+.reader-reading-sample[data-color="sepia"] {
   --reader-article-background: #f3ead7;
   --reader-article-foreground: #332c24;
   --reader-article-muted: #746757;
   --reader-article-link: #74532a;
 }
 
-html[data-raindrop-reading-color="gray"] .reader-article-plane {
+html[data-raindrop-reading-color="gray"] .reader-article-plane,
+.reader-reading-sample[data-color="gray"] {
   --reader-article-background: #eceeed;
   --reader-article-foreground: #242827;
   --reader-article-muted: #626967;
@@ -1176,9 +1177,7 @@ html[data-raindrop-reading-color="gray"] .reader-article-plane {
   min-inline-size: 32px;
   min-block-size: 32px;
   border-radius: 999px;
-  box-shadow:
-    0 1px 2px color-mix(in oklch, black 14%, transparent),
-    0 6px 18px color-mix(in oklch, black 18%, transparent);
+  box-shadow: var(--shadow-selection);
   opacity: 1;
   transform: translate(-50%, 6px) scale(1);
   visibility: visible;
@@ -1730,7 +1729,7 @@ html[lang^="zh"] .ai-artifact-view {
   border: 1px solid color-mix(in oklch, var(--reader-article-foreground) 16%, transparent);
   border-radius: 8px;
   background: var(--reader-article-background);
-  box-shadow: 0 2px 8px -4px color-mix(in oklch, var(--reader-article-foreground) 24%, transparent);
+  box-shadow: var(--shadow-control);
   opacity: 0;
   pointer-events: none;
   transform: translate(-50%, 6px);
@@ -1857,7 +1856,7 @@ html[lang^="zh"] .ai-artifact-view {
 }
 
 .reader-reading-popover-option:not(:disabled):active {
-  box-shadow: inset 0 1px 3px color-mix(in oklch, var(--color-text-primary) 13%, transparent);
+  box-shadow: var(--shadow-control-pressed);
   transform: scale(0.98);
 }
 
@@ -2004,6 +2003,7 @@ html[lang^="zh"] .ai-artifact-view {
 
 .reader-settings-nav-item {
   display: grid;
+  flex-shrink: 0;
   grid-template-columns: 22px minmax(0, 1fr);
   gap: 10px;
   align-items: start;
@@ -2048,10 +2048,15 @@ html[lang^="zh"] .ai-artifact-view {
 .reader-settings-nav-item:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 1px;
+  transition: none;
 }
 
-.reader-settings-nav-item:active {
+.reader-settings-nav-item:active:not(:focus-visible) {
   transform: scale(0.97);
+}
+
+.reader-settings-layout:has(.reader-settings-nav-item:focus-visible) .reader-panel-transition {
+  transition: none !important;
 }
 
 .reader-settings-nav-label {

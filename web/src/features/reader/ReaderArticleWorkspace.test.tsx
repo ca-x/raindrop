@@ -143,6 +143,8 @@ describe("Reader article workspace", () => {
     expect(save).toHaveBeenCalledWith({
       ...preferencesController.preferences,
       readingColorScheme: "SEPIA",
+      interfaceBlur: true,
+      interfaceShadows: true,
     })
   })
 

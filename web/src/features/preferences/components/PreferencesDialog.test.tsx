@@ -17,6 +17,8 @@ const preferences: UserPreferences = {
   readingFontFamily: "SERIF",
   readingCustomFontId: null,
   readingColorScheme: "AUTO",
+  interfaceBlur: true,
+  interfaceShadows: true,
   linkOpenMode: "NEW_TAB",
 }
 
@@ -28,9 +30,11 @@ it("edits personal and reading preferences through ASTRYX controls and saves onc
   renderDialog({ onSave, onOpenChange })
   const dialog = screen.getByRole("dialog", { name: "Settings" })
 
+  await user.click(within(dialog).getByRole("button", { name: /^Appearance/ }))
   await user.click(within(dialog).getByRole("radio", { name: "Dark" }))
-  await user.click(within(dialog).getByRole("radio", { name: "中文" }))
   await user.click(within(dialog).getByRole("radio", { name: "Compact" }))
+  await user.click(within(dialog).getByRole("button", { name: /^Personal/ }))
+  await user.click(within(dialog).getByRole("radio", { name: "中文" }))
   await user.click(within(dialog).getByRole("button", { name: /^Reading/ }))
   await user.click(within(dialog).getByRole("combobox", { name: "Article font" }))
   await user.keyboard("{End}{Enter}")
@@ -52,6 +56,8 @@ it("edits personal and reading preferences through ASTRYX controls and saves onc
     readingFontFamily: "SANS",
     readingCustomFontId: null,
     readingColorScheme: "SEPIA",
+    interfaceBlur: true,
+    interfaceShadows: true,
     linkOpenMode: "CURRENT_TAB",
   })
   await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
@@ -63,6 +69,7 @@ it("preserves the draft and inline error when saving fails", async () => {
   const onSave = vi.fn().mockResolvedValue(false)
   const { rerender } = renderDialog({ onSave })
   let dialog = screen.getByRole("dialog", { name: "Settings" })
+  await user.click(within(dialog).getByRole("button", { name: /^Appearance/ }))
   await user.click(within(dialog).getByRole("radio", { name: "Dark" }))
   await user.click(within(dialog).getByRole("button", { name: "Save changes" }))
 
@@ -120,12 +127,14 @@ it("cancels without saving and uses a viewport-bounded form dialog", async () =>
   expect(onOpenChange).toHaveBeenCalledWith(false)
 })
 
-it("renders the complete settings workflow in Chinese", () => {
+it("renders the complete settings workflow in Chinese", async () => {
   activateLocale("zh-CN")
+  const user = userEvent.setup()
   renderDialog()
 
   const dialog = screen.getByRole("dialog", { name: "设置" })
   expect(within(dialog).getByText("管理账户、阅读、插件与备份设置。")).toBeVisible()
+  await user.click(within(dialog).getByRole("button", { name: /^外观/ }))
   expect(within(dialog).getByRole("radio", { name: "跟随系统" })).toBeVisible()
   expect(within(dialog).getByRole("radio", { name: "均衡" })).toBeVisible()
   expect(within(dialog).getByRole("button", { name: "保存更改" })).toBeVisible()
@@ -141,7 +150,7 @@ it("uses functional settings descriptions in English", async () => {
   const dialog = screen.getByRole("dialog", { name: "Settings" })
 
   expect(within(dialog).getByText("Manage account, reading, plugins, and backups.")).toBeVisible()
-  expect(within(dialog).getByText("Nickname, email, theme, language, and interface density.")).toBeVisible()
+  expect(within(dialog).getByText("Manage your display name, email, and display language.")).toBeVisible()
   await user.click(within(dialog).getByRole("button", { name: /^Plugins/ }))
   expect(within(dialog).getByText("AI Providers, article summaries, and translation.")).toBeVisible()
   expect(
@@ -170,7 +179,7 @@ it("uses icon-assisted navigation and exposes the current build version", async 
   expect(navigation.querySelectorAll("svg").length).toBeGreaterThanOrEqual(3)
   await user.click(within(navigation).getByRole("button", { name: /^About/ }))
   expect(within(dialog).getByText("Raindrop")).toBeVisible()
-  expect(within(dialog).getByText("v0.5.0")).toBeVisible()
+  expect(within(dialog).getByText("v0.6.0")).toBeVisible()
 })
 
 it("clears a deleted active custom font from the open draft before saving", async () => {
@@ -206,6 +215,43 @@ it("clears a deleted active custom font from the open draft before saving", asyn
     ...preferences,
     readingCustomFontId: null,
   })
+})
+
+it.each([
+  [false, true], [true, false], [false, false], [true, true],
+])("previews independent materials (%s, %s) without changing saved preferences", async (interfaceBlur, interfaceShadows) => {
+  activateLocale("en")
+  const user = userEvent.setup()
+  const onSave = vi.fn().mockResolvedValue(true)
+  renderDialog({ initialTab: "appearance", onSave })
+  const dialog = screen.getByRole("dialog", { name: "Settings" })
+  if (!interfaceBlur) await user.click(within(dialog).getByRole("switch", { name: "Frosted surfaces" }))
+  if (!interfaceShadows) await user.click(within(dialog).getByRole("switch", { name: "Soft shadows" }))
+  const preview = dialog.querySelector(".reader-appearance-preview")
+  expect(preview).toHaveAttribute("data-raindrop-blur", String(interfaceBlur))
+  expect(preview).toHaveAttribute("data-raindrop-shadows", String(interfaceShadows))
+  expect(document.documentElement).toHaveAttribute("data-raindrop-blur", "true")
+  expect(document.documentElement).toHaveAttribute("data-raindrop-shadows", "true")
+  expect(onSave).not.toHaveBeenCalled()
+  await user.click(within(dialog).getByRole("button", { name: "Save changes" }))
+  expect(onSave).toHaveBeenCalledWith({ ...preferences, interfaceBlur, interfaceShadows })
+})
+
+it("cancels material changes without saving and keeps the appearance draft across sections", async () => {
+  activateLocale("en")
+  const user = userEvent.setup()
+  const onSave = vi.fn()
+  renderDialog({ initialTab: "appearance", onSave })
+  const dialog = screen.getByRole("dialog", { name: "Settings" })
+  await user.click(within(dialog).getByRole("switch", { name: "Frosted surfaces" }))
+  await user.click(within(dialog).getByRole("button", { name: /^Reading/ }))
+  await user.click(within(dialog).getByRole("radio", { name: "Paper" }))
+  expect(dialog.querySelector(".reader-reading-sample")).toHaveAttribute("data-color", "paper")
+  await user.click(within(dialog).getByRole("button", { name: /^Appearance/ }))
+  expect(within(dialog).getByRole("switch", { name: "Frosted surfaces" })).not.toBeChecked()
+  expect(dialog.querySelector(".reader-reading-sample")).toHaveAttribute("data-color", "paper")
+  await user.click(within(dialog).getByRole("button", { name: "Cancel" }))
+  expect(onSave).not.toHaveBeenCalled()
 })
 
 it("keeps plugin saves separate from the preference controller", async () => {

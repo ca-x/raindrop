@@ -16,6 +16,9 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: [{
+      find: /^@ag-ui\/core$/u,
+      replacement: fileURLToPath(import.meta.resolve("@ag-ui/core")),
+    }, {
       find: /^@standard-community\/standard-json$/u,
       replacement: fileURLToPath(import.meta.resolve("@standard-community/standard-json")),
     }],

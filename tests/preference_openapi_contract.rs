@@ -148,6 +148,8 @@ fn preferences_v2_adds_reader_fields_on_a_versioned_path() {
         &[
             "locale",
             "themeMode",
+            "interfaceBlur",
+            "interfaceShadows",
             "layoutDensity",
             "readingFontScale",
             "readingFontFamily",
@@ -161,6 +163,8 @@ fn preferences_v2_adds_reader_fields_on_a_versioned_path() {
         &[
             "locale",
             "themeMode",
+            "interfaceBlur",
+            "interfaceShadows",
             "layoutDensity",
             "readingFontScale",
             "readingFontFamily",

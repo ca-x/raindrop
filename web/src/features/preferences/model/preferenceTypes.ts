@@ -25,6 +25,8 @@ export function defaultPreferences(locale: PreferenceLocale): UserPreferences {
   return {
     locale,
     themeMode: "SYSTEM",
+    interfaceBlur: true,
+    interfaceShadows: true,
     layoutDensity: "BALANCED",
     readingFontScale: DEFAULT_READING_FONT_SCALE,
     readingFontFamily: "SERIF",

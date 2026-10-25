@@ -4,6 +4,7 @@ use sea_orm_migration::prelude::*;
 use super::DbError;
 
 mod ai_providers;
+mod appearance_preferences;
 mod article_retention;
 mod backups;
 mod bootstrap_state;
@@ -70,6 +71,7 @@ impl MigratorTrait for Migrator {
             Box::new(translation_progressive::AddDeepLxProgressiveTranslation),
             Box::new(backups::CreateSubscriptionBackups),
             Box::new(article_retention::CreateArticleRetention),
+            Box::new(appearance_preferences::AddAppearancePreferences),
         ]
     }
 }

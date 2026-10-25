@@ -8,6 +8,8 @@ pub struct Model {
     pub user_id: String,
     pub locale: String,
     pub theme_mode: String,
+    pub interface_blur: bool,
+    pub interface_shadows: bool,
     pub layout_density: String,
     pub reading_font_scale: i32,
     pub reading_font_family: String,

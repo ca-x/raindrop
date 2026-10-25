@@ -28,7 +28,7 @@ import {
   MIN_READING_FONT_SCALE,
 } from "../model/preferenceTypes"
 
-interface PreferencesFormProps {
+export interface PreferencesFormProps {
   value: UserPreferences
   isSaving: boolean
   error: PreferencesControllerError | null
@@ -132,87 +132,24 @@ export function PersonalPreferencesForm(props: PersonalPreferencesFormProps) {
       >
         <div className="reader-settings-section-heading">
           <div id="reader-interface-heading" className="reader-preference-label">
-            {i18n._("preferences.interface")}
+            {i18n._("preferences.language")}
           </div>
           <div className="reader-preference-description">
-            {i18n._("preferences.interfaceDescription")}
+            {i18n._("preferences.languageDescription")}
           </div>
         </div>
-        <PreferenceField
-          label={i18n._("preferences.appearance")}
-          description={i18n._("preferences.appearanceDescription")}
-        >
-          <SegmentedControl
-            label={i18n._("preferences.appearance")}
-            value={props.value.themeMode}
-            onChange={(value) =>
-              props.onChange({
-                themeMode: value as UserPreferences["themeMode"],
-              })
-            }
-            layout="fill"
-            isDisabled={props.isSaving}
-          >
-            <SegmentedControlItem
-              value="SYSTEM"
-              label={i18n._("preferences.themeSystem")}
-            />
-            <SegmentedControlItem
-              value="LIGHT"
-              label={i18n._("preferences.themeLight")}
-            />
-            <SegmentedControlItem
-              value="DARK"
-              label={i18n._("preferences.themeDark")}
-            />
-          </SegmentedControl>
-        </PreferenceField>
-        <PreferenceField
+        <SegmentedControl
           label={i18n._("preferences.language")}
-          description={i18n._("preferences.languageDescription")}
+          value={props.value.locale}
+          onChange={(value) =>
+            props.onChange({ locale: value as UserPreferences["locale"] })
+          }
+          layout="fill"
+          isDisabled={props.isSaving}
         >
-          <SegmentedControl
-            label={i18n._("preferences.language")}
-            value={props.value.locale}
-            onChange={(value) =>
-              props.onChange({ locale: value as UserPreferences["locale"] })
-            }
-            layout="fill"
-            isDisabled={props.isSaving}
-          >
-            <SegmentedControlItem value="zh-CN" label="中文" />
-            <SegmentedControlItem value="en" label="English" />
-          </SegmentedControl>
-        </PreferenceField>
-        <PreferenceField
-          label={i18n._("preferences.density")}
-          description={i18n._("preferences.densityDescription")}
-        >
-          <SegmentedControl
-            label={i18n._("preferences.density")}
-            value={props.value.layoutDensity}
-            onChange={(value) =>
-              props.onChange({
-                layoutDensity: value as UserPreferences["layoutDensity"],
-              })
-            }
-            layout="fill"
-            isDisabled={props.isSaving}
-          >
-            <SegmentedControlItem
-              value="COMPACT"
-              label={i18n._("preferences.densityCompact")}
-            />
-            <SegmentedControlItem
-              value="BALANCED"
-              label={i18n._("preferences.densityBalanced")}
-            />
-            <SegmentedControlItem
-              value="SPACIOUS"
-              label={i18n._("preferences.densitySpacious")}
-            />
-          </SegmentedControl>
-        </PreferenceField>
+          <SegmentedControlItem value="zh-CN" label="中文" />
+          <SegmentedControlItem value="en" label="English" />
+        </SegmentedControl>
       </section>
     </PreferencesFormShell>
   )
@@ -296,6 +233,7 @@ export function ReadingPreferencesForm(props: ReadingPreferencesFormProps) {
           <SegmentedControlItem value="SEPIA" label={i18n._("preferences.colorSepia")} />
           <SegmentedControlItem value="GRAY" label={i18n._("preferences.colorGray")} />
         </SegmentedControl>
+        <ReadingColorPreview value={props.value.readingColorScheme} />
       </PreferenceField>
       <PreferenceField
         label={i18n._("preferences.linkOpenMode")}
@@ -394,7 +332,7 @@ function formatBytes(bytes: number): string {
     : `${Math.max(1, Math.round(bytes / 1024))} KiB`
 }
 
-function PreferencesFormShell(
+export function PreferencesFormShell(
   props: PreferencesFormProps & { children: ReactNode },
 ) {
   const { i18n } = useLingui()
@@ -423,7 +361,7 @@ function PreferencesFormShell(
   )
 }
 
-function PreferenceField({
+export function PreferenceField({
   label,
   description,
   children,
@@ -440,5 +378,17 @@ function PreferenceField({
       </div>
       {children}
     </Stack>
+  )
+}
+
+export function ReadingColorPreview({ value }: { value: UserPreferences["readingColorScheme"] }) {
+  const { i18n } = useLingui()
+  return (
+    <div className="reader-reading-sample" data-color={value.toLowerCase()}>
+      <span className="reader-preview-eyebrow">{i18n._("preferences.readingPreview")}</span>
+      <p className="reader-preview-title">{i18n._("preferences.previewTitle")}</p>
+      <p className="reader-preview-prose">{i18n._("preferences.previewText")}</p>
+      <span className="reader-preview-link">{i18n._("preferences.previewLink")}</span>
+    </div>
   )
 }

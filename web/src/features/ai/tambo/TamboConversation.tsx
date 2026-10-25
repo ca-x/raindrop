@@ -1,3 +1,5 @@
+import "./agUiCompatibility"
+
 import { Banner } from "@astryxdesign/core/Banner"
 import { Button } from "@astryxdesign/core/Button"
 import { useLingui } from "@lingui/react"

@@ -91,6 +91,38 @@ async fn hashed_javascript_asset_has_mime_and_immutable_cache_headers() {
 
 #[tokio::test]
 #[cfg(not(debug_assertions))]
+async fn theme_bootstrap_is_javascript_and_never_a_cached_spa_fallback() {
+    let response = build_router(AppState::for_test())
+        .oneshot(
+            Request::get("/theme-bootstrap.js")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers()[header::CONTENT_TYPE],
+        "text/javascript; charset=utf-8"
+    );
+    assert_eq!(
+        response.headers()[header::CACHE_CONTROL],
+        "no-cache, no-store, must-revalidate"
+    );
+    assert_eq!(
+        response.headers()[header::X_CONTENT_TYPE_OPTIONS],
+        "nosniff"
+    );
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let script = std::str::from_utf8(&body).unwrap();
+    assert!(script.contains("localStorage.getItem"));
+    assert!(script.contains("raindropBlur"));
+    assert!(script.contains("raindropShadows"));
+}
+
+#[tokio::test]
+#[cfg(not(debug_assertions))]
 async fn head_reports_the_get_representation_length_without_a_body() {
     let router = build_router(AppState::for_test());
     let index = router
@@ -107,6 +139,10 @@ async fn head_reports_the_get_representation_length_without_a_body() {
 
     for (path, expected_length) in [
         ("/", index.len()),
+        (
+            "/theme-bootstrap.js",
+            asset_length(&router, "/theme-bootstrap.js").await,
+        ),
         (script_path, asset_length(&router, script_path).await),
     ] {
         let response = router

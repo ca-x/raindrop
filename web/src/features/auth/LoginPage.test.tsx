@@ -200,6 +200,8 @@ function mockReaderWorkspace(
           readingFontScale: 100,
           readingFontFamily: "SERIF",
           readingColorScheme: "AUTO",
+          interfaceBlur: true,
+          interfaceShadows: true,
           linkOpenMode: "NEW_TAB",
         }),
       )

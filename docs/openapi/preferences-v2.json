@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Raindrop User Preferences API",
-    "version": "2.1.0",
+    "version": "2.2.0",
     "description": "Authenticated user-scoped personal and reading preferences, including private WOFF2 custom fonts. This committed v2 contract is the frontend wire DTO source."
   },
   "servers": [
@@ -253,6 +253,8 @@
         "required": [
           "locale",
           "themeMode",
+          "interfaceBlur",
+          "interfaceShadows",
           "layoutDensity",
           "readingFontScale",
           "readingFontFamily",
@@ -275,6 +277,14 @@
               "LIGHT",
               "DARK"
             ]
+          },
+          "interfaceBlur": {
+            "type": "boolean",
+            "description": "Enable frosted interface surfaces when supported. Defaults to true."
+          },
+          "interfaceShadows": {
+            "type": "boolean",
+            "description": "Enable decorative interface shadows. Focus indicators are always retained. Defaults to true."
           },
           "layoutDensity": {
             "type": "string",
@@ -338,6 +348,12 @@
               "LIGHT",
               "DARK"
             ]
+          },
+          "interfaceBlur": {
+            "type": "boolean"
+          },
+          "interfaceShadows": {
+            "type": "boolean"
           },
           "layoutDensity": {
             "type": "string",

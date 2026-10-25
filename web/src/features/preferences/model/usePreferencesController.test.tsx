@@ -23,6 +23,8 @@ const serverPreferences: UserPreferences = {
   readingFontFamily: "SERIF",
   readingCustomFontId: null,
   readingColorScheme: "AUTO",
+  interfaceBlur: true,
+  interfaceShadows: true,
   linkOpenMode: "NEW_TAB",
 }
 
@@ -48,6 +50,8 @@ it("loads server preferences without blocking the initialized runtime", async ()
     readingFontFamily: "SERIF",
     readingCustomFontId: null,
     readingColorScheme: "AUTO",
+    interfaceBlur: true,
+    interfaceShadows: true,
     linkOpenMode: "NEW_TAB",
   })
   expect(result.current.loadStatus).toBe("loading")
@@ -144,6 +148,20 @@ it("clears the hint and ends the session after an authentication rejection", asy
 
   expect(localStorage.getItem(PREFERENCE_HINT_KEY)).toBeNull()
   expect(onUnauthenticated).toHaveBeenCalledOnce()
+})
+
+it("sends disabled material flags as a partial patch and caches the server response", async () => {
+  const persisted = { ...serverPreferences, interfaceBlur: false, interfaceShadows: false }
+  const api = fakeApi({ patchPreferences: vi.fn().mockResolvedValue(persisted) })
+  const { result } = renderController(api)
+  await act(async () => result.current.load())
+  await act(async () => { await expect(result.current.save(persisted)).resolves.toBe(true) })
+  expect(api.patchPreferences).toHaveBeenCalledWith(
+    "csrf-memory", { interfaceBlur: false, interfaceShadows: false }, expect.any(AbortSignal),
+  )
+  expect(result.current.preferences).toEqual(persisted)
+  expect(document.documentElement.dataset.raindropBlur).toBe("false")
+  expect(document.documentElement.dataset.raindropShadows).toBe("false")
 })
 
 function renderController(api: PreferencesApi, onUnauthenticated = vi.fn()) {

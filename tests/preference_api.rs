@@ -474,6 +474,8 @@ async fn v2_adds_reading_preferences_without_changing_the_v1_contract() {
             "readingFontFamily": "SERIF",
             "readingCustomFontId": null,
             "readingColorScheme": "AUTO",
+            "interfaceBlur": true,
+            "interfaceShadows": true,
             "linkOpenMode": "NEW_TAB"
         })
     );
@@ -517,6 +519,84 @@ async fn v2_adds_reading_preferences_without_changing_the_v1_contract() {
         })
     );
     assert_sensitive_cache_headers(&legacy);
+}
+
+#[tokio::test]
+async fn v2_material_flags_are_strict_independent_persistent_and_user_scoped() {
+    let fixture = PreferenceFixture::new().await;
+    for (blur, shadows) in [(false, true), (true, false), (false, false), (true, true)] {
+        for patch in [
+            json!({"interfaceBlur": blur}),
+            json!({"interfaceShadows": shadows}),
+        ] {
+            let response = fixture
+                .json_request(
+                    Method::PATCH,
+                    "/api/v2/preferences",
+                    Some(patch),
+                    Some(UserKind::A),
+                    true,
+                    Some("en"),
+                )
+                .await;
+            assert_eq!(response.status, StatusCode::OK);
+            assert_sensitive_cache_headers(&response);
+        }
+        let stored = fixture
+            .json_request(
+                Method::GET,
+                "/api/v2/preferences",
+                None,
+                Some(UserKind::A),
+                false,
+                Some("en"),
+            )
+            .await;
+        assert_eq!(stored.json()["interfaceBlur"], blur);
+        assert_eq!(stored.json()["interfaceShadows"], shadows);
+        assert_eq!(stored.json()["readingColorScheme"], "AUTO");
+    }
+    let disabled = fixture
+        .json_request(
+            Method::PATCH,
+            "/api/v2/preferences",
+            Some(json!({"interfaceBlur": false, "interfaceShadows": false})),
+            Some(UserKind::A),
+            true,
+            Some("en"),
+        )
+        .await;
+    assert_eq!(disabled.status, StatusCode::OK);
+    let other = fixture
+        .json_request(
+            Method::GET,
+            "/api/v2/preferences",
+            None,
+            Some(UserKind::B),
+            false,
+            Some("en"),
+        )
+        .await;
+    assert_eq!(other.json()["interfaceBlur"], true);
+    assert_eq!(other.json()["interfaceShadows"], true);
+    for patch in [
+        json!({"interfaceBlur": null}),
+        json!({"interfaceBlur": "false"}),
+        json!({"interfaceShadows": 0}),
+        json!({"interfaceShadows": null}),
+    ] {
+        let response = fixture
+            .json_request(
+                Method::PATCH,
+                "/api/v2/preferences",
+                Some(patch),
+                Some(UserKind::A),
+                true,
+                Some("en"),
+            )
+            .await;
+        assert_eq!(response.status, StatusCode::UNPROCESSABLE_ENTITY);
+    }
 }
 
 #[tokio::test]

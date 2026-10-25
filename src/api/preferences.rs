@@ -179,6 +179,10 @@ struct PatchPreferencesRequest {
     #[serde(default, deserialize_with = "deserialize_present")]
     theme_mode: Option<ThemeModeRequest>,
     #[serde(default, deserialize_with = "deserialize_present")]
+    interface_blur: Option<bool>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    interface_shadows: Option<bool>,
+    #[serde(default, deserialize_with = "deserialize_present")]
     layout_density: Option<LayoutDensityRequest>,
     #[serde(default, deserialize_with = "deserialize_present")]
     reading_font_scale: Option<i32>,
@@ -218,6 +222,8 @@ impl From<PatchPreferencesRequest> for UpdateUserPreferences {
         Self {
             locale: request.locale.map(Into::into),
             theme_mode: request.theme_mode.map(Into::into),
+            interface_blur: request.interface_blur,
+            interface_shadows: request.interface_shadows,
             layout_density: request.layout_density.map(Into::into),
             reading_font_scale: request.reading_font_scale,
             reading_font_family: request.reading_font_family.map(Into::into),
@@ -265,6 +271,8 @@ impl From<UserPreferences> for PreferencesV1Response {
 struct PreferencesV2Response {
     locale: &'static str,
     theme_mode: &'static str,
+    interface_blur: bool,
+    interface_shadows: bool,
     layout_density: &'static str,
     reading_font_scale: i32,
     reading_font_family: &'static str,
@@ -278,6 +286,8 @@ impl From<UserPreferences> for PreferencesV2Response {
         Self {
             locale: preferences.locale.as_str(),
             theme_mode: preferences.theme_mode.as_str(),
+            interface_blur: preferences.interface_blur,
+            interface_shadows: preferences.interface_shadows,
             layout_density: preferences.layout_density.as_str(),
             reading_font_scale: preferences.reading_font_scale,
             reading_font_family: preferences.reading_font_family.as_str(),
