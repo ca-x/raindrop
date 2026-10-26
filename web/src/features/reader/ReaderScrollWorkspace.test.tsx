@@ -162,6 +162,63 @@ describe("Reader scroll anchors", () => {
     expect(plane.style.getPropertyValue("--reader-article-progress")).toBe(String(1 / 3))
   })
 
+  it("keeps the curved scrollbar in sync with restored offsets, scrolling, and resizing", () => {
+    const anchors = { "/reader/unread/entry/first": 200 }
+    const { rerender } = render(article("first", anchors, vi.fn()))
+    const articleNode = screen.getByRole("article")
+    const scrollbar = screen.getByRole("scrollbar")
+    expect(scrollbar).toHaveAttribute("aria-controls", articleNode.id)
+    expect(scrollbar).toHaveAttribute("aria-valuenow", "25")
+
+    articleNode.scrollTop = 800
+    fireEvent.scroll(articleNode)
+    expect(scrollbar).toHaveAttribute("aria-valuenow", "100")
+
+    vi.spyOn(articleNode, "clientHeight", "get").mockReturnValue(400)
+    articleNode.scrollTop = 300
+    notifyTestResize(articleNode)
+    expect(scrollbar).toHaveAttribute("aria-valuenow", "50")
+
+    rerender(article("second", anchors, vi.fn()))
+    expect(scrollbar).toHaveAttribute("aria-valuenow", "0")
+  })
+
+  it("supports scrollbar keyboard navigation and normalized mouse wheels", () => {
+    render(article("first", {}, vi.fn()))
+    const articleNode = screen.getByRole("article")
+    const scrollbar = screen.getByRole("scrollbar")
+
+    fireEvent.keyDown(scrollbar, { key: "End" })
+    expect(articleNode.scrollTop).toBe(800)
+    fireEvent.keyDown(scrollbar, { key: "Home" })
+    expect(articleNode.scrollTop).toBe(0)
+    fireEvent.keyDown(scrollbar, { key: "ArrowDown" })
+    expect(articleNode.scrollTop).toBe(40)
+    fireEvent.keyDown(scrollbar, { key: "PageDown" })
+    expect(articleNode.scrollTop).toBe(220)
+    fireEvent.wheel(scrollbar, { deltaY: 2, deltaMode: 1 })
+    expect(articleNode.scrollTop).toBe(252)
+    expect(scrollbar).toHaveAttribute("aria-valuenow", "32")
+    fireEvent.wheel(scrollbar, { deltaY: 120, ctrlKey: true })
+    expect(articleNode.scrollTop).toBe(252)
+  })
+
+  it("hides the curved scrollbar when the article no longer overflows", () => {
+    render(article("first", {}, vi.fn()))
+    const articleNode = screen.getByRole("article")
+    expect(screen.getByRole("scrollbar")).toBeVisible()
+
+    vi.spyOn(articleNode, "scrollHeight", "get").mockReturnValue(200)
+    notifyTestResize(articleNode)
+    expect(screen.queryByRole("scrollbar")).not.toBeInTheDocument()
+
+    vi.spyOn(articleNode, "scrollHeight", "get").mockReturnValue(240)
+    notifyTestResize(articleNode)
+    fireEvent.keyDown(screen.getByRole("scrollbar"), { key: "End" })
+    expect(articleNode.scrollTop).toBe(40)
+    expect(screen.getByRole("scrollbar")).toHaveAttribute("aria-valuenow", "100")
+  })
+
   it("never binds a pending route to the previously rendered article node", () => {
     vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (this: HTMLElement) {
       return this.textContent?.includes("First article") ? 300 : 1_000

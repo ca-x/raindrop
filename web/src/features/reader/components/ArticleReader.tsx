@@ -4,7 +4,7 @@ import { Icon } from "@astryxdesign/core/Icon"
 import { EmptyState } from "@astryxdesign/core/EmptyState"
 import { Skeleton } from "@astryxdesign/core/Skeleton"
 import { useLingui } from "@lingui/react"
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react"
 
 import { AiReaderSidecar } from "../../ai/reader/AiReaderSidecar"
 import { useEntryAiController } from "../../ai/model/useEntryAiController"
@@ -26,6 +26,7 @@ import { ArticleToolbar, ImmersiveIcon, ReadingFloatingToolbar } from "./ReaderT
 import { toReadingScaleCss } from "../../preferences/model/preferenceTypes"
 import { RelativeEntryTime } from "./RelativeEntryTime"
 import { ReaderEmptyIcon } from "./ReaderEmptyIcon"
+import { ArticleScrollbar } from "./ArticleScrollbar"
 
 interface ArticleReaderProps {
   state: ReaderState
@@ -77,6 +78,7 @@ export function ArticleReader(props: ArticleReaderProps) {
   const onReadingColorSchemeChange =
     props.onReadingColorSchemeChange ?? (async () => true)
   const articleRef = useRef<HTMLElement>(null)
+  const articleId = useId()
   const bodyRef = useRef<HTMLDivElement>(null)
   const headingRef = useRef<HTMLHeadingElement>(null)
   const summaryButtonRef = useRef<HTMLButtonElement>(null)
@@ -260,66 +262,76 @@ export function ArticleReader(props: ArticleReaderProps) {
           onDisplayModeChange={props.translationSettingsController.saveDisplayMode}
         />
       ) : null}
-      <article
-        style={{ fontSize: toReadingScaleCss(readingFontScale) }}
-        ref={articleRef}
-        className="reader-article"
-        lang={i18n.locale}
-        onScroll={(event) => updateArticleScrollState(event.currentTarget)}
-      >
-        <p className="reader-article-kicker">{detail.feedTitle}</p>
-        <div
-          className="reader-translation-title-pair"
-          data-translation-mode={
-            translationController.result && props.translationConfig
-              ? props.translationConfig.displayMode
-              : undefined
-          }
+      <div className="reader-article-scroller">
+        <article
+          id={articleId}
+          style={{ fontSize: toReadingScaleCss(readingFontScale) }}
+          ref={articleRef}
+          className="reader-article"
+          lang={i18n.locale}
+          onScroll={(event) => updateArticleScrollState(event.currentTarget)}
         >
-          <h1 className="reader-translation-original" ref={headingRef} tabIndex={-1}>
-            {detail.title ?? i18n._("reader.untitled")}
-          </h1>
-          {translationController.result ? (
-            <div className="reader-translation-title" lang={props.translationConfig?.defaultTargetLocale}>
-              {translationController.result.title}
-            </div>
-          ) : null}
-        </div>
-        <div className="reader-article-meta">
-          {detail.author ? <span>{detail.author}</span> : null}
-          {detail.author ? <span aria-hidden="true">·</span> : null}
-          <RelativeEntryTime
-            timestampUs={detail.publishedAtUs ?? detail.sortAtUs}
-            locale={i18n.locale}
-            justNowLabel={i18n._("reader.justNow")}
-          />
-        </div>
-        <ArticleSelectionPopover
-          controller={translationController}
-          isEnabled={props.translationConfig?.isEnabled ?? false}
-        >
+          <p className="reader-article-kicker">{detail.feedTitle}</p>
           <div
-            ref={bodyRef}
-            className="reader-article-body"
-            dangerouslySetInnerHTML={articleMarkup}
-          />
-        </ArticleSelectionPopover>
-        {safeHttpUrl(detail.canonicalUrl) ? (
-          <a
-            className="reader-open-original"
-            href={detail.canonicalUrl ?? undefined}
-            target={linkOpenMode === "NEW_TAB" ? "_blank" : undefined}
-            rel={
-              linkOpenMode === "NEW_TAB"
-                ? "noopener noreferrer"
+            className="reader-translation-title-pair"
+            data-translation-mode={
+              translationController.result && props.translationConfig
+                ? props.translationConfig.displayMode
                 : undefined
             }
           >
-            <span>{i18n._("reader.openOriginal")}</span>
-            <Icon icon="externalLink" />
-          </a>
-        ) : null}
-      </article>
+            <h1 className="reader-translation-original" ref={headingRef} tabIndex={-1}>
+              {detail.title ?? i18n._("reader.untitled")}
+            </h1>
+            {translationController.result ? (
+              <div className="reader-translation-title" lang={props.translationConfig?.defaultTargetLocale}>
+                {translationController.result.title}
+              </div>
+            ) : null}
+          </div>
+          <div className="reader-article-meta">
+            {detail.author ? <span>{detail.author}</span> : null}
+            {detail.author ? <span aria-hidden="true">·</span> : null}
+            <RelativeEntryTime
+              timestampUs={detail.publishedAtUs ?? detail.sortAtUs}
+              locale={i18n.locale}
+              justNowLabel={i18n._("reader.justNow")}
+            />
+          </div>
+          <ArticleSelectionPopover
+            controller={translationController}
+            isEnabled={props.translationConfig?.isEnabled ?? false}
+          >
+            <div
+              ref={bodyRef}
+              className="reader-article-body"
+              dangerouslySetInnerHTML={articleMarkup}
+            />
+          </ArticleSelectionPopover>
+          {safeHttpUrl(detail.canonicalUrl) ? (
+            <a
+              className="reader-open-original"
+              href={detail.canonicalUrl ?? undefined}
+              target={linkOpenMode === "NEW_TAB" ? "_blank" : undefined}
+              rel={
+                linkOpenMode === "NEW_TAB"
+                  ? "noopener noreferrer"
+                  : undefined
+              }
+            >
+              <span>{i18n._("reader.openOriginal")}</span>
+              <Icon icon="externalLink" />
+            </a>
+          ) : null}
+        </article>
+        <ArticleScrollbar
+          articleRef={articleRef}
+          bodyRef={bodyRef}
+          articleId={articleId}
+          entryId={canBindArticle ? detail.entryId : null}
+          label={i18n._("reader.articleScrollPosition")}
+        />
+      </div>
       <ReadingFloatingToolbar
         readingFontScale={readingFontScale}
         readingFontFamily={readingFontFamily}

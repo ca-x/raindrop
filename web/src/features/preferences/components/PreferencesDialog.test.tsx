@@ -179,7 +179,7 @@ it("uses icon-assisted navigation and exposes the current build version", async 
   expect(navigation.querySelectorAll("svg").length).toBeGreaterThanOrEqual(3)
   await user.click(within(navigation).getByRole("button", { name: /^About/ }))
   expect(within(dialog).getByText("Raindrop")).toBeVisible()
-  expect(within(dialog).getByText("v0.6.0")).toBeVisible()
+  expect(within(dialog).getByText("v0.6.1")).toBeVisible()
 })
 
 it("clears a deleted active custom font from the open draft before saving", async () => {

@@ -70,6 +70,102 @@ test("Reader workspace production contract", async ({ page }, testInfo) => {
   await verifyHostileDeepLink(page, testInfo)
 })
 
+test("Reader curved article scrollbar supports themes and direct navigation", async ({ page }, testInfo) => {
+  testInfo.setTimeout(60_000)
+  const scrollbarServer = await startProductionServer()
+  try {
+    const fixture = await installReaderApiFixture(page)
+    await completeSetup(page, scrollbarServer, createCredentials())
+    await page.goto(`${scrollbarServer.baseURL}/reader/unread/entry/${readerIds.firstEntry}`)
+    const article = page.getByRole("article")
+    const scrollbar = page.getByRole("scrollbar", { name: "Article scroll position" })
+    await expect(scrollbar).toBeVisible()
+    await expect(article).toHaveCSS("scrollbar-width", "none")
+
+    const point = await scrollbar.locator(".reader-article-scrollbar-thumb").first().evaluate((element) => {
+      const path = element as SVGPathElement
+      const position = path.getPointAtLength(20).matrixTransform(path.getScreenCTM()!)
+      return { x: position.x, y: position.y }
+    })
+    await page.mouse.move(point.x, point.y)
+    await page.mouse.down()
+    await page.mouse.move(point.x, point.y + 100, { steps: 5 })
+    await page.mouse.up()
+    await expect.poll(() => article.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+    await expect(scrollbar).not.toHaveAttribute("data-dragging")
+
+    await scrollbar.focus()
+    await page.keyboard.press("End")
+    await expect(scrollbar).toHaveAttribute("aria-valuenow", "100")
+    await page.keyboard.press("Home")
+    await expectScrollTop(article, 0)
+    await expect(scrollbar).toHaveAttribute("aria-valuenow", "0")
+    await page.keyboard.press("Space")
+    await expect.poll(() => article.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+
+    const themes = [
+      { themeMode: "LIGHT", colorScheme: "light" },
+      { themeMode: "DARK", colorScheme: "dark" },
+      { themeMode: "SYSTEM", colorScheme: "light" },
+      { themeMode: "SYSTEM", colorScheme: "dark" },
+    ] as const
+    for (const { themeMode, colorScheme } of themes) {
+      await page.emulateMedia({ colorScheme })
+      for (const readingColorScheme of ["AUTO", "PAPER", "SEPIA", "GRAY"] as const) {
+        fixture.preferences.setCurrent({ ...fixture.preferences.current(), themeMode, readingColorScheme })
+        await page.reload()
+        await expect(scrollbar).toBeVisible()
+        await expect(page.locator("html")).toHaveAttribute("data-raindrop-reading-color", readingColorScheme.toLowerCase())
+        const bodyColor = await article.locator(".reader-article-body").evaluate((element) => getComputedStyle(element).color)
+        await expect(article.locator(".reader-article-body p").first()).toHaveCSS("color", bodyColor)
+        const contrast = await scrollbar.evaluate((element) => {
+          const plane = element.closest(".reader-article-plane")!
+          const thumb = element.querySelector(".reader-article-scrollbar-thumb")!
+          const canvas = document.createElement("canvas")
+          canvas.width = 1
+          canvas.height = 1
+          const context = canvas.getContext("2d")!
+          context.fillStyle = getComputedStyle(plane).backgroundColor
+          context.fillRect(0, 0, 1, 1)
+          const background = context.getImageData(0, 0, 1, 1).data
+          context.globalAlpha = Number(getComputedStyle(thumb).opacity)
+          context.fillStyle = getComputedStyle(thumb).stroke
+          context.fillRect(0, 0, 1, 1)
+          const foreground = context.getImageData(0, 0, 1, 1).data
+          const luminance = (color: Uint8ClampedArray) => {
+            const channels = Array.from(color.slice(0, 3), (channel) => {
+              const normalized = channel / 255
+              return normalized <= 0.04045 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4
+            })
+            return channels[0]! * 0.2126 + channels[1]! * 0.7152 + channels[2]! * 0.0722
+          }
+          const backgroundLuminance = luminance(background)
+          const foregroundLuminance = luminance(foreground)
+          return (Math.max(backgroundLuminance, foregroundLuminance) + 0.05) /
+            (Math.min(backgroundLuminance, foregroundLuminance) + 0.05)
+        })
+        expect(contrast, `${themeMode}/${colorScheme}/${readingColorScheme} thumb contrast`).toBeGreaterThanOrEqual(3)
+        await expectNoHorizontalOverflow(page)
+      }
+    }
+
+    await page.emulateMedia({ forcedColors: "active", reducedMotion: "reduce" })
+    await expect(scrollbar).toBeVisible()
+    await expect(scrollbar).toHaveCSS("forced-color-adjust", "none")
+    await scrollbar.focus()
+    await page.keyboard.press("End")
+    await expect(scrollbar).toHaveAttribute("aria-valuenow", "100")
+    await page.emulateMedia({ forcedColors: "none", reducedMotion: "no-preference" })
+
+    await article.locator(".reader-article-body").evaluate((element) => {
+      element.innerHTML = "<p>Short article.</p>"
+    })
+    await expect(scrollbar).toBeHidden()
+  } finally {
+    await scrollbarServer.stop()
+  }
+})
+
 test("Reader font settings and keyboard resizing persist across reloads", async ({ page }) => {
   const fontServer = await startProductionServer()
   try {

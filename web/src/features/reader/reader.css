@@ -1022,7 +1022,6 @@ html[data-raindrop-reading-color="gray"] .reader-article-plane,
 
 .reader-source-list > [role="tree"],
 .reader-queue-scroll,
-.reader-article,
 .reader-ai-sidecar-content,
 .reader-preferences-panel,
 .reader-category-management-list {
@@ -1032,7 +1031,6 @@ html[data-raindrop-reading-color="gray"] .reader-article-plane,
 
 .reader-source-list > [role="tree"]::-webkit-scrollbar,
 .reader-queue-scroll::-webkit-scrollbar,
-.reader-article::-webkit-scrollbar,
 .reader-ai-sidecar-content::-webkit-scrollbar,
 .reader-preferences-panel::-webkit-scrollbar,
 .reader-category-management-list::-webkit-scrollbar {
@@ -1042,7 +1040,6 @@ html[data-raindrop-reading-color="gray"] .reader-article-plane,
 
 .reader-source-list > [role="tree"]::-webkit-scrollbar-thumb,
 .reader-queue-scroll::-webkit-scrollbar-thumb,
-.reader-article::-webkit-scrollbar-thumb,
 .reader-ai-sidecar-content::-webkit-scrollbar-thumb,
 .reader-preferences-panel::-webkit-scrollbar-thumb,
 .reader-category-management-list::-webkit-scrollbar-thumb {
@@ -1053,36 +1050,115 @@ html[data-raindrop-reading-color="gray"] .reader-article-plane,
 
 .reader-source-list > [role="tree"]::-webkit-scrollbar-thumb:active,
 .reader-queue-scroll::-webkit-scrollbar-thumb:active,
-.reader-article::-webkit-scrollbar-thumb:active,
 .reader-ai-sidecar-content::-webkit-scrollbar-thumb:active,
 .reader-preferences-panel::-webkit-scrollbar-thumb:active,
 .reader-category-management-list::-webkit-scrollbar-thumb:active {
   background: var(--scrollbar-thumb-active) content-box;
 }
 
-.reader-article {
-  scrollbar-color: color-mix(in oklch, var(--reader-article-foreground) 20%, transparent)
-    transparent;
+.reader-article-scroller {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-inline-size: 0;
+  min-block-size: 0;
+  inline-size: 100%;
 }
 
-.reader-article::-webkit-scrollbar {
-  inline-size: 8px;
+.reader-article-scroller > .reader-article {
+  scrollbar-width: none;
+  scrollbar-gutter: auto;
 }
 
-.reader-article::-webkit-scrollbar-track {
-  background: transparent;
+.reader-article-scroller > .reader-article::-webkit-scrollbar {
+  display: none;
 }
 
-.reader-article::-webkit-scrollbar-thumb {
-  border: 2px solid transparent;
-  border-radius: 999px;
-  background: color-mix(in oklch, var(--reader-article-foreground) 20%, transparent)
-    content-box;
+.reader-article-scrollbar {
+  position: absolute;
+  z-index: 2;
+  inset-block: 0;
+  inset-inline-end: 0;
+  inline-size: 64px;
+  color: var(--reader-article-link);
+  pointer-events: none;
+  touch-action: none;
+  user-select: none;
 }
 
-.reader-article::-webkit-scrollbar-thumb:active {
-  background: color-mix(in oklch, var(--reader-article-foreground) 58%, transparent)
-    content-box;
+.reader-article-scrollbar[hidden] {
+  display: none;
+}
+
+.reader-article-scrollbar svg {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  overflow: visible;
+}
+
+:dir(rtl) .reader-article-scrollbar svg {
+  transform: scaleX(-1);
+}
+
+.reader-article-scrollbar-track,
+.reader-article-scrollbar-thumb {
+  stroke-width: 5px;
+  pointer-events: none;
+}
+
+.reader-article-scrollbar-track {
+  stroke: var(--reader-article-foreground);
+  opacity: 0.06;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+
+.reader-article-scrollbar-thumb {
+  stroke: currentColor;
+  opacity: 0.85;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+
+.reader-article-scrollbar-hit {
+  stroke: transparent;
+  stroke-width: 24px;
+  pointer-events: stroke;
+  cursor: grab;
+}
+
+.reader-article-scrollbar:is(:hover, :focus-visible, [data-dragging="true"]) .reader-article-scrollbar-track {
+  opacity: 0.16;
+}
+
+.reader-article-scrollbar:is(:hover, :focus-visible, [data-dragging="true"]) .reader-article-scrollbar-thumb {
+  opacity: 1;
+}
+
+.reader-article-scrollbar:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: -2px;
+  border-radius: 32px;
+}
+
+.reader-article-scrollbar[data-dragging="true"] .reader-article-scrollbar-hit {
+  cursor: grabbing;
+}
+
+@media (forced-colors: active) {
+  .reader-article-scrollbar {
+    color: Highlight;
+    forced-color-adjust: none;
+  }
+
+  .reader-article-scrollbar-track {
+    stroke: CanvasText;
+    opacity: 0.4;
+  }
+
+  .reader-article-scrollbar-thumb {
+    opacity: 1;
+  }
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -1100,16 +1176,6 @@ html[data-raindrop-reading-color="gray"] .reader-article-plane,
   .reader-preferences-panel:hover::-webkit-scrollbar-thumb,
   .reader-category-management-list:hover::-webkit-scrollbar-thumb {
     background: var(--scrollbar-thumb-hover) content-box;
-  }
-
-  .reader-article:hover {
-    scrollbar-color: color-mix(in oklch, var(--reader-article-foreground) 38%, transparent)
-      transparent;
-  }
-
-  .reader-article:hover::-webkit-scrollbar-thumb {
-    background: color-mix(in oklch, var(--reader-article-foreground) 38%, transparent)
-      content-box;
   }
 }
 
@@ -1495,7 +1561,7 @@ html[data-raindrop-reading-color="gray"] .reader-article-plane,
   scrollbar-gutter: stable;
 }
 
-.reader-article-plane > .reader-article,
+.reader-article-scroller > .reader-article,
 .reader-article-empty {
   flex: 1;
   overflow-y: auto;
@@ -1504,7 +1570,7 @@ html[data-raindrop-reading-color="gray"] .reader-article-plane,
 
 .reader-article-kicker {
   margin: 0 0 12px;
-  color: var(--color-text-accent);
+  color: var(--reader-article-link);
   font-family: var(--font-family-body);
   font-size: 0.8em;
   font-weight: 650;
@@ -1522,7 +1588,7 @@ html[data-raindrop-reading-color="gray"] .reader-article-plane,
 }
 
 .reader-article h1:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--reader-article-link);
   outline-offset: 4px;
 }
 
@@ -1579,6 +1645,10 @@ html[lang^="zh"] .ai-artifact-view {
 
 .reader-article-body :where(p, ul, ol, blockquote, pre, figure) {
   margin-block: 0 1.3em;
+}
+
+.reader-article-body p {
+  color: inherit;
 }
 
 .reader-article-body :where(h2, h3) {
