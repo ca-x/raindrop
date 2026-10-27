@@ -61,6 +61,27 @@ it("offers AI settings for unavailable operations and closes explicitly", async 
   expect(onClose).toHaveBeenCalledOnce()
 })
 
+it("shows result loading while a completed job artifact is still being fetched", () => {
+  activateLocale("en")
+  const overview = overviewWithSummary("SUCCEEDED")
+  renderSidecar(controller({ overview: { ...overview, summary: { ...overview.summary, artifact: null } } }))
+  expect(screen.getByRole("progressbar", { name: "Loading AI state" })).toBeVisible()
+  expect(screen.queryByText("Result cannot be displayed")).not.toBeInTheDocument()
+})
+
+it("offers a state reload after read errors and settings after a failed job", async () => {
+  activateLocale("en")
+  const user = userEvent.setup()
+  const open = vi.fn()
+  const onOpenSettings = vi.fn()
+  const { rerender } = renderSidecar(controller({ error: "POLL", open }))
+  await user.click(screen.getByRole("button", { name: "Reload status" }))
+  expect(open).toHaveBeenCalledWith("summary")
+  rerender(wrapped(controller({ overview: overviewWithSummary("FAILED") }), vi.fn(), onOpenSettings))
+  await user.click(screen.getByRole("button", { name: "Open plugin settings" }))
+  expect(onOpenSettings).toHaveBeenCalledOnce()
+})
+
 it("keeps sidecar controls at the 44px touch-target minimum", () => {
   activateLocale("en")
   renderSidecar(controller())

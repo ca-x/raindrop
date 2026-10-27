@@ -72,6 +72,7 @@ export function useEntryAiController(
   const [loadStatus, setLoadStatus] = useState<EntryAiLoadStatus>("idle")
   const [error, setError] = useState<EntryAiError | null>(null)
   const [isMutating, setIsMutating] = useState(false)
+  const [readRevision, setReadRevision] = useState(0)
   const entryIdRef = useRef(entryId)
   const openTabRef = useRef<EntryAiTab | null>(null)
   const loadedEntryId = useRef<string | null>(null)
@@ -113,6 +114,7 @@ export function useEntryAiController(
         }
         loadedEntryId.current = requestedEntryId
         setOverview(loaded)
+        setReadRevision((revision) => revision + 1)
         setLoadStatus("ready")
       } catch (cause) {
         if (
@@ -166,11 +168,11 @@ export function useEntryAiController(
       openTabRef.current = tab
       setOpenTab(tab)
       setError(null)
-      if (entryId && loadedEntryId.current !== entryId) {
+      if (entryId && (loadedEntryId.current !== entryId || error !== null)) {
         void loadOverview(entryId)
       }
     },
-    [entryId, loadOverview],
+    [entryId, error, loadOverview],
   )
 
   const close = useCallback(() => {
@@ -282,51 +284,48 @@ export function useEntryAiController(
     let timer: number | null = null
     let cancelled = false
 
-    const fail = (cause: unknown, kind: EntryAiError) => {
-      if (cancelled || isAbortError(cause)) return
-      if (isAuthenticationError(cause)) {
-        endSession()
-        return
-      }
-      setError(kind)
-    }
-    const loadResult = async (job: AiJob) => {
+    let failures = 0
+    const read = async () => {
+      timer = null
       try {
-        const artifact = await api.getAiJobResult(job.jobId, abort.signal)
-        if (cancelled || entryIdRef.current !== entryId) return
-        if (!artifactMatchesTab(artifact, openTab)) {
-          setError("RESULT")
-          return
-        }
-        setOverview((current) =>
-          current ? updateOperationArtifact(current, openTab, job, artifact) : current,
-        )
-      } catch (cause) {
-        fail(cause, "RESULT")
-      }
-    }
-    const poll = async () => {
-      timer = window.setTimeout(async () => {
-        timer = null
-        try {
+        if (needsResult) {
+          const artifact = await api.getAiJobResult(activeJob.jobId, abort.signal)
+          if (cancelled || entryIdRef.current !== entryId) return
+          if (!artifactMatchesTab(artifact, openTab)) {
+            setError("RESULT")
+            return
+          }
+          setError(null)
+          setOverview((current) =>
+            current ? updateOperationArtifact(current, openTab, activeJob, artifact) : current,
+          )
+        } else {
           const job = await api.getAiJob(activeJob.jobId, abort.signal)
           if (cancelled || entryIdRef.current !== entryId) return
+          setError(null)
+          // The next effect reads the result or schedules the next status request. Keeping one
+          // reader avoids aborting a result fetch when its successful job update renders.
           setOverview((current) =>
             current ? updateOperationJob(current, openTab, job) : current,
           )
-          if (job.status === "SUCCEEDED") {
-            await loadResult(job)
-          } else if (isActiveJob(job)) {
-            await poll()
-          }
-        } catch (cause) {
-          fail(cause, "POLL")
         }
-      }, pollIntervalMs)
+      } catch (cause) {
+        if (cancelled || abort.signal.aborted || isAbortError(cause)) return
+        if (isAuthenticationError(cause)) {
+          endSession()
+          return
+        }
+        if (isTransientReadError(cause) && failures < 2) {
+          failures += 1
+          timer = window.setTimeout(() => void read(), pollIntervalMs * 2 ** failures)
+          return
+        }
+        setError(needsResult ? "RESULT" : "POLL")
+      }
     }
 
-    if (needsResult) void loadResult(activeJob)
-    else void poll()
+    if (needsResult) void read()
+    else timer = window.setTimeout(() => void read(), pollIntervalMs)
     return () => {
       cancelled = true
       abort.abort()
@@ -341,6 +340,7 @@ export function useEntryAiController(
     entryId,
     openTab,
     pollIntervalMs,
+    readRevision,
   ])
 
   return {
@@ -427,4 +427,10 @@ function isAuthenticationError(error: unknown): boolean {
 
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === "AbortError"
+}
+
+function isTransientReadError(error: unknown): boolean {
+  return error instanceof TypeError || (error instanceof ApiClientError && (
+    error.status === 408 || error.status === 429 || error.status >= 500
+  ))
 }

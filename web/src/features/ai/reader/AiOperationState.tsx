@@ -83,13 +83,16 @@ export function AiOperationState(props: AiOperationStateProps) {
   if (
     props.operation.state === "QUEUED" ||
     props.operation.state === "RUNNING" ||
-    props.operation.state === "RETRY_WAIT"
+    props.operation.state === "RETRY_WAIT" ||
+    (props.operation.state === "SUCCEEDED" && props.operation.artifact === null)
   ) {
     return (
       <StateStack>
         <ProgressBar
           isIndeterminate
-          label={i18n._(`ai.reader.state.${props.operation.state}`)}
+          label={i18n._(props.operation.state === "SUCCEEDED"
+            ? "ai.reader.loading"
+            : `ai.reader.state.${props.operation.state}`)}
         />
         <Text as="p" display="block" color="secondary">
           {i18n._("ai.reader.processingDescription")}
@@ -114,6 +117,7 @@ export function AiOperationState(props: AiOperationStateProps) {
           variant="primary"
           isLoading={props.isMutating}
         />
+        {settingsAction}
       </StateStack>
     )
   }

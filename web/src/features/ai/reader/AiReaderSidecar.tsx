@@ -51,11 +51,18 @@ export function AiReaderSidecar(props: AiReaderSidecarProps) {
       </div>
       <div className="reader-ai-sidecar-content" aria-live="polite">
         {props.controller.error ? (
-          <Banner
-            status="error"
-            title={i18n._("ai.reader.requestError")}
-            description={i18n._(`ai.reader.controllerError.${props.controller.error}`)}
-          />
+          <div className="reader-ai-read-error">
+            <Banner
+              status="error"
+              title={i18n._("ai.reader.requestError")}
+              description={i18n._(`ai.reader.controllerError.${props.controller.error}`)}
+            />
+            <Button
+              label={i18n._("ai.reader.reload")}
+              variant="secondary"
+              onClick={() => props.controller.open(tab)}
+            />
+          </div>
         ) : null}
         {props.controller.loadStatus === "error" ? (
           <Banner

@@ -343,21 +343,25 @@ impl FeedRepository {
                 [Value::from(cutoff), Value::from(cutoff)],
             ))
             .await?;
-        // Active runs are never candidates. Re-check outbox eligibility in each DELETE
-        // so a notification claimed by a dispatcher is preserved.
+        let ids = rows
+            .iter()
+            .map(|row| required::<String>(row, "id"))
+            .collect::<Result<Vec<_>, _>>()?;
         let mut deleted = 0;
-        for row in rows {
-            let id: String = required(&row, "id")?;
-            transaction.execute(Statement::from_sql_and_values(backend, format!(
-                "DELETE FROM lifecycle_outbox WHERE refresh_id = {parameter}
-                 AND event_type IN ('feed.refresh.persisted','feed.refresh.completed')
-                 AND status = 'PENDING' AND attempts = 0 AND lease_owner IS NULL AND lease_until IS NULL"
-            ), [id.clone().into()])).await?;
+        if !ids.is_empty() {
+            let bindings = retention_bindings(backend, ids.len());
+            let values: Vec<Value> = ids.into_iter().map(Value::from).collect();
+            // Active runs are never candidates. Recheck every event's eligibility at deletion;
+            // a concurrently claimed notification must still protect its refresh run.
+            transaction
+                .execute(refresh_event_delete_statement(backend, values.clone()))
+                .await?;
             let result = transaction.execute(Statement::from_sql_and_values(backend, format!(
-                "DELETE FROM feed_refresh_runs WHERE id = {parameter}
+                "DELETE FROM feed_refresh_runs WHERE id IN ({bindings})
                  AND NOT EXISTS (SELECT 1 FROM lifecycle_outbox WHERE refresh_id = feed_refresh_runs.id)"
-            ), [id.into()])).await?;
-            deleted += result.rows_affected() as usize;
+            ), values)).await?;
+            deleted = usize::try_from(result.rows_affected())
+                .map_err(|_| FeedRetentionError::CorruptData)?;
         }
         transaction.commit().await?;
         Ok(deleted)
@@ -395,16 +399,92 @@ impl FeedRepository {
                 [Value::from(cutoff), Value::from(cutoff)],
             ))
             .await?;
+        let ids = rows
+            .iter()
+            .map(|row| required::<String>(row, "id"))
+            .collect::<Result<Vec<_>, _>>()?;
         let mut deleted = 0;
-        for row in rows {
-            let id: String = required(&row, "id")?;
+        if !ids.is_empty() {
+            let bindings = retention_bindings(backend, ids.len());
             let result = transaction.execute(Statement::from_sql_and_values(backend, format!(
-                "DELETE FROM lifecycle_outbox WHERE id = {p1}
-                 AND status = 'PENDING' AND attempts = 0 AND lease_owner IS NULL AND lease_until IS NULL"
-            ), [id.into()])).await?;
-            deleted += result.rows_affected() as usize;
+                "DELETE FROM lifecycle_outbox WHERE id IN ({bindings})
+                 AND event_type IN ('feed.refresh.persisted','feed.refresh.completed')
+                 AND status = 'PENDING' AND attempts = 0 AND lease_owner IS NULL AND lease_until IS NULL
+                 AND NOT EXISTS (SELECT 1 FROM feed_refresh_runs r WHERE r.id = lifecycle_outbox.refresh_id)"
+            ), ids.into_iter().map(Value::from))).await?;
+            deleted = usize::try_from(result.rows_affected())
+                .map_err(|_| FeedRetentionError::CorruptData)?;
         }
         transaction.commit().await?;
         Ok(deleted)
+    }
+}
+
+fn retention_bindings(backend: DbBackend, count: usize) -> String {
+    (1..=count)
+        .map(|index| match backend {
+            DatabaseBackend::Postgres => format!("${index}"),
+            DatabaseBackend::Sqlite | DatabaseBackend::MySql => "?".to_owned(),
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn refresh_event_delete_statement(backend: DbBackend, values: Vec<Value>) -> Statement {
+    let bindings = retention_bindings(backend, values.len());
+    // Without statistics SQLite favors the status index for IN batches and scans the pending
+    // queue. Require the existing refresh index so work remains bounded by the selected runs.
+    let table = if backend == DatabaseBackend::Sqlite {
+        "lifecycle_outbox INDEXED BY uq_lifecycle_outbox_order"
+    } else {
+        "lifecycle_outbox"
+    };
+    Statement::from_sql_and_values(
+        backend,
+        format!(
+            "DELETE FROM {table} WHERE refresh_id IN ({bindings})
+             AND event_type IN ('feed.refresh.persisted','feed.refresh.completed')
+             AND status = 'PENDING' AND attempts = 0 AND lease_owner IS NULL AND lease_until IS NULL"
+        ),
+        values,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::{DatabaseConfig, connect, migrate};
+    use secrecy::SecretString;
+
+    #[tokio::test]
+    async fn sqlite_refresh_event_batch_looks_up_refresh_ids_instead_of_pending_queue() {
+        let database = connect(&DatabaseConfig::new(SecretString::from("sqlite::memory:")))
+            .await
+            .expect("test database connects");
+        migrate(&database).await.expect("test schema migrates");
+        let values = (0..HISTORY_BATCH_LIMIT)
+            .map(|index| Value::from(index.to_string()))
+            .collect();
+        let mut statement = refresh_event_delete_statement(DatabaseBackend::Sqlite, values);
+        statement.sql.insert_str(0, "EXPLAIN QUERY PLAN ");
+        let details = database
+            .query_all(statement)
+            .await
+            .expect("production delete plan is valid")
+            .iter()
+            .map(|row| row.try_get::<String>("", "detail").unwrap())
+            .collect::<Vec<_>>();
+        assert!(
+            details
+                .iter()
+                .any(|detail| detail.contains("(refresh_id=?)")),
+            "a bounded batch must look up refresh IDs: {details:?}"
+        );
+        assert!(
+            details
+                .iter()
+                .all(|detail| !detail.contains("SCAN ") && !detail.contains("(status=?)")),
+            "retention must not scan the unrelated pending queue: {details:?}"
+        );
     }
 }

@@ -18,7 +18,6 @@ use crate::{content::provider::ProviderHeader, feeds::install_ring_crypto_provid
 use super::{ProviderTransportError, ProviderTransportErrorKind};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
-const READ_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub(super) struct HttpExecuteRequest {
     pub(super) url: Url,
@@ -61,14 +60,12 @@ pub(super) trait HttpBody: Send {
 
 pub(super) struct ReqwestExecutor {
     connect_timeout: Duration,
-    read_timeout: Duration,
 }
 
 impl ReqwestExecutor {
     pub(super) const fn production() -> Self {
         Self {
             connect_timeout: CONNECT_TIMEOUT,
-            read_timeout: READ_TIMEOUT,
         }
     }
 
@@ -82,7 +79,6 @@ impl ReqwestExecutor {
             .no_deflate()
             .no_zstd()
             .connect_timeout(self.connect_timeout)
-            .read_timeout(self.read_timeout)
             .timeout(request.request_timeout)
             .resolve_to_addrs(&request.host, &request.approved)
             .build()
@@ -265,7 +261,46 @@ mod tests {
         };
         let executor = ReqwestExecutor::production();
         assert_eq!(executor.connect_timeout, Duration::from_secs(5));
-        assert_eq!(executor.read_timeout, Duration::from_secs(10));
         assert!(executor.build_client(&request).is_ok());
+    }
+
+    #[tokio::test]
+    async fn non_streaming_generation_can_wait_for_model_headers_past_ten_seconds() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let app = axum::Router::new().route(
+            "/v1/responses",
+            axum::routing::post(|| async {
+                tokio::time::sleep(Duration::from_secs(11)).await;
+                axum::Json(serde_json::json!({"ok": true}))
+            }),
+        );
+        let server = tokio::spawn(async move { axum::serve(listener, app).await });
+        let request = HttpExecuteRequest {
+            url: Url::parse(&format!(
+                "http://provider.example:{}/v1/responses",
+                address.port()
+            ))
+            .unwrap(),
+            host: "provider.example".to_owned(),
+            approved: vec![address],
+            headers: HeaderMap::new(),
+            body: b"{}".to_vec(),
+            request_timeout: Duration::from_secs(15),
+        };
+        let result = ReqwestExecutor::production().execute(request).await;
+        server.abort();
+        let _ = server.await;
+        let mut response =
+            result.unwrap_or_else(|_| panic!("model headers may need more than ten seconds"));
+        assert_eq!(response.status, StatusCode::OK);
+        assert_eq!(
+            response
+                .body
+                .next_chunk()
+                .await
+                .unwrap_or_else(|_| panic!("response body reads")),
+            Some(br#"{"ok":true}"#.to_vec())
+        );
     }
 }

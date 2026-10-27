@@ -26,7 +26,6 @@ use self::{
 };
 
 const TOTAL_TIMEOUT: Duration = Duration::from_secs(90);
-const FIRST_BYTE_TIMEOUT: Duration = Duration::from_secs(20);
 const INITIALIZATION_PROVIDER_ID: &str = "transport-initialization";
 
 pub struct HttpsProviderTransport {
@@ -101,14 +100,10 @@ impl ProviderTransport for HttpsProviderTransport {
             body: request.body().to_vec(),
             request_timeout,
         };
-        let first_byte_deadline = Instant::now()
-            .checked_add(FIRST_BYTE_TIMEOUT)
-            .ok_or_else(|| {
-                ProviderTransportError::timeout(provider_id, ProviderTimeoutStage::FirstByte)
-            })?
-            .min(total_deadline);
+        // These requests are non-streaming: providers may not send headers until generation
+        // finishes. Use the total budget here; body collection separately enforces its idle limit.
         let mut response =
-            strict_timeout_at(first_byte_deadline, self.executor.execute(execute_request))
+            strict_timeout_at(total_deadline, self.executor.execute(execute_request))
                 .await
                 .map_err(|_| {
                     let stage = if Instant::now() >= total_deadline {
@@ -579,14 +574,45 @@ mod tests {
                 .await
         });
         tokio::task::yield_now().await;
-        tokio::time::advance(FIRST_BYTE_TIMEOUT).await;
+        tokio::time::advance(TOTAL_TIMEOUT).await;
         let error = task
             .await
             .unwrap()
-            .expect_err("pending executor should reach the first-byte deadline");
+            .expect_err("pending executor should reach the total deadline");
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         assert_eq!(error.kind(), ProviderTransportErrorKind::Timeout);
-        assert_eq!(error.stage(), Some(ProviderTimeoutStage::FirstByte));
+        assert_eq!(error.stage(), Some(ProviderTimeoutStage::Total));
+    }
+
+    struct GeneratingExecutor;
+
+    #[async_trait]
+    impl HttpExecutor for GeneratingExecutor {
+        async fn execute(&self, request: HttpExecuteRequest) -> Result<HttpResponse, ExecuteError> {
+            tokio::time::sleep(Duration::from_secs(25)).await;
+            fake_executor(
+                StatusCode::OK,
+                HeaderMap::new(),
+                PeerMode::Approved,
+                vec![Some(br#"{"ok":true}"#.to_vec()), None],
+            )
+            .execute(request)
+            .await
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn non_streaming_generation_uses_the_total_budget_for_response_headers() {
+        let transport = HttpsProviderTransport::with_parts(
+            Arc::new(FakeResolver),
+            Arc::new(GeneratingExecutor),
+        );
+        let endpoint = ProviderEndpoint::new(ProviderKind::OpenAiResponses, None).unwrap();
+        let response = transport
+            .execute(PROVIDER_ID, &endpoint, encoded_request())
+            .await
+            .expect("generation within the total budget must not hit a shorter header deadline");
+        assert_eq!(response.body(), br#"{"ok":true}"#);
     }
 
     fn encoded_request() -> EncodedProviderRequest {

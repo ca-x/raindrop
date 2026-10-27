@@ -120,7 +120,7 @@ it("cancels without saving and uses a viewport-bounded form dialog", async () =>
 
   expect(dialog).toHaveClass("reader-preferences-dialog")
   expect(dialog.getAttribute("style")).toContain("100vw - 24px")
-  expect(dialog.getAttribute("style")).toContain("100dvh - 24px")
+  expect(dialog.getAttribute("style")).toContain("100dvh - 16px")
   await user.click(within(dialog).getByRole("button", { name: "Cancel" }))
 
   expect(onSave).not.toHaveBeenCalled()
@@ -179,7 +179,7 @@ it("uses icon-assisted navigation and exposes the current build version", async 
   expect(navigation.querySelectorAll("svg").length).toBeGreaterThanOrEqual(3)
   await user.click(within(navigation).getByRole("button", { name: /^About/ }))
   expect(within(dialog).getByText("Raindrop")).toBeVisible()
-  expect(within(dialog).getByText("v0.6.1")).toBeVisible()
+  expect(within(dialog).getByText("v0.6.2")).toBeVisible()
 })
 
 it("clears a deleted active custom font from the open draft before saving", async () => {
@@ -364,3 +364,20 @@ function fakeTranslationSettingsController(): TranslationSettingsController {
     cancel: vi.fn(),
   }
 }
+
+it("focuses the first invalid profile field and preserves the draft", async () => {
+  activateLocale("en")
+  const user = userEvent.setup()
+  const onSave = vi.fn()
+  const onSaveProfile = vi.fn()
+  renderDialog({ onSave, onSaveProfile })
+  const dialog = screen.getByRole("dialog", { name: "Settings" })
+  const displayName = within(dialog).getByRole("textbox", { name: /^Nickname/u })
+  await user.type(displayName, "A".repeat(81))
+  await user.click(within(dialog).getByRole("button", { name: "Save changes" }))
+  await waitFor(() => expect(displayName).toHaveFocus())
+  expect(displayName).toHaveAttribute("aria-invalid", "true")
+  expect(displayName).toHaveValue("A".repeat(81))
+  expect(onSave).not.toHaveBeenCalled()
+  expect(onSaveProfile).not.toHaveBeenCalled()
+})

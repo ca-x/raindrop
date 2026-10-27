@@ -189,27 +189,32 @@ export function ReadingPreferencesForm(props: ReadingPreferencesFormProps) {
         width="100%"
       />
       <div className="reader-preference-field">
-        <NumberInput
-          label={i18n._("preferences.readingSize")}
-          description={i18n._("preferences.readingSizeDescription")}
-          value={props.value.readingFontScale}
-          min={MIN_READING_FONT_SCALE}
-          max={MAX_READING_FONT_SCALE}
-          step={1}
-          units="%"
-          isIntegerOnly
-          onChange={(value) => props.onChange({ readingFontScale: clampReadingFontScale(value) })}
-          isDisabled={props.isSaving}
-          width="100%"
-        />
-        <div className="reader-reading-size-help">
-          <span className="reader-preference-description">{i18n._("preferences.readingSizeShortcuts")}</span>
+        <div className="reader-reading-size-controls">
+          <NumberInput
+            label={i18n._("preferences.readingSize")}
+            description={i18n._("preferences.readingSizeDescription")}
+            value={props.value.readingFontScale}
+            min={MIN_READING_FONT_SCALE}
+            max={MAX_READING_FONT_SCALE}
+            step={1}
+            units="%"
+            isIntegerOnly
+            onChange={(value) => props.onChange({ readingFontScale: clampReadingFontScale(value) })}
+            isDisabled={props.isSaving}
+            width="100%"
+          />
           <Button
             label={i18n._("preferences.resetReadingSize")}
-            variant="ghost"
+            tooltip={i18n._("preferences.resetReadingSize")}
+            icon={<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 10a9 9 0 1 1 2.7 8.4M3 4v6h6" /></svg>}
+            isIconOnly
+            variant="secondary"
             onClick={() => props.onChange({ readingFontScale: DEFAULT_READING_FONT_SCALE })}
             isDisabled={props.isSaving || props.value.readingFontScale === DEFAULT_READING_FONT_SCALE}
           />
+        </div>
+        <div className="reader-reading-size-help reader-preference-description">
+          {i18n._("preferences.readingSizeShortcuts")}
         </div>
       </div>
       <CustomFontManagement {...props} />
@@ -275,6 +280,7 @@ function CustomFontManagement(props: ReadingPreferencesFormProps) {
         <FileInput
           label={i18n._("preferences.customFontFile")}
           isLabelHidden
+          hidden
           value={file}
           onChange={(value) => setFile(value instanceof File ? value : null)}
           accept=".woff2,.ttf,.otf,font/woff2,font/ttf,font/otf"
@@ -290,7 +296,7 @@ function CustomFontManagement(props: ReadingPreferencesFormProps) {
           variant="secondary"
         />
       </div>
-      <div className="reader-font-list" aria-label={i18n._("preferences.customFonts")}>
+      <div className="reader-font-list" role="group" aria-label={i18n._("preferences.customFonts")}>
         {props.fonts.length === 0 ? (
           <div className="reader-preference-description">
             {i18n._("preferences.noCustomFonts")}

@@ -122,7 +122,9 @@ async fn collect_compressed(
     total_deadline: Instant,
 ) -> Result<Vec<u8>, ProviderTransportError> {
     let mut compressed = Vec::new();
-    let mut idle_deadline = checked_idle_deadline(provider_id, total_deadline)?;
+    // A non-streaming provider can flush headers before generation is done. The first actual
+    // bytes use the total request budget; only an interrupted body uses the shorter idle limit.
+    let mut idle_deadline = total_deadline;
     loop {
         let now = Instant::now();
         if now >= total_deadline {
@@ -290,6 +292,7 @@ mod tests {
 
     enum BodyStep {
         Chunk(Vec<u8>),
+        DelayedChunk(Duration, Vec<u8>),
         End,
         Pending,
         Timeout,
@@ -306,6 +309,10 @@ mod tests {
             self.polls.fetch_add(1, Ordering::SeqCst);
             match self.steps.pop_front().unwrap_or(BodyStep::End) {
                 BodyStep::Chunk(chunk) => Ok(Some(chunk)),
+                BodyStep::DelayedChunk(delay, chunk) => {
+                    tokio::time::sleep(delay).await;
+                    Ok(Some(chunk))
+                }
                 BodyStep::End => Ok(None),
                 BodyStep::Pending => future::pending().await,
                 BodyStep::Timeout => Err(BodyError::Timeout),
@@ -460,7 +467,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn pending_body_is_bounded_by_idle_timeout() {
         let mut body = FakeBody {
-            steps: VecDeque::from([BodyStep::Pending]),
+            steps: VecDeque::from([BodyStep::Chunk(b"partial".to_vec()), BodyStep::Pending]),
             polls: Arc::new(AtomicUsize::new(0)),
         };
         let task = tokio::spawn(async move {
@@ -480,6 +487,27 @@ mod tests {
             .expect_err("pending body should time out");
         assert_eq!(error.kind(), ProviderTransportErrorKind::Timeout);
         assert_eq!(error.stage(), Some(ProviderTimeoutStage::BodyIdle));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn non_streaming_body_can_arrive_after_headers_while_model_is_generating() {
+        let mut body = FakeBody {
+            steps: VecDeque::from([
+                BodyStep::Chunk(Vec::new()),
+                BodyStep::DelayedChunk(Duration::from_secs(25), br#"{"ok":true}"#.to_vec()),
+                BodyStep::End,
+            ]),
+            polls: Arc::new(AtomicUsize::new(0)),
+        };
+        let collected = collect_response_body(
+            PROVIDER_ID,
+            &HeaderMap::new(),
+            &mut body,
+            Instant::now() + Duration::from_secs(90),
+        )
+        .await
+        .expect("headers may arrive before a non-streaming model has produced its output");
+        assert_eq!(collected, br#"{"ok":true}"#);
     }
 
     #[tokio::test(start_paused = true)]

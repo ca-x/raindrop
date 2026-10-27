@@ -48,6 +48,7 @@ pub async fn create_admin(
 
     let password_hash = passwords
         .hash(&input.password)
+        .await
         .map_err(CreateAdminError::Password)?;
     let id = Uuid::new_v4().to_string();
     let transaction = database.begin().await.map_err(CreateAdminError::Database)?;
@@ -145,11 +146,15 @@ pub async fn authenticate(
         .map_err(AuthenticateError::Database)?;
 
     let Some(stored) = stored else {
-        let _ = passwords.hash(password);
+        passwords
+            .hash(password)
+            .await
+            .map_err(AuthenticateError::Password)?;
         return Err(AuthenticateError::InvalidCredentials);
     };
     let valid = passwords
         .verify(&stored.password_hash, password)
+        .await
         .map_err(AuthenticateError::Password)?;
     if !valid {
         return Err(AuthenticateError::InvalidCredentials);

@@ -1,5 +1,6 @@
 import { expect, test, type Page, type TestInfo } from "@playwright/test"
 
+import type { AiConfigEnvelope } from "../src/features/ai/api/content.generated"
 import { completeSetup, createCredentials } from "./support/app"
 import {
   installReaderApiFixture,
@@ -1091,3 +1092,66 @@ async function verifyHostileDeepLink(page: Page, testInfo: TestInfo): Promise<vo
   await expectHostileContentContained(page)
   if (testInfo.project.name === "reader-360x800") await expectReducedMotion(page)
 }
+
+test("AI summary recovers state reads without repeating model generation", async ({ page }, testInfo) => {
+  testInfo.setTimeout(45_000)
+  const aiServer = await startProductionServer()
+  try {
+    await installReaderApiFixture(page)
+    const providerId = "00000000-0000-4000-8000-000000000902"
+    await page.route("**/api/v1/ai/config", (route) => route.fulfill({ json: {
+      pluginState: "READY", mcpState: "CONTRACT_READY_TRANSPORT_UNAVAILABLE",
+      config: {
+        revision: 0, isEnabled: true,
+        summary: { enabled: true, providerId, style: "BALANCED", maxOutputTokens: 1024 },
+        translation: { enabled: false, providerId, defaultTargetLocale: "zh-CN", maxOutputTokens: 4096 },
+      },
+    } satisfies AiConfigEnvelope }))
+    const jobId = "00000000-0000-4000-8000-000000000401"
+    const queued = { jobId, status: "QUEUED", attempts: 0, maxAttempts: 3,
+      nextAttemptAt: "2026-07-20T10:00:00Z", lastErrorCode: null,
+      createdAt: "2026-07-20T10:00:00Z", startedAt: null, completedAt: null }
+    const artifact = { artifactId: "00000000-0000-4000-8000-000000000501",
+      kind: "AI_SUMMARY", providerLabel: "Primary model", createdAt: "2026-07-20T10:00:03Z",
+      sourceLanguage: "en", summary: "Recovered summary without another generation.",
+      bullets: [], conclusion: null }
+    let statusReads = 0
+    let resultReads = 0
+    let generations = 0
+    page.on("request", (request) => {
+      if (request.method() === "POST" && /\/ai\/(?:jobs|jobs\/[^/]+\/retry)$/u.test(new URL(request.url()).pathname)) generations += 1
+    })
+    await page.route(`**/api/v1/entries/${readerIds.firstEntry}/ai`, (route) => route.fulfill({ json: {
+      availability: "READY", mcpState: "CONTRACT_READY_TRANSPORT_UNAVAILABLE",
+      summary: { operation: "SUMMARIZE", state: "QUEUED", job: queued, artifact: null },
+      translation: { operation: "TRANSLATE", targetLocale: "zh-CN", state: "IDLE", job: null, artifact: null },
+    } }))
+    await page.route(`**/api/v1/ai/jobs/${jobId}`, (route) => {
+      statusReads += 1
+      return statusReads <= 3
+        ? route.fulfill({ status: 503, json: { error: { code: "UNAVAILABLE", message: "Temporary read failure" } } })
+        : route.fulfill({ json: { ...queued, status: "SUCCEEDED", attempts: 1,
+          startedAt: "2026-07-20T10:00:01Z", completedAt: "2026-07-20T10:00:03Z" } })
+    })
+    await page.route(`**/api/v1/ai/jobs/${jobId}/result`, (route) => {
+      resultReads += 1
+      return resultReads === 1
+        ? route.fulfill({ status: 503, json: { error: { code: "UNAVAILABLE", message: "Temporary result failure" } } })
+        : route.fulfill({ json: artifact })
+    })
+    await completeSetup(page, aiServer, createCredentials())
+    await readerRowButton(page, readerIds.firstEntry).click()
+    await page.getByRole("button", { name: "Summary", exact: true }).click()
+    const sidecar = page.getByRole("region", { name: "AI reading tools" })
+    await expect(sidecar.getByRole("button", { name: "Reload status" })).toBeVisible({ timeout: 15_000 })
+    expect(statusReads).toBe(3)
+    await sidecar.getByRole("button", { name: "Reload status" }).click()
+    await expect(sidecar.getByText(artifact.summary)).toBeVisible({ timeout: 10_000 })
+    await expect(sidecar.getByText("The AI request did not complete")).toHaveCount(0)
+    expect(resultReads).toBe(2)
+    expect(generations).toBe(0)
+    await expectNoHorizontalOverflow(page)
+  } finally {
+    await aiServer.stop()
+  }
+})

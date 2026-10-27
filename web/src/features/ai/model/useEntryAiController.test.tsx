@@ -128,6 +128,58 @@ it("polls active jobs, fetches the typed result, and stops after success", async
   expect(getAiJob).toHaveBeenCalledTimes(callsAtSuccess)
 })
 
+it.each(["status", "result"] as const)("recovers a transient %s read without starting more model work", async (failedRead) => {
+  const succeeded = { ...queuedJob, status: "SUCCEEDED" as const,
+    completedAt: "2026-07-20T10:00:03Z" }
+  const getAiJob = vi.fn().mockResolvedValue(succeeded)
+  const getAiJobResult = vi.fn().mockResolvedValue(summaryArtifact)
+  if (failedRead === "status") getAiJob.mockRejectedValueOnce(new TypeError("offline"))
+  else getAiJobResult.mockRejectedValueOnce(new ApiClientError(503, { code: "UNAVAILABLE", message: "Unavailable" }))
+  const api = fakeApi({
+    getEntryAiOverview: vi.fn().mockResolvedValue({ ...idleOverview(), summary: {
+      operation: "SUMMARIZE", state: failedRead === "status" ? "QUEUED" : "SUCCEEDED",
+      job: failedRead === "status" ? queuedJob : succeeded, artifact: null,
+    } }), getAiJob, getAiJobResult,
+  })
+  const { result } = renderController(firstEntryId, api)
+  act(() => result.current.open("summary"))
+  await waitFor(() => expect(result.current.overview?.summary.artifact).toEqual(summaryArtifact))
+  expect(result.current.error).toBeNull()
+  expect(failedRead === "status" ? getAiJob : getAiJobResult).toHaveBeenCalledTimes(2)
+  expect(api.enqueueAiJob).not.toHaveBeenCalled()
+  expect(api.retryAiJob).not.toHaveBeenCalled()
+})
+
+it("bounds failed status reads and can reload the same job after recovery", async () => {
+  const getAiJob = vi.fn().mockRejectedValue(new TypeError("offline"))
+  const api = fakeApi({ getEntryAiOverview: vi.fn().mockResolvedValue({ ...idleOverview(), summary: {
+    operation: "SUMMARIZE", state: "QUEUED", job: queuedJob, artifact: null,
+  } }), getAiJob, getAiJobResult: vi.fn().mockResolvedValue(summaryArtifact) })
+  const { result } = renderController(firstEntryId, api)
+  act(() => result.current.open("summary"))
+  await waitFor(() => expect(result.current.error).toBe("POLL"))
+  expect(getAiJob).toHaveBeenCalledTimes(3)
+  getAiJob.mockResolvedValue({ ...queuedJob, status: "SUCCEEDED" })
+  act(() => result.current.open("summary"))
+  await waitFor(() => expect(result.current.overview?.summary.artifact).toEqual(summaryArtifact))
+  expect(api.getEntryAiOverview).toHaveBeenCalledTimes(2)
+  expect(api.enqueueAiJob).not.toHaveBeenCalled()
+})
+
+it("ends the session without retrying an unauthorized status read", async () => {
+  const onUnauthenticated = vi.fn()
+  const api = fakeApi({ getEntryAiOverview: vi.fn().mockResolvedValue({ ...idleOverview(), summary: {
+    operation: "SUMMARIZE", state: "QUEUED", job: queuedJob, artifact: null,
+  } }), getAiJob: vi.fn().mockRejectedValue(new ApiClientError(401, {
+    code: "AUTHENTICATION_REQUIRED", message: "Sign in again",
+  })) })
+  const { result } = renderController(firstEntryId, api, onUnauthenticated)
+  act(() => result.current.open("summary"))
+  await waitFor(() => expect(onUnauthenticated).toHaveBeenCalledOnce())
+  expect(api.getAiJob).toHaveBeenCalledOnce()
+  expect(result.current.error).toBeNull()
+})
+
 it("does not poll idle or failed operations and stops polling on close", async () => {
   const failedJob = {
     ...queuedJob,

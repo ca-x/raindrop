@@ -3,7 +3,7 @@ import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog"
 import { Icon } from "@astryxdesign/core/Icon"
 import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout"
 import { useLingui } from "@lingui/react"
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react"
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from "react"
 
 import type { UserFont, UserPreferences } from "../api/preferences.generated"
 import type { PreferencesControllerError } from "../model/usePreferencesController"
@@ -64,6 +64,39 @@ export function PreferencesDialog(props: PreferencesDialogProps) {
     props.initialTab ?? "personal",
   )
   const wasOpen = useRef(false)
+  const navigationRef = useRef<HTMLElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+
+  useLayoutEffect(() => {
+    if (!props.isOpen) return
+    const navigation = navigationRef.current
+    if (!navigation) return
+    const revealSection = () => {
+      const current = navigation.querySelector<HTMLElement>('[aria-current="page"]')
+      if (!current) return
+      const navBounds = navigation.getBoundingClientRect()
+      const currentBounds = current.getBoundingClientRect()
+      if (currentBounds.left < navBounds.left || currentBounds.right > navBounds.right) {
+        navigation.scrollTo({
+          left: navigation.scrollLeft + currentBounds.left - navBounds.left
+            - (navigation.clientWidth - currentBounds.width) / 2,
+          behavior: "instant",
+        })
+      }
+    }
+    revealSection()
+    const observer = new ResizeObserver(revealSection)
+    observer.observe(navigation)
+    return () => observer.disconnect()
+  }, [props.isOpen, activeTab])
+
+  useEffect(() => {
+    if (props.isOpen && activeTab === "personal" && (
+      Object.keys(localProfileFieldErrors).length > 0 || Object.keys(props.profileFieldErrors).length > 0
+    )) {
+      panelRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus()
+    }
+  }, [props.isOpen, activeTab, localProfileFieldErrors, props.profileFieldErrors])
   const backupStatus = props.backupController?.loadStatus
   const loadBackup = props.backupController?.load
 
@@ -129,8 +162,9 @@ export function PreferencesDialog(props: PreferencesDialogProps) {
         if (!open) close()
       }}
       purpose="form"
+      padding={0}
       width="min(960px, calc(100vw - 24px))"
-      maxHeight="min(780px, calc(100dvh - 24px))"
+      maxHeight="calc(100dvh - 16px)"
       className="reader-preferences-dialog"
     >
       <Layout
@@ -147,7 +181,7 @@ export function PreferencesDialog(props: PreferencesDialogProps) {
         content={
           <LayoutContent padding={0} isScrollable={false} className="reader-preferences-content">
             <div className="reader-settings-layout">
-              <nav className="reader-settings-nav" aria-label={i18n._("preferences.sections")}>
+              <nav ref={navigationRef} className="reader-settings-nav" aria-label={i18n._("preferences.sections")}>
                 <SettingsNavButton
                   isActive={activeTab === "personal"}
                   label={i18n._("preferences.tabPersonal")}
@@ -204,6 +238,7 @@ export function PreferencesDialog(props: PreferencesDialogProps) {
               </nav>
               <div
                 key={activeTab}
+                ref={panelRef}
                 className="reader-preferences-panel reader-panel-transition"
               >
                 {activeTab === "personal" || activeTab === "appearance" || activeTab === "reading" ? (
@@ -282,7 +317,7 @@ export function PreferencesDialog(props: PreferencesDialogProps) {
           </LayoutContent>
         }
         footer={
-          <LayoutFooter hasDivider padding={3}>
+          <LayoutFooter hasDivider padding={3} className="reader-settings-footer">
             <div className="reader-dialog-actions">
               {activeTab === "personal" || activeTab === "appearance" || activeTab === "reading" ? (
                 <>

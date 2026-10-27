@@ -292,7 +292,7 @@ Production behavior:
 3. Resolve A and AAAA within 3 seconds. Literal IPs skip DNS.
 4. Reject zero answers, more than 16 answers, or the whole set when any address is private, loopback, link-local, documentation, transition-special, multicast, or otherwise denied by `AddressPolicy::public_only()`.
 5. Deduplicate approved addresses and attach the endpoint's effective port.
-6. Build a per-request reqwest client with `no_proxy`, no automatic redirects, no automatic decompression, a 5-second connect timeout, a 20-second first-byte/header deadline, a 10-second body-idle timeout, and the remaining total request timeout. Use `resolve_to_addrs` so the connection can use only the approved sockets while TLS still verifies the original hostname.
+6. Build a per-request reqwest client with `no_proxy`, no automatic redirects, no automatic decompression, a 5-second connect timeout, the remaining total deadline for non-streaming response headers and initial body bytes, a separate 10-second idle timeout after body delivery starts, and the remaining total request timeout. Use `resolve_to_addrs` so the connection can use only the approved sockets while TLS still verifies the original hostname.
 7. Convert adapter headers. Reject invalid header values and any attempt to set `Host`, `Content-Length`, `Connection`, `Transfer-Encoding`, `Upgrade`, `Proxy-Authorization`, or `Proxy-Authenticate`. Secret header values exist only in the request builder's short-lived memory.
 8. Send exactly one POST. Require `remote_addr()` and exact membership in the approved set.
 9. Parse at most one valid `Retry-After` value relative to response receipt time.

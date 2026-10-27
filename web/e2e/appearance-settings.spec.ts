@@ -160,3 +160,72 @@ async function openAppearance(page: Page) {
   await dialog.getByRole("button", { name: /^Appearance/u }).click()
   return dialog
 }
+
+test("settings preserve navigation, aligned controls, and invalid-field focus on narrow screens", async ({ page }, testInfo) => {
+  testInfo.setTimeout(60_000)
+  const qualityServer = await startProductionServer()
+  try {
+    await installReaderApiFixture(page)
+    await completeSetup(page, qualityServer, createCredentials())
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await expect(page.getByRole("button", { name: "Open menu" })).toBeVisible()
+    const dialog = await openAppearance(page)
+    await dialog.getByRole("button", { name: /^Reading/u }).click()
+    await page.setViewportSize({ width: 375, height: 812 })
+    const navigation = dialog.getByRole("navigation", { name: "Settings sections" })
+    const current = navigation.locator('[aria-current="page"]')
+    await expect(current).toBeInViewport()
+    await expect.poll(() => current.evaluate((element) => {
+      const bounds = element.getBoundingClientRect()
+      const parent = element.parentElement!.getBoundingClientRect()
+      return {
+        leftClipped: Math.max(0, Math.round(parent.left - bounds.left)),
+        rightClipped: Math.max(0, Math.round(bounds.right - parent.right)),
+      }
+    })).toEqual({ leftClipped: 0, rightClipped: 0 })
+    const size = dialog.getByRole("spinbutton", { name: "Reading size" })
+    const reset = dialog.getByRole("button", { name: "Reset to default" })
+    await size.fill("115")
+    await size.press("Tab")
+    await expect(reset).toBeEnabled()
+    const inputBounds = await size.locator("..").boundingBox()
+    const resetBounds = await reset.boundingBox()
+    expect(inputBounds).not.toBeNull()
+    expect(resetBounds).not.toBeNull()
+    expect(Math.abs(inputBounds!.y + inputBounds!.height - resetBounds!.y - resetBounds!.height)).toBeLessThanOrEqual(1)
+    await reset.click()
+    await expect(size).toHaveValue("100")
+    await expect(reset).toBeDisabled()
+    const fileChooser = page.waitForEvent("filechooser")
+    const fontPicker = dialog.getByRole("button", { name: "WOFF2, TTF, or OTF font file" })
+    await fontPicker.focus()
+    await fontPicker.press("Enter")
+    await (await fileChooser).setFiles([])
+    await expect(dialog.getByRole("button", { name: "Upload font" })).toBeDisabled()
+
+    await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" })
+    await dialog.getByRole("button", { name: /^Personal/u }).click()
+    const nickname = dialog.getByRole("textbox", { name: /^Nickname/u })
+    await nickname.fill("A".repeat(81))
+    await dialog.getByRole("button", { name: "Save changes" }).click()
+    await expect(nickname).toBeFocused()
+    await expect(nickname).toHaveAttribute("aria-invalid", "true")
+    await expect(nickname).toHaveValue("A".repeat(81))
+    const footer = dialog.getByRole("button", { name: "Save changes" })
+    await expect(footer).toBeInViewport()
+    const bottomGap = await dialog.evaluate((element) => {
+      const footer = element.querySelector(".reader-settings-footer")!
+      return element.getBoundingClientRect().bottom - footer.getBoundingClientRect().bottom
+    })
+    expect(bottomGap).toBeLessThanOrEqual(2)
+    await expectDialogContained(dialog, page)
+    await expectNoHorizontalOverflow(page)
+    await page.setViewportSize({ width: 812, height: 375 })
+    await expect(footer).toBeInViewport()
+    await expectDialogContained(dialog, page)
+    await expectNoHorizontalOverflow(page)
+    await page.screenshot({ path: testInfo.outputPath("settings-landscape-validation.png") })
+  } finally {
+    await qualityServer.stop()
+  }
+})

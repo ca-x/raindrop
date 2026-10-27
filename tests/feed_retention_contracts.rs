@@ -390,10 +390,71 @@ async fn backend_feed_retention_contract(url: &str, backend_name: &str) {
             .unwrap_or_else(|_| panic!("{backend_name} outbox should count")),
         1
     );
+    assert_eq!(repository.purge_orphaned_refresh_events().await.unwrap(), 1);
+    assert_eq!(repository.purge_orphaned_refresh_events().await.unwrap(), 0);
+    backend_refresh_history_batch(&database, &repository, old).await;
     database
         .close()
         .await
         .unwrap_or_else(|_| panic!("{backend_name} retention database should close"));
+}
+
+async fn backend_refresh_history_batch(
+    database: &sea_orm::DatabaseConnection,
+    repository: &FeedRepository,
+    old: OffsetDateTime,
+) {
+    use sea_orm::{ConnectionTrait, Statement};
+    let backend = database.get_database_backend();
+    let feed_id = Uuid::new_v4().to_string();
+    seed_orphan_feed(database, &feed_id, old).await;
+    let mut protected_event = String::new();
+    for index in 0..3 {
+        database
+            .execute(Statement::from_string(
+                backend,
+                "UPDATE feed_refresh_runs SET commit_generation = NULL".to_owned(),
+            ))
+            .await
+            .unwrap();
+        let refresh_id = Uuid::new_v4().to_string();
+        let event_id = Uuid::new_v4().to_string();
+        seed_terminal_refresh(database, &refresh_id, &feed_id, old).await;
+        seed_outbox(database, &event_id, &refresh_id, &feed_id, old).await;
+        if index == 1 {
+            let mut active: lifecycle_outbox::ActiveModel =
+                lifecycle_outbox::Entity::find_by_id(&event_id)
+                    .one(database)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .into();
+            active.lease_owner = Set(Some("worker".to_owned()));
+            active.update(database).await.unwrap();
+            protected_event = event_id;
+        }
+    }
+    assert_eq!(repository.purge_refresh_history().await.unwrap(), 2);
+    assert_eq!(repository.purge_refresh_history().await.unwrap(), 0);
+    assert!(
+        lifecycle_outbox::Entity::find_by_id(&protected_event)
+            .one(database)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    feed::Entity::delete_by_id(feed_id)
+        .exec(database)
+        .await
+        .unwrap();
+    assert_eq!(repository.purge_orphaned_refresh_events().await.unwrap(), 0);
+    assert!(
+        lifecycle_outbox::Entity::find_by_id(protected_event)
+            .one(database)
+            .await
+            .unwrap()
+            .is_some()
+    );
 }
 
 async fn seed_orphan_feed(
@@ -754,5 +815,72 @@ async fn refresh_history_catches_up_in_bounded_batches() {
     let repository = FeedRepository::new(db);
     for expected in [100, 100, 5, 0] {
         assert_eq!(repository.purge_refresh_history().await.unwrap(), expected);
+    }
+}
+
+#[tokio::test]
+async fn orphan_history_batches_preserve_claimed_retried_unknown_and_recent_events() {
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    let data = tempfile::tempdir().unwrap();
+    let db = connect_for_contract(SecretString::from(format!(
+        "sqlite://{}?mode=rwc",
+        data.path().join("orphan-history-batches.db").display()
+    )))
+    .await;
+    migrate(&db).await.unwrap();
+    let old = OffsetDateTime::now_utc() - time::Duration::days(10);
+    let recent = OffsetDateTime::now_utc() - time::Duration::days(1);
+    let feed_id = Uuid::new_v4().to_string();
+    let mut protected = Vec::new();
+    for index in 0..110 {
+        let refresh_id = Uuid::new_v4().to_string();
+        let id = Uuid::new_v4().to_string();
+        seed_outbox(
+            &db,
+            &id,
+            &refresh_id,
+            &feed_id,
+            if index == 109 { recent } else { old },
+        )
+        .await;
+        let update = match index {
+            105 => Some("UPDATE lifecycle_outbox SET lease_owner='worker' WHERE id=?"),
+            106 => Some("UPDATE lifecycle_outbox SET attempts=1 WHERE id=?"),
+            107 => Some("UPDATE lifecycle_outbox SET event_type='future.event' WHERE id=?"),
+            108 => Some("UPDATE lifecycle_outbox SET status='RUNNING' WHERE id=?"),
+            _ => None,
+        };
+        if let Some(update) = update {
+            db.execute(Statement::from_sql_and_values(
+                DatabaseBackend::Sqlite,
+                update,
+                [id.clone().into()],
+            ))
+            .await
+            .unwrap();
+        }
+        if index >= 105 {
+            protected.push(id);
+        }
+    }
+    let repository = FeedRepository::new(db.clone());
+    for expected in [100, 5, 0] {
+        assert_eq!(
+            repository.purge_orphaned_refresh_events().await.unwrap(),
+            expected
+        );
+    }
+    assert_eq!(
+        lifecycle_outbox::Entity::find().count(&db).await.unwrap(),
+        5
+    );
+    for id in protected {
+        assert!(
+            lifecycle_outbox::Entity::find_by_id(id)
+                .one(&db)
+                .await
+                .unwrap()
+                .is_some()
+        );
     }
 }

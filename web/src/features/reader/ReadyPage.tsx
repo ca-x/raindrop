@@ -12,7 +12,6 @@ import { useProfileController } from "../profile/model/useProfileController"
 import { useTranslationSettingsController } from "../translation/model/useTranslationSettingsController"
 import { useReaderController } from "./model/useReaderController"
 import type { ReaderCache } from "./cache/readerCache"
-import { ReadyMobilePage } from "./ReadyMobilePage"
 import { ReaderRoutes } from "./routes/ReaderRoutes"
 import { parseReaderPath } from "./routes/readerRoute"
 
@@ -124,9 +123,6 @@ export function ReadyPage({ session, onLoggedOut, readerCache }: ReadyPageProps)
     onLogout: signOut,
     onUnauthenticated: handleUnauthenticated,
     sessionError,
-  }
-  if (viewportMode === "compact") {
-    return <ReadyMobilePage {...workspaceProps} />
   }
   return <ReaderRoutes {...workspaceProps} viewportMode={viewportMode} />
 }
