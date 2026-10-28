@@ -31,18 +31,35 @@
       var(--color-accent) 25%,
       var(--color-border)
     );
+    --surface-chrome: light-dark(oklch(0.974 0.006 85), oklch(0.235 0.012 70));
+    --surface-navigation: light-dark(oklch(0.945 0.008 85), oklch(0.195 0.01 70));
+    --material-highlight: light-dark(oklch(1 0 0 / 0.85), oklch(1 0 0 / 0.08));
+    --material-shadow: light-dark(oklch(0.3 0.015 70 / 0.07), oklch(0 0 0 / 0.22));
+    --surface-control-sheen: linear-gradient(
+      180deg,
+      light-dark(oklch(1 0 0 / 0.16), oklch(1 0 0 / 0.04)),
+      transparent 55%,
+      var(--material-shadow)
+    );
     --shadow-color: light-dark(oklch(0.18 0.02 255 / 0.13), oklch(0 0 0 / 0.42));
-    --shadow-surface: 0 1px 2px var(--shadow-color), 0 12px 30px -26px var(--shadow-color);
-    --shadow-selected: 0 1px 3px var(--shadow-color), 0 10px 24px -24px var(--shadow-color);
-    --shadow-control: 0 1px 2px color-mix(in oklch, var(--shadow-color) 68%, transparent),
-      0 4px 10px -8px var(--shadow-color);
-    --shadow-control-pressed: inset 0 1px 2px color-mix(in oklch, var(--shadow-color) 82%, transparent);
-    --shadow-floating: 0 20px 56px -18px var(--shadow-color), 0 2px 8px -4px var(--shadow-color);
-    --shadow-auth: 0 18px 54px -34px var(--shadow-color);
+    --shadow-surface: inset 0 1px 0 var(--material-highlight),
+      0 1px 2px var(--shadow-color), 0 12px 30px -26px var(--shadow-color);
+    --shadow-selected: inset 0 1px 0 var(--material-highlight),
+      0 1px 2px var(--shadow-color), 0 6px 14px -12px var(--shadow-color);
+    --shadow-control: inset 0 1px 0 var(--material-highlight),
+      0 1px 2px color-mix(in oklch, var(--shadow-color) 68%, transparent),
+      0 3px 6px -4px var(--shadow-color);
+    --shadow-control-pressed: inset 0 1px 3px var(--material-shadow);
+    --shadow-input: inset 0 1px 2px var(--material-shadow), 0 1px 0 var(--material-highlight);
+    --shadow-floating: inset 0 1px 0 var(--material-highlight),
+      0 24px 64px -20px var(--shadow-color), 0 4px 12px -4px var(--shadow-color);
+    --shadow-auth: inset 0 1px 0 var(--material-highlight),
+      0 2px 4px -2px var(--shadow-color), 0 24px 64px -36px var(--shadow-color);
     --shadow-selection: 0 1px 2px var(--shadow-color), 0 6px 18px var(--shadow-color);
     --shadow-drop: 0 2px 12px var(--shadow-color);
     --surface-overlay-background: var(--color-background-surface);
     --surface-overlay-filter: none;
+    --surface-backdrop-filter: none;
     --scrollbar-thumb: color-mix(in oklch, var(--color-text-secondary) 28%, transparent);
     --scrollbar-thumb-hover: color-mix(in oklch, var(--color-text-secondary) 52%, transparent);
     --scrollbar-thumb-active: color-mix(in oklch, var(--color-text-secondary) 68%, transparent);
@@ -54,6 +71,7 @@
     --duration-medium: 240ms;
     --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
     --ease-standard: cubic-bezier(0.32, 0.72, 0, 1);
+    font-optical-sizing: auto;
   }
 
   @supports (backdrop-filter: blur(1px)) {
@@ -61,6 +79,7 @@
     .reader-appearance-preview {
       --surface-overlay-background: color-mix(in oklch, var(--color-background-surface) 88%, transparent);
       --surface-overlay-filter: blur(20px) saturate(1.18);
+      --surface-backdrop-filter: blur(2px);
     }
   }
 
@@ -69,6 +88,7 @@
   .reader-appearance-preview[data-raindrop-blur="false"] {
     --surface-overlay-background: var(--color-background-surface);
     --surface-overlay-filter: none;
+    --surface-backdrop-filter: none;
   }
 
   html[data-raindrop-shadows="false"],
@@ -78,6 +98,16 @@
     --shadow-low: 0 0 0 transparent;
     --shadow-med: 0 0 0 transparent;
     --shadow-high: 0 0 0 transparent;
+    --shadow-surface: none;
+    --shadow-selected: 0 0 0 transparent;
+    --shadow-control: none;
+    --shadow-control-pressed: none;
+    --shadow-input: none;
+    --shadow-floating: none;
+    --shadow-auth: none;
+    --shadow-selection: none;
+    --shadow-drop: 0 0 0 transparent;
+    --surface-control-sheen: none;
   }
 
   @media (prefers-reduced-transparency: reduce) {
@@ -85,6 +115,18 @@
     .reader-appearance-preview {
       --surface-overlay-background: var(--color-background-surface);
       --surface-overlay-filter: none;
+      --surface-backdrop-filter: none;
+    }
+  }
+
+  @media (prefers-contrast: more) {
+    [data-astryx-theme="neutral"],
+    .reader-appearance-preview {
+      --surface-overlay-background: var(--color-background-surface);
+      --surface-overlay-filter: none;
+      --surface-backdrop-filter: none;
+      --color-border: var(--color-border-emphasized);
+      --surface-control-sheen: none;
     }
   }
 }
@@ -95,16 +137,27 @@
   border: 1px solid var(--color-border);
   background: var(--surface-overlay-background);
   backdrop-filter: var(--surface-overlay-filter);
+  box-shadow: var(--shadow-floating);
+}
+
+.astryx-dialog::backdrop,
+.astryx-mobile-nav::backdrop {
+  backdrop-filter: var(--surface-backdrop-filter);
 }
 
 .astryx-button[data-variant="primary"]:not(:disabled, [aria-disabled="true"]),
 .astryx-button[data-variant="secondary"]:not(:disabled, [aria-disabled="true"]) {
   box-shadow: var(--shadow-control);
+  background-image: var(--surface-control-sheen);
 }
 
 .astryx-button[data-variant="primary"]:not(:disabled, [aria-disabled="true"]):active,
 .astryx-button[data-variant="secondary"]:not(:disabled, [aria-disabled="true"]):active {
   box-shadow: var(--shadow-control-pressed);
+}
+
+:is(.astryx-text-input, .astryx-number-input, .astryx-selector):not(:focus-within) {
+  box-shadow: var(--shadow-input);
 }
 
 html,
@@ -147,6 +200,7 @@ body {
 }
 
 .raindrop-auth-card {
+  border: 1px solid var(--color-border);
   box-shadow: var(--shadow-auth);
 }
 

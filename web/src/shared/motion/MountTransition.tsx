@@ -1,5 +1,4 @@
-import { useEntryAnimation, type EntryAnimationPreset } from "@astryxdesign/core/hooks"
-import * as stylex from "@stylexjs/stylex"
+import type { EntryAnimationPreset } from "@astryxdesign/core/hooks"
 import type { ReactNode } from "react"
 
 interface MountTransitionProps {
@@ -11,6 +10,5 @@ export function MountTransition({
   children,
   preset = "fadeIn",
 }: MountTransitionProps) {
-  const entryStyle = useEntryAnimation(preset)
-  return <div {...stylex.props(entryStyle)}>{children}</div>
+  return <div className="raindrop-mount-transition" data-preset={preset}>{children}</div>
 }

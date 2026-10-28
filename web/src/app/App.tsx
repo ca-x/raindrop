@@ -1,7 +1,5 @@
 import { AppShell } from "@astryxdesign/core/AppShell"
 import { Banner } from "@astryxdesign/core/Banner"
-import { Center } from "@astryxdesign/core/Center"
-import { Spinner } from "@astryxdesign/core/Spinner"
 import { useLingui } from "@lingui/react"
 import { useCallback, useState } from "react"
 import { Navigate, useLocation } from "react-router"
@@ -11,6 +9,7 @@ import type { SessionResponse } from "../features/auth/session"
 import { ReadyPage } from "../features/reader/ReadyPage"
 import { DEFAULT_READER_PATH } from "../features/reader/routes/readerRoute"
 import { SetupPage } from "../features/setup/SetupPage"
+import { AppLoading } from "./AppLoading"
 import { useInitialAppState } from "./useInitialAppState"
 
 export function App() {
@@ -35,13 +34,7 @@ export function App() {
   )
 
   if (state.status === "loading") {
-    return (
-      <AppShell contentPadding={0} height="fill" mobileNav={false}>
-        <Center minHeight="100%">
-          <Spinner label={i18n._("app.loading")} />
-        </Center>
-      </AppShell>
-    )
+    return <AppLoading />
   }
 
   if (state.status === "error") {

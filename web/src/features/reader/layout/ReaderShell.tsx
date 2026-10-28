@@ -110,6 +110,12 @@ export function ReaderShell(props: ReaderShellProps) {
     useState<PreferencesTab>("personal")
   const [markReadTarget, setMarkReadTarget] = useState<MarkReadTarget | null>(null)
   const mobileNavRef = useRef<HTMLDialogElement>(null)
+  const changeNavOpen = (open: boolean) => {
+    if (!open && document.documentElement.dataset.raindropInput === "keyboard") {
+      mobileNavRef.current?.close()
+    }
+    setIsNavOpen(open)
+  }
   const openImmersivePanelRef = useRef<"sources" | "queue" | null>(null)
   const lastPointerPosition = useRef<{ x: number; y: number } | null>(null)
   const suppressedAtPointerPosition = useRef<{ x: number; y: number } | null>(null)
@@ -320,7 +326,7 @@ export function ReaderShell(props: ReaderShellProps) {
     <SourceTree
       state={props.controller.state}
       onSelect={(source) => {
-        setIsNavOpen(false)
+        changeNavOpen(false)
         props.onSelectSource(source)
       }}
       onRequestMarkRead={(feedId, label) => {
@@ -473,7 +479,7 @@ export function ReaderShell(props: ReaderShellProps) {
           <MobileNav
             ref={mobileNavRef}
             isOpen={isNavOpen}
-            onOpenChange={setIsNavOpen}
+            onOpenChange={changeNavOpen}
             label={i18n._("reader.sources")}
             header={`Raindrop · ${accountLabel}`}
             className="reader-mobile-nav"

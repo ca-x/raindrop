@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react"
+import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -17,6 +17,19 @@ describe("App bootstrap routing", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals()
+  })
+
+  it("shows a named, non-interactive reading silhouette while bootstrap is pending", () => {
+    activateLocale("en")
+    fetchMock.mockImplementation(() => new Promise<Response>(() => {}))
+
+    render(<Providers><App /></Providers>)
+
+    const loading = screen.getByRole("region", { name: "Preparing Raindrop" })
+    expect(loading).toHaveAttribute("aria-busy", "true")
+    expect(screen.getByRole("status")).toHaveTextContent("Raindrop")
+    expect(within(loading).queryByRole("button")).not.toBeInTheDocument()
+    expect(within(loading).queryByRole("link")).not.toBeInTheDocument()
   })
 
   it.each([

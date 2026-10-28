@@ -131,7 +131,7 @@
 
 .reader-source-tree {
   position: relative;
-  background: var(--color-background-muted);
+  background: var(--surface-navigation);
   padding-block-end: env(safe-area-inset-bottom);
 }
 
@@ -199,7 +199,7 @@
 .reader-source-search {
   flex: none;
   padding: 12px 12px 4px;
-  background: var(--color-background-muted);
+  background: var(--surface-navigation);
 }
 
 .reader-source-view-options {
@@ -352,9 +352,11 @@
   > div,
 .reader-entry-item[aria-selected="true"] {
   background: var(--color-interaction-selected);
+  background-image: var(--surface-control-sheen);
   box-shadow:
     inset 2px 0 0 var(--color-accent),
-    inset 0 0 0 1px var(--color-interaction-selected-border);
+    inset 0 0 0 1px var(--color-interaction-selected-border),
+    var(--shadow-selected);
 }
 
 .reader-source-tree [role="treeitem"] > div:last-of-type > div,
@@ -859,6 +861,18 @@
   display: grid;
   gap: 12px;
   padding: 20px;
+}
+
+.reader-article-loading {
+  inline-size: min(100%, 780px);
+  margin-inline: auto;
+  padding: clamp(24px, 4vw, 48px);
+}
+
+.reader-article-loading-copy {
+  display: grid;
+  gap: 18px;
+  margin-block-start: 28px;
 }
 
 .reader-article-fallback {
@@ -1813,9 +1827,9 @@ html[lang^="zh"] .ai-artifact-view {
   min-block-size: 46px;
   padding: 4px 6px;
   border: 1px solid color-mix(in oklch, var(--reader-article-foreground) 16%, transparent);
-  border-radius: 8px;
+  border-radius: var(--radius-container);
   background: var(--reader-article-background);
-  box-shadow: var(--shadow-control);
+  box-shadow: var(--shadow-floating);
   opacity: 0;
   pointer-events: none;
   transform: translate(-50%, 6px);
@@ -2040,11 +2054,8 @@ html[lang^="zh"] .ai-artifact-view {
 .reader-dialog-header {
   flex: none;
   padding: 14px 20px 12px !important;
-  background: color-mix(
-    in oklch,
-    var(--color-background-surface) 96%,
-    var(--color-background-body)
-  );
+  background: var(--surface-chrome);
+  background-image: var(--surface-control-sheen);
 }
 
 .reader-dialog-header h2 {
@@ -2078,11 +2089,7 @@ html[lang^="zh"] .ai-artifact-view {
   gap: 4px;
   padding: 16px 12px;
   border-inline-end: 1px solid var(--color-border);
-  background: color-mix(
-    in oklch,
-    var(--color-background-muted) 88%,
-    var(--color-background-body)
-  );
+  background: var(--surface-navigation);
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -2125,6 +2132,7 @@ html[lang^="zh"] .ai-artifact-view {
 
 .reader-settings-nav-item[aria-current="page"] {
   background: var(--color-interaction-selected);
+  background-image: var(--surface-control-sheen);
   box-shadow:
     inset 3px 0 0 var(--color-accent),
     inset 0 0 0 1px var(--color-interaction-selected-border),

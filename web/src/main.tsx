@@ -5,6 +5,8 @@ import "./shared/theme/raindrop.css"
 import "./features/reader/reader.css"
 import "./features/preferences/appearance.css"
 import "./features/ai/tambo/tambo.css"
+import "./app/loading.css"
+import "./shared/motion/motion.css"
 
 import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"

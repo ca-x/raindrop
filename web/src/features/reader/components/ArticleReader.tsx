@@ -189,7 +189,11 @@ export function ArticleReader(props: ArticleReaderProps) {
         <div className="reader-article-loading" role="status" aria-label={i18n._("reader.loadingArticle")}>
           <Skeleton height={36} width="70%" radius={2} />
           <Skeleton height={18} width="40%" radius={2} index={1} />
-          <Skeleton height={240} width="100%" radius={2} index={2} />
+          <div className="reader-article-loading-copy" aria-hidden="true">
+            {["100%", "96%", "100%", "88%", "97%", "64%"].map((width, index) => (
+              <Skeleton key={index} height={16} width={width} radius={2} index={index + 2} />
+            ))}
+          </div>
         </div>
       </div>
     )

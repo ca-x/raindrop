@@ -12,6 +12,7 @@ import {
 } from "../features/preferences/model/PreferenceRuntime"
 import { toAstryxThemeMode } from "../features/preferences/model/preferenceTypes"
 import { i18n } from "../shared/i18n/i18n"
+import { InterfaceMotion } from "../shared/motion/InterfaceMotion"
 
 type RouterLinkProps = Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "href"> & {
   href: string
@@ -39,7 +40,9 @@ function PreferenceAwareProviders({ children }: { children: ReactNode }) {
       <LayerProvider toast={{ position: "bottomEnd", maxVisible: 3 }}>
         <I18nProvider i18n={i18n}>
           <BrowserRouter>
-            <LinkProvider component={RouterLink}>{children}</LinkProvider>
+            <LinkProvider component={RouterLink}>
+              <InterfaceMotion>{children}</InterfaceMotion>
+            </LinkProvider>
           </BrowserRouter>
         </I18nProvider>
       </LayerProvider>

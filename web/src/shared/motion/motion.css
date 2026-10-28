@@ -1,0 +1,148 @@
+.raindrop-mount-transition,
+.raindrop-auth-card,
+.reader-compact-detail {
+  opacity: 1;
+  transform: none;
+  transition: opacity var(--duration-normal) var(--ease-out),
+    transform var(--duration-normal) var(--ease-out);
+}
+
+@starting-style {
+  .raindrop-mount-transition,
+  .raindrop-auth-card,
+  .reader-compact-detail {
+    opacity: 0;
+  }
+
+  .reader-compact-detail,
+  .raindrop-mount-transition[data-preset="slideUp"] {
+    transform: translateY(4px);
+  }
+
+  .raindrop-mount-transition[data-preset="slideDown"] {
+    transform: translateY(-4px);
+  }
+
+  .raindrop-mount-transition[data-preset="scaleIn"] {
+    transform: scale(0.97);
+  }
+}
+
+.astryx-button:not(:disabled, [aria-disabled="true"], .reader-reading-dock-trigger, .reader-source-mark-read, .reader-selection-action) {
+  transition: transform var(--duration-micro) var(--ease-out),
+    background-color var(--duration-micro) ease,
+    color var(--duration-micro) ease;
+  touch-action: manipulation;
+}
+
+.astryx-button:active:not(:disabled, [aria-disabled="true"], .reader-reading-dock-trigger, .reader-source-mark-read, .reader-selection-action) {
+  transform: scale(0.97);
+}
+
+.astryx-dialog {
+  animation: none;
+  opacity: 0;
+  transform: translateY(4px) scale(0.97);
+  transform-origin: center;
+  transition: opacity var(--duration-normal) var(--ease-out),
+    transform var(--duration-normal) var(--ease-standard),
+    display var(--duration-normal) allow-discrete,
+    overlay var(--duration-normal) allow-discrete;
+}
+
+.astryx-dialog[open] {
+  opacity: 1;
+  transform: none;
+  transition-duration: var(--duration-medium);
+}
+
+.astryx-dialog::backdrop {
+  opacity: 0;
+  transition: opacity var(--duration-normal) var(--ease-out),
+    display var(--duration-normal) allow-discrete,
+    overlay var(--duration-normal) allow-discrete;
+}
+
+.astryx-dialog[open]::backdrop {
+  opacity: 1;
+}
+
+.astryx-mobile-nav > div {
+  transition: transform var(--duration-medium) var(--ease-standard);
+}
+
+@starting-style {
+  .astryx-dialog[open] {
+    opacity: 0;
+    transform: translateY(4px) scale(0.97);
+  }
+
+  .astryx-dialog[open]::backdrop {
+    opacity: 0;
+  }
+}
+
+html[data-raindrop-input="keyboard"] :is(
+  .astryx-button,
+  .astryx-dialog,
+  .astryx-popover,
+  .astryx-menu,
+  .astryx-mobile-nav > div,
+  [popover]:not([popover="manual"]),
+  .raindrop-mount-transition,
+  .raindrop-auth-card,
+  .reader-compact-detail,
+  .reader-panel-transition,
+  .reader-ai-sidecar,
+  .reader-immersive-panel,
+  .reader-immersive-edge-trigger > span,
+  .reader-reading-float,
+  .reader-selection-action,
+  .ai-provider-step-content,
+  .ai-provider-model-results,
+  .reader-plugin-detail,
+  .reader-settings-nav-item,
+  .reader-theme-option,
+  .reader-entry-item,
+  .reader-source-tree [role="treeitem"] > div:last-of-type > div
+) {
+  animation: none !important;
+  transition: none !important;
+}
+
+html[data-raindrop-input="keyboard"] .astryx-button:active:not(.reader-reading-dock-trigger, .reader-source-mark-read, .reader-selection-action) {
+  transform: none;
+}
+
+html[data-raindrop-input="keyboard"] :is(.astryx-dialog, .astryx-mobile-nav)::backdrop {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .raindrop-mount-transition,
+  .raindrop-auth-card,
+  .reader-compact-detail {
+    transform: none !important;
+    transition-property: opacity;
+    transition-duration: var(--duration-micro);
+  }
+
+  .astryx-dialog {
+    transform: none !important;
+    transition-property: opacity, display, overlay;
+    transition-duration: var(--duration-micro);
+  }
+
+  .astryx-dialog::backdrop {
+    transition-duration: var(--duration-micro);
+  }
+
+  .astryx-mobile-nav > div {
+    transform: none !important;
+    transition: none !important;
+  }
+
+  .astryx-button:active:not(:disabled, [aria-disabled="true"], .reader-reading-dock-trigger, .reader-source-mark-read, .reader-selection-action) {
+    transform: none;
+  }
+}
