@@ -134,6 +134,7 @@ jobs:
           mkdir -p "$staging/docs/assets/screenshots"
           cp "target/${TARGET}/release/raindrop${EXTENSION}" "$staging/"
           cp README.md LICENSE .env.example "$staging/"
+          cp vendor/THIRD_PARTY_NOTICES "$staging/"
           cp docs/assets/screenshots/reader-desktop.png \
              docs/assets/screenshots/reader-mobile.png \
              "$staging/docs/assets/screenshots/"

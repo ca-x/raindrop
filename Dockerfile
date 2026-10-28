@@ -65,6 +65,7 @@ RUN apt-get update && \
     install -d -o 10001 -g 10001 -m 0700 /data
 
 COPY --from=rust-builder --chown=10001:10001 /tmp/raindrop /usr/local/bin/raindrop
+COPY vendor/THIRD_PARTY_NOTICES /usr/share/licenses/raindrop/THIRD_PARTY_NOTICES
 
 ENV RAINDROP_DATA_DIR=/data \
     RAINDROP_BIND=0.0.0.0:8080
