@@ -33,10 +33,7 @@ impl RateLimiter {
 
     fn check_at(&self, now: Instant) -> bool {
         let cutoff = now.checked_sub(self.window).unwrap_or(now);
-        let mut attempts = self
-            .attempts
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut attempts = self.attempts.lock().expect("rate limiter lock poisoned");
         while attempts.front().is_some_and(|value| *value <= cutoff) {
             attempts.pop_front();
         }
@@ -81,10 +78,7 @@ impl AccountThrottle {
 
     pub(crate) fn delay(&self, key: &str) -> Duration {
         let now = Instant::now();
-        let mut failures = self
-            .failures
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut failures = self.failures.lock().expect("rate limiter lock poisoned");
         self.cleanup(&mut failures, now);
         let Some(history) = failures.get(key) else {
             return Duration::ZERO;
@@ -100,10 +94,7 @@ impl AccountThrottle {
 
     pub(crate) fn record_failure(&self, key: &str) {
         let now = Instant::now();
-        let mut failures = self
-            .failures
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut failures = self.failures.lock().expect("rate limiter lock poisoned");
         self.cleanup(&mut failures, now);
         if !failures.contains_key(key)
             && failures.len() >= self.max_keys
@@ -129,7 +120,7 @@ impl AccountThrottle {
     pub(crate) fn clear(&self, key: &str) {
         self.failures
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .expect("rate limiter lock poisoned")
             .remove(key);
     }
 
@@ -193,10 +184,7 @@ impl UserMutationLimiter {
         now: Instant,
         wall_clock: OffsetDateTime,
     ) -> Result<(), RateLimitRejection> {
-        let mut state = self
-            .inner
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut state = self.inner.lock().expect("rate limiter lock poisoned");
 
         if let Some(bucket) = state.users.get_mut(user_id) {
             cleanup_user_mutation_bucket(bucket, now, self.window);
@@ -290,10 +278,7 @@ impl UserConcurrencyLimiter {
     pub(crate) fn try_acquire(&self, user_id: &str) -> Option<OwnedSemaphorePermit> {
         let semaphore = {
             let now = Instant::now();
-            let mut users = self
-                .inner
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut users = self.inner.lock().expect("rate limiter lock poisoned");
             if !users.contains_key(user_id) && users.len() >= self.max_keys {
                 let oldest_idle = users
                     .iter()
@@ -337,6 +322,21 @@ fn rate_limit_rejection(
 mod tests {
     use super::*;
     use time::macros::datetime;
+
+    #[test]
+    #[should_panic(expected = "rate limiter lock poisoned")]
+    fn user_mutation_limiter_stops_on_poisoned_state() {
+        let limiter = UserMutationLimiter::new();
+        let state = Arc::clone(&limiter.inner);
+        std::thread::spawn(move || {
+            let _guard = state.lock().expect("fresh rate limiter lock");
+            panic!("simulate an interrupted limiter mutation");
+        })
+        .join()
+        .expect_err("the simulated mutation must poison the lock");
+
+        let _ = limiter.check("reader");
+    }
 
     #[test]
     fn global_fuse_rejects_after_the_exact_threshold_and_expires_by_window() {
@@ -400,7 +400,7 @@ mod tests {
             throttle
                 .failures
                 .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .expect("rate limiter lock poisoned")
                 .len(),
             2
         );
@@ -444,10 +444,7 @@ mod tests {
             )
             .expect("existing user A should retain an independent budget");
 
-        let state = limiter
-            .inner
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let state = limiter.inner.lock().expect("rate limiter lock poisoned");
         assert_eq!(state.users["user-b"].attempts, VecDeque::from([started_at]));
         assert_eq!(state.users["user-a"].attempts.len(), 2);
     }
@@ -476,10 +473,7 @@ mod tests {
             )
             .expect_err("user A should be rejected at its own threshold");
 
-        let state = limiter
-            .inner
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let state = limiter.inner.lock().expect("rate limiter lock poisoned");
         assert_eq!(state.users["user-b"].attempts, VecDeque::from([started_at]));
         assert_eq!(
             state.users["user-a"].attempts,
@@ -532,10 +526,7 @@ mod tests {
             .check_at("user", started_at, wall_clock)
             .expect("same-instant mutation must not expire the first attempt");
 
-        let state = limiter
-            .inner
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let state = limiter.inner.lock().expect("rate limiter lock poisoned");
         assert_eq!(state.users["user"].attempts.len(), 2);
     }
 
@@ -563,10 +554,7 @@ mod tests {
             )
             .expect("expired key should be cleaned before capacity eviction");
 
-        let state = limiter
-            .inner
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let state = limiter.inner.lock().expect("rate limiter lock poisoned");
         assert_eq!(state.users.len(), 2);
         assert!(!state.users.contains_key("expired"));
         assert!(state.users.contains_key("retained"));
@@ -580,10 +568,7 @@ mod tests {
                 wall_clock + time::Duration::seconds(60),
             )
             .expect("a new key should evict the oldest active key at capacity");
-        let state = limiter
-            .inner
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let state = limiter.inner.lock().expect("rate limiter lock poisoned");
         assert_eq!(state.users.len(), 2);
         assert!(!state.users.contains_key("retained"));
         assert!(state.users.contains_key("new"));

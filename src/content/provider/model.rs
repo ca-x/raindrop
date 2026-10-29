@@ -164,6 +164,11 @@ impl ProviderEndpoint {
     }
 
     #[must_use]
+    pub(super) fn ip_address(&self) -> Option<IpAddr> {
+        literal_address(&self.url)
+    }
+
+    #[must_use]
     pub const fn effective_port(&self) -> u16 {
         self.effective_port
     }

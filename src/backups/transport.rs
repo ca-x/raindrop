@@ -32,6 +32,8 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
 const MAX_LISTED_OBJECTS: usize = 10_000;
+// Keep even one-object pages within the existing object limit, without unbounded pagination.
+const MAX_LISTED_PAGES: usize = MAX_LISTED_OBJECTS;
 
 #[async_trait]
 pub trait BackupTransport: Send + Sync {
@@ -97,7 +99,6 @@ impl ProductionBackupTransport {
             return Err(BackupError::new(BackupErrorKind::TargetUnreachable));
         }
         let status = response.status();
-        let response_headers = response.headers().clone();
         let mut bytes = Vec::new();
         let mut response = response;
         while let Some(chunk) = response
@@ -112,7 +113,6 @@ impl ProductionBackupTransport {
         }
         Ok(HttpResponse {
             status,
-            headers: response_headers,
             body: bytes,
         })
     }
@@ -121,7 +121,7 @@ impl ProductionBackupTransport {
         let host = url
             .host_str()
             .ok_or_else(|| BackupError::new(BackupErrorKind::TargetProtocol))?;
-        let addresses: Vec<IpAddr> = if let Ok(address) = host.parse() {
+        let addresses: Vec<IpAddr> = if let Some(address) = literal_address(url) {
             vec![address]
         } else {
             tokio::time::timeout(DNS_TIMEOUT, self.resolver.lookup_ip(host))
@@ -223,6 +223,7 @@ impl ProductionBackupTransport {
         owned_prefix: &str,
     ) -> Result<Vec<RemoteObject>, BackupError> {
         let mut continuation: Option<String> = None;
+        let mut seen_tokens = HashSet::new();
         let mut objects = Vec::new();
         loop {
             let mut url = s3_url(config, None)?;
@@ -247,16 +248,13 @@ impl ProductionBackupTransport {
                 .await?;
             require_success(response.status)?;
             let page = parse_s3_listing(&response.body)?;
+            continuation = next_s3_continuation(&page, &mut seen_tokens)?;
             objects.extend(page.objects);
             if objects.len() > MAX_LISTED_OBJECTS {
                 return Err(BackupError::new(BackupErrorKind::TargetProtocol));
             }
-            if !page.truncated {
-                break;
-            }
-            continuation = page.next_token;
             if continuation.is_none() {
-                return Err(BackupError::new(BackupErrorKind::TargetProtocol));
+                break;
             }
         }
         Ok(objects)
@@ -504,8 +502,6 @@ impl BackupTransport for ProductionBackupTransport {
 
 struct HttpResponse {
     status: StatusCode,
-    #[allow(dead_code)]
-    headers: HeaderMap,
     body: Vec<u8>,
 }
 
@@ -521,6 +517,34 @@ struct S3ListPage {
     next_token: Option<String>,
 }
 
+fn literal_address(url: &Url) -> Option<IpAddr> {
+    match url.host()? {
+        url::Host::Ipv4(address) => Some(address.into()),
+        url::Host::Ipv6(address) => Some(address.into()),
+        url::Host::Domain(_) => None,
+    }
+}
+
+fn next_s3_continuation(
+    page: &S3ListPage,
+    seen_tokens: &mut HashSet<blake3::Hash>,
+) -> Result<Option<String>, BackupError> {
+    if !page.truncated {
+        return Ok(None);
+    }
+    let token = page
+        .next_token
+        .clone()
+        .filter(|token| !token.is_empty())
+        .ok_or_else(|| BackupError::new(BackupErrorKind::TargetProtocol))?;
+    if seen_tokens.len() >= MAX_LISTED_PAGES - 1
+        || !seen_tokens.insert(blake3::hash(token.as_bytes()))
+    {
+        return Err(BackupError::new(BackupErrorKind::TargetProtocol));
+    }
+    Ok(Some(token))
+}
+
 fn s3_url(config: &S3PublicConfig, key: Option<&str>) -> Result<Url, BackupError> {
     let mut url = Url::parse(&config.endpoint)
         .map_err(|_| BackupError::new(BackupErrorKind::TargetProtocol))?;
@@ -531,23 +555,11 @@ fn s3_url(config: &S3PublicConfig, key: Option<&str>) -> Result<Url, BackupError
         url.set_host(Some(&format!("{}.{}", config.bucket, host)))
             .map_err(|_| BackupError::new(BackupErrorKind::TargetProtocol))?;
     }
-    let existing: Vec<String> = url
-        .path_segments()
-        .map(|segments| {
-            segments
-                .filter(|value| !value.is_empty())
-                .map(str::to_owned)
-                .collect()
-        })
-        .unwrap_or_default();
     {
         let mut segments = url
             .path_segments_mut()
             .map_err(|_| BackupError::new(BackupErrorKind::TargetProtocol))?;
-        segments.clear();
-        for segment in existing {
-            segments.push(&segment);
-        }
+        segments.pop_if_empty();
         if config.path_style {
             segments.push(&config.bucket);
         }
@@ -563,22 +575,10 @@ fn s3_url(config: &S3PublicConfig, key: Option<&str>) -> Result<Url, BackupError
 fn append_segments(base: &str, additions: &[&str]) -> Result<Url, BackupError> {
     let mut url =
         Url::parse(base).map_err(|_| BackupError::new(BackupErrorKind::TargetProtocol))?;
-    let existing: Vec<String> = url
-        .path_segments()
-        .map(|segments| {
-            segments
-                .filter(|value| !value.is_empty())
-                .map(str::to_owned)
-                .collect()
-        })
-        .unwrap_or_default();
     let mut segments = url
         .path_segments_mut()
         .map_err(|_| BackupError::new(BackupErrorKind::TargetProtocol))?;
-    segments.clear();
-    for segment in existing {
-        segments.push(&segment);
-    }
+    segments.pop_if_empty();
     for segment in additions {
         segments.push(segment);
     }
@@ -794,6 +794,127 @@ mod tests {
     use super::*;
 
     #[test]
+    fn literal_backup_hosts_bypass_dns() {
+        for (endpoint, expected) in [
+            ("https://1.1.1.1/", "1.1.1.1"),
+            ("https://[2606:4700:4700::1111]/", "2606:4700:4700::1111"),
+        ] {
+            let url = Url::parse(endpoint).expect("literal endpoint should parse");
+            assert_eq!(
+                literal_address(&url),
+                Some(
+                    expected
+                        .parse::<IpAddr>()
+                        .expect("expected address should parse")
+                ),
+                "literal URL {endpoint} must supply its address without DNS"
+            );
+        }
+        assert_eq!(
+            literal_address(&Url::parse("https://objects.example/").unwrap()),
+            None,
+            "domain endpoints still require DNS resolution"
+        );
+    }
+
+    #[tokio::test]
+    async fn literal_backup_addresses_keep_the_public_only_policy() {
+        let transport = ProductionBackupTransport::new().expect("transport should initialize");
+        for endpoint in ["https://127.0.0.1/", "https://[::1]/", "https://[fe80::1]/"] {
+            let url = Url::parse(endpoint).expect("private literal endpoint should parse");
+            let error = transport
+                .resolve_approved(&url)
+                .await
+                .expect_err("private addresses must remain blocked");
+            assert_eq!(
+                error.kind(),
+                BackupErrorKind::TargetUnreachable,
+                "address policy must reject literal URL {endpoint}"
+            );
+        }
+    }
+
+    #[test]
+    fn s3_pagination_accepts_distinct_tokens_and_stops_after_the_final_page() {
+        let mut seen = HashSet::new();
+        for (body, expected) in [
+            (
+                "<ListBucketResult><IsTruncated>true</IsTruncated><NextContinuationToken>first</NextContinuationToken></ListBucketResult>",
+                Some("first"),
+            ),
+            (
+                "<ListBucketResult><IsTruncated>true</IsTruncated><NextContinuationToken>second</NextContinuationToken></ListBucketResult>",
+                Some("second"),
+            ),
+            (
+                "<ListBucketResult><IsTruncated>false</IsTruncated></ListBucketResult>",
+                None,
+            ),
+        ] {
+            let page = parse_s3_listing(body.as_bytes()).expect("listing page should parse");
+            assert_eq!(
+                next_s3_continuation(&page, &mut seen).unwrap().as_deref(),
+                expected,
+                "continuation for listing response {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn s3_pagination_rejects_missing_or_empty_tokens() {
+        for token in [None, Some("")] {
+            let page = S3ListPage {
+                objects: Vec::new(),
+                truncated: true,
+                next_token: token.map(str::to_owned),
+            };
+            let error = next_s3_continuation(&page, &mut HashSet::new())
+                .expect_err("a truncated response must contain a usable token");
+            assert_eq!(error.kind(), BackupErrorKind::TargetProtocol);
+        }
+    }
+
+    #[test]
+    fn s3_pagination_rejects_repeated_token_cycles() {
+        let mut seen = HashSet::new();
+        for token in ["first", "second"] {
+            let page = S3ListPage {
+                objects: Vec::new(),
+                truncated: true,
+                next_token: Some(token.to_owned()),
+            };
+            next_s3_continuation(&page, &mut seen).expect("a fresh token should advance");
+        }
+        let repeated = parse_s3_listing(br#"<ListBucketResult><IsTruncated>true</IsTruncated><NextContinuationToken>first</NextContinuationToken></ListBucketResult>"#)
+            .expect("repeated-token page should parse");
+        let error = next_s3_continuation(&repeated, &mut seen)
+            .expect_err("a continuation cycle must stop before requesting another page");
+        assert_eq!(error.kind(), BackupErrorKind::TargetProtocol);
+    }
+
+    #[test]
+    fn s3_pagination_bounds_fresh_token_sequences_without_objects() {
+        let mut seen = HashSet::new();
+        for index in 0..MAX_LISTED_PAGES - 1 {
+            let page = S3ListPage {
+                objects: Vec::new(),
+                truncated: true,
+                next_token: Some(format!("token-{index}")),
+            };
+            next_s3_continuation(&page, &mut seen)
+                .expect("pages within the pagination budget should advance");
+        }
+        let page = S3ListPage {
+            objects: Vec::new(),
+            truncated: true,
+            next_token: Some("another-fresh-token".to_owned()),
+        };
+        let error = next_s3_continuation(&page, &mut seen)
+            .expect_err("fresh tokens cannot extend pagination indefinitely");
+        assert_eq!(error.kind(), BackupErrorKind::TargetProtocol);
+    }
+
+    #[test]
     fn s3_urls_support_path_and_virtual_host_styles() {
         let mut config = S3PublicConfig {
             endpoint: "https://objects.example/base/".to_owned(),
@@ -810,6 +931,46 @@ mod tests {
         assert_eq!(
             s3_url(&config, Some("raindrop/a.opml")).unwrap().as_str(),
             "https://reader-backups.objects.example/base/raindrop/a.opml"
+        );
+    }
+
+    #[test]
+    fn s3_urls_preserve_encoded_endpoint_segments() {
+        let mut config = S3PublicConfig {
+            endpoint: "https://objects.example/space%20name/percent%25/slash%2F/".to_owned(),
+            region: "us-east-1".to_owned(),
+            bucket: "reader-backups".to_owned(),
+            prefix: String::new(),
+            path_style: true,
+        };
+        assert_eq!(
+            s3_url(&config, Some("raindrop/a b%.opml"))
+                .unwrap()
+                .as_str(),
+            "https://objects.example/space%20name/percent%25/slash%2F/reader-backups/raindrop/a%20b%25.opml",
+            "path-style URLs preserve existing escapes and encode the new key once"
+        );
+        config.path_style = false;
+        assert_eq!(
+            s3_url(&config, Some("raindrop/a b%.opml"))
+                .unwrap()
+                .as_str(),
+            "https://reader-backups.objects.example/space%20name/percent%25/slash%2F/raindrop/a%20b%25.opml",
+            "virtual-host URLs preserve existing escapes and encode the new key once"
+        );
+    }
+
+    #[test]
+    fn webdav_urls_preserve_encoded_endpoint_segments() {
+        let url = append_segments(
+            "https://dav.example/space%20name/percent%25/slash%2F/",
+            &["raindrop", "a b%.opml"],
+        )
+        .expect("valid WebDAV URL should append segments");
+        assert_eq!(
+            url.as_str(),
+            "https://dav.example/space%20name/percent%25/slash%2F/raindrop/a%20b%25.opml",
+            "WebDAV URLs preserve existing escapes and encode new segments once"
         );
     }
 

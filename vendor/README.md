@@ -16,6 +16,7 @@ policy is replaced.
 - `rustls/src` and `rustls/build.rs` are copied without edits from that tree,
   excluding upstream's unpublished `src/testdata`. The standalone manifest
   resolves inherited workspace dependencies and excludes development targets.
+  It also declares upstream's custom `cfg` names for Cargo's configuration checks.
   The package version comes from upstream, not a local version-only bump.
 - The merge includes the TLS encryption-level boundary check, bounded Brotli
   certificate decoding, exact compressed-message consumption, session-secret

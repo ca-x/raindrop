@@ -296,11 +296,11 @@ mod tests {
             *self
                 .observed_body
                 .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(request.body);
+                .expect("provider transport test lock poisoned") = Some(request.body);
             *self
                 .observed_url
                 .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(request.url.to_string());
+                .expect("provider transport test lock poisoned") = Some(request.url.to_string());
             Ok(HttpResponse {
                 status: self.status,
                 headers: self.headers.clone(),
@@ -330,7 +330,7 @@ mod tests {
             Ok(self
                 .steps
                 .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .expect("provider transport test lock poisoned")
                 .pop_front()
                 .unwrap_or(None))
         }
@@ -365,7 +365,7 @@ mod tests {
             observed
                 .url
                 .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .expect("provider transport test lock poisoned")
                 .as_deref(),
             Some("https://provider.example/prefix/v1/responses")
         );
@@ -373,7 +373,7 @@ mod tests {
             observed
                 .body
                 .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .expect("provider transport test lock poisoned")
                 .as_deref(),
             Some(br#"{"request":true}"#.as_slice())
         );

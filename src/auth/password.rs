@@ -53,9 +53,11 @@ impl PasswordService {
         let password = password.clone();
         run_password_task(Arc::clone(&PASSWORD_TASK_SLOTS), move || {
             let hash = PasswordHash::new(&encoded).map_err(PasswordError::Hash)?;
-            Ok(argon2
-                .verify_password(password.expose_secret().as_bytes(), &hash)
-                .is_ok())
+            match argon2.verify_password(password.expose_secret().as_bytes(), &hash) {
+                Ok(()) => Ok(true),
+                Err(argon2::password_hash::Error::Password) => Ok(false),
+                Err(error) => Err(PasswordError::Hash(error)),
+            }
         })
         .await
     }
@@ -92,6 +94,40 @@ pub enum PasswordError {
 mod tests {
     use super::*;
     use tokio::sync::{Semaphore, oneshot};
+
+    #[tokio::test]
+    async fn password_verification_preserves_invalid_hash_parameter_errors() {
+        let encoded =
+            "$argon2id$v=19$m=1,t=2,p=1$c29tZXNhbHQ$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        PasswordHash::new(encoded).expect("the PHC format parses before parameter validation");
+        let result = PasswordService::default()
+            .verify(encoded, &SecretString::from("password"))
+            .await;
+
+        assert!(
+            matches!(result, Err(PasswordError::Hash(_))),
+            "invalid stored Argon2 parameters must remain an operational error: {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn password_verification_distinguishes_matches_from_incorrect_passwords() {
+        let passwords = PasswordService::default();
+        let correct = SecretString::from("correct password");
+        let encoded = passwords
+            .hash(&correct)
+            .await
+            .expect("password should hash");
+
+        assert!(passwords.verify(&encoded, &correct).await.unwrap());
+        assert!(
+            !passwords
+                .verify(&encoded, &SecretString::from("incorrect password"))
+                .await
+                .unwrap(),
+            "an incorrect password remains a normal authentication failure"
+        );
+    }
 
     #[tokio::test(flavor = "current_thread")]
     async fn blocking_password_work_leaves_the_runtime_responsive() {

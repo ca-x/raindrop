@@ -92,7 +92,7 @@ fn resolve_encoding(label: &str) -> Result<&'static Encoding, FeedParseError> {
 }
 
 fn parse_ascii_declaration(raw: &[u8]) -> Result<Option<XmlDeclaration>, FeedParseError> {
-    if !raw.starts_with(b"<?xml") {
+    if !starts_with_xml_declaration(raw) {
         return Ok(None);
     }
     let end = raw
@@ -108,7 +108,7 @@ fn parse_ascii_declaration(raw: &[u8]) -> Result<Option<XmlDeclaration>, FeedPar
 
 pub(crate) fn xml_declaration(input: &str) -> Result<Option<XmlDeclaration>, FeedParseError> {
     let input = input.strip_prefix('\u{feff}').unwrap_or(input);
-    if !input.starts_with("<?xml") {
+    if !starts_with_xml_declaration(input.as_bytes()) {
         return Ok(None);
     }
     let end = input
@@ -148,6 +148,14 @@ pub(crate) fn xml_declaration(input: &str) -> Result<Option<XmlDeclaration>, Fee
         return Err(FeedParseError::new(FeedParseErrorKind::MalformedXml));
     }
     Ok(Some(XmlDeclaration { encoding, end }))
+}
+
+fn starts_with_xml_declaration(input: &[u8]) -> bool {
+    // Processing-instruction targets such as xml-stylesheet are separate XML names.
+    input.starts_with(b"<?xml")
+        && input
+            .get(5)
+            .is_none_or(|byte| byte.is_ascii_whitespace() || *byte == b'?')
 }
 
 fn parse_declaration_attributes(body: &str) -> Result<Vec<(String, String)>, FeedParseError> {

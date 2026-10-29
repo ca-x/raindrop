@@ -363,7 +363,7 @@ pub(crate) async fn execute(
     .await
 }
 
-#[allow(
+#[expect(
     clippy::too_many_arguments,
     reason = "the fail-open handoff keeps every consumed budget and final-generation input explicit"
 )]
@@ -396,7 +396,7 @@ async fn handle_mcp_failure(
     }
 }
 
-#[allow(
+#[expect(
     clippy::too_many_arguments,
     reason = "the final request contract keeps provenance, locale, and budget values visible at each call site"
 )]
@@ -452,7 +452,7 @@ async fn generate_final(
     })
 }
 
-#[allow(
+#[expect(
     clippy::too_many_arguments,
     reason = "the host capability request mirrors the committed WIT fields and explicit budget mutation"
 )]

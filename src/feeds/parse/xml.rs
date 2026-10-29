@@ -870,7 +870,10 @@ fn is_recognized_channel(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the parser updates disjoint preflight fields for the current XML element"
+)]
 fn record_element(
     role: ElementRole,
     attributes: &ElementAttributes,

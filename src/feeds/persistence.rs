@@ -1283,7 +1283,7 @@ fn update_feed_statement(
         "UPDATE feeds SET fetch_url={0}, title={1}, site_url={2}, validator_url={3}, etag={4},
             last_modified={5}, response_content_hash={6}, entry_sequence_head={7}, last_attempt_at={clock},
             last_success_at={clock}, {changed_assignment} retry_after_at=NULL,
-            consecutive_failures=0, last_error_code=NULL, orphaned_at=NULL,
+            consecutive_failures=0, last_error_code=NULL,
             next_fetch_at=COALESCE({8}, next_fetch_at), updated_at={clock}
          WHERE id={9} AND lease_owner={10} AND lease_token={11}",
         placeholders[0],

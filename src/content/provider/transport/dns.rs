@@ -63,7 +63,7 @@ pub(super) async fn resolve_approved(
         ));
     }
     let host = endpoint.canonical_host();
-    let raw = if let Ok(address) = host.parse::<IpAddr>() {
+    let raw = if let Some(address) = endpoint.ip_address() {
         vec![address]
     } else {
         let dns_deadline = Instant::now()
@@ -231,34 +231,50 @@ mod tests {
 
     #[tokio::test]
     async fn public_ip_literal_skips_dns() {
-        let calls = Arc::new(AtomicUsize::new(0));
-        let resolver = FakeResolver {
-            addresses: Some(vec![]),
-            calls: calls.clone(),
-        };
-        let endpoint = ProviderEndpoint::new(
-            ProviderKind::OpenAiResponses,
-            Some("https://93.184.216.34/"),
-        )
-        .unwrap();
+        for (url, expected) in [
+            (
+                "https://93.184.216.34/",
+                SocketAddr::new(IpAddr::V4(Ipv4Addr::new(93, 184, 216, 34)), 443),
+            ),
+            (
+                "https://[2606:2800:220:1:248:1893:25c8:1946]:8443/",
+                SocketAddr::new(
+                    IpAddr::V6(
+                        "2606:2800:220:1:248:1893:25c8:1946"
+                            .parse()
+                            .expect("public IPv6 fixture"),
+                    ),
+                    8443,
+                ),
+            ),
+        ] {
+            let calls = Arc::new(AtomicUsize::new(0));
+            let resolver = FakeResolver {
+                addresses: Some(vec![]),
+                calls: calls.clone(),
+            };
+            let endpoint = ProviderEndpoint::new(ProviderKind::OpenAiResponses, Some(url))
+                .expect("public IP endpoint fixture");
 
-        let approved = resolve_approved(
-            PROVIDER_ID,
-            &endpoint,
-            &resolver,
-            Instant::now() + Duration::from_secs(30),
-        )
-        .await
-        .unwrap();
+            let approved = resolve_approved(
+                PROVIDER_ID,
+                &endpoint,
+                &resolver,
+                Instant::now() + Duration::from_secs(30),
+            )
+            .await;
 
-        assert_eq!(calls.load(Ordering::SeqCst), 0);
-        assert_eq!(
-            approved,
-            [SocketAddr::new(
-                IpAddr::V4(Ipv4Addr::new(93, 184, 216, 34)),
-                443,
-            )]
-        );
+            assert_eq!(
+                calls.load(Ordering::SeqCst),
+                0,
+                "IP literal must skip DNS: {url}"
+            );
+            assert_eq!(
+                approved.expect("public IP literal should be approved"),
+                [expected],
+                "endpoint {url}"
+            );
+        }
     }
 
     #[tokio::test(start_paused = true)]

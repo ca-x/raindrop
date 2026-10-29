@@ -49,3 +49,6 @@
 
 [build-dependencies]
 "rustversion" = { "version" = "1.0.6", "optional" = true }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(read_buf)", "cfg(bench)", "cfg(coverage_nightly)", "cfg(rustls_docsrs)"] }

@@ -220,7 +220,7 @@ impl AppState {
     ) {
         self.entry_image_cache
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .expect("application cache lock poisoned")
             .insert(user_id, entry_id, images);
     }
 
@@ -232,7 +232,7 @@ impl AppState {
     ) -> Option<String> {
         self.entry_image_cache
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .expect("application cache lock poisoned")
             .source(user_id, entry_id, image_index)
     }
 
@@ -466,14 +466,14 @@ mod tests {
             async move {
                 command_events
                     .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .expect("application cache lock poisoned")
                     .push("command");
                 Ok::<_, ()>("committed")
             },
             move || {
                 notify_events
                     .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .expect("application cache lock poisoned")
                     .push("notify");
             },
         )
@@ -482,9 +482,7 @@ mod tests {
 
         assert_eq!(committed, "committed");
         assert_eq!(
-            *events
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner),
+            *events.lock().expect("application cache lock poisoned"),
             ["command", "notify"]
         );
     }

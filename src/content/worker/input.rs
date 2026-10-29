@@ -66,7 +66,10 @@ impl ContentInvocationInput {
         )
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the validated invocation combines entry fields with operation and locale"
+    )]
     fn from_parts(
         entry_id: &str,
         feed_id: &str,

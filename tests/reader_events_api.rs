@@ -50,7 +50,9 @@ async fn authenticated_event_stream_starts_with_sync_and_receives_user_mutations
         .expect("session cookie should contain a pair")
         .to_owned();
     let csrf = session.csrf_token.expose_secret().to_owned();
-    let app = build_router(AppState::new(setup));
+    let state = AppState::new(setup);
+    let runtime = state.feed_runtime.clone();
+    let app = build_router(state);
 
     let unauthenticated = app
         .clone()
@@ -108,6 +110,12 @@ async fn authenticated_event_stream_starts_with_sync_and_receives_user_mutations
 
     let changed = next_data_frame(&mut body).await;
     assert!(changed.contains(r#""kind":"SUBSCRIPTIONS_CHANGED""#));
+
+    runtime.shutdown();
+    let frame = tokio::time::timeout(Duration::from_secs(1), body.frame())
+        .await
+        .expect("runtime shutdown must close persistent event streams for HTTP drain");
+    assert!(frame.is_none(), "the event stream must finish on shutdown");
 }
 
 async fn next_data_frame(body: &mut Body) -> String {

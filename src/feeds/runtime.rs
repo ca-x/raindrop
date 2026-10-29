@@ -49,6 +49,7 @@ impl FeedRuntimeHandle {
 
     pub fn shutdown(&self) {
         let _ = self.shutdown_tx.send(true);
+        self.reader_events.shutdown();
         self.notify.notify_waiters();
     }
 

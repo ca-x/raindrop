@@ -32,6 +32,9 @@ Raindrop treats feed URLs, DNS answers, HTTP responses, XML/JSON documents, publ
 - `FeedCommandService` owns only the repository and strict production URL policy. Subscribe/manual-refresh/unsubscribe commands persist queue state and return without DNS, HTTP, parsing, sanitization, claim, or execution work.
 - `FeedRuntime` is the sole owner of stale-run recovery, scheduled enqueue, claiming, heartbeat, and shutdown coordination. It passes only already-authorized claims to the network-owning `FeedExecutor`; the executor cannot claim additional work.
 - MySQL locks the Feed row before claim/terminal authorization; all backends authorize leases with their database clock and fencing token.
+- Subscription mutations, including OPML import, lock the user before shared Feed rows. Operations touching multiple existing Feeds lock them in ascending Feed ID order; imports read current Feed state under those locks after discovering candidate IDs.
+- Subscription changes own `orphaned_at`: the last unsubscribe sets it, and adding a subscription clears it. A successful refresh preserves this frontier because an active lease can outlive the last subscription.
+- Runtime shutdown closes current and future reader event subscriptions before HTTP drain. Subscription teardown uses nonblocking, best-effort channel cleanup.
 - Success/partial persistence, 304 completion, and owned failure persist Feed schedule state, terminal run state, lifecycle outbox records, and lease release in the same transaction. Outbox conflicts roll back the whole terminal result.
 - 304 validators remain scoped to their exact final URL. Missing response validators are preserved only when the final URL is unchanged; a redirect clears any absent old-scope validator.
 - Validators, URL query strings, response bodies, publisher HTML, and underlying error sources are absent from DTOs and diagnostic output. Repository/service errors use stable typed messages and redacted `Debug` implementations.
@@ -44,7 +47,7 @@ The opt-in smoke uses only the fixed feed URL, never article pages or image reso
 RAINDROP_LIVE_RSS_SMOKE=1 cargo test --locked --test live_rss_ithome -- --ignored --nocapture
 ```
 
-The test requires 50..=100 unique entries, validates every stored detail envelope, proves user-scoped list/detail visibility, permits only a 304 or deduplicated 200 on the second refresh, and enforces exactly two feed HTTP executions. Committed diagnostics contain only the date, count, and statuses—not feed content.
+The test requires 50..=100 unique entries, validates every stored detail envelope, proves user-scoped list/detail visibility, permits only a 304 or deduplicated 200 on the second refresh, and enforces exactly two feed HTTP executions. Committed diagnostics contain only the date, count, and statuses.
 
 Observed on 2026-07-17 UTC: 60 entries, first refresh `SUCCESS`, second refresh `NOT_MODIFIED` with HTTP 304, and exactly 2 executor calls. No Feed content is recorded.
 

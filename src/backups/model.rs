@@ -1,4 +1,4 @@
-use std::{fmt, net::IpAddr, str::FromStr};
+use std::{fmt, net::IpAddr};
 
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
@@ -510,8 +510,12 @@ fn normalize_endpoint(value: &str) -> Result<String, BackupError> {
     {
         return Err(BackupError::new(BackupErrorKind::InvalidInput));
     }
-    if let Some(host) = url.host_str()
-        && let Ok(address) = IpAddr::from_str(host)
+    let address: Option<IpAddr> = match url.host() {
+        Some(url::Host::Ipv4(address)) => Some(address.into()),
+        Some(url::Host::Ipv6(address)) => Some(address.into()),
+        _ => None,
+    };
+    if let Some(address) = address
         && AddressPolicy::public_only().classify(address) != AddressDecision::Allowed
     {
         return Err(BackupError::new(BackupErrorKind::InvalidInput));
@@ -586,6 +590,28 @@ fn validate_secret(value: &str, minimum: usize, maximum: usize) -> Result<(), Ba
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn public_ipv6_backup_endpoints_are_supported() {
+        assert_eq!(
+            normalize_endpoint("https://[2606:4700:4700::1111]/backups").unwrap(),
+            "https://[2606:4700:4700::1111]/backups/",
+            "a public IPv6 literal should normalize without a DNS lookup"
+        );
+    }
+
+    #[test]
+    fn private_ipv6_backup_endpoints_are_rejected_before_storage() {
+        for endpoint in ["https://[::1]/", "https://[fc00::1]/", "https://[fe80::1]/"] {
+            let error = normalize_endpoint(endpoint)
+                .expect_err("private IPv6 endpoints must fail validation before storage");
+            assert_eq!(
+                error.kind(),
+                BackupErrorKind::InvalidInput,
+                "URL {endpoint}"
+            );
+        }
+    }
 
     #[test]
     fn public_configs_are_https_normalized_and_prefix_safe() {

@@ -10,8 +10,8 @@ use quick_xml::{
 };
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DatabaseBackend,
-    DatabaseTransaction, DbBackend, DbErr, EntityTrait, QueryFilter, QueryOrder, Statement,
-    TransactionTrait,
+    DatabaseTransaction, DbBackend, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+    Statement, TransactionTrait,
 };
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -391,7 +391,14 @@ impl FeedRepository {
         document: &OpmlDocument,
     ) -> Result<OpmlImportResult, OpmlError> {
         let transaction = self.connection().begin().await?;
-        let result = import_document(&transaction, user_id, document).await;
+        let result = import_document(
+            &transaction,
+            user_id,
+            document,
+            #[cfg(test)]
+            None,
+        )
+        .await;
         match result {
             Ok(imported) => {
                 transaction.commit().await?;
@@ -427,6 +434,7 @@ async fn import_document(
     transaction: &DatabaseTransaction,
     user_id: &str,
     document: &OpmlDocument,
+    #[cfg(test)] feed_scan_gate: Option<(&tokio::sync::Notify, &tokio::sync::Notify)>,
 ) -> Result<OpmlImportResult, OpmlError> {
     let backend = transaction.get_database_backend();
     lock_active_user(transaction, backend, user_id).await?;
@@ -476,7 +484,13 @@ async fn import_document(
         .iter()
         .map(|candidate| candidate.normalized.url_hash().to_owned())
         .collect::<Vec<_>>();
-    let mut feeds_by_hash = load_feeds_by_hash(transaction, &hashes).await?;
+    let mut feeds_by_hash = load_and_lock_feeds_by_hash(
+        transaction,
+        &hashes,
+        #[cfg(test)]
+        feed_scan_gate,
+    )
+    .await?;
     let mut imported_count = 0_usize;
     let mut database_duplicate_count = 0_usize;
     let mut created_category_count = 0_usize;
@@ -780,6 +794,45 @@ where
     Ok(())
 }
 
+async fn load_and_lock_feeds_by_hash(
+    transaction: &DatabaseTransaction,
+    hashes: &[String],
+    #[cfg(test)] feed_scan_gate: Option<(&tokio::sync::Notify, &tokio::sync::Notify)>,
+) -> Result<HashMap<String, feed::Model>, OpmlError> {
+    let models = load_feeds_by_hash(transaction, hashes).await?;
+    #[cfg(test)]
+    if let Some((scanned, release)) = feed_scan_gate {
+        scanned.notify_one();
+        release.notified().await;
+    }
+    if transaction.get_database_backend() == DatabaseBackend::Sqlite {
+        return Ok(models);
+    }
+    let mut feed_ids: Vec<_> = models.into_values().map(|model| model.id).collect();
+    feed_ids.sort();
+    feed_ids.dedup();
+    let mut locked = HashMap::new();
+    // Match subscription updates' global feed lock order and read the current state,
+    // bypassing any earlier MySQL consistent snapshot.
+    for chunk in feed_ids.chunks(200) {
+        let models = feed::Entity::find()
+            .filter(feed::Column::Id.is_in(chunk.iter().cloned()))
+            .order_by_asc(feed::Column::Id)
+            .lock_exclusive()
+            .all(transaction)
+            .await?;
+        for model in models {
+            if locked
+                .insert(model.normalized_url_hash.clone(), model)
+                .is_some()
+            {
+                return Err(OpmlError::CorruptData);
+            }
+        }
+    }
+    Ok(locked)
+}
+
 async fn load_feeds_by_hash<C>(
     connection: &C,
     hashes: &[String],
@@ -947,7 +1000,200 @@ fn escape_xml_attribute(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::{sync::Arc, time::Duration};
+
+    use crate::db::{DatabaseConfig, connect, entities::user, migrate};
+    use crate::feeds::ListSubscriptionsQuery;
+    use sea_orm::IntoActiveModel;
+    use secrecy::SecretString;
+    use tokio::sync::Notify;
+
     use super::*;
+
+    #[tokio::test]
+    async fn postgres_opml_import_serializes_with_last_unsubscribe() {
+        opml_import_serializes_with_feed_lifecycle_change("RAINDROP_TEST_POSTGRES_URL", false)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn postgres_opml_import_serializes_with_orphan_retention() {
+        opml_import_serializes_with_feed_lifecycle_change("RAINDROP_TEST_POSTGRES_URL", true).await;
+    }
+
+    #[tokio::test]
+    async fn mysql_opml_import_serializes_with_last_unsubscribe() {
+        opml_import_serializes_with_feed_lifecycle_change("RAINDROP_TEST_MYSQL_URL", false).await;
+    }
+
+    #[tokio::test]
+    async fn mysql_opml_import_serializes_with_orphan_retention() {
+        opml_import_serializes_with_feed_lifecycle_change("RAINDROP_TEST_MYSQL_URL", true).await;
+    }
+
+    async fn opml_import_serializes_with_feed_lifecycle_change(
+        environment_variable: &str,
+        retain_orphan: bool,
+    ) {
+        let Ok(url) = std::env::var(environment_variable) else {
+            eprintln!("skipping OPML concurrency contract; {environment_variable} is unset");
+            return;
+        };
+        let database = connect(&DatabaseConfig::new(SecretString::from(url)))
+            .await
+            .expect("OPML contract database connects");
+        migrate(&database)
+            .await
+            .expect("OPML contract database migrates");
+        import_overlapping_feed_lifecycle_change(&database, retain_orphan).await;
+        database
+            .close()
+            .await
+            .expect("OPML contract database closes");
+    }
+
+    async fn import_overlapping_feed_lifecycle_change(
+        database: &sea_orm::DatabaseConnection,
+        retain_orphan: bool,
+    ) {
+        let importer = Uuid::new_v4().to_string();
+        let previous_owner = Uuid::new_v4().to_string();
+        for user_id in [&importer, &previous_owner] {
+            user::ActiveModel {
+                id: Set(user_id.clone()),
+                username: Set(user_id.clone()),
+                normalized_username: Set(user_id.clone()),
+                display_name: Set(None),
+                email: Set(None),
+                password_hash: Set("test-hash".to_owned()),
+                is_disabled: Set(false),
+                created_at: Set(OffsetDateTime::now_utc()),
+                last_login_at: Set(None),
+            }
+            .insert(database)
+            .await
+            .expect("OPML contract user inserts");
+        }
+        let feed_url = format!("https://{}.example.test/feed.xml", Uuid::new_v4());
+        let document = OpmlDocument::parse(
+            format!(r#"<opml version="2.0"><body><outline xmlUrl="{feed_url}"/></body></opml>"#)
+                .as_bytes(),
+        )
+        .expect("OPML concurrency fixture parses");
+        let repository = FeedRepository::new(database.clone());
+        repository
+            .import_opml(&previous_owner, &document)
+            .await
+            .expect("initial subscription imports");
+        let initial = repository
+            .list_subscriptions_for_user(&previous_owner, ListSubscriptionsQuery::default())
+            .await
+            .expect("initial subscription loads")
+            .items
+            .pop()
+            .expect("initial subscription exists");
+        let initial_feed_id = initial.feed_id.clone();
+        if retain_orphan {
+            repository
+                .unsubscribe(&previous_owner, &initial.subscription_id)
+                .await
+                .expect("initial subscription can be removed");
+            let mut orphan = feed::Entity::find_by_id(&initial.feed_id)
+                .one(database)
+                .await
+                .expect("orphan feed loads")
+                .expect("orphan feed exists")
+                .into_active_model();
+            orphan.orphaned_at = Set(Some(OffsetDateTime::now_utc() - time::Duration::days(2)));
+            orphan.update(database).await.expect("orphan feed ages");
+        }
+
+        let scanned = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let importing = tokio::spawn({
+            let database = database.clone();
+            let importer = importer.clone();
+            let scanned = Arc::clone(&scanned);
+            let release = Arc::clone(&release);
+            async move {
+                let transaction = database.begin().await.expect("import transaction starts");
+                let result = import_document(
+                    &transaction,
+                    &importer,
+                    &document,
+                    Some((&scanned, &release)),
+                )
+                .await;
+                match result {
+                    Ok(result) => {
+                        transaction.commit().await.expect("import commits");
+                        Ok(result)
+                    }
+                    Err(error) => {
+                        transaction
+                            .rollback()
+                            .await
+                            .expect("failed import rolls back");
+                        Err(error)
+                    }
+                }
+            }
+        });
+        tokio::time::timeout(Duration::from_secs(5), scanned.notified())
+            .await
+            .expect("import reaches the feed scan");
+        let changing_feed = tokio::spawn(async move {
+            if retain_orphan {
+                repository
+                    .purge_orphaned_feeds(Duration::from_secs(86_400), 100)
+                    .await
+                    .expect("overlapping orphan retention runs");
+            } else {
+                assert!(
+                    repository
+                        .unsubscribe(&previous_owner, &initial.subscription_id)
+                        .await
+                        .expect("overlapping last unsubscribe runs"),
+                    "the previous subscription is removed"
+                );
+            }
+        });
+        let change_result = tokio::time::timeout(Duration::from_secs(5), changing_feed).await;
+        release.notify_one();
+        change_result
+            .expect("feed lifecycle change completes before import locks feeds")
+            .expect("feed lifecycle task joins");
+        let imported = tokio::time::timeout(Duration::from_secs(5), importing)
+            .await
+            .expect("overlapping import completes")
+            .expect("import task joins")
+            .expect("feed lifecycle changes cannot invalidate the imported feed");
+        assert_eq!(imported.imported_count, 1, "a new subscription is imported");
+        let imported_subscription = FeedRepository::new(database.clone())
+            .list_subscriptions_for_user(&importer, ListSubscriptionsQuery::default())
+            .await
+            .expect("imported subscription loads")
+            .items
+            .pop()
+            .expect("imported subscription remains visible");
+        let current = feed::Entity::find_by_id(imported_subscription.feed_id)
+            .one(database)
+            .await
+            .expect("imported feed loads")
+            .expect("imported feed survives retention");
+        assert!(
+            current.orphaned_at.is_none(),
+            "an imported subscription keeps its feed scheduled"
+        );
+        if retain_orphan {
+            assert_ne!(current.id, initial_feed_id, "a deleted feed is recreated");
+        } else {
+            assert_eq!(
+                current.id, initial_feed_id,
+                "a shared feed keeps its identity"
+            );
+        }
+    }
 
     #[test]
     fn parses_nested_categories_and_counts_invalid_and_duplicate_urls() {

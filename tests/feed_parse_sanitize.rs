@@ -249,6 +249,37 @@ async fn sniff_accepts_legal_xml_prologs_and_qualified_feed_roots() {
 }
 
 #[tokio::test]
+async fn xml_stylesheet_prologs_preserve_rss_and_atom_with_optional_declarations_and_bom() {
+    let stylesheet = r#"<?xml-stylesheet type="text/xsl" href="feed.xsl"?>"#;
+    let declaration = r#"<?xml version="1.0" encoding="UTF-8"?>"#;
+    for (body, version) in [
+        (
+            r#"<rss version="2.0"><channel><title>Styled café</title></channel></rss>"#,
+            ParsedFeedVersion::Rss20,
+        ),
+        (
+            r#"<feed xmlns="http://www.w3.org/2005/Atom"><title>Styled café</title><id>urn:styled-feed</id><updated>2026-07-16T00:00:00Z</updated></feed>"#,
+            ParsedFeedVersion::Atom10,
+        ),
+    ] {
+        for prolog in ["", declaration] {
+            for bom in ["", "\u{feff}"] {
+                let input = format!("{bom}{prolog}{stylesheet}{body}");
+                let parsed = parse(fetched(input, None))
+                    .await
+                    .expect("XML stylesheet processing instruction is a legal prolog");
+                assert_eq!(parsed.version(), version, "BOM {bom:?}, prolog {prolog:?}");
+                assert_eq!(
+                    parsed.title(),
+                    Some("Styled café"),
+                    "BOM {bom:?}, prolog {prolog:?}"
+                );
+            }
+        }
+    }
+}
+
+#[tokio::test]
 async fn strict_charset_failures_are_typed() {
     let unknown = parse(fetched(
         RSS_60,
@@ -325,6 +356,7 @@ async fn bom_http_charset_and_xml_declaration_precedence_is_exact() {
 #[tokio::test]
 async fn malformed_declarations_mime_and_conversion_expansion_reject() {
     for body in [
+        b"<?xml?><rss version=\"2.0\"></rss>".as_slice(),
         b"<?xml encoding=\"utf-8\"?><rss version=\"2.0\"></rss>".as_slice(),
         b"<?xml version=\"1.1\"?><rss version=\"2.0\"></rss>".as_slice(),
         b"<?xml version=\"1.0\" encoding=\"utf-8\" encoding=\"utf-8\"?><rss version=\"2.0\"></rss>"

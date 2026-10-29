@@ -1,6 +1,6 @@
 [package]
 name = "raindrop"
-version = "0.6.3"
+version = "0.6.4"
 edition = "2024"
 rust-version = "1.94"
 license = "MIT"
@@ -11,6 +11,17 @@ repository = "https://github.com/ca-x/raindrop"
 members = ["plugins/official/raindrop-ai-content"]
 exclude = ["vendor/dlx", "vendor/rustls"]
 resolver = "3"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+await_holding_lock = "deny"
+undocumented_unsafe_blocks = "deny"
+dbg_macro = "warn"
+
+[lints]
+workspace = true
 
 [dependencies]
 ammonia = "=4.1.8"

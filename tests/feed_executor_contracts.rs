@@ -230,6 +230,75 @@ async fn executor_success_persists_and_returns_refresh() {
 }
 
 #[tokio::test]
+async fn successful_inflight_refresh_preserves_last_unsubscribe_retention_frontier() {
+    let database = connect_for_contract(SecretString::from("sqlite::memory:")).await;
+    migrate(&database).await.expect("migrations should apply");
+    insert_user(&database, USER_A_ID, "orphaned-executor-reader").await;
+    let repository = raindrop::feeds::FeedRepository::new(database.clone());
+    let command = FeedCommandService::new(repository.clone());
+    let queued = command
+        .subscribe(
+            USER_A_ID,
+            SubscribeInput {
+                url: FEED_URL.to_owned(),
+            },
+        )
+        .await
+        .expect("subscribe command should queue");
+    let claim = repository
+        .claim_due(ClaimRequest {
+            owner: "orphaned-executor".to_owned(),
+            lease_duration: Duration::from_secs(30),
+        })
+        .await
+        .expect("queued refresh remains claimable")
+        .expect("queued refresh is due");
+    assert!(
+        command
+            .unsubscribe(USER_A_ID, &queued.subscription.subscription_id)
+            .await
+            .expect("last subscriber can unsubscribe"),
+        "the last subscription is removed"
+    );
+    let orphaned = feed::Entity::find_by_id(&claim.feed_id)
+        .one(&database)
+        .await
+        .expect("orphaned feed loads")
+        .expect("running refresh protects the orphaned feed");
+    let orphaned_at = orphaned
+        .orphaned_at
+        .expect("last unsubscribe starts the retention window");
+    assert_eq!(orphaned.lease_owner.as_deref(), Some(claim.owner.as_str()));
+    assert_eq!(orphaned.lease_token, claim.lease_token);
+
+    let executor = FeedExecutor::with_jitter(
+        repository,
+        FeedUrlPolicy::new(false),
+        StaticTransport {
+            calls: Arc::new(AtomicUsize::new(0)),
+            body: Arc::new(one_item_feed()),
+        },
+        ZeroJitter,
+    );
+    let completed = executor
+        .execute_claim(claim)
+        .await
+        .expect("already claimed refresh may finish after unsubscribe");
+    assert_eq!(completed.status, RefreshStatus::Success);
+    assert_eq!(completed.new_count, 1);
+    let refreshed = feed::Entity::find_by_id(&orphaned.id)
+        .one(&database)
+        .await
+        .expect("completed feed loads")
+        .expect("completed feed remains retained");
+    assert_eq!(
+        refreshed.orphaned_at,
+        Some(orphaned_at),
+        "successful refresh preserves the last-unsubscribe retention frontier"
+    );
+}
+
+#[tokio::test]
 async fn executor_not_modified_never_parses_body() {
     let data = tempfile::tempdir().expect("temporary directory should be created");
     let database_url = format!(

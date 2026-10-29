@@ -57,14 +57,13 @@ impl SessionService {
         *self
             .databases
             .write()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) =
-            Some(SessionDatabases { primary, reader });
+            .expect("session database lock poisoned") = Some(SessionDatabases { primary, reader });
     }
 
     pub(crate) fn database(&self) -> Result<DatabaseConnection, SessionError> {
         self.databases
             .read()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .expect("session database lock poisoned")
             .as_ref()
             .map(|databases| databases.primary.clone())
             .ok_or(SessionError::Unavailable)
@@ -73,7 +72,7 @@ impl SessionService {
     pub(crate) fn reader_database(&self) -> Result<DatabaseConnection, SessionError> {
         self.databases
             .read()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .expect("session database lock poisoned")
             .as_ref()
             .map(|databases| databases.reader.clone())
             .ok_or(SessionError::Unavailable)
