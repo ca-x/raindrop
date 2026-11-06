@@ -8,12 +8,10 @@ use async_trait::async_trait;
 use hickory_resolver::TokioResolver;
 use tokio::time::Instant;
 
-use crate::feeds::{AddressDecision, AddressPolicy};
-
 use super::{
     ProviderTimeoutStage, ProviderTransportError, ProviderTransportErrorKind, strict_timeout_at,
 };
-use crate::content::provider::ProviderEndpoint;
+use crate::content::provider::{ProviderEndpoint, ProviderNetworkPolicy};
 
 const DNS_TIMEOUT: Duration = Duration::from_secs(3);
 const MAX_DNS_RESULTS: usize = 16;
@@ -54,6 +52,7 @@ pub(super) async fn resolve_approved(
     provider_id: &str,
     endpoint: &ProviderEndpoint,
     resolver: &dyn DnsResolver,
+    policy: &ProviderNetworkPolicy,
     total_deadline: Instant,
 ) -> Result<Vec<SocketAddr>, ProviderTransportError> {
     if Instant::now() >= total_deadline {
@@ -91,11 +90,7 @@ pub(super) async fn resolve_approved(
         )
         .with_count(raw.len()));
     }
-    let policy = AddressPolicy::public_only();
-    if raw
-        .iter()
-        .any(|address| policy.classify(*address) != AddressDecision::Allowed)
-    {
+    if raw.iter().any(|address| !policy.allows(endpoint, *address)) {
         return Err(ProviderTransportError::new(
             provider_id,
             ProviderTransportErrorKind::AddressDenied,
@@ -131,6 +126,44 @@ mod tests {
         calls: Arc<AtomicUsize>,
     }
 
+    #[tokio::test]
+    async fn an_explicit_endpoint_exception_pins_ula_but_rejects_unsafe_mixed_answers() {
+        let endpoint = ProviderEndpoint::new(
+            ProviderKind::OpenAiResponses,
+            Some("https://model.example/tenant/"),
+        )
+        .unwrap();
+        let policy = ProviderNetworkPolicy::new(&[endpoint.as_str().to_owned()]).unwrap();
+        let private: IpAddr = "fc03::8".parse().unwrap();
+        let resolver = FakeResolver {
+            addresses: Some(vec![private]),
+            calls: Arc::new(AtomicUsize::new(0)),
+        };
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let error = resolve_approved(
+            PROVIDER_ID,
+            &endpoint,
+            &resolver,
+            &ProviderNetworkPolicy::default(),
+            deadline,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error.kind(), ProviderTransportErrorKind::AddressDenied);
+        let approved = resolve_approved(PROVIDER_ID, &endpoint, &resolver, &policy, deadline)
+            .await
+            .unwrap();
+        assert_eq!(approved, [SocketAddr::new(private, 443)]);
+        let mixed = FakeResolver {
+            addresses: Some(vec![private, "::1".parse().unwrap()]),
+            calls: Arc::new(AtomicUsize::new(0)),
+        };
+        let error = resolve_approved(PROVIDER_ID, &endpoint, &mixed, &policy, deadline)
+            .await
+            .unwrap_err();
+        assert_eq!(error.kind(), ProviderTransportErrorKind::AddressDenied);
+    }
+
     #[async_trait]
     impl DnsResolver for FakeResolver {
         async fn resolve(&self, _host: &str) -> Result<Vec<IpAddr>, DnsResolveError> {
@@ -162,6 +195,7 @@ mod tests {
             PROVIDER_ID,
             &endpoint,
             &resolver,
+            &ProviderNetworkPolicy::default(),
             Instant::now() + Duration::from_secs(30),
         )
         .await
@@ -220,6 +254,7 @@ mod tests {
                 PROVIDER_ID,
                 &endpoint,
                 &resolver,
+                &ProviderNetworkPolicy::default(),
                 Instant::now() + Duration::from_secs(30),
             )
             .await
@@ -260,6 +295,7 @@ mod tests {
                 PROVIDER_ID,
                 &endpoint,
                 &resolver,
+                &ProviderNetworkPolicy::default(),
                 Instant::now() + Duration::from_secs(30),
             )
             .await;
@@ -293,6 +329,7 @@ mod tests {
                 PROVIDER_ID,
                 &endpoint,
                 resolver.as_ref(),
+                &ProviderNetworkPolicy::default(),
                 Instant::now() + Duration::from_secs(30),
             )
             .await
@@ -324,6 +361,7 @@ mod tests {
                 PROVIDER_ID,
                 &endpoint,
                 resolver.as_ref(),
+                &ProviderNetworkPolicy::default(),
                 Instant::now() + Duration::from_secs(2),
             )
             .await
@@ -352,6 +390,7 @@ mod tests {
             PROVIDER_ID,
             &endpoint,
             &ErrorResolver,
+            &ProviderNetworkPolicy::default(),
             Instant::now() + Duration::from_secs(30),
         )
         .await

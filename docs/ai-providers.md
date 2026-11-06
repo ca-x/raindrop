@@ -13,6 +13,12 @@
 
 用户可以修改自己 Provider 的 `kind`；修改会保留 ID，并在同一事务内以新 kind 重新加密凭据。兼容服务可以设置带固定 path prefix 的自定义 HTTPS endpoint，例如 `https://gateway.example/tenant-a/`；adapter path 会安全地追加到该 prefix 后。也支持 `https://gateway.example/tenant-a/v1/` 或 Gemini 的 `/v1beta/` 基础地址，不会重复追加相同 API 版本；不要填写完整的 `/chat/completions`、`/responses` 或生成接口地址。endpoint 不接受 HTTP、userinfo、query、fragment、反斜杠、点路径、编码的点或路径分隔符，也不接受私有或特殊用途 literal IP。
 
+## 自托管内网 Provider
+
+默认 Provider 只允许公网地址。若自托管 HTTPS 服务通过私有 DNS 或 overlay 网络解析为 RFC 1918 IPv4 / ULA IPv6，部署管理员需配置 `RAINDROP_PROVIDER_TRUSTED_ENDPOINTS`（逗号分隔）或 TOML `provider_trusted_endpoints` 列表。每项须与 Provider 表单的基础地址一致，例如 `https://model.example/v1/`；匹配规范化后的完整域名、端口和基础路径，不允许通配符或 IP literal。环境变量替换整个 TOML 列表，空值清空所有例外，最多 32 项。
+
+这份信任列表只由部署配置控制，普通用户不能通过 Provider API 扩大权限。模型获取、总结和 OpenAI 翻译共用它。即使列入信任，仍禁止 loopback、link-local、metadata、multicast 等特殊地址；HTTPS 证书、DNS 固定、连接 peer、禁代理和禁重定向检查继续执行。Feed 与备份保持各自的公网策略。
+
 ## Provider secret keyring
 
 Provider credential 使用独立密钥环加密，绝不从 session secret 派生。环境变量格式为：
@@ -113,11 +119,11 @@ Credential、完整 endpoint/path、model、请求、响应、prompt、schema �
 生产 transport 只接受已经验证的 `ProviderEndpoint` 和 adapter 生成的 `EncodedProviderRequest`，并执行一次 POST：
 
 - DNS：3 秒；解析 A/AAAA，最多接受 16 个原始答案。
-- SSRF：任一答案为 private、loopback、link-local、documentation、multicast、transition-special 或其他 denied 地址时，整组拒绝。
+- SSRF：默认拒绝任何非公网答案；只有部署管理员精确信任的基础地址可以使用 RFC 1918 / ULA。其他 denied 地址或未经信任的 private 答案使整组拒绝。
 - DNS pinning：批准的 socket 直接交给 reqwest `resolve_to_addrs`，TLS 仍校验原 hostname；连接后的 peer 必须精确属于批准集合。
 - Proxy/redirect：禁用环境代理与自动重定向；所有 3xx 直接拒绝且不读取 body。
 - 请求头：拒绝 `Host`、`Content-Length`、hop-by-hop 和 proxy headers；secret header 标记为 sensitive。
-- 超时：connect 5 秒、first byte/header 20 秒、body idle 10 秒、total 90 秒。
+- 超时：connect 5 秒、total 90 秒。非流式生成的 headers 和首段数据使用剩余总预算；收到真实 body 后启用 10 秒 idle 限制。
 - 响应：只支持单一 `identity`、`gzip`、`br` 或 zlib-wrapped `deflate`；compressed 与 decoded 各限 2 MiB，解压倍率最多 100x。
 - Retry metadata：只接受一个合法 `Retry-After`，统一转换为 UTC deadline。
 
@@ -125,9 +131,11 @@ Credential、完整 endpoint/path、model、请求、响应、prompt、schema �
 
 ## Client 与 policy 状态
 
-`ProviderClient` 强制请求 model 与 binding model 完全一致，并拒绝超过 provider `max_output_tokens_per_request` 的请求。四种 adapter 都通过同一 transport 和 canonical structured-response decoder，模型输出始终按不可信数据处理。
+`ProviderClient` 强制请求 model 与 binding model 完全一致，并拒绝超过 provider `max_output_tokens_per_request` 的请求。四种 adapter 都通过同一 transport 和 canonical structured-response decoder，模型输出始终按不可信数据处理。输出 schema 同时出现在 system 指令、普通消息及协议结构化输出参数中，使忽略 system 或原生 schema 参数的兼容网关仍能获得完整任务与格式要求；文章数据保持在明确标记的数据区，不会进入 system policy。服务端只会移除包裹完整 JSON 文档的单个代码块，并继续验证结果格式和字段，不会把普通文本、缺字段 JSON、额外说明或部分结果当作成功。
 
 `max_concurrency`、`requests_per_minute`、input token ceiling、cost rate 和 per-request cost ceiling 已持久化并经过跨数据库校验。生产 worker 只能在持有有效 `ContentJobClaim` 后，通过 `ProviderAiBroker` 执行 admission、token/cost ceiling 和 provider 调用，并且只通过 `complete_success` / `complete_failure` 的 lease/fencing 终态提交结果。`ContentRepository` 仍是 job/attempt/artifact 的记录系统；HTTP route、Reader、lifecycle、Wasm guest 或 MCP server 都不得绕过 claim 直接调用 provider。
+
+官方插件的保守输入预算覆盖 system 与普通消息中的两份指令、三处 schema（两份消息文本及原生协议字段）、原文和固定消息开销。修改 adapter 的消息封装时，应同步这份预算，并通过原生插件到四种实际编码请求的合同测试验证，避免低估输入或费用上限。
 
 Streaming 在 v1 明确不支持，`supports_streaming = true` 会被拒绝。
 

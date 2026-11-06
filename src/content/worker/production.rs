@@ -7,7 +7,8 @@ use crate::{
         ai::ProviderAiBroker,
         jobs::ContentRepository,
         provider::{
-            HttpsProviderTransport, ProviderClient, ProviderRepository, ProviderSecretKeyring,
+            HttpsProviderTransport, ProviderClient, ProviderNetworkPolicy, ProviderRepository,
+            ProviderSecretKeyring,
         },
     },
     plugins::{
@@ -26,6 +27,7 @@ use super::{
 pub struct ProductionContentRuntime {
     setup: SetupService,
     provider_keyring: Option<Arc<ProviderSecretKeyring>>,
+    provider_network_policy: ProviderNetworkPolicy,
     bundle: EmbeddedOfficialAiPlugin,
     plugin_runtime: PluginRuntime,
     compiled: Arc<NativePlugin>,
@@ -59,6 +61,7 @@ impl ProductionContentRuntime {
             Self {
                 setup,
                 provider_keyring,
+                provider_network_policy: ProviderNetworkPolicy::default(),
                 bundle,
                 plugin_runtime,
                 compiled,
@@ -67,6 +70,11 @@ impl ProductionContentRuntime {
             },
             handle,
         ))
+    }
+
+    pub(crate) fn with_provider_network_policy(mut self, policy: ProviderNetworkPolicy) -> Self {
+        self.provider_network_policy = policy;
+        self
     }
 
     pub async fn run(mut self) -> Result<(), ContentWorkerError> {
@@ -120,7 +128,9 @@ impl ProductionContentRuntime {
         };
         let provider_repository =
             Arc::new(ProviderRepository::new(database.clone(), Some(keyring)));
-        let transport = HttpsProviderTransport::new().map_err(|_| runtime_unavailable())?;
+        let transport =
+            HttpsProviderTransport::new_with_network_policy(self.provider_network_policy)
+                .map_err(|_| runtime_unavailable())?;
         let client = Arc::new(ProviderClient::new(transport));
         let ai_broker: Arc<dyn AiCapabilityBroker> = Arc::new(ProviderAiBroker::new(
             Arc::clone(&provider_repository),

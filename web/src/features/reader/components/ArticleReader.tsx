@@ -364,6 +364,9 @@ function updateArticleScrollState(node: HTMLElement) {
 }
 
 const TRANSLATION_BLOCK_SELECTOR = [
+  "address",
+  "dd",
+  "dt",
   "p",
   "li",
   "blockquote",
@@ -443,6 +446,7 @@ function applyImmersiveTranslation(
         original.remove()
       }
       pair.classList.remove("reader-translation-pair")
+      if (!pair.classList.length) pair.removeAttribute("class")
       delete pair.dataset.translationIndex
     }
   }
@@ -450,6 +454,34 @@ function applyImmersiveTranslation(
 
 function normalizeTranslationText(value: string): string {
   return value.replace(/\s+/gu, " ").trim()
+}
+
+function wrapLooseTranslationText(root: DocumentFragment | Element) {
+  const pending: Array<DocumentFragment | Element> = [root]
+  while (pending.length) {
+    const container = pending.pop()
+    if (!container) break
+    let run: ChildNode[] = []
+    const flush = () => {
+      const first = run[0]
+      if (first && run.some((node) => normalizeTranslationText(node.textContent ?? ""))) {
+        const block = document.createElement("div")
+        container.insertBefore(block, first)
+        block.append(...run)
+      }
+      run = []
+    }
+    for (const node of Array.from(container.childNodes)) {
+      const nested = node instanceof Element ? node.querySelector(TRANSLATION_BLOCK_SELECTOR) : null
+      if (node instanceof Element && (node.matches(TRANSLATION_BLOCK_SELECTOR) || nested)) {
+        flush()
+        if (nested) pending.push(node)
+      } else {
+        run.push(node)
+      }
+    }
+    flush()
+  }
 }
 
 function prepareArticleHtml(
@@ -467,6 +499,9 @@ function prepareArticleHtml(
 ): string {
   const template = document.createElement("template")
   template.innerHTML = contentHtml
+  // Feed descriptions can contain bare text or inline runs between blocks. Give those
+  // runs the same segment boundaries as the server before matching translation results.
+  wrapLooseTranslationText(template.content)
   const images = Array.from(template.content.querySelectorAll<HTMLImageElement>("img"))
   for (const metadata of inertImages) {
     const image =

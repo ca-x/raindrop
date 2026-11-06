@@ -15,12 +15,12 @@ pub const fn official_ai_contract(operation: ContentJobOperation) -> OfficialAiO
     match operation {
         ContentJobOperation::Summarize => OfficialAiOperationContract {
             plugin_key: OFFICIAL_AI_PLUGIN_KEY,
-            prompt_version: "raindrop-summary-v1",
+            prompt_version: "raindrop-summary-v2",
             schema_id: "raindrop://schemas/artifacts/ai-summary/v1",
         },
         ContentJobOperation::Translate => OfficialAiOperationContract {
             plugin_key: OFFICIAL_AI_PLUGIN_KEY,
-            prompt_version: "raindrop-translation-v1",
+            prompt_version: "raindrop-translation-v2",
             schema_id: "raindrop://schemas/artifacts/ai-translation/v1",
         },
     }
@@ -47,10 +47,10 @@ mod tests {
         let translation_contract = official_ai_contract(ContentJobOperation::Translate);
         assert_eq!(summary_contract.plugin_key, OFFICIAL_AI_PLUGIN_KEY);
         assert_eq!(translation_contract.plugin_key, OFFICIAL_AI_PLUGIN_KEY);
-        assert_eq!(summary_contract.prompt_version, "raindrop-summary-v1");
+        assert_eq!(summary_contract.prompt_version, "raindrop-summary-v2");
         assert_eq!(
             translation_contract.prompt_version,
-            "raindrop-translation-v1"
+            "raindrop-translation-v2"
         );
         assert_eq!(summary["$id"], summary_contract.schema_id);
         assert_eq!(translation["$id"], translation_contract.schema_id);

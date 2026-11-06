@@ -115,13 +115,13 @@ impl ServiceFixture {
 fn shared_operation_contract_is_exact_for_summary_and_translation() {
     let summary = official_ai_contract(ContentJobOperation::Summarize);
     assert_eq!(summary.plugin_key, "raindrop.ai-content");
-    assert_eq!(summary.prompt_version, "raindrop-summary-v1");
+    assert_eq!(summary.prompt_version, "raindrop-summary-v2");
     assert_eq!(
         summary.schema_id,
         "raindrop://schemas/artifacts/ai-summary/v1"
     );
     let translation = official_ai_contract(ContentJobOperation::Translate);
-    assert_eq!(translation.prompt_version, "raindrop-translation-v1");
+    assert_eq!(translation.prompt_version, "raindrop-translation-v2");
     assert_eq!(
         translation.schema_id,
         "raindrop://schemas/artifacts/ai-translation/v1"
@@ -290,7 +290,7 @@ async fn overview_and_enqueue_use_the_current_complete_identity() {
     assert_eq!(identity.plugin_version(), "1.0.0");
     assert_eq!(identity.provider_binding_id(), fixture.provider_id);
     assert_eq!(identity.provider_revision(), 0);
-    assert_eq!(identity.prompt_version(), "raindrop-summary-v1");
+    assert_eq!(identity.prompt_version(), "raindrop-summary-v2");
     assert_eq!(
         identity.schema_id(),
         "raindrop://schemas/artifacts/ai-summary/v1"

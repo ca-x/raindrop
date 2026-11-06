@@ -13,11 +13,12 @@ pub(super) fn encode(
     credential: SecretString,
 ) -> Result<EncodedProviderRequest, ProviderAdapterError> {
     let provider = ProviderKind::OpenAiResponses;
-    let input = validation::canonical_json(provider, &request.untrusted_input)?;
+    let instruction = validation::structured_instruction(provider, request)?;
+    let input = validation::structured_input(provider, request, &instruction)?;
     let headers = openai_headers(provider, &request.idempotency_key, credential)?;
     let body = json!({
         "model": request.model,
-        "instructions": request.system_instruction,
+        "instructions": instruction,
         "input": [{
             "role": "user",
             "content": [{ "type": "input_text", "text": input }]

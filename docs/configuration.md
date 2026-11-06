@@ -25,6 +25,7 @@
 | `RAINDROP_FEED_ORPHAN_RETENTION_DAYS` | `feed_orphan_retention_days` | `30`。必须是 `0..=3650` 的整数天；`0` 禁用 orphan Feed 的物理清理。 |
 | `RAINDROP_SESSION_SECRET` | `session_secret` | 未设置。设置后至少 32 字节，否则启动失败。当前 foundation 会加载并脱敏该值，但浏览器会话令牌仍由系统随机源独立生成，因此交互式设置不要求提供此变量。 |
 | `RAINDROP_PROVIDER_SECRET_KEYS` | `provider_secret_keys` | 未设置。SQLite 和交互式设置会在数据目录创建 `provider-secret.key`；PostgreSQL/MySQL 环境托管部署未找到已有本地 key 时保持不可用。显式值为逗号分隔的 `key-id:base64url` 列表并覆盖本地 key，第一项用于新 credential 加密，后续项只用于轮换期解密。每份 key 解码后必须为 32 字节，且不得重复 ID 或 key material。详见 [AI Provider Core 运维合同](ai-providers.md)。 |
+| `RAINDROP_PROVIDER_TRUSTED_ENDPOINTS` | `provider_trusted_endpoints` | 默认空列表。部署管理员可指定最多 32 个精确的 HTTPS hostname 基础地址，允许这些地址解析到 RFC 1918 IPv4 或 ULA IPv6。环境变量用逗号分隔，替换完整 TOML 列表，空字符串清空例外。域名、端口与基础路径必须完全匹配，不支持通配符或 IP literal；始终禁止 loopback、link-local 和 metadata 地址，保留 DNS 固定、peer 与 TLS 校验。适用于模型获取、总结及 OpenAI 翻译，不影响 Feed 或备份网络策略。 |
 | `RAINDROP_BOOTSTRAP_ADMIN_USERNAME` | `bootstrap_admin.username` | 未设置。与管理员密码成组使用；空数据库初始化时不能为空，最终用户名必须为 3 到 64 个非空白、非控制字符。 |
 | `RAINDROP_BOOTSTRAP_ADMIN_PASSWORD` | `bootstrap_admin.password` | 未设置。与管理员用户名成组使用，不能为空；生产环境仍建议使用密码管理器生成强密码。 |
 | `RAINDROP_BOOTSTRAP_ADMIN_EMAIL` | `bootstrap_admin.email` | 未设置。可选；首尾空白会被移除，空值按未提供处理。非空值仅接受 ASCII，转为小写后最多 320 字节、只能有一个 `@`、local/domain 都不能为空且分别最多 64/255 字节，并拒绝空白与控制字符。该保守的未加引号地址子集不覆盖 RFC 的 quoted local-part 或国际化地址。 |
@@ -94,6 +95,7 @@ public_url = "https://rss.example.com"
 database_url = "sqlite:///var/lib/raindrop/raindrop.db?mode=rwc"
 session_secret = "REPLACE_WITH_AT_LEAST_32_RANDOM_BYTES"
 provider_secret_keys = ["primary:<BASE64URL_32_BYTES>"]
+provider_trusted_endpoints = []
 feed_orphan_retention_days = 30
 
 [bootstrap_admin]

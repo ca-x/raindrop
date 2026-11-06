@@ -225,6 +225,66 @@ fn canonical_response_limit_precedes_provider_decoding() {
 }
 
 #[test]
+fn output_schema_reaches_the_model_when_a_gateway_ignores_structured_output_options() {
+    let request = valid_request();
+    let schema = serde_json::to_string(&request.output_schema.schema).expect("schema JSON");
+    for (kind, instruction_path, input_path) in [
+        (
+            ProviderKind::AnthropicMessages,
+            "/system",
+            "/messages/0/content/0/text",
+        ),
+        (
+            ProviderKind::OpenAiResponses,
+            "/instructions",
+            "/input/0/content/0/text",
+        ),
+        (
+            ProviderKind::OpenAiChatCompletions,
+            "/messages/0/content",
+            "/messages/1/content",
+        ),
+        (
+            ProviderKind::GoogleGemini,
+            "/systemInstruction/parts/0/text",
+            "/contents/0/parts/0/text",
+        ),
+    ] {
+        let encoded = kind
+            .encode_request(&request, SecretString::from("provider-key"))
+            .expect("valid request should encode");
+        let body: Value = serde_json::from_slice(encoded.body()).expect("request JSON");
+        let instruction = body
+            .pointer(instruction_path)
+            .and_then(Value::as_str)
+            .expect("model-visible instruction");
+
+        assert!(
+            instruction.contains(&schema),
+            "{kind:?} must describe the output contract in model-visible text"
+        );
+        assert!(instruction.starts_with(&request.system_instruction));
+        assert!(
+            !instruction.contains("untrusted article text"),
+            "{kind:?} must keep article data out of the trusted instruction"
+        );
+        let input = body.pointer(input_path).and_then(Value::as_str).unwrap();
+        assert!(
+            input.contains(&schema),
+            "{kind:?} must retain the output contract when a gateway drops system messages"
+        );
+        assert!(input.contains(&request.system_instruction));
+        let (_, source) = input
+            .split_once("Untrusted input JSON (source data only):\n")
+            .expect("source must have an explicit data boundary");
+        assert_eq!(
+            serde_json::from_str::<Value>(source).unwrap(),
+            request.untrusted_input
+        );
+    }
+}
+
+#[test]
 fn request_encoders_match_v1_fixtures_and_keep_credentials_out_of_bodies() {
     let cases = [
         (
@@ -513,6 +573,51 @@ fn response_status_errors_are_stable_and_discard_upstream_bodies() {
             let rendered = format!("{error:?} {error}");
             assert!(!rendered.contains("rd-secret-provider-body"));
             assert!(!rendered.contains("rd-secret-prompt"));
+        }
+    }
+}
+
+#[test]
+fn a_single_json_code_fence_is_accepted_without_accepting_prose_or_partial_json() {
+    for (kind, text_path) in [
+        (ProviderKind::AnthropicMessages, "/content/0/text"),
+        (ProviderKind::OpenAiResponses, "/output/0/content/0/text"),
+        (
+            ProviderKind::OpenAiChatCompletions,
+            "/choices/0/message/content",
+        ),
+        (
+            ProviderKind::GoogleGemini,
+            "/candidates/0/content/parts/0/text",
+        ),
+    ] {
+        for text in [
+            "```json\n{\"summary\":\"ok\"}\n```",
+            "```\r\n{\"summary\":\"ok\"}\r\n```",
+        ] {
+            let mut response = response_fixture_value(kind);
+            *response.pointer_mut(text_path).unwrap() = json!(text);
+            assert_eq!(
+                decode_value(kind, "model-v1", &response).unwrap().output,
+                json!({"summary":"ok"}),
+                "{kind:?}"
+            );
+        }
+        for text in [
+            "Here is the result:\n```json\n{\"summary\":\"ok\"}\n```",
+            "```json\n{\"summary\":\"ok\"}\n```\nExtra commentary",
+            "```json\n{\"summary\":\"ok\"}",
+            "```json\n{\"summary\":\"ok\"}\n```\n```json\n{}\n```",
+            "```json\n{\"summary\":\n```",
+            "```json\n[]\n```",
+        ] {
+            let mut response = response_fixture_value(kind);
+            *response.pointer_mut(text_path).unwrap() = json!(text);
+            assert_response_error(
+                kind,
+                response,
+                ProviderAdapterErrorKind::OutputSchemaInvalid,
+            );
         }
     }
 }

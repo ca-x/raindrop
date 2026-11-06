@@ -5,7 +5,7 @@ use tokio::{sync::watch, task::JoinError};
 use crate::{
     config::FeedRetentionConfig,
     content::{
-        provider::ProviderSecretKeyring,
+        provider::{ProviderNetworkPolicy, ProviderSecretKeyring},
         worker::{ContentRuntimeHandle, ContentWorkerError, ProductionContentRuntime},
     },
     feeds::{
@@ -56,6 +56,20 @@ impl BackgroundRuntime {
         retention: FeedRetentionConfig,
         provider_keyring: Option<Arc<ProviderSecretKeyring>>,
     ) -> Result<(Self, BackgroundRuntimeHandle), BackgroundRuntimeError> {
+        Self::production_with_provider_network_policy(
+            setup,
+            retention,
+            provider_keyring,
+            ProviderNetworkPolicy::default(),
+        )
+    }
+
+    pub fn production_with_provider_network_policy(
+        setup: SetupService,
+        retention: FeedRetentionConfig,
+        provider_keyring: Option<Arc<ProviderSecretKeyring>>,
+        provider_network_policy: ProviderNetworkPolicy,
+    ) -> Result<(Self, BackgroundRuntimeHandle), BackgroundRuntimeError> {
         let (feed, feed_handle) = FeedRuntime::new(setup.clone(), |database| {
             let url_policy = FeedUrlPolicy::new(false);
             let transport = HttpFeedTransport::new(url_policy)
@@ -72,7 +86,9 @@ impl BackgroundRuntime {
         Ok(Self::from_futures(
             feed.run(),
             feed_handle,
-            content.run(),
+            content
+                .with_provider_network_policy(provider_network_policy)
+                .run(),
             content_handle,
         ))
     }

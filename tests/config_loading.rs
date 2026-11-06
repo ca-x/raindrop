@@ -36,6 +36,63 @@ fn no_database_source_enters_setup_mode() {
 }
 
 #[test]
+fn provider_trust_defaults_to_empty_and_environment_can_clear_file_exceptions() {
+    let data = tempdir().unwrap();
+    let args = ConfigArgs::for_test(data.path());
+    assert!(
+        load(&args, &MapEnv::default())
+            .unwrap()
+            .runtime
+            .provider_network_policy()
+            .is_empty()
+    );
+    fs::write(
+        data.path().join("config.toml"),
+        "provider_trusted_endpoints = ['https://model.example/private-path/']\n",
+    )
+    .unwrap();
+    let loaded = load(&args, &MapEnv::default()).unwrap();
+    assert!(!loaded.runtime.provider_network_policy().is_empty());
+    assert!(!format!("{loaded:?}").contains("private-path"));
+    let cleared = load(
+        &args,
+        &MapEnv::from([("RAINDROP_PROVIDER_TRUSTED_ENDPOINTS", "")]),
+    )
+    .unwrap();
+    assert!(cleared.runtime.provider_network_policy().is_empty());
+}
+
+#[test]
+fn provider_trust_environment_accepts_a_bounded_list_and_rejects_invalid_urls_without_echoing() {
+    let data = tempdir().unwrap();
+    let args = ConfigArgs::for_test(data.path());
+    let loaded = load(
+        &args,
+        &MapEnv::from([(
+            "RAINDROP_PROVIDER_TRUSTED_ENDPOINTS",
+            "https://one.example, https://two.example/v1/",
+        )]),
+    )
+    .unwrap();
+    assert!(!loaded.runtime.provider_network_policy().is_empty());
+    for value in [
+        "http://model.example",
+        "https://user:private-credential@model.example",
+        "https://*.example/",
+    ] {
+        let error = load(
+            &args,
+            &MapEnv::from([("RAINDROP_PROVIDER_TRUSTED_ENDPOINTS", value)]),
+        )
+        .unwrap_err();
+        let message = error_chain(&error);
+        assert!(message.contains("RAINDROP_PROVIDER_TRUSTED_ENDPOINTS"));
+        assert!(!message.contains(value));
+        assert!(!message.contains("private-credential"));
+    }
+}
+
+#[test]
 fn tambo_is_optional_and_validated_without_echoing_secrets() {
     let data = tempdir().unwrap();
     let mut loaded = load(&ConfigArgs::for_test(data.path()), &MapEnv::default()).unwrap();

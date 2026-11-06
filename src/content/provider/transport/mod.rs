@@ -15,7 +15,7 @@ use async_trait::async_trait;
 use tokio::time::{Instant, timeout_at};
 
 use crate::{
-    content::provider::{EncodedProviderRequest, ProviderEndpoint},
+    content::provider::{EncodedProviderRequest, ProviderEndpoint, ProviderNetworkPolicy},
     feeds::install_ring_crypto_provider,
 };
 
@@ -29,12 +29,19 @@ const TOTAL_TIMEOUT: Duration = Duration::from_secs(90);
 const INITIALIZATION_PROVIDER_ID: &str = "transport-initialization";
 
 pub struct HttpsProviderTransport {
+    network_policy: ProviderNetworkPolicy,
     resolver: Arc<dyn DnsResolver>,
     executor: Arc<dyn HttpExecutor>,
 }
 
 impl HttpsProviderTransport {
     pub fn new() -> Result<Self, ProviderTransportError> {
+        Self::new_with_network_policy(ProviderNetworkPolicy::default())
+    }
+
+    pub fn new_with_network_policy(
+        network_policy: ProviderNetworkPolicy,
+    ) -> Result<Self, ProviderTransportError> {
         install_ring_crypto_provider().map_err(|_| {
             ProviderTransportError::new(
                 INITIALIZATION_PROVIDER_ID,
@@ -48,6 +55,7 @@ impl HttpsProviderTransport {
             )
         })?;
         Ok(Self {
+            network_policy,
             resolver: Arc::new(resolver),
             executor: Arc::new(ReqwestExecutor::production()),
         })
@@ -55,7 +63,11 @@ impl HttpsProviderTransport {
 
     #[cfg(test)]
     fn with_parts(resolver: Arc<dyn DnsResolver>, executor: Arc<dyn HttpExecutor>) -> Self {
-        Self { resolver, executor }
+        Self {
+            network_policy: ProviderNetworkPolicy::default(),
+            resolver,
+            executor,
+        }
     }
 }
 
@@ -87,6 +99,7 @@ impl ProviderTransport for HttpsProviderTransport {
             provider_id,
             endpoint,
             self.resolver.as_ref(),
+            &self.network_policy,
             total_deadline,
         )
         .await?;

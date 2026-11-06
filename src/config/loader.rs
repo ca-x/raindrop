@@ -3,7 +3,7 @@ use std::{env, fs, net::SocketAddr, path::Path, time::Duration};
 use url::Url;
 use uuid::Uuid;
 
-use crate::content::provider::ProviderSecretKeyring;
+use crate::content::provider::{ProviderNetworkPolicy, ProviderSecretKeyring};
 
 use super::{
     model::{
@@ -71,6 +71,8 @@ pub fn load(args: &ConfigArgs, env: &impl EnvSource) -> Result<LoadedConfig, Con
         .map(validate_session_secret)
         .transpose()?;
     let provider_secret_keys = load_provider_secret_keys(env, file.provider_secret_keys)?;
+    let provider_network_policy =
+        load_provider_network_policy(env, file.provider_trusted_endpoints)?;
     let tambo = match (
         env.get("RAINDROP_TAMBO_URL").or(file.tambo_url),
         env.get("RAINDROP_TAMBO_API_KEY").or(file.tambo_api_key),
@@ -111,6 +113,7 @@ pub fn load(args: &ConfigArgs, env: &impl EnvSource) -> Result<LoadedConfig, Con
             database_kind,
         )
         .with_provider_secret_keys(provider_secret_keys)
+        .with_provider_network_policy(provider_network_policy)
         .with_tambo(tambo)
         .with_feed_retention(feed_retention),
         mode,
@@ -118,6 +121,32 @@ pub fn load(args: &ConfigArgs, env: &impl EnvSource) -> Result<LoadedConfig, Con
             config_path: loaded_config_path,
             database_from_env,
         },
+    })
+}
+
+fn load_provider_network_policy(
+    env: &impl EnvSource,
+    file_entries: Option<Vec<String>>,
+) -> Result<ProviderNetworkPolicy, ConfigError> {
+    let (entries, name) = match env.get("RAINDROP_PROVIDER_TRUSTED_ENDPOINTS") {
+        Some(value) if value.trim().is_empty() => {
+            (Vec::new(), "RAINDROP_PROVIDER_TRUSTED_ENDPOINTS")
+        }
+        Some(value) => (
+            value
+                .split(',')
+                .map(|entry| entry.trim().to_owned())
+                .collect(),
+            "RAINDROP_PROVIDER_TRUSTED_ENDPOINTS",
+        ),
+        None => (
+            file_entries.unwrap_or_default(),
+            "provider_trusted_endpoints",
+        ),
+    };
+    ProviderNetworkPolicy::new(&entries).map_err(|_| ConfigError::InvalidValue {
+        name,
+        reason: "expected at most 32 exact HTTPS hostname base URLs without credentials or wildcards",
     })
 }
 

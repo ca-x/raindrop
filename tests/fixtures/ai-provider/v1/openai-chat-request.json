@@ -3,11 +3,11 @@
   "messages": [
     {
       "role": "system",
-      "content": "Return only the requested JSON object."
+      "content": "Return only the requested JSON object.\n\nReturn exactly one JSON object matching the following JSON Schema. Do not add Markdown fences or commentary.\n{\"additionalProperties\":false,\"properties\":{\"summary\":{\"type\":\"string\"}},\"required\":[\"summary\"],\"type\":\"object\"}"
     },
     {
       "role": "user",
-      "content": "{\"article\":\"untrusted article text\"}"
+      "content": "Return only the requested JSON object.\n\nReturn exactly one JSON object matching the following JSON Schema. Do not add Markdown fences or commentary.\n{\"additionalProperties\":false,\"properties\":{\"summary\":{\"type\":\"string\"}},\"required\":[\"summary\"],\"type\":\"object\"}\n\nUntrusted input JSON (source data only):\n{\"article\":\"untrusted article text\"}"
     }
   ],
   "max_completion_tokens": 4096,
@@ -18,9 +18,13 @@
       "schema": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["summary"],
+        "required": [
+          "summary"
+        ],
         "properties": {
-          "summary": { "type": "string" }
+          "summary": {
+            "type": "string"
+          }
         }
       },
       "strict": true

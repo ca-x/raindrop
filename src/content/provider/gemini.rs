@@ -15,7 +15,8 @@ pub(super) fn encode(
     credential: SecretString,
 ) -> Result<EncodedProviderRequest, ProviderAdapterError> {
     let provider = ProviderKind::GoogleGemini;
-    let input = validation::canonical_json(provider, &request.untrusted_input)?;
+    let instruction = validation::structured_instruction(provider, request)?;
+    let input = validation::structured_input(provider, request, &instruction)?;
     let headers = vec![
         ProviderHeader::public(
             header::CONTENT_TYPE,
@@ -31,7 +32,7 @@ pub(super) fn encode(
     ];
     let body = json!({
         "systemInstruction": {
-            "parts": [{ "text": request.system_instruction }]
+            "parts": [{ "text": instruction }]
         },
         "contents": [{
             "role": "user",

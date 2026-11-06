@@ -13,12 +13,13 @@ pub(super) fn encode(
     credential: SecretString,
 ) -> Result<EncodedProviderRequest, ProviderAdapterError> {
     let provider = ProviderKind::OpenAiChatCompletions;
-    let input = validation::canonical_json(provider, &request.untrusted_input)?;
+    let instruction = validation::structured_instruction(provider, request)?;
+    let input = validation::structured_input(provider, request, &instruction)?;
     let headers = openai_headers(provider, &request.idempotency_key, credential)?;
     let body = json!({
         "model": request.model,
         "messages": [
-            { "role": "system", "content": request.system_instruction },
+            { "role": "system", "content": instruction },
             { "role": "user", "content": input }
         ],
         "max_completion_tokens": request.max_output_tokens,

@@ -12,7 +12,10 @@ use crate::{
     api::{self, AccountThrottle, RateLimiter, UserConcurrencyLimiter, UserMutationLimiter},
     auth::SessionService,
     backups::{BackupRuntimeHandle, BackupTransport},
-    content::{provider::ProviderSecretKeyring, worker::ContentRuntimeHandle},
+    content::{
+        provider::{ProviderNetworkPolicy, ProviderSecretKeyring},
+        worker::ContentRuntimeHandle,
+    },
     feeds::{
         FeedRuntime, FeedRuntimeHandle, FeedServiceError, FeedTransport, HttpFeedTransport,
         InertImageDto,
@@ -42,6 +45,7 @@ pub struct AppState {
     pub backup_runtime: BackupRuntimeHandle,
     pub(crate) backup_transport: Option<Arc<dyn BackupTransport>>,
     pub(crate) provider_keyring: Option<Arc<ProviderSecretKeyring>>,
+    pub(crate) provider_network_policy: ProviderNetworkPolicy,
     pub(crate) tambo: Option<Arc<crate::tambo::TamboClient>>,
     pub(crate) tambo_mutation_limiter: UserMutationLimiter,
     pub(crate) translation_deeplx_transport: Arc<dyn DeepLxTransport>,
@@ -110,6 +114,7 @@ impl AppState {
             backup_runtime: BackupRuntimeHandle::inert(),
             backup_transport: None,
             provider_keyring,
+            provider_network_policy: ProviderNetworkPolicy::default(),
             tambo: None,
             tambo_mutation_limiter: UserMutationLimiter::new(),
             translation_deeplx_transport: Arc::new(ProductionDeepLxTransport),
@@ -123,6 +128,12 @@ impl AppState {
             content_mutation_limiter: UserMutationLimiter::new(),
             backup_mutation_limiter: UserMutationLimiter::new(),
         }
+    }
+
+    #[must_use]
+    pub fn with_provider_network_policy(mut self, policy: ProviderNetworkPolicy) -> Self {
+        self.provider_network_policy = policy;
+        self
     }
 
     #[must_use]

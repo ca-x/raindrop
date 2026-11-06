@@ -23,6 +23,8 @@ const MAX_SCHEMA_BYTES: usize = 64 * 1024;
 const MAX_MCP_RESULT_BYTES: usize = 256 * 1024;
 const PLAN_OUTPUT_TOKENS: u32 = 1_024;
 const MCP_TIMEOUT_MS: u32 = 10_000;
+// Cover fixed format instructions and protocol message framing in the byte-based token ceiling.
+const PROVIDER_MESSAGE_OVERHEAD_BYTES: usize = 1_024;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ExecuteInput {
@@ -468,8 +470,16 @@ fn prepare_ai_request(
 ) -> Result<AiRequest, Failure> {
     let byte_ceiling = system_instruction
         .len()
-        .checked_add(untrusted_input_json.len())
-        .and_then(|value| value.checked_add(output_schema_json.len()))
+        .checked_mul(2)
+        .and_then(|value| value.checked_add(untrusted_input_json.len()))
+        .and_then(|value| {
+            // The host sends the schema in system/user text and in the native protocol field.
+            output_schema_json
+                .len()
+                .checked_mul(3)
+                .and_then(|schema| value.checked_add(schema))
+        })
+        .and_then(|value| value.checked_add(PROVIDER_MESSAGE_OVERHEAD_BYTES))
         .and_then(|value| u32::try_from(value).ok())
         .ok_or(Failure::BudgetExhausted)?;
     if byte_ceiling == 0
@@ -766,7 +776,7 @@ mod tests {
         assert_eq!(artifact.locale, None);
         assert_eq!(
             artifact.provenance_json,
-            r#"{"mcp":{"status":"DISABLED","successfulCallCount":0},"promptVersion":"raindrop-summary-v1","providerRequestCount":1}"#,
+            r#"{"mcp":{"status":"DISABLED","successfulCallCount":0},"promptVersion":"raindrop-summary-v2","providerRequestCount":1}"#,
         );
     }
 

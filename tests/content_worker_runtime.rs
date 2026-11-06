@@ -466,7 +466,7 @@ impl RuntimeFixture {
             provider_kind: ProviderKind::OpenAiResponses,
             provider_model: "fake-model".to_owned(),
             provider_revision: 0,
-            prompt_version: "raindrop-summary-v1".to_owned(),
+            prompt_version: "raindrop-summary-v2".to_owned(),
             schema_id: "raindrop://schemas/artifacts/ai-summary/v1".to_owned(),
             mcp_provenance_hash: HASH_A.to_owned(),
         })

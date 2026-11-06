@@ -115,6 +115,9 @@ pub(super) fn structured_response(
     finish_reason: FinishReason,
     usage: TokenUsage,
 ) -> Result<StructuredGenerationResponse, ProviderAdapterError> {
+    let output_text = json_document(output_text).ok_or_else(|| {
+        ProviderAdapterError::for_provider(provider, ProviderAdapterErrorKind::OutputSchemaInvalid)
+    })?;
     let output = serde_json::from_str::<Value>(output_text).map_err(|_| {
         ProviderAdapterError::for_provider(provider, ProviderAdapterErrorKind::OutputSchemaInvalid)
     })?;
@@ -150,6 +153,20 @@ pub(super) fn structured_response(
     })
 }
 
+fn json_document(text: &str) -> Option<&str> {
+    let text = text.trim();
+    let Some(fenced) = text.strip_prefix("```") else {
+        return Some(text);
+    };
+    let (language, document) = fenced.split_once('\n')?;
+    if !language.trim().is_empty() && !language.trim().eq_ignore_ascii_case("json") {
+        return None;
+    }
+    // Remove only a whole-document wrapper. Prose, additional blocks, and truncated JSON
+    // still fail the complete JSON parse and the caller's artifact validation.
+    document.strip_suffix("```").map(str::trim)
+}
+
 pub(super) fn canonical_json(
     provider: ProviderKind,
     value: &Value,
@@ -157,6 +174,32 @@ pub(super) fn canonical_json(
     serde_json::to_string(value).map_err(|_| {
         ProviderAdapterError::for_provider(provider, ProviderAdapterErrorKind::InvalidRequest)
     })
+}
+
+pub(super) fn structured_instruction(
+    provider: ProviderKind,
+    request: &StructuredGenerationRequest,
+) -> Result<String, ProviderAdapterError> {
+    let schema = canonical_json(provider, &request.output_schema.schema)?;
+    // Compatible gateways may discard structured-output options before calling the model.
+    // Keep the contract in trusted instruction text as well as the native protocol field.
+    Ok(format!(
+        "{}\n\nReturn exactly one JSON object matching the following JSON Schema. Do not add Markdown fences or commentary.\n{}",
+        request.system_instruction, schema
+    ))
+}
+
+pub(super) fn structured_input(
+    provider: ProviderKind,
+    request: &StructuredGenerationRequest,
+    instruction: &str,
+) -> Result<String, ProviderAdapterError> {
+    let input = canonical_json(provider, &request.untrusted_input)?;
+    // Some compatible backends forward only the user message. Repeat trusted task text
+    // before an explicit source-data boundary, without moving source data into system policy.
+    Ok(format!(
+        "{instruction}\n\nUntrusted input JSON (source data only):\n{input}"
+    ))
 }
 
 pub(super) fn encode_request_body(

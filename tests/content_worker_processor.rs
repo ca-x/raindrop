@@ -321,7 +321,7 @@ async fn processor_rejects_snapshot_drift_before_provider_io() {
         (
             "prompt-drift",
             IdentityOverrides {
-                prompt_version: Some("raindrop-summary-v2"),
+                prompt_version: Some("raindrop-summary-future"),
                 ..IdentityOverrides::default()
             },
         ),
@@ -543,8 +543,8 @@ impl Fixture {
         let target_locale =
             (operation == ContentJobOperation::Translate).then(|| "zh-CN".to_owned());
         let prompt_version = overrides.prompt_version.unwrap_or(match operation {
-            ContentJobOperation::Summarize => "raindrop-summary-v1",
-            ContentJobOperation::Translate => "raindrop-translation-v1",
+            ContentJobOperation::Summarize => "raindrop-summary-v2",
+            ContentJobOperation::Translate => "raindrop-translation-v2",
         });
         let schema_id = overrides.schema_id.unwrap_or(match operation {
             ContentJobOperation::Summarize => SUMMARY_SCHEMA,

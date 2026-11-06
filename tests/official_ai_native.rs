@@ -11,6 +11,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use raindrop::content::provider::{OutputSchema, ProviderKind, StructuredGenerationRequest};
 use raindrop::plugins::{
     AiContentConfig,
     runtime::{
@@ -54,12 +55,66 @@ async fn native_service_executes_direct_summary_and_translation() {
     );
     assert_eq!(summary.locale, None);
     assert_eq!(summary.payload_json, summary_output());
-    assert!(summary.provenance_json.contains("raindrop-summary-v1"));
+    assert!(summary.provenance_json.contains("raindrop-summary-v2"));
     let requests = summary_broker.requests();
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].provider_request_ordinal, 1);
     assert!(!requests[0].system_instruction.contains("rd-secret-entry"));
     assert!(requests[0].untrusted_input_json.contains("rd-secret-entry"));
+    let request = &requests[0];
+    for (kind, system, input, schema) in [
+        (
+            ProviderKind::AnthropicMessages,
+            "/system",
+            "/messages/0/content/0/text",
+            "/output_config/format/schema",
+        ),
+        (
+            ProviderKind::OpenAiResponses,
+            "/instructions",
+            "/input/0/content/0/text",
+            "/text/format/schema",
+        ),
+        (
+            ProviderKind::OpenAiChatCompletions,
+            "/messages/0/content",
+            "/messages/1/content",
+            "/response_format/json_schema/schema",
+        ),
+        (
+            ProviderKind::GoogleGemini,
+            "/systemInstruction/parts/0/text",
+            "/contents/0/parts/0/text",
+            "/generationConfig/responseJsonSchema",
+        ),
+    ] {
+        let encoded = kind
+            .encode_request(
+                &StructuredGenerationRequest {
+                    model: "model-v1".to_owned(),
+                    system_instruction: request.system_instruction.clone(),
+                    untrusted_input: serde_json::from_str(&request.untrusted_input_json).unwrap(),
+                    output_schema: OutputSchema {
+                        name: "summary_v1".to_owned(),
+                        schema: serde_json::from_str(&request.output_schema_json).unwrap(),
+                    },
+                    max_output_tokens: request.max_output_tokens,
+                    idempotency_key: "budget-test".to_owned(),
+                },
+                secrecy::SecretString::from("test-credential"),
+            )
+            .unwrap();
+        let body: Value = serde_json::from_slice(encoded.body()).unwrap();
+        let visible_bytes = body.pointer(system).and_then(Value::as_str).unwrap().len()
+            + body.pointer(input).and_then(Value::as_str).unwrap().len()
+            + serde_json::to_vec(body.pointer(schema).unwrap())
+                .unwrap()
+                .len();
+        assert!(
+            usize::try_from(request.max_input_tokens).unwrap() >= visible_bytes,
+            "{kind:?}: the native input ceiling must cover the actual model-visible task, data, and schema"
+        );
+    }
     assert_eq!(summary_execution.usage().provider_request_count(), 1);
     assert_eq!(summary_execution.usage().mcp_call_count(), 0);
     assert!(!summary_execution.usage().input_tokens_complete());

@@ -53,6 +53,7 @@ async fn main() -> Result<()> {
     let data_dir = loaded.runtime.data_dir.clone();
     let database_kind = loaded.runtime.database_kind();
     let configured_provider_secret_keys = loaded.runtime.take_provider_secret_keys();
+    let provider_network_policy = loaded.runtime.provider_network_policy().clone();
     let tambo = loaded
         .runtime
         .take_tambo()
@@ -145,8 +146,13 @@ async fn main() -> Result<()> {
         .await
         .with_context(|| format!("failed to bind Raindrop to {address}"))?;
     let (background_runtime, background_handle) =
-        BackgroundRuntime::production(setup.clone(), feed_retention, provider_keyring.clone())
-            .context("failed to compose Raindrop background runtime")?;
+        BackgroundRuntime::production_with_provider_network_policy(
+            setup.clone(),
+            feed_retention,
+            provider_keyring.clone(),
+            provider_network_policy.clone(),
+        )
+        .context("failed to compose Raindrop background runtime")?;
     let (backup_runtime, backup_handle) =
         BackupRuntime::production(setup.clone(), provider_keyring.clone())
             .context("failed to compose Raindrop backup runtime")?;
@@ -196,6 +202,7 @@ async fn main() -> Result<()> {
                 background_handle.content(),
                 provider_keyring,
             )
+            .with_provider_network_policy(provider_network_policy)
             .with_backup_runtime(backup_handle.clone())
             .with_tambo(tambo)
             .with_media_transport(media_transport),

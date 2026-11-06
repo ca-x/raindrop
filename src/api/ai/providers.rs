@@ -19,10 +19,9 @@ use crate::{
     auth::{CsrfGuard, CurrentUser},
     content::provider::{
         CreateProvider, ProviderCapabilities, ProviderCoreError, ProviderCoreErrorKind,
-        ProviderEndpoint, ProviderKind, ProviderMetadata, ProviderPolicy, ProviderRepository,
-        ProviderScope, UpdateProvider,
+        ProviderEndpoint, ProviderKind, ProviderMetadata, ProviderNetworkPolicy, ProviderPolicy,
+        ProviderRepository, ProviderScope, UpdateProvider,
     },
-    feeds::{AddressDecision, AddressPolicy},
 };
 
 use super::super::{ApiError, ApiJson, RateLimitRejection, routes::sensitive_cache_headers};
@@ -30,6 +29,7 @@ use super::super::{ApiError, ApiJson, RateLimitRejection, routes::sensitive_cach
 const USER_PROVIDER_LIMIT: u64 = 32;
 const MODEL_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(15);
 const MAX_MODEL_CATALOG_BYTES: usize = 1_048_576;
+const MAX_MODEL_DISCOVERY_ADDRESSES: usize = 16;
 const PUBLIC_TIME_FORMAT: &[time::format_description::FormatItem<'static>] =
     format_description!("[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:6]Z");
 
@@ -407,7 +407,7 @@ async fn discover_models(
     credential.set_sensitive(true);
     let models = tokio::time::timeout(
         MODEL_DISCOVERY_TIMEOUT,
-        fetch_discovered_models(kind, &endpoint, credential),
+        fetch_discovered_models(kind, &endpoint, credential, &state.provider_network_policy),
     )
     .await
     .map_err(|_| model_discovery_timeout())??;
@@ -418,6 +418,7 @@ async fn fetch_discovered_models(
     kind: ProviderKind,
     endpoint: &ProviderEndpoint,
     credential: HeaderValue,
+    network_policy: &ProviderNetworkPolicy,
 ) -> Result<Vec<DiscoveredModel>, ApiError> {
     let path = match kind {
         ProviderKind::GoogleGemini => "/v1beta/models",
@@ -429,14 +430,14 @@ async fn fetch_discovered_models(
     let approved = tokio::net::lookup_host((endpoint.canonical_host(), endpoint.effective_port()))
         .await
         .map_err(|_| model_discovery_error())?
-        .filter(|address| {
-            matches!(
-                AddressPolicy::public_only().classify(address.ip()),
-                AddressDecision::Allowed
-            )
-        })
+        .take(MAX_MODEL_DISCOVERY_ADDRESSES + 1)
         .collect::<Vec<SocketAddr>>();
-    if approved.is_empty() {
+    if approved.is_empty()
+        || approved.len() > MAX_MODEL_DISCOVERY_ADDRESSES
+        || approved
+            .iter()
+            .any(|address| !network_policy.allows(endpoint, address.ip()))
+    {
         return Err(model_discovery_error());
     }
     let client = reqwest::Client::builder()
@@ -481,6 +482,12 @@ async fn fetch_discovered_models(
         .send()
         .await
         .map_err(map_discovery_transport_error)?;
+    if !response
+        .remote_addr()
+        .is_some_and(|peer| approved.contains(&peer))
+    {
+        return Err(model_discovery_error());
+    }
     if !response.status().is_success() {
         let code = match response.status().as_u16() {
             401 | 403 => "MODEL_DISCOVERY_AUTH_FAILED",
