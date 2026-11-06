@@ -54,6 +54,7 @@ export interface DiscoverModelsRequest {
 export interface DiscoveredModel {
   id: string
   label: string
+  limits?: ModelLimits
 }
 
 export interface DiscoveredModels {
@@ -98,6 +99,29 @@ export interface DeleteProviderRequest {
   expectedRevision: number
 }
 
+export interface ModelLimits {
+  contextWindow: number | null
+  maxInputTokens: number | null
+  maxOutputTokens: number | null
+  source: ModelLimitsSource
+  matchedModel?: string
+  matchKind?: ModelLimitsMatchKind
+}
+
+export type ModelLimitsSource = "MODELS_DEV" | "PROVIDER" | "COMBINED"
+
+export type ModelLimitsMatchKind = "EXACT" | "ALIAS"
+
+export interface ModelLimitsRequest {
+  model: string
+  endpoint: string
+}
+
+export interface ModelLimitsResponse {
+  catalogAvailable: boolean
+  limits: ModelLimits | null
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
@@ -127,7 +151,7 @@ export function isProviderCapabilities(value: unknown): value is ProviderCapabil
 }
 
 export function isProviderPolicy(value: unknown): value is ProviderPolicy {
-  return ((isRecord(value) && hasOnlyKeys(value, ["maxConcurrency","requestsPerMinute","maxInputTokensPerRequest","maxOutputTokensPerRequest","inputCostMicrosPerMillionTokens","outputCostMicrosPerMillionTokens","maxCostMicrosPerRequest"]) && hasOwn(value, "maxConcurrency") && ((typeof value["maxConcurrency"] === "number" && Number.isFinite(value["maxConcurrency"]) && Number.isInteger(value["maxConcurrency"]) && value["maxConcurrency"] >= 1 && value["maxConcurrency"] <= 64)) && hasOwn(value, "requestsPerMinute") && ((typeof value["requestsPerMinute"] === "number" && Number.isFinite(value["requestsPerMinute"]) && Number.isInteger(value["requestsPerMinute"]) && value["requestsPerMinute"] >= 1 && value["requestsPerMinute"] <= 1000000) || value["requestsPerMinute"] === null) && hasOwn(value, "maxInputTokensPerRequest") && ((typeof value["maxInputTokensPerRequest"] === "number" && Number.isFinite(value["maxInputTokensPerRequest"]) && Number.isInteger(value["maxInputTokensPerRequest"]) && value["maxInputTokensPerRequest"] >= 1 && value["maxInputTokensPerRequest"] <= 1048576)) && hasOwn(value, "maxOutputTokensPerRequest") && ((typeof value["maxOutputTokensPerRequest"] === "number" && Number.isFinite(value["maxOutputTokensPerRequest"]) && Number.isInteger(value["maxOutputTokensPerRequest"]) && value["maxOutputTokensPerRequest"] >= 1 && value["maxOutputTokensPerRequest"] <= 16384)) && hasOwn(value, "inputCostMicrosPerMillionTokens") && ((typeof value["inputCostMicrosPerMillionTokens"] === "number" && Number.isFinite(value["inputCostMicrosPerMillionTokens"]) && Number.isInteger(value["inputCostMicrosPerMillionTokens"]) && value["inputCostMicrosPerMillionTokens"] >= 0 && value["inputCostMicrosPerMillionTokens"] <= 1000000000000) || value["inputCostMicrosPerMillionTokens"] === null) && hasOwn(value, "outputCostMicrosPerMillionTokens") && ((typeof value["outputCostMicrosPerMillionTokens"] === "number" && Number.isFinite(value["outputCostMicrosPerMillionTokens"]) && Number.isInteger(value["outputCostMicrosPerMillionTokens"]) && value["outputCostMicrosPerMillionTokens"] >= 0 && value["outputCostMicrosPerMillionTokens"] <= 1000000000000) || value["outputCostMicrosPerMillionTokens"] === null) && hasOwn(value, "maxCostMicrosPerRequest") && ((typeof value["maxCostMicrosPerRequest"] === "number" && Number.isFinite(value["maxCostMicrosPerRequest"]) && Number.isInteger(value["maxCostMicrosPerRequest"]) && value["maxCostMicrosPerRequest"] >= 0 && value["maxCostMicrosPerRequest"] <= 1000000000000) || value["maxCostMicrosPerRequest"] === null)))
+  return ((isRecord(value) && hasOnlyKeys(value, ["maxConcurrency","requestsPerMinute","maxInputTokensPerRequest","maxOutputTokensPerRequest","inputCostMicrosPerMillionTokens","outputCostMicrosPerMillionTokens","maxCostMicrosPerRequest"]) && hasOwn(value, "maxConcurrency") && ((typeof value["maxConcurrency"] === "number" && Number.isFinite(value["maxConcurrency"]) && Number.isInteger(value["maxConcurrency"]) && value["maxConcurrency"] >= 1 && value["maxConcurrency"] <= 64)) && hasOwn(value, "requestsPerMinute") && ((typeof value["requestsPerMinute"] === "number" && Number.isFinite(value["requestsPerMinute"]) && Number.isInteger(value["requestsPerMinute"]) && value["requestsPerMinute"] >= 1 && value["requestsPerMinute"] <= 1000000) || value["requestsPerMinute"] === null) && hasOwn(value, "maxInputTokensPerRequest") && ((typeof value["maxInputTokensPerRequest"] === "number" && Number.isFinite(value["maxInputTokensPerRequest"]) && Number.isInteger(value["maxInputTokensPerRequest"]) && value["maxInputTokensPerRequest"] >= 1 && value["maxInputTokensPerRequest"] <= 1048576)) && hasOwn(value, "maxOutputTokensPerRequest") && ((typeof value["maxOutputTokensPerRequest"] === "number" && Number.isFinite(value["maxOutputTokensPerRequest"]) && Number.isInteger(value["maxOutputTokensPerRequest"]) && value["maxOutputTokensPerRequest"] >= 1 && value["maxOutputTokensPerRequest"] <= 1048576)) && hasOwn(value, "inputCostMicrosPerMillionTokens") && ((typeof value["inputCostMicrosPerMillionTokens"] === "number" && Number.isFinite(value["inputCostMicrosPerMillionTokens"]) && Number.isInteger(value["inputCostMicrosPerMillionTokens"]) && value["inputCostMicrosPerMillionTokens"] >= 0 && value["inputCostMicrosPerMillionTokens"] <= 1000000000000) || value["inputCostMicrosPerMillionTokens"] === null) && hasOwn(value, "outputCostMicrosPerMillionTokens") && ((typeof value["outputCostMicrosPerMillionTokens"] === "number" && Number.isFinite(value["outputCostMicrosPerMillionTokens"]) && Number.isInteger(value["outputCostMicrosPerMillionTokens"]) && value["outputCostMicrosPerMillionTokens"] >= 0 && value["outputCostMicrosPerMillionTokens"] <= 1000000000000) || value["outputCostMicrosPerMillionTokens"] === null) && hasOwn(value, "maxCostMicrosPerRequest") && ((typeof value["maxCostMicrosPerRequest"] === "number" && Number.isFinite(value["maxCostMicrosPerRequest"]) && Number.isInteger(value["maxCostMicrosPerRequest"]) && value["maxCostMicrosPerRequest"] >= 0 && value["maxCostMicrosPerRequest"] <= 1000000000000) || value["maxCostMicrosPerRequest"] === null)))
 }
 
 export function isProviderKind(value: unknown): value is ProviderKind {
@@ -147,7 +171,7 @@ export function isDiscoverModelsRequest(value: unknown): value is DiscoverModels
 }
 
 export function isDiscoveredModel(value: unknown): value is DiscoveredModel {
-  return ((isRecord(value) && hasOnlyKeys(value, ["id","label"]) && hasOwn(value, "id") && ((typeof value["id"] === "string" && value["id"].length >= 1 && value["id"].length <= 200)) && hasOwn(value, "label") && ((typeof value["label"] === "string" && value["label"].length >= 1 && value["label"].length <= 200))))
+  return ((isRecord(value) && hasOnlyKeys(value, ["id","label","limits"]) && hasOwn(value, "id") && ((typeof value["id"] === "string" && value["id"].length >= 1 && value["id"].length <= 200)) && hasOwn(value, "label") && ((typeof value["label"] === "string" && value["label"].length >= 1 && value["label"].length <= 200)) && (!hasOwn(value, "limits") || isModelLimits(value["limits"]))))
 }
 
 export function isDiscoveredModels(value: unknown): value is DiscoveredModels {
@@ -172,4 +196,16 @@ export function isApiErrorEnvelope(value: unknown): value is ApiErrorEnvelope {
 
 export function isDeleteProviderRequest(value: unknown): value is DeleteProviderRequest {
   return ((isRecord(value) && hasOnlyKeys(value, ["expectedRevision"]) && hasOwn(value, "expectedRevision") && ((typeof value["expectedRevision"] === "number" && Number.isFinite(value["expectedRevision"]) && Number.isInteger(value["expectedRevision"]) && value["expectedRevision"] >= 0))))
+}
+
+export function isModelLimits(value: unknown): value is ModelLimits {
+  return ((isRecord(value) && hasOnlyKeys(value, ["contextWindow","maxInputTokens","maxOutputTokens","source","matchedModel","matchKind"]) && hasOwn(value, "contextWindow") && ((typeof value["contextWindow"] === "number" && Number.isFinite(value["contextWindow"]) && Number.isInteger(value["contextWindow"]) && value["contextWindow"] >= 1 && value["contextWindow"] <= 4294967295) || value["contextWindow"] === null) && hasOwn(value, "maxInputTokens") && ((typeof value["maxInputTokens"] === "number" && Number.isFinite(value["maxInputTokens"]) && Number.isInteger(value["maxInputTokens"]) && value["maxInputTokens"] >= 1 && value["maxInputTokens"] <= 4294967295) || value["maxInputTokens"] === null) && hasOwn(value, "maxOutputTokens") && ((typeof value["maxOutputTokens"] === "number" && Number.isFinite(value["maxOutputTokens"]) && Number.isInteger(value["maxOutputTokens"]) && value["maxOutputTokens"] >= 1 && value["maxOutputTokens"] <= 4294967295) || value["maxOutputTokens"] === null) && hasOwn(value, "source") && (value["source"] === "MODELS_DEV" || value["source"] === "PROVIDER" || value["source"] === "COMBINED") && (!hasOwn(value, "matchedModel") || ((typeof value["matchedModel"] === "string" && value["matchedModel"].length >= 1 && value["matchedModel"].length <= 512))) && (!hasOwn(value, "matchKind") || (value["matchKind"] === "EXACT" || value["matchKind"] === "ALIAS"))))
+}
+
+export function isModelLimitsRequest(value: unknown): value is ModelLimitsRequest {
+  return ((isRecord(value) && hasOnlyKeys(value, ["model","endpoint"]) && hasOwn(value, "model") && ((typeof value["model"] === "string" && value["model"].length >= 1 && value["model"].length <= 200)) && hasOwn(value, "endpoint") && ((typeof value["endpoint"] === "string" && value["endpoint"].length <= 2048))))
+}
+
+export function isModelLimitsResponse(value: unknown): value is ModelLimitsResponse {
+  return ((isRecord(value) && hasOnlyKeys(value, ["catalogAvailable","limits"]) && hasOwn(value, "catalogAvailable") && (typeof value["catalogAvailable"] === "boolean") && hasOwn(value, "limits") && (isModelLimits(value["limits"]) || (value["limits"] === null))))
 }

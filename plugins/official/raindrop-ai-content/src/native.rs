@@ -45,6 +45,17 @@ impl Plugin for OfficialAiPlugin {
     }
 }
 impl AiContentService {
+    pub async fn answer_question(
+        &self,
+        host: &mut impl ContentHost,
+        request: types::OperationRequest,
+        context: crate::question::QuestionContext,
+    ) -> Result<crate::question::QuestionAnswer, types::PluginError> {
+        let input = map_execute_input(request)?;
+        crate::question::answer(&mut NativeHost(host), input, context)
+            .await
+            .map_err(map_failure)
+    }
     pub async fn cancelled(&self) {
         self.cancellation.cancelled().await;
     }
@@ -218,6 +229,7 @@ fn map_execute_input(request: types::OperationRequest) -> Result<ExecuteInput, t
             remaining_mcp_calls: request.budget.remaining_mcp_calls,
             remaining_input_tokens: request.budget.remaining_input_tokens,
             remaining_output_tokens: request.budget.remaining_output_tokens,
+            max_output_tokens_per_request: request.budget.max_output_tokens_per_request,
         },
     })
 }

@@ -8,11 +8,14 @@ import { useEffect, useRef } from "react"
 
 import type { EntryAiController } from "../model/useEntryAiController"
 import { AiOperationState } from "./AiOperationState"
+import { ArticleQuestions } from "./ArticleQuestions"
 
 interface AiReaderSidecarProps {
   controller: EntryAiController
   onClose: () => void
   onOpenSettings?: () => void
+  csrfToken?: string
+  onUnauthenticated?: () => void
 }
 
 export function AiReaderSidecar(props: AiReaderSidecarProps) {
@@ -49,7 +52,7 @@ export function AiReaderSidecar(props: AiReaderSidecarProps) {
           variant="ghost"
         />
       </div>
-      <div className="reader-ai-sidecar-content" aria-live="polite">
+      <div className="reader-ai-sidecar-content">
         {props.controller.error ? (
           <div className="reader-ai-read-error">
             <Banner
@@ -85,6 +88,13 @@ export function AiReaderSidecar(props: AiReaderSidecarProps) {
             onOpenSettings={props.onOpenSettings}
           />
         )}
+        {props.csrfToken && props.controller.entryId && operation?.state === "SUCCEEDED"
+          && operation.artifact?.kind === "AI_SUMMARY" && operation.job?.jobId ? <ArticleQuestions
+            entryId={props.controller.entryId}
+            summaryJobId={operation.job.jobId}
+            csrfToken={props.csrfToken}
+            onUnauthenticated={props.onUnauthenticated}
+          /> : null}
       </div>
     </section>
   )

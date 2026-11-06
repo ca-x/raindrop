@@ -29,8 +29,8 @@ use super::{
 };
 
 const TEST_TEXT: &str = "Raindrop connection test";
-const MAX_ARTICLE_CHARACTERS: usize = 24_000;
-const MAX_ARTICLE_SEGMENTS: usize = 96;
+const MAX_ARTICLE_CHARACTERS: usize = 128_000;
+const MAX_ARTICLE_SEGMENTS: usize = 2_048;
 const MAX_LOOKUP_CHARACTERS: usize = 200;
 const MAX_SELECTION_CHARACTERS: usize = 8_000;
 const ANONYMOUS_CHUNK_CHARACTERS: usize = 1_350;
@@ -38,7 +38,7 @@ const AUTHENTICATED_CHUNK_CHARACTERS: usize = 3_500;
 const MAX_OPENAI_BATCH_CHARACTERS: usize = 6_000;
 const MAX_OPENAI_BATCH_SEGMENTS: usize = 24;
 const MAX_DEEPLX_ARTICLE_CALLS: usize = 48;
-const ENTRY_TRANSLATION_TIMEOUT: Duration = Duration::from_secs(120);
+const ENTRY_TRANSLATION_TIMEOUT: Duration = Duration::from_secs(300);
 
 pub struct TranslationService {
     repository: TranslationRepository,
@@ -99,7 +99,7 @@ impl TranslationService {
                     .ok_or_else(|| TranslationError::new(TranslationErrorKind::NotConfigured))?;
                 self.validate_openai_provider(user_id, &provider_id, true)
                     .await?;
-                if !(256..=16_384).contains(&input.open_ai_max_output_tokens) {
+                if !(256..=1_048_576).contains(&input.open_ai_max_output_tokens) {
                     return Err(invalid_input());
                 }
                 let (custom_system_prompt, custom_prompt) = validate_custom_prompts(
@@ -347,21 +347,42 @@ impl TranslationService {
             .provider_id
             .clone()
             .ok_or_else(|| TranslationError::new(TranslationErrorKind::NotConfigured))?;
-        let mut source = Vec::with_capacity(original_segments.len() + 1);
-        source.push(OpenAiSourceSegment { id: 0, text: title });
-        for (index, text) in original_segments.iter().cloned().enumerate() {
-            source.push(OpenAiSourceSegment {
-                id: u32::try_from(index + 1)
-                    .map_err(|_| TranslationError::new(TranslationErrorKind::TooLarge))?,
-                text,
-            });
-        }
-        let character_limit = usize::try_from(config.open_ai.max_output_tokens)
+        let provider = self
+            .providers
+            .get_visible_for_user(&provider_id, user_id)
+            .await
+            .map_err(map_provider_error)?;
+        let output_limit = config
+            .open_ai
+            .max_output_tokens
+            .min(provider.policy().max_output_tokens_per_request);
+        let source_limit = output_limit
+            .saturating_sub(1024)
+            .max(output_limit / 2)
+            .saturating_sub(128)
+            / 2;
+        let (source, owners) =
+            fragment_source_segments(&title, &original_segments, source_limit.max(4))?;
+        let character_limit = usize::try_from(source_limit)
             .unwrap_or(MAX_OPENAI_BATCH_CHARACTERS)
-            .clamp(256, MAX_OPENAI_BATCH_CHARACTERS);
+            .clamp(4, MAX_OPENAI_BATCH_CHARACTERS);
         let mut translated = vec![None; source.len()];
         let mut provider_label = None;
-        for batch in batch_source_segments(source, character_limit, MAX_OPENAI_BATCH_SEGMENTS) {
+        let batches = batch_source_segments(source, character_limit, MAX_OPENAI_BATCH_SEGMENTS);
+        if batches.len() > raindrop_ai_content::text_budget::MAX_TRANSLATION_CHUNKS as usize {
+            return Err(TranslationError::new(TranslationErrorKind::TooLarge));
+        }
+        for batch in batches {
+            let max_output_tokens = batch
+                .iter()
+                .fold(1024_u32, |budget, segment| {
+                    budget.saturating_add(
+                        raindrop_ai_content::text_budget::text_units(&segment.text)
+                            .saturating_mul(2)
+                            .saturating_add(32),
+                    )
+                })
+                .min(output_limit);
             let output = self
                 .openai
                 .translate_batch(OpenAiTranslateBatchInput {
@@ -369,7 +390,7 @@ impl TranslationService {
                     provider_id: provider_id.clone(),
                     segments: batch,
                     target_locale: config.default_target_locale.clone(),
-                    max_output_tokens: config.open_ai.max_output_tokens,
+                    max_output_tokens,
                     profile: config.open_ai.profile,
                     custom_system_prompt: config.open_ai.custom_system_prompt.clone(),
                     custom_prompt: config.open_ai.custom_prompt.clone(),
@@ -386,8 +407,17 @@ impl TranslationService {
                 }
             }
         }
-        let mut translated = translated.into_iter();
-        let translated_title = translated.next().flatten().ok_or_else(upstream)?;
+        let mut combined = vec![String::new(); original_segments.len() + 1];
+        for (owner, fragment) in owners.into_iter().zip(translated) {
+            let fragment = fragment.ok_or_else(upstream)?;
+            let text = combined.get_mut(owner).ok_or_else(upstream)?;
+            if !text.is_empty() {
+                text.push_str("\n\n");
+            }
+            text.push_str(&fragment);
+        }
+        let mut translated = combined.into_iter();
+        let translated_title = translated.next().ok_or_else(upstream)?;
         let segments = original_segments
             .into_iter()
             .zip(translated)
@@ -397,7 +427,7 @@ impl TranslationService {
                     index: u32::try_from(index)
                         .map_err(|_| TranslationError::new(TranslationErrorKind::TooLarge))?,
                     original_text,
-                    translated_text: translated_text.ok_or_else(upstream)?,
+                    translated_text,
                 })
             })
             .collect::<Result<Vec<_>, TranslationError>>()?;
@@ -746,7 +776,8 @@ fn batch_source_segments(
     let mut current = Vec::new();
     let mut current_characters: usize = 0;
     for segment in segments {
-        let segment_characters = segment.text.chars().count();
+        let segment_characters =
+            raindrop_ai_content::text_budget::text_units(&segment.text) as usize;
         if !current.is_empty()
             && (current.len() >= maximum_segments
                 || current_characters.saturating_add(segment_characters) > maximum_characters)
@@ -761,6 +792,30 @@ fn batch_source_segments(
         batches.push(current);
     }
     batches
+}
+
+fn fragment_source_segments(
+    title: &str,
+    segments: &[String],
+    maximum_units: u32,
+) -> Result<(Vec<OpenAiSourceSegment>, Vec<usize>), TranslationError> {
+    let mut fragments = Vec::new();
+    let mut owners = Vec::new();
+    for (owner, text) in std::iter::once(title)
+        .chain(segments.iter().map(String::as_str))
+        .enumerate()
+    {
+        for fragment in raindrop_ai_content::text_budget::split_text(text, maximum_units) {
+            let id = u32::try_from(fragments.len())
+                .map_err(|_| TranslationError::new(TranslationErrorKind::TooLarge))?;
+            fragments.push(OpenAiSourceSegment {
+                id,
+                text: fragment.to_owned(),
+            });
+            owners.push(owner);
+        }
+    }
+    Ok((fragments, owners))
 }
 
 fn map_provider_error(error: crate::content::provider::ProviderCoreError) -> TranslationError {

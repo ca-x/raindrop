@@ -52,6 +52,42 @@ use tower::ServiceExt;
 const ENTRY_AI_PATH: &str = "/api/v1/entries/00000000-0000-4000-8000-000000000301/ai";
 const PLUGIN_KEY: &str = "raindrop.ai-content";
 
+#[tokio::test]
+async fn article_question_requires_authentication_and_csrf() {
+    let fixture = AiContentFixture::new(true, true, true).await;
+    let path = format!("{ENTRY_AI_PATH}/questions");
+    let body = json!({"summaryJobId":"00000000-0000-4000-8000-000000000401", "question":"Explain this further", "history":[], "responseLocale":"en"});
+    let response = fixture
+        .request(Method::POST, &path, Some(body.clone()), None, false)
+        .await;
+    assert_error(
+        &response,
+        StatusCode::UNAUTHORIZED,
+        "AUTHENTICATION_REQUIRED",
+    );
+    let response = fixture
+        .request(Method::POST, &path, Some(body), Some(UserKind::A), false)
+        .await;
+    assert_error(&response, StatusCode::FORBIDDEN, "FORBIDDEN");
+    let body = json!({"summaryJobId":"00000000-0000-4000-8000-000000000401", "question":"Explain this further", "history":[], "responseLocale":"en"});
+    let response = fixture
+        .request(
+            Method::POST,
+            &path,
+            Some(body.clone()),
+            Some(UserKind::B),
+            true,
+        )
+        .await;
+    assert_error(&response, StatusCode::NOT_FOUND, "NOT_FOUND");
+    let mut invalid = body;
+    invalid["question"] = json!("x".repeat(2001));
+    let response = fixture
+        .request(Method::POST, &path, Some(invalid), Some(UserKind::A), true)
+        .await;
+    assert!(response.status.is_client_error());
+}
+
 struct AiContentFixture {
     _data: TempDir,
     database: DatabaseConnection,

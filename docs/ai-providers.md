@@ -1,5 +1,23 @@
 # AI Provider Core 运维合同
 
+## 模型容量与用户设置
+
+项目使用 `models-dev-rs = "0.1"` 解析和查询 models.dev 模型目录。Provider 表单可以查询模型容量、查看来源，并点击“应用建议额度”填入草稿；不会自动覆盖已保存配置。模型列表保留服务声明的上下文、输入和输出容量；缓存中有匹配目录时合并，较小值优先。优先精确匹配模型及 Provider ID，再忽略网关前缀和名称中的点、连字符、下划线或冒号匹配别名（如 `auto/deepseek-4.1-flash` 与 `deekseek/deepseek-41-flash`）。保留版本数字、规模和 flash/lite/preview 等变体；目录候选容量冲突时不提供猜测的建议，别名结果会在界面标明。服务发现的已知较小容量仍优先，名称首尾空格不会丢失这些信息。目录缺失、网络失败或模型不明确时仍可手动配置。
+
+容量查询仅访问固定的 `https://models.dev/api.json`，不会传递 Provider 密钥，也不会访问目录内的地址。采用库的 16 MiB 下载/解压/解析限制、HTTPS、禁代理和重定向、20 秒超时；成功缓存六小时，失败退避十分钟并保留上一份有效目录。查询由设置页主动触发，不影响日常阅读或模型生成。`POST /api/v1/ai/providers/model-limits` 需要登录和 CSRF，仅接收 model 与 endpoint（用于匹配，不发请求）。
+
+单次输出配置的应用验证上限提高为 1,048,576 token，实际可用容量取决于所用模型和兼容服务。新 Provider 和翻译配置默认 32,768，摘要默认 8,192；已有用户配置保持原值。Provider、摘要和翻译设置均允许手动调整。建议额度为输入预留上下文空间，输入与输出额度相加不超过已知上下文窗口；模型允许整窗输出时，建议先对半分配。实际生成按内容动态申请较小预算，思考 token 也占用输出额度。模型目录是参考信息，兼容服务可能进一步限制容量。
+
+调研依据：[OpenAI gpt-oss-120b](https://developers.openai.com/api/docs/models/gpt-oss-120b)、[Reasoning tokens](https://developers.openai.com/api/docs/guides/reasoning)、[models-dev-rs](https://crates.io/crates/models-dev-rs)。上下文容量不能直接当作可见译文的输出额度。
+
+## 长文翻译与总结追问
+
+翻译的 `maxOutputTokens` 是每次模型请求的上限，不是整篇文章的总上限。系统根据正文、目标语言和 JSON 开销估算单次输出预算；较长内容分段请求，再按原顺序合并。超长段落也会拆分，并映射回原阅读段落。任一段失败时不发布成功的整篇译文。阅读器支持最多 128,000 个源字符、2,048 个段落和 128 批请求；原生任务也最多使用 128 个翻译请求。Provider 的每次输入/输出、并发、费用规则和任务 deadline 继续生效。模型响应耗尽 token 时仍拒绝不完整产物。
+
+总结预算随正文长度和摘要风格调整；配置值作为单次请求的上限。总结下方可直接输入追问，复用当前总结 Provider，不需要配置 Tambo。服务端读取当前用户有权访问的文章及总结，通过已验签的官方原生插件与 host capability broker 生成回答。问题最多 2,000 字符，单次请求最多带最近 8 轮问答，单个回答最多 16,000 字符，90 秒超时。对话仅在当前阅读会话保留，切换文章或账户后清除，不写入 localStorage 或数据库；关闭 AI 或 Provider 会阻止后续请求。
+
+`POST /api/v1/entries/:entryId/ai/questions` 需要会话认证和 CSRF；提交 summaryJobId、question、responseLocale 和 history，返回 answerMarkdown 与 providerLabel。上下文和模型输出均不可信；正文不进入 system policy，回答按严格 schema 与安全 Markdown 规则检查。界面支持停止、重试、Ctrl/⌘+Enter，中文输入法组合期间不会触发发送。完整接口见 [文章追问合同](openapi/article-questions-v1.json)。
+
 本文记录当前已经实现的 AI Provider 与生产内容 runtime。它包含三数据库记录、独立密钥环、四类非流式协议 adapter、SSRF-safe HTTPS transport、统一 `ProviderClient`、八 lane content worker，以及内嵌并验签的官方 `raindrop.ai-content@1.0.0` no-WASI Component。完成设置后 installation 会无重启同步；只有存在有效 Provider keyring 时才启动领取 lane。用户作用域的 Provider API/UI、官方 AI 配置、手动内容任务、结果读取、手动重试和 Reader sidecar 已开放。自动任务仍关闭，因此配置 keyring 或保存 Provider 不会自行产生模型请求。
 
 ## 支持的协议

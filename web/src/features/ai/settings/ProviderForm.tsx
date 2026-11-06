@@ -25,6 +25,8 @@ import {
   type ProviderModelDiscoveryResult,
 } from "../api/providers"
 import { providerKindLabel } from "./ProviderList"
+import { ModelCapacityHint } from "./ModelCapacityHint"
+import { discoveredModelLimits } from "../model/modelLimits"
 
 interface ProviderFormProps {
   csrfToken: string
@@ -305,6 +307,9 @@ export function ProviderForm(props: ProviderFormProps) {
                   </div>
                 ) : null}
               </div>
+              <ModelCapacityHint csrfToken={props.csrfToken} model={props.draft.model} endpoint={props.draft.endpoint}
+                limits={discoveredModelLimits(models, props.draft.model)} isDisabled={props.isSaving}
+                onApply={(budget) => { update({ policy: { ...props.draft.policy, ...budget } }); setAdvancedOpen(true) }} />
               <CheckboxInput
                 label={i18n._("ai.providerEnable")}
                 description={i18n._("ai.providerEnabledDescription")}
@@ -383,7 +388,7 @@ export function ProviderForm(props: ProviderFormProps) {
                       label={i18n._("ai.policyOutputTokens")}
                       value={props.draft.policy.maxOutputTokensPerRequest}
                       min={1}
-                      max={16_384}
+                      max={1_048_576}
                       errors={errors}
                       onChange={updatePolicy}
                       isDisabled={props.isSaving}

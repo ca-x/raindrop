@@ -82,7 +82,7 @@ export function AiContentForm(props: AiContentFormProps) {
         defaultTargetLocale:
           props.envelope.config?.translation.defaultTargetLocale ?? "zh-CN",
         maxOutputTokens:
-          props.envelope.config?.translation.maxOutputTokens ?? 4096,
+          props.envelope.config?.translation.maxOutputTokens ?? 32_768,
       },
     })
     setSaved(result)
@@ -175,9 +175,10 @@ export function AiContentForm(props: AiContentFormProps) {
                     <NumberInput
                       size="lg"
                       label={i18n._("ai.summaryTokenLimit")}
+                      description={i18n._("ai.outputBudgetHelp")}
                       value={draft.summaryMaxOutputTokens}
                       min={128}
-                      max={4096}
+                      max={1_048_576}
                       isIntegerOnly
                       onChange={(summaryMaxOutputTokens) =>
                         update({ summaryMaxOutputTokens })
@@ -222,6 +223,6 @@ function toDraft(
     summaryEnabled: config?.summary.enabled ?? true,
     summaryProviderId: config?.summary.providerId ?? defaultProviderId,
     summaryStyle: config?.summary.style ?? "BALANCED",
-    summaryMaxOutputTokens: config?.summary.maxOutputTokens ?? 1024,
+    summaryMaxOutputTokens: config?.summary.maxOutputTokens ?? 8192,
   }
 }

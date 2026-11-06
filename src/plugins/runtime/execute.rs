@@ -25,6 +25,47 @@ const SUMMARY_SCHEMA: &str = "raindrop://schemas/artifacts/ai-summary/v1";
 const TRANSLATION_SCHEMA: &str = "raindrop://schemas/artifacts/ai-translation/v1";
 
 impl PluginRuntime {
+    pub async fn answer_question(
+        &self,
+        compiled: &NativePlugin,
+        mut session: CapabilitySession,
+        request: types::OperationRequest,
+        context: raindrop_ai_content::question::QuestionContext,
+    ) -> Result<raindrop_ai_content::question::QuestionAnswer, PluginRuntimeError> {
+        validate_operation_request(compiled, &session, &request)?;
+        if request.operation != types::Operation::Summarize {
+            return Err(PluginRuntimeError::new(
+                PluginRuntimeErrorKind::InvalidInvocation,
+            ));
+        }
+        session.suspend();
+        let service = self.service().await?;
+        validate_descriptor(compiled, AiContentService::descriptor())?;
+        session.activate();
+        let deadline = session.deadline();
+        let mut host = NativeHost {
+            session: &mut session,
+            error: None,
+        };
+        let result = {
+            let execution =
+                std::panic::AssertUnwindSafe(service.answer_question(&mut host, request, context))
+                    .catch_unwind();
+            tokio::select! {
+                biased;
+                () = service.cancelled() => return Err(PluginRuntimeError::new(PluginRuntimeErrorKind::RuntimeUnavailable)),
+                result = tokio::time::timeout_at(deadline, execution) => result,
+            }
+        };
+        if let Some(error) = host.error {
+            return Err(error);
+        }
+        result
+            .map_err(|_| PluginRuntimeError::new(PluginRuntimeErrorKind::BrokerTimeout))?
+            .map_err(|_| PluginRuntimeError::new(PluginRuntimeErrorKind::NativeFailure))?
+            .map_err(map_plugin_error)
+    }
+
     pub async fn execute(
         &self,
         compiled: &NativePlugin,
@@ -503,6 +544,7 @@ mod tests {
                 remaining_mcp_calls: 0,
                 remaining_input_tokens: 1,
                 remaining_output_tokens: 1,
+                max_output_tokens_per_request: 16_384,
                 remaining_cost_micros: 1,
             },
         };
@@ -644,6 +686,7 @@ mod tests {
                 remaining_mcp_calls: 0,
                 remaining_input_tokens: 1,
                 remaining_output_tokens: 1,
+                max_output_tokens_per_request: 16_384,
                 remaining_cost_micros: 1,
             },
         }

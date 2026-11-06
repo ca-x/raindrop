@@ -84,13 +84,13 @@ it("saves independent AI content config with the selected Provider", async () =>
       enabled: true,
       providerId: "00000000-0000-4000-8000-000000000101",
       style: "BALANCED",
-      maxOutputTokens: 1024,
+      maxOutputTokens: 8192,
     },
     translation: {
       enabled: false,
       providerId: "00000000-0000-4000-8000-000000000101",
       defaultTargetLocale: "zh-CN",
-      maxOutputTokens: 4096,
+      maxOutputTokens: 32_768,
     },
   })
 })

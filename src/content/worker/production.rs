@@ -33,6 +33,7 @@ pub struct ProductionContentRuntime {
     compiled: Arc<NativePlugin>,
     notify: Arc<Notify>,
     shutdown_rx: watch::Receiver<bool>,
+    question_handle: ContentRuntimeHandle,
 }
 
 impl ProductionContentRuntime {
@@ -67,6 +68,7 @@ impl ProductionContentRuntime {
                 compiled,
                 notify,
                 shutdown_rx,
+                question_handle: handle.clone(),
             },
             handle,
         ))
@@ -145,6 +147,10 @@ impl ProductionContentRuntime {
             self.compiled,
             ai_broker,
         )?);
+        self.question_handle
+            .question_processor
+            .set(Arc::clone(&processor))
+            .map_err(|_| invalid_configuration())?;
         let result = ContentRuntime::controlled(
             content_repository,
             processor,

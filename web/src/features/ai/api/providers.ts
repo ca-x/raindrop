@@ -2,6 +2,10 @@ import { ApiClientError, apiRequest, invalidResponseError } from "../../../share
 import {
   isProvider,
   isProviderList,
+  isModelLimits,
+  isModelLimitsResponse,
+  type ModelLimits,
+  type ModelLimitsResponse,
   type CreateProviderRequest,
   type Provider,
   type ProviderKind,
@@ -16,7 +20,19 @@ export interface ProviderModelDiscoveryRequest {
   credential: string
 }
 
-export type ProviderModelDiscoveryResult = { id: string; label: string }
+export type ProviderModelDiscoveryResult = { id: string; label: string; limits?: ModelLimits }
+
+/** Looks up public capacity metadata only. Provider credentials never enter this request. */
+export async function lookupModelLimits(
+  csrfToken: string, model: string, endpoint: string, signal?: AbortSignal,
+): Promise<ModelLimitsResponse> {
+  const result = await apiRequest(`${PROVIDERS_PATH}/model-limits`, {
+    method: "POST", headers: { "x-csrf-token": csrfToken },
+    body: JSON.stringify({ model, endpoint }), signal,
+  })
+  if (!isModelLimitsResponse(result)) throw invalidResponseError()
+  return result
+}
 
 const PROVIDERS_PATH = "/api/v1/ai/providers"
 
@@ -132,7 +148,7 @@ function parseModelDiscoveryResponse(payload: unknown): ProviderModelDiscoveryRe
       if (!raw) return null
       const id = raw.replace(/^models\//u, "").trim()
       if (!id || id.length > 200 || /[\u0000-\u001f\u007f]/u.test(id)) return null
-      return { id, label: id }
+      return { id, label: id, ...(isModelLimits(item.limits) ? { limits: item.limits } : {}) }
     })
     .filter((value): value is ProviderModelDiscoveryResult => value !== null)
   const unique = new Map(models.map((model) => [model.id, model]))

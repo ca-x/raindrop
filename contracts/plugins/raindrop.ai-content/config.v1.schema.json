@@ -115,7 +115,7 @@
         "maxOutputTokens": {
           "type": "integer",
           "minimum": 128,
-          "maximum": 4096
+          "maximum": 1048576
         },
         "mcp": {
           "$ref": "#/$defs/mcp"
@@ -149,7 +149,7 @@
         "maxOutputTokens": {
           "type": "integer",
           "minimum": 256,
-          "maximum": 16384
+          "maximum": 1048576
         },
         "mcp": {
           "$ref": "#/$defs/mcp"

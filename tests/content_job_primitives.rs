@@ -153,9 +153,10 @@ fn attempt_metrics_and_failure_codes_are_bounded() {
     assert_eq!(usage.provider_request_count(), 3);
     assert_eq!(usage.mcp_call_count(), 4);
     assert_eq!(usage.estimated_cost_micros(), 42);
+    assert!(AttemptUsage::new(129, 0, 0, 0, 0, json!({})).is_ok());
 
     assert_kind(
-        AttemptUsage::new(4, 0, 0, 0, 0, json!({})).unwrap_err(),
+        AttemptUsage::new(130, 0, 0, 0, 0, json!({})).unwrap_err(),
         ContentRepositoryErrorKind::InvalidInput,
     );
     assert_kind(

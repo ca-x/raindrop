@@ -22,6 +22,7 @@ const TRANSLATION_SCHEMA_DOCUMENT: &str =
 pub(super) enum OfficialSchema {
     Summary,
     Translation,
+    Question,
     ToolPlan(ToolPlanSchema),
 }
 
@@ -36,9 +37,15 @@ impl OfficialSchema {
                 .map(Self::ToolPlan)
                 .map_err(|_| invalid_request());
         }
-        let schema = match operation {
-            types::Operation::Summarize => Self::Summary,
-            types::Operation::Translate => Self::Translation,
+        let schema = if operation == types::Operation::Summarize
+            && schema_id == raindrop_ai_content::question::SCHEMA_ID
+        {
+            Self::Question
+        } else {
+            match operation {
+                types::Operation::Summarize => Self::Summary,
+                types::Operation::Translate => Self::Translation,
+            }
         };
         let request_schema =
             canonical_object_exact(schema_json, MAX_SCHEMA_BYTES).ok_or_else(invalid_request)?;
@@ -52,6 +59,7 @@ impl OfficialSchema {
         match self {
             Self::Summary => SUMMARY_SCHEMA_ID,
             Self::Translation => TRANSLATION_SCHEMA_ID,
+            Self::Question => raindrop_ai_content::question::SCHEMA_ID,
             Self::ToolPlan(_) => TOOL_PLAN_SCHEMA_ID,
         }
     }
@@ -60,13 +68,14 @@ impl OfficialSchema {
         match self {
             Self::Summary => SUMMARY_SCHEMA_NAME,
             Self::Translation => TRANSLATION_SCHEMA_NAME,
+            Self::Question => "raindrop_article_answer_v1",
             Self::ToolPlan(_) => TOOL_PLAN_SCHEMA_NAME,
         }
     }
 
     pub(super) fn schema_value(&self) -> Result<Value, AiBrokerError> {
         match self {
-            Self::Summary | Self::Translation => {
+            Self::Summary | Self::Translation | Self::Question => {
                 parse_unique_json(self.schema_document().as_bytes(), MAX_SCHEMA_BYTES)
                     .map_err(|_| invalid_request())
             }
@@ -81,6 +90,16 @@ impl OfficialSchema {
     ) -> Result<String, AiBrokerError> {
         let encoded = serde_json::to_vec(&output).map_err(|_| output_invalid())?;
         match self {
+            Self::Question => {
+                let encoded = String::from_utf8(encoded).map_err(|_| output_invalid())?;
+                let answer = raindrop_ai_content::question::parse_answer(&encoded)
+                    .ok_or_else(output_invalid)?;
+                canonical_json(
+                    serde_json::to_value(answer).map_err(|_| output_invalid())?,
+                    128 * 1024,
+                )
+                .map_err(|_| output_invalid())
+            }
             Self::Summary => SummaryArtifact::parse(&encoded)
                 .map(|artifact| artifact.canonical_json().to_owned())
                 .map_err(|_| output_invalid()),
@@ -101,6 +120,7 @@ impl OfficialSchema {
         match self {
             Self::Summary => SUMMARY_SCHEMA_DOCUMENT,
             Self::Translation => TRANSLATION_SCHEMA_DOCUMENT,
+            Self::Question => raindrop_ai_content::question::SCHEMA_DOCUMENT,
             Self::ToolPlan(_) => "",
         }
     }
@@ -166,6 +186,31 @@ mod tests {
 
     #[test]
     fn schema_registry_accepts_only_exact_operation_contracts() {
+        let question = canonical_contract(&OfficialSchema::Question).expect("question schema");
+        assert_eq!(
+            OfficialSchema::validate_request(
+                types::Operation::Summarize,
+                raindrop_ai_content::question::SCHEMA_ID,
+                &question
+            ),
+            Ok(OfficialSchema::Question)
+        );
+        assert!(
+            OfficialSchema::validate_request(
+                types::Operation::Translate,
+                raindrop_ai_content::question::SCHEMA_ID,
+                &question
+            )
+            .is_err()
+        );
+        assert!(
+            OfficialSchema::Question
+                .validate_output(
+                    json!({"schemaVersion":1,"answerMarkdown":"[bad](javascript:alert(1))"}),
+                    &json!({})
+                )
+                .is_err()
+        );
         let summary = canonical_contract(&OfficialSchema::Summary).expect("summary schema");
         assert_eq!(
             OfficialSchema::validate_request(

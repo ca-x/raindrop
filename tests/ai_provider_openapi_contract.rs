@@ -50,6 +50,10 @@ fn provider_openapi_freezes_the_public_surface_and_secret_boundary() {
             ("GET".to_owned(), PROVIDERS_PATH.to_owned()),
             ("POST".to_owned(), PROVIDERS_PATH.to_owned()),
             ("POST".to_owned(), MODELS_PATH.to_owned()),
+            (
+                "POST".to_owned(),
+                "/api/v1/ai/providers/model-limits".to_owned()
+            ),
             ("GET".to_owned(), PROVIDER_PATH.to_owned()),
             ("PATCH".to_owned(), PROVIDER_PATH.to_owned()),
             ("DELETE".to_owned(), PROVIDER_PATH.to_owned()),
@@ -221,7 +225,7 @@ fn provider_openapi_freezes_the_public_surface_and_secret_boundary() {
     );
     assert_eq!(
         policy["properties"]["maxOutputTokensPerRequest"]["maximum"],
-        16_384
+        1_048_576
     );
 
     for response_name in [

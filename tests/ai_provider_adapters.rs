@@ -42,7 +42,7 @@ fn canonical_request_accepts_exact_upper_boundaries() {
             name: format!("a{}", "b".repeat(63)),
             schema: object_with_serialized_size(64 * KIB),
         },
-        max_output_tokens: 16_384,
+        max_output_tokens: 1_048_576,
         idempotency_key: "i".repeat(200),
     };
 
@@ -99,7 +99,7 @@ fn canonical_request_rejects_invalid_bounds_without_echoing_input() {
         }),
         ("tokens too large", {
             let mut request = valid_request();
-            request.max_output_tokens = 16_385;
+            request.max_output_tokens = 1_048_577;
             request
         }),
         ("idempotency control", {

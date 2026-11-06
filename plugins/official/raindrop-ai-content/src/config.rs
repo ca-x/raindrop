@@ -75,7 +75,7 @@ impl ConfigDocument {
         if self.schema_version != 1 {
             return Err(Failure::ConfigInvalid);
         }
-        self.operations.summarize.validate(128, 4_096)?;
+        self.operations.summarize.validate(128, 1_048_576)?;
         self.operations.translate.validate()?;
         self.automatic.validate(&self.operations)
     }
@@ -130,7 +130,7 @@ impl TranslateConfig {
     fn validate(&self) -> Result<(), Failure> {
         if !valid_uuid(&self.provider_id)
             || normalize_locale(&self.default_target_locale).is_none()
-            || !(256..=16_384).contains(&self.max_output_tokens)
+            || !(256..=1_048_576).contains(&self.max_output_tokens)
         {
             return Err(Failure::ConfigInvalid);
         }

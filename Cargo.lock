@@ -2273,6 +2273,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "models-dev-rs"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "beb8e0c313c43990598987bdac8736cd70f40a702688f7a2927f467bc6c3eb0d"
+dependencies = [
+ "flate2",
+ "httpdate",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "url",
+]
+
+[[package]]
 name = "moka"
 version = "0.12.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2805,6 +2820,7 @@ dependencies = [
  "ipnet",
  "mime",
  "mime_guess",
+ "models-dev-rs",
  "quick-xml",
  "raindrop-ai-content",
  "rand_core 0.6.4",

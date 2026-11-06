@@ -56,6 +56,7 @@ async fn deeplx_configuration_is_encrypted_revisioned_and_isolated_per_user() {
         .await
         .expect("DeepLX config should save");
     assert_eq!(saved.revision, Some(0));
+    assert_eq!(saved.open_ai.max_output_tokens, 131_072);
     assert!(saved.is_enabled);
     assert!(saved.deeplx.has_api_key);
     assert_eq!(saved.deeplx.display_name, "DeepLX");
@@ -234,7 +235,7 @@ fn deeplx_config(
         is_enabled,
         default_target_locale: "zh-CN".to_owned(),
         open_ai_provider_id: None,
-        open_ai_max_output_tokens: 4096,
+        open_ai_max_output_tokens: 131_072,
         open_ai_profile: AiTranslationProfile::General,
         open_ai_custom_system_prompt: None,
         open_ai_custom_prompt: None,

@@ -21,7 +21,6 @@ use super::{
     bindings::{host_ai, host_mcp, types},
 };
 
-const MAX_AI_CALLS: u32 = 3;
 const MAX_AI_INPUT_BYTES: usize = 512 * 1024;
 const MAX_AI_SCHEMA_BYTES: usize = 64 * 1024;
 const MAX_AI_SYSTEM_INSTRUCTION_BYTES: usize = 64 * 1024;
@@ -75,6 +74,7 @@ pub struct CapabilitySessionConfig {
     pub remaining_mcp_calls: u32,
     pub remaining_input_tokens: u32,
     pub remaining_output_tokens: u32,
+    pub max_output_tokens_per_request: u32,
     pub remaining_cost_micros: u64,
     pub deadline_unix_ms: u64,
     pub deadline: Instant,
@@ -628,6 +628,7 @@ pub struct CapabilitySession {
     remaining_mcp_calls: u32,
     remaining_input_tokens: u32,
     remaining_output_tokens: u32,
+    max_output_tokens_per_request: u32,
     remaining_cost_micros: u64,
     next_provider_ordinal: u32,
     deadline_unix_ms: u64,
@@ -658,6 +659,7 @@ impl CapabilitySession {
             remaining_mcp_calls: config.remaining_mcp_calls,
             remaining_input_tokens: config.remaining_input_tokens,
             remaining_output_tokens: config.remaining_output_tokens,
+            max_output_tokens_per_request: config.max_output_tokens_per_request,
             remaining_cost_micros: config.remaining_cost_micros,
             next_provider_ordinal: 1,
             deadline_unix_ms: config.deadline_unix_ms,
@@ -783,7 +785,7 @@ impl CapabilitySession {
             canonical_object_json(&request.output_schema_json, MAX_AI_SCHEMA_BYTES)
                 .ok_or_else(|| ai_error(host_ai::GenerateErrorCode::InvalidRequest))?;
         self.validate_tool_plan_schema(&request.output_schema_id, &output_schema_json)?;
-        let operation_output_limit = max_output_tokens(self.invocation.operation);
+        let operation_output_limit = self.max_output_tokens_per_request;
         if request.max_input_tokens == 0
             || request.max_input_tokens > self.remaining_input_tokens
             || request.max_output_tokens == 0
@@ -957,6 +959,7 @@ impl CapabilitySession {
             && request.budget.remaining_provider_requests == self.remaining_provider_requests
             && request.budget.remaining_mcp_calls == self.remaining_mcp_calls
             && request.budget.remaining_input_tokens == self.remaining_input_tokens
+            && request.budget.max_output_tokens_per_request == self.max_output_tokens_per_request
             && request.budget.remaining_output_tokens == self.remaining_output_tokens
             && request.budget.remaining_cost_micros == self.remaining_cost_micros;
         if valid {
@@ -1073,9 +1076,19 @@ fn validate_session_config(config: &CapabilitySessionConfig) -> Result<(), Plugi
         )
         .is_err()
         || config.invocation.remaining_depth > MAX_REMAINING_DEPTH
-        || config.remaining_provider_requests > MAX_AI_CALLS
+        || config.remaining_provider_requests
+            > match config.invocation.operation {
+                types::Operation::Summarize => 3,
+                types::Operation::Translate => {
+                    raindrop_ai_content::text_budget::MAX_TRANSLATION_CHUNKS + 1
+                }
+            }
         || config.remaining_mcp_calls > max_mcp_calls(config.invocation.trigger)
-        || config.remaining_output_tokens > max_output_tokens(config.invocation.operation)
+        || !(1..=raindrop_ai_content::text_budget::MAX_OUTPUT_TOKENS)
+            .contains(&config.max_output_tokens_per_request)
+        || config.remaining_output_tokens
+            > raindrop_ai_content::text_budget::MAX_OUTPUT_TOKENS
+                .saturating_mul(config.remaining_provider_requests.max(1))
         || config.remaining_cost_micros > MAX_COST_MICROS
         || config.tool_bindings.len() > MAX_TOOL_BINDINGS
         || !deadlines_valid;
@@ -1127,13 +1140,6 @@ fn canonical_object_json(input: &str, max_bytes: usize) -> Option<String> {
     }
     let encoded = canonical_json(value, max_bytes).ok()?;
     (encoded == input).then_some(encoded)
-}
-
-fn max_output_tokens(operation: types::Operation) -> u32 {
-    match operation {
-        types::Operation::Summarize => 4_096,
-        types::Operation::Translate => 16_384,
-    }
 }
 
 fn max_mcp_calls(trigger: types::Trigger) -> u32 {
@@ -1277,6 +1283,7 @@ mod tests {
                 remaining_mcp_calls: 1,
                 remaining_input_tokens: 1024,
                 remaining_output_tokens: 1024,
+                max_output_tokens_per_request: 16_384,
                 remaining_cost_micros: 1,
                 deadline_unix_ms,
                 deadline: Instant::now() + duration,

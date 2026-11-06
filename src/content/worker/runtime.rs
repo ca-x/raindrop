@@ -228,9 +228,28 @@ fn map_repository_result(kind: ContentRepositoryErrorKind) -> Result<(), Content
 pub struct ContentRuntimeHandle {
     notify: Arc<Notify>,
     shutdown_tx: watch::Sender<bool>,
+    pub(super) question_processor: Arc<std::sync::OnceLock<Arc<super::OfficialAiProcessor>>>,
 }
 
 impl ContentRuntimeHandle {
+    pub async fn answer_question(
+        &self,
+        request: super::ArticleQuestionRequest,
+    ) -> Result<super::ArticleQuestionAnswer, super::ArticleQuestionError> {
+        let mut shutdown = self.shutdown_tx.subscribe();
+        if *shutdown.borrow() {
+            return Err(super::ArticleQuestionError::Unavailable);
+        }
+        let processor = self
+            .question_processor
+            .get()
+            .ok_or(super::ArticleQuestionError::Unavailable)?;
+        tokio::select! {
+            biased;
+            _ = shutdown.changed() => Err(super::ArticleQuestionError::Unavailable),
+            result = processor.answer_question(request) => result,
+        }
+    }
     #[must_use]
     pub fn inert() -> Self {
         let (handle, _, _) = Self::control();
@@ -253,6 +272,7 @@ impl ContentRuntimeHandle {
             Self {
                 notify: Arc::clone(&notify),
                 shutdown_tx,
+                question_processor: Arc::new(std::sync::OnceLock::new()),
             },
             notify,
             shutdown_rx,

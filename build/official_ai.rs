@@ -54,6 +54,7 @@ fn emit_inputs() {
         "contracts/plugins/raindrop.ai-content/config.v1.schema.json",
         "contracts/artifacts/ai-summary.v1.schema.json",
         "contracts/artifacts/ai-translation.v1.schema.json",
+        "contracts/artifacts/article-answer.v1.schema.json",
     ] {
         println!("cargo:rerun-if-changed={path}");
     }

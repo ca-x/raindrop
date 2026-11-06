@@ -3,6 +3,8 @@ mod json;
 mod lifecycle;
 mod operation;
 mod prompt;
+pub mod question;
+pub mod text_budget;
 mod tool_plan;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

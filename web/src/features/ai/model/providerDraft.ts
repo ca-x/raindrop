@@ -47,7 +47,7 @@ const DEFAULT_POLICY: ProviderPolicy = {
   maxConcurrency: 2,
   requestsPerMinute: 60,
   maxInputTokensPerRequest: 32_768,
-  maxOutputTokensPerRequest: 4096,
+  maxOutputTokensPerRequest: 32_768,
   inputCostMicrosPerMillionTokens: null,
   outputCostMicrosPerMillionTokens: null,
   maxCostMicrosPerRequest: 250_000,
@@ -176,7 +176,7 @@ export function validateProviderDraft(draft: ProviderDraft): ProviderDraftErrors
     "maxOutputTokensPerRequest",
     draft.policy.maxOutputTokensPerRequest,
     1,
-    16_384,
+    1_048_576,
   )
   validateNullableInteger(
     errors,

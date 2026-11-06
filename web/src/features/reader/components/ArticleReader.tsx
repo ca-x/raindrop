@@ -251,7 +251,10 @@ export function ArticleReader(props: ArticleReaderProps) {
       /> : null}
       {aiController.openTab ? (
         <AiReaderSidecar
+          key={`${props.userId}:${detail.entryId}`}
           controller={aiController}
+          csrfToken={props.csrfToken}
+          onUnauthenticated={props.onUnauthenticated}
           onOpenSettings={props.onOpenAiSettings}
           onClose={() => {
             aiController.close()

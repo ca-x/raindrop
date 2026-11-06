@@ -754,6 +754,7 @@ fn session_config() -> CapabilitySessionConfig {
         remaining_mcp_calls: 4,
         remaining_input_tokens: 8_192,
         remaining_output_tokens: 4_096,
+        max_output_tokens_per_request: 16_384,
         remaining_cost_micros: 250_000,
         deadline_unix_ms: deadline_unix_ms_after(Duration::from_secs(170)),
         deadline: Instant::now() + Duration::from_secs(170),

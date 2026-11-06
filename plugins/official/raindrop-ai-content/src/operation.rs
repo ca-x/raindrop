@@ -9,6 +9,10 @@ use crate::{
     },
     json::{canonical_json, parse_canonical_object, parse_unique},
     prompt::{TOOL_PLAN_PROMPT_VERSION, final_instruction, prompt_version, tool_plan_instruction},
+    text_budget::{
+        MAX_TRANSLATION_CHUNKS, TRANSLATION_OVERHEAD_TOKENS, split_text, text_units,
+        translation_tokens,
+    },
     tool_plan::{TOOL_PLAN_SCHEMA_ID, ToolDescriptor, build_schema, parse_plan},
 };
 
@@ -64,6 +68,7 @@ pub(crate) struct InvocationBudget {
     pub(crate) remaining_mcp_calls: u32,
     pub(crate) remaining_input_tokens: u32,
     pub(crate) remaining_output_tokens: u32,
+    pub(crate) max_output_tokens_per_request: u32,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -418,9 +423,9 @@ async fn generate_final(
         OperationKind::Translate => (TRANSLATION_SCHEMA_ID, TRANSLATION_SCHEMA_DOCUMENT),
     };
     let output_schema_json = canonical_contract(schema_document)?;
-    let untrusted_input_json = canonical_json(untrusted_input, MAX_CANONICAL_INPUT_BYTES)
-        .map_err(|_| Failure::OutputInvalid)?;
-    let maximum_output = configured_output_tokens.min(budget.output_tokens);
+    let maximum_output = configured_output_tokens
+        .min(input.budget.max_output_tokens_per_request)
+        .min(budget.output_tokens);
     if maximum_output < minimum_output_tokens(input.operation) {
         return Err(Failure::BudgetExhausted);
     }
@@ -430,27 +435,90 @@ async fn generate_final(
             .summarize
             .style,
     );
-    let request = prepare_ai_request(
-        input,
-        final_instruction(input.operation, style),
-        untrusted_input_json,
-        schema_id,
-        output_schema_json,
-        ordinal,
-        maximum_output,
-        budget,
-    )?;
-    let response = host.generate(request).await.map_err(map_ai_error)?;
-    if response.finish_reason != FinishReason::Completed {
-        return Err(Failure::ProviderOutputInvalid);
+    let source_limit = maximum_output
+        .saturating_sub(TRANSLATION_OVERHEAD_TOKENS)
+        .max(maximum_output / 2)
+        .saturating_sub(text_units(&input.entry.title).saturating_mul(2))
+        / 2;
+    let chunks = if input.operation == OperationKind::Translate {
+        split_text(&input.entry.text, source_limit.max(4))
+    } else {
+        vec![input.entry.text.as_str()]
+    };
+    let chunk_count = u32::try_from(chunks.len()).map_err(|_| Failure::BudgetExhausted)?;
+    if chunk_count == 0 || chunk_count > MAX_TRANSLATION_CHUNKS {
+        return Err(Failure::BudgetExhausted);
     }
-    parse_canonical_object(&response.output_json, MAX_CANONICAL_INPUT_BYTES)
-        .map_err(|_| Failure::ProviderOutputInvalid)?;
+    let mut merged: Option<Value> = None;
+    for (index, chunk) in chunks.into_iter().enumerate() {
+        let mut chunk_input = untrusted_input.clone();
+        chunk_input["entry"]["text"] = json!(chunk);
+        let untrusted_input_json = canonical_json(chunk_input, MAX_CANONICAL_INPUT_BYTES)
+            .map_err(|_| Failure::OutputInvalid)?;
+        let desired_output = match input.operation {
+            OperationKind::Translate => translation_tokens(
+                chunk,
+                target_locale.as_deref().ok_or(Failure::ConfigInvalid)?,
+            )
+            .saturating_add(text_units(&input.entry.title).saturating_mul(2)),
+            OperationKind::Summarize => {
+                let divisor = match style.unwrap_or(SummaryStyle::Balanced) {
+                    SummaryStyle::Concise => 24,
+                    SummaryStyle::Balanced => 12,
+                    SummaryStyle::Detailed => 6,
+                };
+                (text_units(chunk) / divisor).saturating_add(512).max(1024)
+            }
+        }
+        .min(maximum_output);
+        let request = prepare_ai_request(
+            input,
+            final_instruction(input.operation, style),
+            untrusted_input_json,
+            schema_id,
+            output_schema_json.clone(),
+            ordinal + u32::try_from(index).map_err(|_| Failure::BudgetExhausted)?,
+            desired_output,
+            budget,
+        )?;
+        let response = host.generate(request).await.map_err(map_ai_error)?;
+        if response.finish_reason != FinishReason::Completed {
+            return Err(Failure::ProviderOutputInvalid);
+        }
+        let parsed = parse_canonical_object(&response.output_json, MAX_CANONICAL_INPUT_BYTES)
+            .map_err(|_| Failure::ProviderOutputInvalid)?;
+        if let Some(combined) = merged.as_mut() {
+            let body = parsed
+                .get("bodyMarkdown")
+                .and_then(Value::as_str)
+                .ok_or(Failure::ProviderOutputInvalid)?;
+            let Some(Value::String(existing)) = combined.get_mut("bodyMarkdown") else {
+                return Err(Failure::ProviderOutputInvalid);
+            };
+            existing.push_str("\n\n");
+            existing.push_str(body);
+            if existing.len() > MAX_CANONICAL_INPUT_BYTES {
+                return Err(Failure::OutputInvalid);
+            }
+        } else {
+            merged = Some(parsed);
+        }
+    }
+    let payload_json = canonical_json(
+        merged.ok_or(Failure::OutputInvalid)?,
+        MAX_CANONICAL_INPUT_BYTES,
+    )
+    .map_err(|_| Failure::OutputInvalid)?;
     Ok(Artifact {
         schema_id,
         locale: target_locale,
-        payload_json: response.output_json,
-        provenance_json: provenance(input.operation, mcp_status, successful_call_count, ordinal)?,
+        payload_json,
+        provenance_json: provenance(
+            input.operation,
+            mcp_status,
+            successful_call_count,
+            ordinal + chunk_count - 1,
+        )?,
     })
 }
 
@@ -458,7 +526,7 @@ async fn generate_final(
     clippy::too_many_arguments,
     reason = "the host capability request mirrors the committed WIT fields and explicit budget mutation"
 )]
-fn prepare_ai_request(
+pub(crate) fn prepare_ai_request(
     input: &ExecuteInput,
     system_instruction: &'static str,
     untrusted_input_json: String,
@@ -468,6 +536,7 @@ fn prepare_ai_request(
     max_output_tokens: u32,
     budget: &mut BudgetState,
 ) -> Result<AiRequest, Failure> {
+    let max_output_tokens = max_output_tokens.min(input.budget.max_output_tokens_per_request);
     let byte_ceiling = system_instruction
         .len()
         .checked_mul(2)
@@ -677,7 +746,7 @@ fn provenance(
     .map_err(|_| Failure::OutputInvalid)
 }
 
-fn map_ai_error(error: AiError) -> Failure {
+pub(crate) fn map_ai_error(error: AiError) -> Failure {
     match error {
         AiError::RateLimited => Failure::ProviderRateLimited,
         AiError::Timeout => Failure::ProviderTimeout,
@@ -734,7 +803,7 @@ impl McpStatus {
     }
 }
 
-struct BudgetState {
+pub(crate) struct BudgetState {
     mcp_calls: u32,
     input_tokens: u32,
     output_tokens: u32,
@@ -756,6 +825,136 @@ mod tests {
 
     use super::*;
     use crate::{config::tests::fixture_config, json::canonical_json};
+
+    #[tokio::test]
+    async fn long_translation_uses_complete_chunks_and_a_per_request_budget() {
+        let mut input = summary_input(false);
+        input.operation = OperationKind::Translate;
+        input.target_locale = Some("zh-CN".to_owned());
+        input.provider_binding_id = "00000000-0000-4000-8000-000000000102".to_owned();
+        let mut config: Value = serde_json::from_str(&input.config_json).expect("config");
+        config["operations"]["translate"]["maxOutputTokens"] = json!(4096);
+        input.config_json = canonical_json(config, 256 * 1024).expect("config");
+        input.entry.text = "A paragraph with facts and technical references. ".repeat(180);
+        input.budget.remaining_output_tokens = 64 * 1024;
+        input.budget.remaining_input_tokens = 512 * 1024;
+        let mut host = FakeHost::new((0..32).map(|_| {
+            Ok(AiResponse {
+                output_json: translation_output(),
+                finish_reason: FinishReason::Completed,
+            })
+        }));
+        let artifact = execute(&mut host, input.clone())
+            .await
+            .expect("complete translation");
+        assert!(
+            host.ai_requests.len() > 1,
+            "long article needs multiple requests"
+        );
+        assert!(
+            host.ai_requests
+                .iter()
+                .map(|r| r.max_output_tokens)
+                .sum::<u32>()
+                > 4096
+        );
+        assert!(host.ai_requests.iter().all(|r| r.max_output_tokens <= 4096));
+        let reconstructed: String = host
+            .ai_requests
+            .iter()
+            .map(|r| {
+                serde_json::from_str::<Value>(&r.untrusted_input_json).expect("input")["entry"]
+                        ["text"]
+                        .as_str()
+                        .expect("source chunk")
+                        .to_owned()
+            })
+            .collect();
+        assert_eq!(reconstructed, input.entry.text);
+        let output: Value = serde_json::from_str(&artifact.payload_json).expect("artifact");
+        assert_eq!(
+            output["bodyMarkdown"]
+                .as_str()
+                .expect("body")
+                .matches("正文")
+                .count(),
+            host.ai_requests.len()
+        );
+
+        let mut failing = FakeHost::new([
+            Ok(AiResponse {
+                output_json: translation_output(),
+                finish_reason: FinishReason::Completed,
+            }),
+            Err(AiError::Timeout),
+        ]);
+        assert_eq!(
+            execute(&mut failing, input).await,
+            Err(Failure::ProviderTimeout)
+        );
+        assert_eq!(failing.ai_requests.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn summary_output_budget_scales_with_source_length() {
+        let mut short = summary_input(false);
+        let mut config: Value = serde_json::from_str(&short.config_json).expect("config");
+        config["operations"]["summarize"]["maxOutputTokens"] = json!(4096);
+        short.config_json = canonical_json(config, 256 * 1024).expect("config");
+        let mut long = short.clone();
+        long.entry.text = "Long source article with distinct facts. ".repeat(300);
+        let mut short_host = FakeHost::new([Ok(AiResponse {
+            output_json: summary_output(),
+            finish_reason: FinishReason::Completed,
+        })]);
+        let mut long_host = FakeHost::new([Ok(AiResponse {
+            output_json: summary_output(),
+            finish_reason: FinishReason::Completed,
+        })]);
+        execute(&mut short_host, short)
+            .await
+            .expect("short summary");
+        execute(&mut long_host, long).await.expect("long summary");
+        assert!(
+            short_host.ai_requests[0].max_output_tokens
+                < long_host.ai_requests[0].max_output_tokens
+        );
+        assert!(long_host.ai_requests[0].max_output_tokens <= 4096);
+    }
+
+    #[tokio::test]
+    async fn translation_respects_a_smaller_provider_limit() {
+        let mut input = summary_input(false);
+        let mut config: Value = serde_json::from_str(&input.config_json).unwrap();
+        config["operations"]["translate"]["maxOutputTokens"] = json!(8192);
+        input.config_json = canonical_json(config, 256 * 1024).unwrap();
+        input.operation = OperationKind::Translate;
+        input.target_locale = Some("zh-CN".to_owned());
+        input.provider_binding_id = "00000000-0000-4000-8000-000000000102".to_owned();
+        input.entry.text = "A source paragraph with facts. ".repeat(150);
+        input.budget.max_output_tokens_per_request = 2048;
+        input.budget.remaining_output_tokens = 128 * 2048;
+        input.budget.remaining_input_tokens = 1_048_576;
+        let mut host = FakeHost::new((0..32).map(|_| {
+            Ok(AiResponse {
+                output_json: translation_output(),
+                finish_reason: FinishReason::Completed,
+            })
+        }));
+        execute(&mut host, input.clone())
+            .await
+            .expect("complete translation");
+        assert!(host.ai_requests.len() > 1);
+        assert!(
+            host.ai_requests
+                .iter()
+                .all(|request| request.max_output_tokens <= 2048)
+        );
+        let text: String = host.ai_requests.iter().map(|request| {
+            serde_json::from_str::<Value>(&request.untrusted_input_json).unwrap()["entry"]["text"].as_str().unwrap().to_owned()
+        }).collect();
+        assert_eq!(text, input.entry.text);
+    }
 
     #[tokio::test]
     async fn direct_summary_keeps_entry_data_out_of_policy_and_returns_safe_provenance() {
@@ -1019,6 +1218,7 @@ mod tests {
                 remaining_mcp_calls: 4,
                 remaining_input_tokens: 64 * 1024,
                 remaining_output_tokens: 4 * 1024,
+                max_output_tokens_per_request: 16_384,
             },
         }
     }

@@ -15,6 +15,28 @@ function renderPanel(controller = fakeAiSettingsController()) {
   return controller
 }
 
+it("preserves a smaller discovered service limit when the model draft has whitespace", async () => {
+  const controller = fakeAiSettingsController()
+  const model = controller.providers[0]!.model
+  const capacities = { contextWindow: 131072, maxInputTokens: 131072, maxOutputTokens: 8192, source: "PROVIDER" }
+  vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(new Response(JSON.stringify(url.endsWith("/models")
+    ? { models: [{ id: model, limits: capacities }] }
+    : { catalogAvailable: true, limits: { ...capacities, maxOutputTokens: 32768, source: "MODELS_DEV" } })))))
+  const user = userEvent.setup()
+  renderPanel(controller)
+  await user.click(screen.getByRole("button", { name: "Edit" }))
+  await user.click(screen.getByRole("button", { name: "Fetch models" }))
+  await screen.findByText("1 available models loaded.")
+  const input = screen.getByRole("textbox", { name: /^Model/u })
+  await user.clear(input)
+  await user.type(input, `${model} `)
+  await user.click(screen.getByRole("button", { name: "Look up model capacity" }))
+  await waitFor(() => expect(screen.getByText(/Source: current service and models.dev/u)).toBeInTheDocument())
+  await user.click(screen.getByRole("button", { name: "Apply suggested limits" }))
+  await user.click(screen.getByRole("button", { name: "Save Provider" }))
+  expect(controller.saveProvider).toHaveBeenCalledWith(expect.objectContaining({ policy: expect.objectContaining({ maxOutputTokensPerRequest: 8192 }) }))
+})
+
 it("lets an existing provider change API type while preserving its identity and credential", async () => {
   const user = userEvent.setup()
   const controller = renderPanel()

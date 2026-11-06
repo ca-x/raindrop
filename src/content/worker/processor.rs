@@ -33,7 +33,6 @@ use super::{
     disabled_mcp_provenance_hash, official_ai_contract,
 };
 
-const MAX_PROVIDER_REQUESTS: u32 = 2;
 const MAX_COST_MICROS: u64 = 250_000;
 const MAX_ARTIFACT_BYTES: usize = 512 * 1024;
 const MAX_PROVENANCE_BYTES: usize = 32 * 1024;
@@ -50,12 +49,12 @@ pub trait ContentProcessor: Send + Sync {
 
 #[derive(Clone)]
 pub struct OfficialAiProcessor {
-    content_repository: Arc<ContentRepository>,
-    plugin_repository: Arc<PluginRegistryRepository>,
-    provider_repository: Arc<ProviderRepository>,
-    runtime: PluginRuntime,
-    compiled: Arc<NativePlugin>,
-    ai_broker: Arc<dyn AiCapabilityBroker>,
+    pub(super) content_repository: Arc<ContentRepository>,
+    pub(super) plugin_repository: Arc<PluginRegistryRepository>,
+    pub(super) provider_repository: Arc<ProviderRepository>,
+    pub(super) runtime: PluginRuntime,
+    pub(super) compiled: Arc<NativePlugin>,
+    pub(super) ai_broker: Arc<dyn AiCapabilityBroker>,
 }
 
 impl OfficialAiProcessor {
@@ -187,9 +186,24 @@ impl OfficialAiProcessor {
         drop(binding);
 
         let (deadline_unix_ms, deadline) = invocation_deadlines(claim, remaining_attempt)?;
+        let maximum_provider_requests = match claim.operation() {
+            ContentJobOperation::Summarize => 2,
+            ContentJobOperation::Translate => {
+                raindrop_ai_content::text_budget::MAX_TRANSLATION_CHUNKS
+            }
+        };
+        let max_output_tokens_per_request = operation_config
+            .max_output_tokens
+            .min(provider_policy.max_output_tokens_per_request);
+        let remaining_output_tokens = match claim.operation() {
+            ContentJobOperation::Summarize => max_output_tokens_per_request,
+            ContentJobOperation::Translate => {
+                max_output_tokens_per_request.saturating_mul(maximum_provider_requests)
+            }
+        };
         let remaining_input_tokens = provider_policy
             .max_input_tokens_per_request
-            .saturating_mul(MAX_PROVIDER_REQUESTS);
+            .saturating_mul(maximum_provider_requests);
         let operation = wit_operation(claim.operation());
         let trigger = wit_trigger(claim.trigger());
         let invocation = BrokerInvocationContext {
@@ -214,10 +228,11 @@ impl OfficialAiProcessor {
                 invocation,
                 provider_binding_id: identity.provider_binding_id().to_owned(),
                 tool_bindings: Vec::new(),
-                remaining_provider_requests: MAX_PROVIDER_REQUESTS,
+                remaining_provider_requests: maximum_provider_requests,
                 remaining_mcp_calls: 0,
                 remaining_input_tokens,
-                remaining_output_tokens: operation_config.max_output_tokens,
+                remaining_output_tokens,
+                max_output_tokens_per_request,
                 remaining_cost_micros: MAX_COST_MICROS,
                 deadline_unix_ms,
                 deadline,
@@ -253,10 +268,11 @@ impl OfficialAiProcessor {
             budget: types::InvocationBudget {
                 remaining_depth: u32::from(claim.remaining_depth()),
                 deadline_unix_ms,
-                remaining_provider_requests: MAX_PROVIDER_REQUESTS,
+                remaining_provider_requests: maximum_provider_requests,
                 remaining_mcp_calls: 0,
                 remaining_input_tokens,
-                remaining_output_tokens: operation_config.max_output_tokens,
+                remaining_output_tokens,
+                max_output_tokens_per_request,
                 remaining_cost_micros: MAX_COST_MICROS,
             },
         };

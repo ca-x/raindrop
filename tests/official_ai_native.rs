@@ -30,6 +30,132 @@ const PROVIDER_ID: &str = "00000000-0000-4000-8000-000000000101";
 const CONNECTION_ID: &str = "00000000-0000-4000-8000-000000000201";
 
 #[tokio::test]
+async fn native_long_translation_accounts_for_more_than_three_requests() {
+    let runtime = PluginRuntime::new().expect("runtime");
+    let compiled = compile(&runtime);
+    let broker = Arc::new(RecordingAiBroker::new(
+        (0..128).map(|_| Ok(ai_response(translation_output()))),
+    ));
+    let config = ai_config(types::Operation::Translate, false, "FAIL_OPEN", false);
+    let (_, mut request) = operation_inputs(
+        &compiled,
+        types::Operation::Translate,
+        &config,
+        Vec::new(),
+        broker.clone(),
+        Arc::new(DenyMcpBroker),
+    );
+    request.entry.text = "A long source with facts and references. ".repeat(110);
+    request.budget.remaining_provider_requests = 128;
+    request.budget.remaining_input_tokens = 512 * 1024;
+    request.budget.remaining_output_tokens = 64 * 1024;
+    let grant = session(
+        types::Operation::Translate,
+        types::Trigger::ManualApi,
+        Vec::new(),
+        128,
+        0,
+        request.budget.remaining_input_tokens,
+        request.budget.remaining_output_tokens,
+        request.budget.deadline_unix_ms,
+        Instant::now() + Duration::from_secs(30),
+        broker.clone(),
+        Arc::new(DenyMcpBroker),
+    );
+    let result = runtime
+        .execute_detailed(&compiled, grant, request)
+        .await
+        .expect("complete long translation");
+    assert!(result.usage().provider_request_count() > 3);
+    let calls = broker.requests();
+    assert_eq!(
+        usize::from(result.usage().provider_request_count()),
+        calls.len()
+    );
+    assert!(calls.iter().map(|call| call.max_output_tokens).sum::<u32>() > 16_384);
+    assert!(calls.iter().all(|call| call.max_output_tokens <= 1024));
+    runtime.shutdown().await.expect("shutdown");
+}
+
+#[tokio::test]
+async fn article_questions_use_the_signed_service_and_keep_context_out_of_policy() {
+    use raindrop_ai_content::question::{QuestionContext, QuestionTurn, SCHEMA_ID};
+    let runtime = PluginRuntime::new().expect("runtime");
+    let compiled = compile(&runtime);
+    let broker = Arc::new(RecordingAiBroker::new([Ok(ai_response(
+        r#"{"answerMarkdown":"A grounded explanation.","schemaVersion":1}"#.to_owned(),
+    ))]));
+    let config = ai_config(types::Operation::Summarize, false, "FAIL_OPEN", false);
+    let (session, request) = operation_inputs(
+        &compiled,
+        types::Operation::Summarize,
+        &config,
+        Vec::new(),
+        broker.clone(),
+        Arc::new(DenyMcpBroker),
+    );
+    let answer = runtime
+        .answer_question(
+            &compiled,
+            session,
+            request,
+            QuestionContext {
+                question: "rd-secret-question".to_owned(),
+                response_locale: "en".to_owned(),
+                history: vec![QuestionTurn {
+                    question: "rd-secret-old-question".to_owned(),
+                    answer: "rd-secret-old-answer".to_owned(),
+                }],
+                summary_json: summary_output(),
+            },
+        )
+        .await
+        .expect("article answer");
+    assert_eq!(answer.answer_markdown, "A grounded explanation.");
+    let requests = broker.requests();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].output_schema_id, SCHEMA_ID);
+    assert!(!requests[0].system_instruction.contains("rd-secret"));
+    for context in [
+        "rd-secret-entry",
+        "rd-secret-question",
+        "rd-secret-old-answer",
+    ] {
+        assert!(requests[0].untrusted_input_json.contains(context));
+    }
+    let (session, request) = operation_inputs(
+        &compiled,
+        types::Operation::Summarize,
+        &config,
+        Vec::new(),
+        broker.clone(),
+        Arc::new(DenyMcpBroker),
+    );
+    assert!(
+        runtime
+            .answer_question(
+                &compiled,
+                session,
+                request,
+                QuestionContext {
+                    question: " ".into(),
+                    response_locale: "en".into(),
+                    history: Vec::new(),
+                    summary_json: summary_output(),
+                }
+            )
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        broker.requests().len(),
+        1,
+        "invalid questions cannot reach the Provider"
+    );
+    runtime.shutdown().await.expect("shutdown");
+}
+
+#[tokio::test]
 async fn native_service_executes_direct_summary_and_translation() {
     let runtime = PluginRuntime::new().expect("runtime");
     let compiled = compile(&runtime);
@@ -505,6 +631,7 @@ fn session(
             remaining_mcp_calls,
             remaining_input_tokens,
             remaining_output_tokens,
+            max_output_tokens_per_request: 16_384,
             remaining_cost_micros: 250_000,
             deadline_unix_ms,
             deadline,
@@ -557,6 +684,7 @@ fn operation_request(
             remaining_mcp_calls,
             remaining_input_tokens: 64 * 1024,
             remaining_output_tokens: max_output_budget(operation),
+            max_output_tokens_per_request: 16_384,
             remaining_cost_micros: 250_000,
         },
     }

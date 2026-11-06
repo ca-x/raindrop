@@ -18,9 +18,10 @@ use crate::{
     app::AppState,
     auth::{CsrfGuard, CurrentUser},
     content::provider::{
-        CreateProvider, ProviderCapabilities, ProviderCoreError, ProviderCoreErrorKind,
-        ProviderEndpoint, ProviderKind, ProviderMetadata, ProviderNetworkPolicy, ProviderPolicy,
-        ProviderRepository, ProviderScope, UpdateProvider,
+        CreateProvider, ModelLimits, ProviderCapabilities, ProviderCoreError,
+        ProviderCoreErrorKind, ProviderEndpoint, ProviderKind, ProviderMetadata,
+        ProviderNetworkPolicy, ProviderPolicy, ProviderRepository, ProviderScope, UpdateProvider,
+        cached_model_catalog, catalog_model_limits, model_catalog, service_model_limits,
     },
 };
 
@@ -37,6 +38,7 @@ pub(super) fn router() -> Router<AppState> {
     let providers = Router::new()
         .route("/", get(list_providers).post(create_provider))
         .route("/models", post(discover_models))
+        .route("/model-limits", post(lookup_model_limits))
         .route(
             "/{provider_id}",
             get(get_provider)
@@ -267,6 +269,49 @@ struct DiscoverModelsResponse {
 struct DiscoveredModel {
     id: String,
     label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    limits: Option<ModelLimits>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ModelLimitsRequest {
+    model: String,
+    endpoint: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ModelLimitsResponse {
+    catalog_available: bool,
+    limits: Option<ModelLimits>,
+}
+
+async fn lookup_model_limits(
+    State(state): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    _csrf: CsrfGuard,
+    ApiJson(request): ApiJson<ModelLimitsRequest>,
+) -> Result<Json<ModelLimitsResponse>, ApiError> {
+    state
+        .provider_mutation_limiter
+        .check(&user.id)
+        .map_err(map_limiter_rejection)?;
+    if request.model.trim().is_empty()
+        || request.model.len() > 200
+        || request.endpoint.len() > 2048
+        || request.model.chars().any(char::is_control)
+    {
+        return Err(ApiError::validation());
+    }
+    let catalog = model_catalog().await;
+    let limits = catalog
+        .as_ref()
+        .and_then(|catalog| catalog_model_limits(catalog, request.model.trim(), &request.endpoint));
+    Ok(Json(ModelLimitsResponse {
+        catalog_available: catalog.is_some(),
+        limits,
+    }))
 }
 
 #[derive(Serialize)]
@@ -405,12 +450,22 @@ async fn discover_models(
     let mut credential = HeaderValue::from_str(&credential)
         .map_err(|_| ApiError::validation().with_field("credential", "Credential is invalid"))?;
     credential.set_sensitive(true);
-    let models = tokio::time::timeout(
+    let mut models = tokio::time::timeout(
         MODEL_DISCOVERY_TIMEOUT,
         fetch_discovered_models(kind, &endpoint, credential, &state.provider_network_policy),
     )
     .await
     .map_err(|_| model_discovery_timeout())??;
+    if let Some(catalog) = cached_model_catalog() {
+        for model in &mut models {
+            if let Some(limits) = catalog_model_limits(&catalog, &model.id, endpoint.as_str()) {
+                model.limits = Some(match model.limits.take() {
+                    Some(service) => service.merge(limits),
+                    None => limits,
+                });
+            }
+        }
+    }
     Ok(Json(DiscoverModelsResponse { models }))
 }
 
@@ -560,6 +615,7 @@ fn parse_discovered_models(body: &[u8]) -> Result<Vec<DiscoveredModel>, ApiError
             .or_insert_with(|| DiscoveredModel {
                 id: id.to_owned(),
                 label: id.to_owned(),
+                limits: service_model_limits(value),
             });
         if models.len() >= 200 {
             break;

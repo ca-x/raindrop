@@ -338,9 +338,10 @@ function OpenAiFields({
       <Collapsible trigger={i18n._("translation.advanced")} defaultIsOpen={false}>
         <NumberInput
           label={i18n._("translation.outputTokens")}
+          description={i18n._("translation.outputBudgetHelp")}
           value={draft.openAiMaxOutputTokens}
           min={256}
-          max={16_384}
+          max={1_048_576}
           isIntegerOnly
           onChange={(openAiMaxOutputTokens) => onChange({ openAiMaxOutputTokens })}
           isDisabled={isDisabled}

@@ -55,7 +55,7 @@ impl TranslationRepository {
         )
         .map_err(|_| invalid_input())?;
         let open_ai_provider_id = normalize_provider_id(input.open_ai_provider_id)?;
-        if !(256..=16_384).contains(&input.open_ai_max_output_tokens) {
+        if !(256..=1_048_576).contains(&input.open_ai_max_output_tokens) {
             return Err(invalid_input());
         }
         if input.is_enabled
@@ -274,7 +274,7 @@ fn default_config(user_id: &str) -> TranslationConfig {
         default_target_locale: "zh-CN".to_owned(),
         open_ai: OpenAiSettings {
             provider_id: None,
-            max_output_tokens: 4096,
+            max_output_tokens: 32_768,
             profile: AiTranslationProfile::General,
             custom_system_prompt: None,
             custom_prompt: None,
@@ -312,7 +312,7 @@ fn config_from_model(
     }
     let max_output_tokens =
         u32::try_from(model.open_ai_max_output_tokens).map_err(|_| corrupt_data())?;
-    if !(256..=16_384).contains(&max_output_tokens) {
+    if !(256..=1_048_576).contains(&max_output_tokens) {
         return Err(corrupt_data());
     }
     let profile =

@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, sync::Arc};
 
 use axum::{
     Json, Router,
@@ -44,6 +44,10 @@ pub(super) fn router() -> Router<AppState> {
         .route(
             "/api/v1/entries/{entry_id}/ai/jobs",
             post(enqueue_entry_ai).fallback(content_method_not_allowed),
+        )
+        .route(
+            "/api/v1/entries/{entry_id}/ai/questions",
+            post(ask_article_question).fallback(content_method_not_allowed),
         )
         .route(
             "/api/v1/ai/jobs/{job_id}",
@@ -153,6 +157,119 @@ struct EnqueueAiRequest {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct RetryAiRequest {
     idempotency_key: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ArticleQuestionRequest {
+    summary_job_id: String,
+    question: String,
+    response_locale: String,
+    history: Vec<raindrop_ai_content::question::QuestionTurn>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ArticleQuestionResponse {
+    answer_markdown: String,
+    provider_label: String,
+}
+
+async fn ask_article_question(
+    State(state): State<AppState>,
+    CurrentUser(user): CurrentUser,
+    _csrf: CsrfGuard,
+    ApiPath(entry_id): ApiPath<String>,
+    ApiJson(request): ApiJson<ArticleQuestionRequest>,
+) -> Result<Json<ArticleQuestionResponse>, ApiError> {
+    validate_canonical_uuid(&entry_id, "entryId")?;
+    validate_canonical_uuid(&request.summary_job_id, "summaryJobId")?;
+    if !raindrop_ai_content::question::valid_question(
+        &request.question,
+        &request.response_locale,
+        &request.history,
+    ) {
+        return Err(ApiError::validation());
+    }
+    state
+        .content_mutation_limiter
+        .check(&user.id)
+        .map_err(map_limiter_rejection)?;
+    query_content_repository(&state)?
+        .get_execution_entry_for_user(&user.id, &entry_id)
+        .await
+        .map_err(map_repository_error)?;
+    let _user = state
+        .translation_user_concurrency
+        .try_acquire(&user.id)
+        .ok_or_else(|| {
+            ApiError::new(
+                StatusCode::TOO_MANY_REQUESTS,
+                "AI_QUESTION_BUSY",
+                "A reading request is already running",
+            )
+        })?;
+    let _permit = Arc::clone(&state.translation_request_semaphore)
+        .try_acquire_owned()
+        .map_err(|_| {
+            ApiError::new(
+                StatusCode::TOO_MANY_REQUESTS,
+                "AI_QUESTION_BUSY",
+                "Reading requests are busy",
+            )
+        })?;
+    let answer = state
+        .content_runtime
+        .answer_question(crate::content::worker::ArticleQuestionRequest {
+            user_id: user.id,
+            entry_id,
+            summary_job_id: request.summary_job_id,
+            question: request.question,
+            response_locale: request.response_locale,
+            history: request.history,
+        })
+        .await
+        .map_err(|error| {
+            use crate::content::worker::ArticleQuestionError as E;
+            match error {
+                E::InvalidInput => ApiError::validation(),
+                E::NotFound => ApiError::not_found(),
+                E::ContextChanged => ApiError::new(
+                    StatusCode::CONFLICT,
+                    "AI_QUESTION_CONTEXT_CHANGED",
+                    "The article changed; reload its summary",
+                ),
+                E::TooLarge => ApiError::new(
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    "AI_QUESTION_TOO_LARGE",
+                    "The conversation exceeds the configured Provider budget",
+                ),
+                E::RateLimited => ApiError::new(
+                    StatusCode::TOO_MANY_REQUESTS,
+                    "AI_QUESTION_BUSY",
+                    "The Provider is busy",
+                ),
+                E::Timeout => ApiError::new(
+                    StatusCode::GATEWAY_TIMEOUT,
+                    "AI_QUESTION_TIMEOUT",
+                    "The Provider timed out",
+                ),
+                E::OutputInvalid => ApiError::new(
+                    StatusCode::BAD_GATEWAY,
+                    "AI_QUESTION_OUTPUT_INVALID",
+                    "The Provider returned an invalid answer",
+                ),
+                E::Unavailable => ApiError::new(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "AI_QUESTION_UNAVAILABLE",
+                    "Article questions are unavailable",
+                ),
+            }
+        })?;
+    Ok(Json(ArticleQuestionResponse {
+        answer_markdown: answer.answer_markdown,
+        provider_label: answer.provider_label,
+    }))
 }
 
 struct RequiredNullableLocale(Option<String>);

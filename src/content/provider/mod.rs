@@ -1,4 +1,5 @@
 mod anthropic;
+mod catalog;
 mod client;
 mod gemini;
 mod model;
@@ -11,6 +12,9 @@ mod transport;
 mod types;
 mod validation;
 
+pub use catalog::{
+    ModelLimits, cached_model_catalog, catalog_model_limits, model_catalog, service_model_limits,
+};
 pub use client::{ProviderCallError, ProviderCallErrorKind, ProviderClient};
 pub use model::{
     CreateProvider, ProviderBinding, ProviderCapabilities, ProviderCoreError,

@@ -78,6 +78,7 @@ pub mod types {
         pub remaining_mcp_calls: u32,
         pub remaining_input_tokens: u32,
         pub remaining_output_tokens: u32,
+        pub max_output_tokens_per_request: u32,
         pub remaining_cost_micros: u64,
     }
 

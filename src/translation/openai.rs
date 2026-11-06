@@ -5,14 +5,14 @@ use std::{
 };
 
 use async_trait::async_trait;
-use serde::Deserialize;
+use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::json;
 use uuid::Uuid;
 
 use crate::content::provider::{
-    HttpsProviderTransport, OutputSchema, ProviderCallError, ProviderCallErrorKind, ProviderClient,
-    ProviderCoreError, ProviderCoreErrorKind, ProviderKind, ProviderNetworkPolicy,
-    ProviderRepository, StructuredGenerationRequest,
+    FinishReason, HttpsProviderTransport, OutputSchema, ProviderCallError, ProviderCallErrorKind,
+    ProviderClient, ProviderCoreError, ProviderCoreErrorKind, ProviderKind, ProviderNetworkPolicy,
+    ProviderRepository, StructuredGenerationRequest, StructuredGenerationResponse,
 };
 
 use super::{AiTranslationProfile, LookupExample, TranslationError, TranslationErrorKind};
@@ -262,38 +262,53 @@ impl OpenAiTranslationTransport for ProductionOpenAiTranslationTransport {
         input: OpenAiTranslateInput,
     ) -> Result<OpenAiTranslatedText, TranslationError> {
         let binding = self.binding(&input.provider_id, &input.user_id).await?;
-        let prompts = translation_prompts(
-            input.profile,
-            input.custom_system_prompt.as_deref(),
-            input.custom_prompt.as_deref(),
-            &input.target_locale,
-            &input.text,
-        )?;
-        let request = StructuredGenerationRequest {
-            model: binding.metadata().model().to_owned(),
-            system_instruction: prompts.system,
-            untrusted_input: json!({
-                "prompt": prompts.user,
-                "text": input.text,
-                "targetLocale": input.target_locale,
-            }),
-            output_schema: OutputSchema {
-                name: "raindrop_translation_text_v1".to_owned(),
-                schema: translation_schema(),
-            },
-            max_output_tokens: input.max_output_tokens,
-            idempotency_key: Uuid::new_v4().to_string(),
-        };
-        let response =
-            tokio::time::timeout(REQUEST_TIMEOUT, self.client.generate(&binding, &request))
-                .await
-                .map_err(|_| TranslationError::new(TranslationErrorKind::Timeout))?
-                .map_err(map_call_error)?;
-        let output: TranslationOutput =
-            serde_json::from_value(response.output).map_err(|_| upstream())?;
-        validate_upstream_text(&output.translation, 64 * 1024)?;
+        let output_limit = input
+            .max_output_tokens
+            .min(binding.metadata().policy().max_output_tokens_per_request);
+        let source_limit = output_limit.saturating_sub(1024).max(output_limit / 2) / 2;
+        let chunks = raindrop_ai_content::text_budget::split_text(&input.text, source_limit.max(4));
+        if chunks.len() > raindrop_ai_content::text_budget::MAX_TRANSLATION_CHUNKS as usize {
+            return Err(TranslationError::new(TranslationErrorKind::TooLarge));
+        }
+        let mut translations = Vec::with_capacity(chunks.len());
+        for chunk in chunks {
+            let prompts = translation_prompts(
+                input.profile,
+                input.custom_system_prompt.as_deref(),
+                input.custom_prompt.as_deref(),
+                &input.target_locale,
+                chunk,
+            )?;
+            let request = StructuredGenerationRequest {
+                model: binding.metadata().model().to_owned(),
+                system_instruction: prompts.system,
+                untrusted_input: json!({
+                    "prompt": prompts.user,
+                    "text": chunk,
+                    "targetLocale": input.target_locale,
+                }),
+                output_schema: OutputSchema {
+                    name: "raindrop_translation_text_v1".to_owned(),
+                    schema: translation_schema(),
+                },
+                max_output_tokens: raindrop_ai_content::text_budget::translation_tokens(
+                    chunk,
+                    &input.target_locale,
+                )
+                .min(output_limit),
+                idempotency_key: Uuid::new_v4().to_string(),
+            };
+            let response =
+                tokio::time::timeout(REQUEST_TIMEOUT, self.client.generate(&binding, &request))
+                    .await
+                    .map_err(|_| TranslationError::new(TranslationErrorKind::Timeout))?
+                    .map_err(map_call_error)?;
+            let output: TranslationOutput = decode_completed(response)?;
+            validate_upstream_text(&output.translation, 64 * 1024)?;
+            translations.push(output.translation);
+        }
         Ok(OpenAiTranslatedText {
-            text: output.translation,
+            text: translations.join("\n\n"),
             provider_label: binding.metadata().display_name().to_owned(),
         })
     }
@@ -330,7 +345,9 @@ impl OpenAiTranslationTransport for ProductionOpenAiTranslationTransport {
                 name: "raindrop_translation_batch_v1".to_owned(),
                 schema: translation_batch_schema(requested_ids.len()),
             },
-            max_output_tokens: input.max_output_tokens,
+            max_output_tokens: input
+                .max_output_tokens
+                .min(binding.metadata().policy().max_output_tokens_per_request),
             idempotency_key: Uuid::new_v4().to_string(),
         };
         let response =
@@ -338,8 +355,7 @@ impl OpenAiTranslationTransport for ProductionOpenAiTranslationTransport {
                 .await
                 .map_err(|_| TranslationError::new(TranslationErrorKind::Timeout))?
                 .map_err(map_call_error)?;
-        let output: TranslationBatchOutput =
-            serde_json::from_value(response.output).map_err(|_| upstream())?;
+        let output: TranslationBatchOutput = decode_completed(response)?;
         Ok(OpenAiTranslatedBatch {
             segments: ordered_batch_translations(&requested_ids, output.translations)?,
             provider_label: binding.metadata().display_name().to_owned(),
@@ -362,7 +378,10 @@ impl OpenAiTranslationTransport for ProductionOpenAiTranslationTransport {
                 name: "raindrop_translation_lookup_v1".to_owned(),
                 schema: lookup_schema(),
             },
-            max_output_tokens: input.max_output_tokens.min(2048),
+            max_output_tokens: input
+                .max_output_tokens
+                .min(2048)
+                .min(binding.metadata().policy().max_output_tokens_per_request),
             idempotency_key: Uuid::new_v4().to_string(),
         };
         let response =
@@ -370,8 +389,7 @@ impl OpenAiTranslationTransport for ProductionOpenAiTranslationTransport {
                 .await
                 .map_err(|_| TranslationError::new(TranslationErrorKind::Timeout))?
                 .map_err(map_call_error)?;
-        let output: LookupOutput =
-            serde_json::from_value(response.output).map_err(|_| upstream())?;
+        let output: LookupOutput = decode_completed(response)?;
         validate_upstream_text(&output.translation, 4096)?;
         let definition = output
             .definition
@@ -701,6 +719,15 @@ fn map_call_error(error: ProviderCallError) -> TranslationError {
     TranslationError::new(kind)
 }
 
+fn decode_completed<T: DeserializeOwned>(
+    response: StructuredGenerationResponse,
+) -> Result<T, TranslationError> {
+    if response.finish_reason != FinishReason::Stop {
+        return Err(upstream());
+    }
+    serde_json::from_value(response.output).map_err(|_| upstream())
+}
+
 const fn upstream() -> TranslationError {
     TranslationError::new(TranslationErrorKind::Upstream)
 }
@@ -712,6 +739,28 @@ const fn invalid_input() -> TranslationError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn complete_json_from_a_truncated_later_batch_is_rejected() {
+        let response = |finish_reason| StructuredGenerationResponse {
+            output: json!({"translations":[{"id":1,"translation":"完整 JSON"}]}),
+            finish_reason,
+            usage: Default::default(),
+            model_label: "model".to_owned(),
+        };
+        let mut completed = Vec::new();
+        for reason in [FinishReason::Stop, FinishReason::Length] {
+            match decode_completed::<TranslationBatchOutput>(response(reason)) {
+                Ok(batch) => completed.push(batch),
+                Err(error) => {
+                    assert_eq!(error.kind(), TranslationErrorKind::Upstream);
+                    assert_eq!(completed.len(), 1);
+                    return;
+                }
+            }
+        }
+        panic!("a later truncated response must fail the complete translation");
+    }
 
     #[test]
     fn built_in_profiles_resolve_all_template_variables() {

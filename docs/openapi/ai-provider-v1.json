@@ -304,6 +304,52 @@
           }
         }
       }
+    },
+    "/api/v1/ai/providers/model-limits": {
+      "post": {
+        "tags": [
+          "AI Providers"
+        ],
+        "operationId": "lookupAiModelLimits",
+        "summary": "Look up optional model capacity hints from the fixed models.dev catalog; no credentials or provider requests",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CsrfToken"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelLimitsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ModelLimits"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -418,7 +464,7 @@
           "maxOutputTokensPerRequest": {
             "type": "integer",
             "minimum": 1,
-            "maximum": 16384
+            "maximum": 1048576
           },
           "inputCostMicrosPerMillionTokens": {
             "type": [
@@ -599,6 +645,9 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 200
+          },
+          "limits": {
+            "$ref": "#/components/schemas/ModelLimits"
           }
         }
       },
@@ -775,6 +824,104 @@
             "minimum": 0
           }
         }
+      },
+      "ModelLimits": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "contextWindow",
+          "maxInputTokens",
+          "maxOutputTokens",
+          "source"
+        ],
+        "properties": {
+          "contextWindow": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 4294967295
+          },
+          "maxInputTokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 4294967295
+          },
+          "maxOutputTokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 4294967295
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "MODELS_DEV",
+              "PROVIDER",
+              "COMBINED"
+            ]
+          },
+          "matchedModel": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "matchKind": {
+            "type": "string",
+            "enum": [
+              "EXACT",
+              "ALIAS"
+            ]
+          }
+        }
+      },
+      "ModelLimitsRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "model",
+          "endpoint"
+        ],
+        "properties": {
+          "model": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "endpoint": {
+            "type": "string",
+            "maxLength": 2048
+          }
+        }
+      },
+      "ModelLimitsResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "catalogAvailable",
+          "limits"
+        ],
+        "properties": {
+          "catalogAvailable": {
+            "type": "boolean"
+          },
+          "limits": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelLimits"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
       }
     },
     "responses": {
@@ -888,6 +1035,24 @@
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/ApiErrorEnvelope"
+            }
+          }
+        }
+      },
+      "ModelLimits": {
+        "description": "Optional capacity hints, or null when unknown/unavailable. Manual settings remain available.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/CacheControl"
+          },
+          "Pragma": {
+            "$ref": "#/components/headers/Pragma"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ModelLimitsResponse"
             }
           }
         }

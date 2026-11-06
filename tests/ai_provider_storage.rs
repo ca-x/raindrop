@@ -257,7 +257,7 @@ fn provider_scope_capability_policy_and_patch_bounds_are_exact() {
             ..valid_policy()
         },
         ProviderPolicy {
-            max_output_tokens_per_request: 16_385,
+            max_output_tokens_per_request: 1_048_577,
             ..valid_policy()
         },
         ProviderPolicy {
@@ -348,7 +348,7 @@ fn valid_policy() -> ProviderPolicy {
         max_concurrency: 2,
         requests_per_minute: Some(60),
         max_input_tokens_per_request: 128_000,
-        max_output_tokens_per_request: 16_384,
+        max_output_tokens_per_request: 131_072,
         input_cost_micros_per_million_tokens: Some(2_500),
         output_cost_micros_per_million_tokens: Some(10_000),
         max_cost_micros_per_request: Some(250_000),

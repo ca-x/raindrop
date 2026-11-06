@@ -152,7 +152,7 @@ struct SummarizeConfig {
 impl SummarizeConfig {
     fn validate(&self) -> Result<(), PluginRegistryError> {
         validate_uuid(&self.provider_id, PluginRegistryErrorKind::InvalidConfig)?;
-        if !(128..=4096).contains(&self.max_output_tokens) {
+        if !(128..=1_048_576).contains(&self.max_output_tokens) {
             return invalid();
         }
         self.mcp.validate()
@@ -184,7 +184,7 @@ impl TranslateConfig {
             &self.default_target_locale,
             PluginRegistryErrorKind::InvalidConfig,
         )?;
-        if !(256..=16_384).contains(&self.max_output_tokens) {
+        if !(256..=1_048_576).contains(&self.max_output_tokens) {
             return invalid();
         }
         self.mcp.validate()
