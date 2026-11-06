@@ -2,6 +2,13 @@
 
 Raindrop 是使用 Rust、Axum、SeaORM 和 React 构建的自托管 RSS 阅读器。它提供安全的 Feed 抓取与正文清洗、分类管理、未读与收藏状态、Feed 内搜索、批量已读、键盘导航、响应式阅读界面，以及 SQLite、PostgreSQL、MySQL 三种数据库支持。生产 Web 界面会嵌入单个 Rust 可执行文件。
 
+## v0.6.6
+
+- AI Provider 默认支持 HTTP/HTTPS、公网、局域网、内部域名、localhost 与 IPv4/IPv6，无需配置网络白名单。
+- 模型获取、总结、翻译和总结追问使用相同的网络规则；HTTPS 证书验证、连接固定、超时和响应大小限制继续生效。
+- 自定义 DeepLX 翻译服务也支持 HTTP/HTTPS 内网地址，连接测试和实际翻译使用相同规则。
+- 旧 Provider 白名单配置不再影响访问，已有 Provider 和加密凭据可继续使用。
+
 ## v0.6.5
 
 - 修复纯文本、行内排版和混合段落的文章翻译只显示标题、不显示正文译文的问题；清除翻译后保留原文结构。

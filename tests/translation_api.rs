@@ -669,44 +669,64 @@ async fn selection_translation_uses_the_saved_provider_configuration() {
 }
 
 #[tokio::test]
-async fn custom_deeplx_private_addresses_are_rejected_before_connection() {
+async fn custom_deeplx_reaches_local_http_with_saved_credentials() {
+    use axum::{Json, http::HeaderMap, routing::post};
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("local DeepLX listener");
+    let local = listener.local_addr().expect("local DeepLX address");
+    let app = Router::new().route(
+        "/private/translate",
+        post(|headers: HeaderMap, Json(body): Json<Value>| async move {
+            assert_eq!(headers["authorization"], "Bearer local-deeplx-key");
+            assert_eq!(body["source_lang"], "auto");
+            assert_eq!(body["target_lang"], "ZH-HANS");
+            assert!(body["text"].as_str().is_some_and(|text| !text.is_empty()));
+            Json(json!({"code": 200, "data": "本地翻译成功。", "source_lang": "EN"}))
+        }),
+    );
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app)
+            .await
+            .expect("local DeepLX should serve");
+    });
+    let base_url = format!("http://localhost:{}/private/translate", local.port());
     let fixture = TranslationFixture::new(false).await;
     let configured = fixture
-        .configure_deeplx(
-            UserKind::A,
-            None,
-            Some("https://127.0.0.1/private/translate"),
-        )
+        .configure_deeplx(UserKind::A, Some("local-deeplx-key"), Some(&base_url))
         .await;
     assert_eq!(configured.status, StatusCode::OK, "{}", configured.json());
-
     let tested = fixture
         .json_request(
             Method::POST,
-            "/api/v2/plugins/translation/test",
+            "/api/v3/plugins/translation/test",
             Some(json!({
-                "engine": "DEEPLX",
-                "targetLocale": "zh-CN",
+                "engine": "DEEPLX", "targetLocale": "zh-CN",
                 "openAi": {
-                    "providerId": null,
-                    "maxOutputTokens": 4096,
-                    "profile": "GENERAL",
-                    "customSystemPrompt": null,
-                    "customPrompt": null
+                    "providerId": null, "maxOutputTokens": 4096,
+                    "profile": "GENERAL", "customSystemPrompt": null, "customPrompt": null
                 },
-                "deepLx": {
-                    "baseUrl": "https://127.0.0.1/private/translate"
-                }
+                "deepLx": {"baseUrl": base_url}
             })),
             Some(UserKind::A),
             true,
         )
         .await;
-    assert_error(
-        &tested,
-        StatusCode::UNPROCESSABLE_ENTITY,
-        "VALIDATION_ERROR",
-    );
+    assert_eq!(tested.status, StatusCode::OK, "{}", tested.json());
+    let translated = fixture
+        .json_request(
+            Method::POST,
+            "/api/v3/plugins/translation/translate",
+            Some(json!({"text": "Selected paragraph."})),
+            Some(UserKind::A),
+            true,
+        )
+        .await;
+    assert_eq!(translated.status, StatusCode::OK, "{}", translated.json());
+    assert_eq!(translated.json()["translatedText"], "本地翻译成功。");
+    assert!(!String::from_utf8_lossy(&translated.body).contains("local-deeplx-key"));
+    server.abort();
 }
 
 fn keyring() -> ProviderSecretKeyring {

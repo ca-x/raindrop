@@ -34,7 +34,6 @@ pub struct RuntimeConfig {
     pub database_url: Option<SecretString>,
     pub session_secret: Option<SecretString>,
     provider_secret_keys: Vec<SecretString>,
-    provider_network_policy: crate::content::provider::ProviderNetworkPolicy,
     tambo: Option<crate::tambo::TamboConfig>,
     pub bootstrap_admin: Option<BootstrapAdmin>,
     feed_retention: FeedRetentionConfig,
@@ -42,19 +41,6 @@ pub struct RuntimeConfig {
 }
 
 impl RuntimeConfig {
-    #[must_use]
-    pub fn provider_network_policy(&self) -> &crate::content::provider::ProviderNetworkPolicy {
-        &self.provider_network_policy
-    }
-
-    pub(crate) fn with_provider_network_policy(
-        mut self,
-        policy: crate::content::provider::ProviderNetworkPolicy,
-    ) -> Self {
-        self.provider_network_policy = policy;
-        self
-    }
-
     pub fn take_tambo(&mut self) -> Option<crate::tambo::TamboConfig> {
         self.tambo.take()
     }
@@ -99,7 +85,6 @@ impl RuntimeConfig {
             database_url,
             session_secret,
             provider_secret_keys: Vec::new(),
-            provider_network_policy: crate::content::provider::ProviderNetworkPolicy::default(),
             tambo: None,
             bootstrap_admin,
             feed_retention: FeedRetentionConfig::DEFAULT,
@@ -136,7 +121,6 @@ impl fmt::Debug for RuntimeConfig {
             .field("database_url", &self.database_url)
             .field("session_secret", &self.session_secret)
             .field("provider_secret_key_ids", &provider_secret_key_ids)
-            .field("provider_network_policy", &self.provider_network_policy)
             .field("tambo", &self.tambo)
             .field(
                 "provider_secret_key_count",
@@ -221,7 +205,6 @@ pub(crate) struct FileConfig {
     pub database_url: Option<String>,
     pub session_secret: Option<String>,
     pub provider_secret_keys: Option<Vec<String>>,
-    pub provider_trusted_endpoints: Option<Vec<String>>,
     pub tambo_url: Option<String>,
     pub tambo_api_key: Option<String>,
     pub feed_orphan_retention_days: Option<u32>,

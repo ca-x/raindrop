@@ -75,9 +75,16 @@ it("requires identity, model, endpoint, and credential when creating", () => {
     displayName: "x".repeat(81),
     model: "model",
     credential: "secret",
-    endpoint: "http://localhost:8080/",
+    endpoint: "ftp://localhost:8080/",
   })
-  expect(invalid).toMatchObject({ displayName: "TOO_LONG", endpoint: "HTTPS" })
+  expect(invalid).toMatchObject({ displayName: "TOO_LONG", endpoint: "URL" })
+})
+
+it("accepts HTTP/HTTPS LAN, loopback, IPv6 and internal DNS Provider endpoints", () => {
+  for (const endpoint of ["http://localhost:11434", "http://ollama:11434/v1/", "http://192.168.1.8:8080", "https://10.0.0.8", "http://[::1]:8080", "https://[fc03::8]:8443"]) {
+    const errors = validateProviderConnection({ ...createProviderDraft(), displayName: "LAN", credential: "test-key", endpoint })
+    expect(errors.endpoint, endpoint).toBeUndefined()
+  }
 })
 
 it("validates exact numeric policy ranges", () => {

@@ -18,7 +18,7 @@
 
 `POST /api/v1/entries/:entryId/ai/questions` 需要会话认证和 CSRF；提交 summaryJobId、question、responseLocale 和 history，返回 answerMarkdown 与 providerLabel。上下文和模型输出均不可信；正文不进入 system policy，回答按严格 schema 与安全 Markdown 规则检查。界面支持停止、重试、Ctrl/⌘+Enter，中文输入法组合期间不会触发发送。完整接口见 [文章追问合同](openapi/article-questions-v1.json)。
 
-本文记录当前已经实现的 AI Provider 与生产内容 runtime。它包含三数据库记录、独立密钥环、四类非流式协议 adapter、SSRF-safe HTTPS transport、统一 `ProviderClient`、八 lane content worker，以及内嵌并验签的官方 `raindrop.ai-content@1.0.0` no-WASI Component。完成设置后 installation 会无重启同步；只有存在有效 Provider keyring 时才启动领取 lane。用户作用域的 Provider API/UI、官方 AI 配置、手动内容任务、结果读取、手动重试和 Reader sidecar 已开放。自动任务仍关闭，因此配置 keyring 或保存 Provider 不会自行产生模型请求。
+本文记录当前已经实现的 AI Provider 与生产内容 runtime。它包含三数据库记录、独立密钥环、四类非流式协议 adapter、HTTP/HTTPS transport、统一 `ProviderClient`、八 lane content worker，以及内嵌并验签的官方 `raindrop.ai-content@1.0.0` no-WASI Component。完成设置后 installation 会无重启同步；只有存在有效 Provider keyring 时才启动领取 lane。用户作用域的 Provider API/UI、官方 AI 配置、手动内容任务、结果读取、手动重试和 Reader sidecar 已开放。自动任务仍关闭，因此配置 keyring 或保存 Provider 不会自行产生模型请求。
 
 ## 支持的协议
 
@@ -29,13 +29,13 @@
 | OpenAI Chat Completions-compatible | `https://api.openai.com/` | `/v1/chat/completions` |
 | Google Gemini | `https://generativelanguage.googleapis.com/` | `/v1beta/models/{encodedModel}:generateContent` |
 
-用户可以修改自己 Provider 的 `kind`；修改会保留 ID，并在同一事务内以新 kind 重新加密凭据。兼容服务可以设置带固定 path prefix 的自定义 HTTPS endpoint，例如 `https://gateway.example/tenant-a/`；adapter path 会安全地追加到该 prefix 后。也支持 `https://gateway.example/tenant-a/v1/` 或 Gemini 的 `/v1beta/` 基础地址，不会重复追加相同 API 版本；不要填写完整的 `/chat/completions`、`/responses` 或生成接口地址。endpoint 不接受 HTTP、userinfo、query、fragment、反斜杠、点路径、编码的点或路径分隔符，也不接受私有或特殊用途 literal IP。
+用户可以修改自己 Provider 的 `kind`；修改会保留 ID，并在同一事务内以新 kind 重新加密凭据。兼容服务可以设置带固定 path prefix 的自定义 HTTP/HTTPS endpoint，例如 `https://gateway.example/tenant-a/`；adapter path 会安全地追加到该 prefix 后。也支持 `https://gateway.example/tenant-a/v1/` 或 Gemini 的 `/v1beta/` 基础地址，不会重复追加相同 API 版本；不要填写完整的 `/chat/completions`、`/responses` 或生成接口地址。endpoint 支持 HTTP/HTTPS、内网域名、IPv4、IPv6 和 localhost；不接受 userinfo、query、fragment、反斜杠、点路径或编码的点与路径分隔符。
 
 ## 自托管内网 Provider
 
-默认 Provider 只允许公网地址。若自托管 HTTPS 服务通过私有 DNS 或 overlay 网络解析为 RFC 1918 IPv4 / ULA IPv6，部署管理员需配置 `RAINDROP_PROVIDER_TRUSTED_ENDPOINTS`（逗号分隔）或 TOML `provider_trusted_endpoints` 列表。每项须与 Provider 表单的基础地址一致，例如 `https://model.example/v1/`；匹配规范化后的完整域名、端口和基础路径，不允许通配符或 IP literal。环境变量替换整个 TOML 列表，空值清空所有例外，最多 32 项。
+AI Provider 默认允许服务器可达的网络地址，包括公网、局域网、overlay 网络、loopback、内部域名和 IPv4/IPv6 literal。支持 HTTP 和 HTTPS，无需白名单。可使用 `http://localhost:11434/v1/`、`http://192.168.1.20:8080/` 或 `https://[fd00::20]:8443/` 等基础地址；容器内的 localhost 指容器自身，应填写容器实际可访问的服务地址。
 
-这份信任列表只由部署配置控制，普通用户不能通过 Provider API 扩大权限。模型获取、总结和 OpenAI 翻译共用它。即使列入信任，仍禁止 loopback、link-local、metadata、multicast 等特殊地址；HTTPS 证书、DNS 固定、连接 peer、禁代理和禁重定向检查继续执行。Feed 与备份保持各自的公网策略。
+模型获取、原生总结/翻译、阅读器翻译和总结追问使用相同的地址规则。自定义 DeepLX 翻译地址同样支持 HTTP/HTTPS 与内网，通过同一 transport 完成连接测试和实际翻译。HTTPS 继续验证证书与 hostname，保留 DNS 固定、连接 peer 检查、禁代理与重定向、请求超时和响应大小限制。原 `RAINDROP_PROVIDER_TRUSTED_ENDPOINTS` 与 TOML `provider_trusted_endpoints` 已停用，旧配置可保留但不再影响访问。Feed 与备份保持各自的网络策略。
 
 ## Provider secret keyring
 
@@ -66,7 +66,7 @@ SQLite 和交互式设置默认在数据目录创建一次 `provider-secret.key`
 
 纯环境托管的 PostgreSQL/MySQL 部署未配置 keyring、且数据目录没有交互式设置留下的本地 key 时，进程仍会验证官方组件并同步 installation，但 content runtime 不领取任务；RSS、Reader 和其他现有功能不受影响，也不会退化为明文。Provider 元数据的 list/get 和不含 credential 的更新仍可工作；创建 Provider、轮换 credential 或为没有 current artifact 的文章创建新任务会返回 `AI_PROVIDER_KEYRING_UNAVAILABLE`。如果 current artifact 已存在，Reader 可以先返回该结果，不要求再次解密 credential。
 
-配置有效 keyring 后，生产进程组合 repository、HTTPS transport、Provider client、broker、官方 Wasm processor 和八条领取 lane。任务仍由用户从 Reader 显式发起，不会因订阅刷新、文章打开、Provider 保存或进程启动而自动创建。
+配置有效 keyring 后，生产进程组合 repository、HTTP/HTTPS transport、Provider client、broker、官方 Wasm processor 和八条领取 lane。任务仍由用户从 Reader 显式发起，不会因订阅刷新、文章打开、Provider 保存或进程启动而自动创建。
 
 ## 用户设置与 credential 边界
 
@@ -91,11 +91,11 @@ Credential 是 write-only 字段。创建或轮换时，它只存在于请求边
 
 ### 获取模型
 
-编辑时凭据留空会复用已保存的密钥，包括停用的个人 Provider；停用状态仍禁止新推理任务。模型获取使用表单当前的类型和 HTTPS 地址，不会自动保存修改。实例 Provider 的共享凭据只能发往原配置地址。支持 `/v1/models`（Anthropic、OpenAI）或 `/v1beta/models`（Gemini）；兼容服务未提供模型列表时可以手填模型名称。界面区分凭据被拒绝、接口不支持和限流，并在修改连接信息或关闭编辑器时取消旧请求。
+编辑时凭据留空会复用已保存的密钥，包括停用的个人 Provider；停用状态仍禁止新推理任务。模型获取使用表单当前的类型和 HTTP/HTTPS 地址，不会自动保存修改。实例 Provider 的共享凭据只能发往原配置地址。支持 `/v1/models`（Anthropic、OpenAI）或 `/v1beta/models`（Gemini）；兼容服务未提供模型列表时可以手填模型名称。界面区分凭据被拒绝、接口不支持和限流，并在修改连接信息或关闭编辑器时取消旧请求。
 
 新建时先填写连接信息，再选择模型与可选策略；可返回上一步且保留草稿，已有 Provider 不必重走引导。获取模型是可选操作，不会发起生成请求，也不保证列表中的模型支持结构化输出。粘贴密钥时会清理首尾空白；编辑时全空白表示不轮换已有密钥。
 
-获取过程的总时限为 15 秒，覆盖 DNS、连接及响应体读取，连接和单次读取另有 5 秒上限。浏览器有 20 秒请求保护，并提供主动取消。未知长度的响应也会在流式收集时限制到 1 MiB，而不是读完再检查；最多返回 200 个去重后的模型。超时与超大列表有独立错误码 `MODEL_DISCOVERY_TIMEOUT`、`MODEL_DISCOVERY_RESPONSE_TOO_LARGE`。Gemini 使用 `x-goog-api-key` header，密钥不进入 URL。不会自动重试生成请求、切换协议或绕过 HTTPS 与公网校验。
+获取过程的总时限为 15 秒，覆盖 DNS、连接及响应体读取，连接和单次读取另有 5 秒上限。浏览器有 20 秒请求保护，并提供主动取消。未知长度的响应也会在流式收集时限制到 1 MiB，而不是读完再检查；最多返回 200 个去重后的模型。超时与超大列表有独立错误码 `MODEL_DISCOVERY_TIMEOUT`、`MODEL_DISCOVERY_RESPONSE_TOO_LARGE`。Gemini 使用 `x-goog-api-key` header，密钥不进入 URL。不会自动重试生成请求或切换协议；HTTPS 证书校验继续生效。
 
 ## 轮换
 
@@ -132,12 +132,12 @@ Credential 是 write-only 字段。创建或轮换时，它只存在于请求边
 
 Credential、完整 endpoint/path、model、请求、响应、prompt、schema 和模型输出不会进入 metadata、binding、transport/call error 的 `Debug`/`Display`。`ProviderEndpoint` 自身的诊断输出只保留 scheme、canonical host、port 和 path segment 数量，不显示 path、query 或 credential。非 2xx response body 不读取、不保留；reqwest source 会先移除 URL。
 
-## HTTPS transport 保证
+## HTTP/HTTPS transport 保证
 
 生产 transport 只接受已经验证的 `ProviderEndpoint` 和 adapter 生成的 `EncodedProviderRequest`，并执行一次 POST：
 
 - DNS：3 秒；解析 A/AAAA，最多接受 16 个原始答案。
-- SSRF：默认拒绝任何非公网答案；只有部署管理员精确信任的基础地址可以使用 RFC 1918 / ULA。其他 denied 地址或未经信任的 private 答案使整组拒绝。
+- 地址：允许所有地址类别；IP literal 直接连接，域名解析结果不按公网或私网过滤。
 - DNS pinning：批准的 socket 直接交给 reqwest `resolve_to_addrs`，TLS 仍校验原 hostname；连接后的 peer 必须精确属于批准集合。
 - Proxy/redirect：禁用环境代理与自动重定向；所有 3xx 直接拒绝且不读取 body。
 - 请求头：拒绝 `Host`、`Content-Length`、hop-by-hop 和 proxy headers；secret header 标记为 sensitive。
@@ -145,7 +145,7 @@ Credential、完整 endpoint/path、model、请求、响应、prompt、schema �
 - 响应：只支持单一 `identity`、`gzip`、`br` 或 zlib-wrapped `deflate`；compressed 与 decoded 各限 2 MiB，解压倍率最多 100x。
 - Retry metadata：只接受一个合法 `Retry-After`，统一转换为 UTC deadline。
 
-这些限制比 Feed GET 更严格，因为 provider POST 携带 credential，且没有安全的跨 authority redirect 用例。
+Provider POST 携带 credential，因此禁止自动跨 authority 重定向，避免凭据被转发到其他服务。
 
 ## Client 与 policy 状态
 

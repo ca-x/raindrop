@@ -823,10 +823,10 @@ fn build_service(
         transport
     } else {
         Arc::new(
-            ProductionOpenAiTranslationTransport::new_with_network_policy(
-                ProviderRepository::new(database.clone(), keyring.clone()),
-                state.provider_network_policy.clone(),
-            )
+            ProductionOpenAiTranslationTransport::new(ProviderRepository::new(
+                database.clone(),
+                keyring.clone(),
+            ))
             .map_err(map_error)?,
         )
     };

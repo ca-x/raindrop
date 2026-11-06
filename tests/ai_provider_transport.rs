@@ -15,12 +15,13 @@ use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use http::StatusCode;
 use raindrop::{
     content::provider::{
-        CreateProvider, EncodedProviderRequest, FinishReason, ProviderBinding,
-        ProviderCallErrorKind, ProviderCapabilities, ProviderClient, ProviderCoreErrorKind,
-        ProviderEndpoint, ProviderKind, ProviderMetadata, ProviderPolicy, ProviderRepository,
-        ProviderRetryAfter, ProviderScope, ProviderSecretKeyring, ProviderTimeoutStage,
-        ProviderTransport, ProviderTransportError, ProviderTransportErrorKind,
-        ProviderTransportResponse, StructuredGenerationRequest, TokenUsage,
+        CreateProvider, EncodedProviderRequest, FinishReason, HttpsProviderTransport,
+        ProviderBinding, ProviderCallErrorKind, ProviderCapabilities, ProviderClient,
+        ProviderCoreErrorKind, ProviderEndpoint, ProviderKind, ProviderMetadata, ProviderPolicy,
+        ProviderRepository, ProviderRetryAfter, ProviderScope, ProviderSecretKeyring,
+        ProviderTimeoutStage, ProviderTransport, ProviderTransportError,
+        ProviderTransportErrorKind, ProviderTransportResponse, StructuredGenerationRequest,
+        TokenUsage,
     },
     db::{entities::ai_provider, migrate},
 };
@@ -286,6 +287,103 @@ async fn provider_client_executes_all_protocol_bindings_once() {
             },
             "{kind:?}"
         );
+    }
+}
+
+#[tokio::test]
+async fn production_transport_calls_all_protocols_over_local_http_without_configuration() {
+    use axum::{Json, Router, http::HeaderMap, routing::post};
+
+    for address in ["127.0.0.1:0", "[::1]:0"] {
+        let listener = tokio::net::TcpListener::bind(address)
+            .await
+            .expect("local provider listener should bind");
+        let local = listener
+            .local_addr()
+            .expect("listener should have an address");
+        let calls = Arc::new(AtomicUsize::new(0));
+        let cases = [
+            (
+                ProviderKind::AnthropicMessages,
+                "/prefix/v1/messages",
+                "x-api-key",
+                "local-provider-key",
+                include_str!("fixtures/ai-provider/v1/anthropic-response.json"),
+            ),
+            (
+                ProviderKind::OpenAiResponses,
+                "/prefix/v1/responses",
+                "authorization",
+                "Bearer local-provider-key",
+                include_str!("fixtures/ai-provider/v1/openai-responses-response.json"),
+            ),
+            (
+                ProviderKind::OpenAiChatCompletions,
+                "/prefix/v1/chat/completions",
+                "authorization",
+                "Bearer local-provider-key",
+                include_str!("fixtures/ai-provider/v1/openai-chat-response.json"),
+            ),
+            (
+                ProviderKind::GoogleGemini,
+                "/prefix/v1beta/models/model-v1:generateContent",
+                "x-goog-api-key",
+                "local-provider-key",
+                include_str!("fixtures/ai-provider/v1/gemini-response.json"),
+            ),
+        ];
+        let mut app = Router::new();
+        for (kind, path, header, credential, response) in cases {
+            let calls = Arc::clone(&calls);
+            app = app.route(
+                path,
+                post(
+                    move |headers: HeaderMap, Json(body): Json<Value>| async move {
+                        assert_eq!(headers[header], credential, "{kind:?} credential header");
+                        if kind != ProviderKind::GoogleGemini {
+                            assert_eq!(body["model"], "model-v1", "{kind:?} model");
+                        }
+                        calls.fetch_add(1, Ordering::SeqCst);
+                        Json(
+                            serde_json::from_str::<Value>(response)
+                                .expect("valid protocol fixture"),
+                        )
+                    },
+                ),
+            );
+        }
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app)
+                .await
+                .expect("local provider should serve");
+        });
+        let endpoints = if local.is_ipv4() {
+            vec![
+                format!("http://{local}/prefix/"),
+                format!("http://localhost:{}/prefix/", local.port()),
+            ]
+        } else {
+            vec![format!("http://{local}/prefix/")]
+        };
+        for endpoint in &endpoints {
+            for (kind, ..) in cases {
+                let binding = create_binding(kind, Some(endpoint), "local-provider-key").await;
+                let response = ProviderClient::new(
+                    HttpsProviderTransport::new().expect("production transport"),
+                )
+                .generate(&binding, &valid_request())
+                .await
+                .expect("local HTTP provider generation should succeed without an allowlist");
+                assert_eq!(
+                    response.output,
+                    json!({"summary": "fixture summary"}),
+                    "{kind:?}"
+                );
+                assert_eq!(response.finish_reason, FinishReason::Stop, "{kind:?}");
+            }
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), endpoints.len() * cases.len());
+        server.abort();
     }
 }
 

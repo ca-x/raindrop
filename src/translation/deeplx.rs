@@ -200,7 +200,7 @@ fn expand_base_url(
 
 fn validate_expanded_url(value: &str) -> Result<Url, TranslationError> {
     let url = Url::parse(value).map_err(|_| invalid_input())?;
-    if url.scheme() != "https"
+    if !matches!(url.scheme(), "http" | "https")
         || url.host().is_none()
         || !url.username().is_empty()
         || url.password().is_some()
@@ -280,7 +280,20 @@ mod tests {
             Some("https://api.deeplx.org/{{apiKey}}/translate".to_owned())
         );
         assert!(validate_base_url_template(Some("https://example.com/{other}")).is_err());
-        assert!(validate_base_url_template(Some("http://example.com/translate")).is_err());
+        assert!(validate_base_url_template(Some("ftp://example.com/translate")).is_err());
+        for base_url in [
+            "http://localhost:1188/translate",
+            "http://192.168.1.8:1188/translate",
+            "http://[::1]:1188/translate",
+            "https://[fd00::8]/translate",
+        ] {
+            assert_eq!(
+                validate_base_url_template(Some(base_url))
+                    .unwrap()
+                    .as_deref(),
+                Some(base_url)
+            );
+        }
     }
 
     #[test]

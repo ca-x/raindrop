@@ -28,7 +28,7 @@ export type ProviderDraftField =
   | "credential"
   | keyof ProviderPolicy
 
-export type ProviderDraftError = "REQUIRED" | "TOO_LONG" | "HTTPS" | "RANGE" | "INVALID"
+export type ProviderDraftError = "REQUIRED" | "TOO_LONG" | "URL" | "RANGE" | "INVALID"
 export type ProviderDraftErrors = Partial<
   Record<ProviderDraftField, ProviderDraftError>
 >
@@ -135,8 +135,8 @@ export function validateProviderConnection(draft: ProviderDraft): ProviderDraftE
 
   if (displayName.length === 0) errors.displayName = "REQUIRED"
   else if (byteLength(displayName) > 80) errors.displayName = "TOO_LONG"
-  if (endpoint.length === 0 || !isSafeHttpsEndpoint(endpoint)) {
-    errors.endpoint = "HTTPS"
+  if (endpoint.length === 0 || !isValidProviderEndpoint(endpoint)) {
+    errors.endpoint = "URL"
   } else if (byteLength(endpoint) > 2048) {
     errors.endpoint = "TOO_LONG"
   }
@@ -244,11 +244,11 @@ export function providerDraftRequest(
   }
 }
 
-function isSafeHttpsEndpoint(value: string): boolean {
+function isValidProviderEndpoint(value: string): boolean {
   try {
     const url = new URL(value)
     return (
-      url.protocol === "https:" &&
+      (url.protocol === "https:" || url.protocol === "http:") &&
       url.hostname.length > 0 &&
       url.username.length === 0 &&
       url.password.length === 0 &&

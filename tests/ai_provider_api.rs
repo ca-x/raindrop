@@ -875,6 +875,86 @@ async fn model_discovery_rejects_invalid_header_credentials_before_network_acces
 }
 
 #[tokio::test]
+async fn model_discovery_reaches_local_http_ipv4_ipv6_and_hostname_without_an_allowlist() {
+    use axum::{Json, http::HeaderMap, routing::get};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let fixture = ProviderFixture::new(true).await;
+    for address in ["127.0.0.1:0", "[::1]:0"] {
+        let listener = tokio::net::TcpListener::bind(address)
+            .await
+            .expect("local model discovery listener should bind");
+        let local = listener
+            .local_addr()
+            .expect("listener should have an address");
+        let calls = Arc::new(AtomicUsize::new(0));
+        let model_calls = Arc::clone(&calls);
+        let gemini_calls = Arc::clone(&calls);
+        let app = Router::new()
+            .route(
+                "/prefix/v1/models",
+                get(move |headers: HeaderMap| async move {
+                    if let Some(authorization) = headers.get("authorization") {
+                        assert_eq!(authorization, "Bearer local-model-key");
+                    } else {
+                        assert_eq!(headers["x-api-key"], "local-model-key");
+                        assert_eq!(headers["anthropic-version"], "2023-06-01");
+                    }
+                    model_calls.fetch_add(1, Ordering::SeqCst);
+                    Json(json!({"data": [{"id": "model-v1"}]}))
+                }),
+            )
+            .route(
+                "/prefix/v1beta/models",
+                get(move |headers: HeaderMap| async move {
+                    assert_eq!(headers["x-goog-api-key"], "local-model-key");
+                    gemini_calls.fetch_add(1, Ordering::SeqCst);
+                    Json(json!({"models": [{"name": "models/model-v1"}]}))
+                }),
+            );
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app)
+                .await
+                .expect("local model discovery should serve");
+        });
+        let endpoints = if local.is_ipv4() {
+            vec![
+                format!("http://{local}/prefix/"),
+                format!("http://localhost:{}/prefix/", local.port()),
+            ]
+        } else {
+            vec![format!("http://{local}/prefix/")]
+        };
+        for endpoint in &endpoints {
+            for kind in [
+                "OPENAI_RESPONSES",
+                "OPENAI_CHAT_COMPLETIONS",
+                "ANTHROPIC_MESSAGES",
+                "GOOGLE_GEMINI",
+            ] {
+                let response = fixture.request(
+                    Method::POST,
+                    "/api/v1/ai/providers/models",
+                    Some(json!({"kind": kind, "endpoint": endpoint, "credential": "local-model-key"})),
+                    Some(UserKind::A),
+                    true,
+                ).await;
+                assert_eq!(
+                    response.status,
+                    StatusCode::OK,
+                    "{kind:?} {}",
+                    response.json()
+                );
+                assert_eq!(response.json()["models"][0]["id"], "model-v1", "{kind:?}");
+                assert!(!String::from_utf8_lossy(&response.body).contains("local-model-key"));
+            }
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), endpoints.len() * 4);
+        server.abort();
+    }
+}
+
+#[tokio::test]
 async fn disabled_provider_discovery_uses_saved_secret_and_validates_the_draft_endpoint() {
     let fixture = ProviderFixture::new(true).await;
     let disabled = fixture
@@ -888,20 +968,36 @@ async fn disabled_provider_discovery_uses_saved_secret_and_validates_the_draft_e
         .await;
     assert_eq!(disabled.status, StatusCode::OK);
     // No network required: this must reach draft endpoint validation after loading the saved secret.
-    let response = fixture.request(Method::POST, "/api/v1/ai/providers/models", Some(json!({
-        "providerId": fixture.user_a_provider_id,
-        "kind": "ANTHROPIC_MESSAGES", "endpoint": "http://invalid.example/", "credential": ""
-    })), Some(UserKind::A), true).await;
+    let response = fixture
+        .request(
+            Method::POST,
+            "/api/v1/ai/providers/models",
+            Some(json!({
+                "providerId": fixture.user_a_provider_id,
+                "kind": "ANTHROPIC_MESSAGES", "endpoint": "ftp://invalid.example/", "credential": ""
+            })),
+            Some(UserKind::A),
+            true,
+        )
+        .await;
     assert_error(
         &response,
         StatusCode::UNPROCESSABLE_ENTITY,
         "VALIDATION_ERROR",
     );
     assert!(response.json()["error"]["fields"]["endpoint"].is_string());
-    let other = fixture.request(Method::POST, "/api/v1/ai/providers/models", Some(json!({
-        "providerId": fixture.user_b_provider_id,
-        "kind": "ANTHROPIC_MESSAGES", "endpoint": "http://invalid.example/", "credential": ""
-    })), Some(UserKind::A), true).await;
+    let other = fixture
+        .request(
+            Method::POST,
+            "/api/v1/ai/providers/models",
+            Some(json!({
+                "providerId": fixture.user_b_provider_id,
+                "kind": "ANTHROPIC_MESSAGES", "endpoint": "ftp://invalid.example/", "credential": ""
+            })),
+            Some(UserKind::A),
+            true,
+        )
+        .await;
     assert_error(&other, StatusCode::NOT_FOUND, "NOT_FOUND");
     let repository =
         ProviderRepository::new(fixture.database.clone(), Some(Arc::new(provider_keyring())));

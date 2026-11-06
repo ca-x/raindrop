@@ -545,7 +545,7 @@
           "endpoint": {
             "type": "string",
             "format": "uri",
-            "pattern": "^https://",
+            "pattern": "^https?://",
             "maxLength": 2048
           },
           "model": {
@@ -618,7 +618,7 @@
           "endpoint": {
             "type": "string",
             "format": "uri",
-            "pattern": "^https://",
+            "pattern": "^https?://",
             "maxLength": 2048
           },
           "credential": {
@@ -695,7 +695,7 @@
               "null"
             ],
             "format": "uri",
-            "pattern": "^https://",
+            "pattern": "^https?://",
             "maxLength": 2048,
             "description": "Null selects the canonical endpoint for the Provider kind."
           },
@@ -741,7 +741,7 @@
           "endpoint": {
             "type": "string",
             "format": "uri",
-            "pattern": "^https://",
+            "pattern": "^https?://",
             "maxLength": 2048
           },
           "model": {

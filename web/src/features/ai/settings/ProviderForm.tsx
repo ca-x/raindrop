@@ -511,7 +511,7 @@ function fieldStatus(
   const messages = {
     REQUIRED: "ai.fieldRequired",
     TOO_LONG: "ai.fieldTooLong",
-    HTTPS: "ai.endpointInvalid",
+    URL: "ai.endpointInvalid",
     RANGE: "ai.numberOutOfRange",
     INVALID: "ai.credentialInvalid",
   } as const

@@ -98,9 +98,35 @@ fn provider_model_kind_endpoint_and_policy_contract() {
 }
 
 #[test]
-fn provider_endpoint_rejects_ambiguous_or_private_routes() {
+fn provider_endpoints_support_local_networks_and_http_without_an_allowlist() {
+    for value in [
+        "http://localhost:11434",
+        "http://ollama:11434/v1",
+        "http://192.168.1.8:8080",
+        "https://10.0.0.8",
+        "http://127.0.0.1:8080",
+        "http://[::1]:8080",
+        "https://[fc03::8]:8443",
+    ] {
+        let endpoint = ProviderEndpoint::new(ProviderKind::OpenAiChatCompletions, Some(value))
+            .expect("local Provider endpoint");
+        let joined = endpoint.join_adapter_path("/v1/chat/completions").unwrap();
+        assert_eq!(
+            joined.scheme(),
+            if value.starts_with("http:") {
+                "http"
+            } else {
+                "https"
+            }
+        );
+        assert!(joined.path().ends_with("/v1/chat/completions"));
+    }
+}
+
+#[test]
+fn provider_endpoint_rejects_ambiguous_routes_and_unsupported_protocols() {
     for invalid in [
-        "http://api.example.com/",
+        "ftp://api.example.com/",
         "https://user:password@api.example.com/",
         "https://api.example.com/?tenant=secret",
         "https://api.example.com/#fragment",
@@ -109,9 +135,6 @@ fn provider_endpoint_rejects_ambiguous_or_private_routes() {
         "https://api.example.com/a/%2f/b",
         "https://api.example.com/a/%5c/b",
         "https://api.example.com/a\\b",
-        "https://127.0.0.1/",
-        "https://10.0.0.1/",
-        "https://[::1]/",
     ] {
         let error = ProviderEndpoint::new(ProviderKind::OpenAiResponses, Some(invalid))
             .expect_err("unsafe endpoint should fail");

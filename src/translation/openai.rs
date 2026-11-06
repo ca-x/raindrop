@@ -11,8 +11,8 @@ use uuid::Uuid;
 
 use crate::content::provider::{
     FinishReason, HttpsProviderTransport, OutputSchema, ProviderCallError, ProviderCallErrorKind,
-    ProviderClient, ProviderCoreError, ProviderCoreErrorKind, ProviderKind, ProviderNetworkPolicy,
-    ProviderRepository, StructuredGenerationRequest, StructuredGenerationResponse,
+    ProviderClient, ProviderCoreError, ProviderCoreErrorKind, ProviderKind, ProviderRepository,
+    StructuredGenerationRequest, StructuredGenerationResponse,
 };
 
 use super::{AiTranslationProfile, LookupExample, TranslationError, TranslationErrorKind};
@@ -218,14 +218,7 @@ pub struct ProductionOpenAiTranslationTransport {
 
 impl ProductionOpenAiTranslationTransport {
     pub fn new(repository: ProviderRepository) -> Result<Self, TranslationError> {
-        Self::new_with_network_policy(repository, ProviderNetworkPolicy::default())
-    }
-
-    pub fn new_with_network_policy(
-        repository: ProviderRepository,
-        policy: ProviderNetworkPolicy,
-    ) -> Result<Self, TranslationError> {
-        let transport = HttpsProviderTransport::new_with_network_policy(policy)
+        let transport = HttpsProviderTransport::new()
             .map_err(|_| TranslationError::new(TranslationErrorKind::ProviderUnavailable))?;
         Ok(Self {
             repository,

@@ -11,7 +11,7 @@ use tokio::time::Instant;
 use super::{
     ProviderTimeoutStage, ProviderTransportError, ProviderTransportErrorKind, strict_timeout_at,
 };
-use crate::content::provider::{ProviderEndpoint, ProviderNetworkPolicy};
+use crate::content::provider::ProviderEndpoint;
 
 const DNS_TIMEOUT: Duration = Duration::from_secs(3);
 const MAX_DNS_RESULTS: usize = 16;
@@ -52,7 +52,6 @@ pub(super) async fn resolve_approved(
     provider_id: &str,
     endpoint: &ProviderEndpoint,
     resolver: &dyn DnsResolver,
-    policy: &ProviderNetworkPolicy,
     total_deadline: Instant,
 ) -> Result<Vec<SocketAddr>, ProviderTransportError> {
     if Instant::now() >= total_deadline {
@@ -90,13 +89,6 @@ pub(super) async fn resolve_approved(
         )
         .with_count(raw.len()));
     }
-    if raw.iter().any(|address| !policy.allows(endpoint, *address)) {
-        return Err(ProviderTransportError::new(
-            provider_id,
-            ProviderTransportErrorKind::AddressDenied,
-        )
-        .with_count(raw.len()));
-    }
     let mut seen = HashSet::new();
     Ok(raw
         .into_iter()
@@ -109,7 +101,7 @@ pub(super) async fn resolve_approved(
 mod tests {
     use std::{
         future,
-        net::{Ipv4Addr, Ipv6Addr},
+        net::Ipv4Addr,
         sync::{
             Arc,
             atomic::{AtomicUsize, Ordering},
@@ -127,41 +119,44 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_explicit_endpoint_exception_pins_ula_but_rejects_unsafe_mixed_answers() {
+    async fn private_and_mixed_dns_answers_are_allowed_and_pinned_without_configuration() {
         let endpoint = ProviderEndpoint::new(
             ProviderKind::OpenAiResponses,
-            Some("https://model.example/tenant/"),
+            Some("https://model.internal/tenant/"),
         )
         .unwrap();
-        let policy = ProviderNetworkPolicy::new(&[endpoint.as_str().to_owned()]).unwrap();
-        let private: IpAddr = "fc03::8".parse().unwrap();
+        let addresses: Vec<IpAddr> = [
+            "fc03::8",
+            "10.0.0.1",
+            "192.168.1.8",
+            "127.0.0.1",
+            "::1",
+            "100.64.0.1",
+            "169.254.169.254",
+            "203.0.113.7",
+        ]
+        .into_iter()
+        .map(|value| value.parse().unwrap())
+        .collect();
         let resolver = FakeResolver {
-            addresses: Some(vec![private]),
+            addresses: Some(addresses.clone()),
             calls: Arc::new(AtomicUsize::new(0)),
         };
-        let deadline = Instant::now() + Duration::from_secs(30);
-        let error = resolve_approved(
+        let approved = resolve_approved(
             PROVIDER_ID,
             &endpoint,
             &resolver,
-            &ProviderNetworkPolicy::default(),
-            deadline,
+            Instant::now() + Duration::from_secs(30),
         )
         .await
-        .unwrap_err();
-        assert_eq!(error.kind(), ProviderTransportErrorKind::AddressDenied);
-        let approved = resolve_approved(PROVIDER_ID, &endpoint, &resolver, &policy, deadline)
-            .await
-            .unwrap();
-        assert_eq!(approved, [SocketAddr::new(private, 443)]);
-        let mixed = FakeResolver {
-            addresses: Some(vec![private, "::1".parse().unwrap()]),
-            calls: Arc::new(AtomicUsize::new(0)),
-        };
-        let error = resolve_approved(PROVIDER_ID, &endpoint, &mixed, &policy, deadline)
-            .await
-            .unwrap_err();
-        assert_eq!(error.kind(), ProviderTransportErrorKind::AddressDenied);
+        .unwrap();
+        assert_eq!(
+            approved,
+            addresses
+                .into_iter()
+                .map(|ip| SocketAddr::new(ip, 443))
+                .collect::<Vec<_>>()
+        );
     }
 
     #[async_trait]
@@ -195,7 +190,6 @@ mod tests {
             PROVIDER_ID,
             &endpoint,
             &resolver,
-            &ProviderNetworkPolicy::default(),
             Instant::now() + Duration::from_secs(30),
         )
         .await
@@ -207,7 +201,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn any_private_answer_and_invalid_answer_counts_fail_closed() {
+    async fn invalid_answer_counts_fail_closed() {
         let endpoint = ProviderEndpoint::new(
             ProviderKind::OpenAiResponses,
             Some("https://provider.example/"),
@@ -222,29 +216,6 @@ mod tests {
                 ProviderTransportErrorKind::AddressCount,
                 17,
             ),
-            (
-                vec![
-                    IpAddr::V4(Ipv4Addr::new(93, 184, 216, 34)),
-                    IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
-                ],
-                ProviderTransportErrorKind::AddressDenied,
-                2,
-            ),
-            (
-                vec![IpAddr::V6(Ipv6Addr::LOCALHOST)],
-                ProviderTransportErrorKind::AddressDenied,
-                1,
-            ),
-            (
-                vec![IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7))],
-                ProviderTransportErrorKind::AddressDenied,
-                1,
-            ),
-            (
-                vec![IpAddr::V6("2001:db8::7".parse().unwrap())],
-                ProviderTransportErrorKind::AddressDenied,
-                1,
-            ),
         ] {
             let resolver = FakeResolver {
                 addresses: Some(addresses),
@@ -254,7 +225,6 @@ mod tests {
                 PROVIDER_ID,
                 &endpoint,
                 &resolver,
-                &ProviderNetworkPolicy::default(),
                 Instant::now() + Duration::from_secs(30),
             )
             .await
@@ -265,8 +235,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn public_ip_literal_skips_dns() {
+    async fn ip_literals_skip_dns() {
         for (url, expected) in [
+            (
+                "http://127.0.0.1:11434/",
+                "127.0.0.1:11434".parse().unwrap(),
+            ),
+            ("http://[::1]:11434/", "[::1]:11434".parse().unwrap()),
+            ("https://[fc03::8]:8443/", "[fc03::8]:8443".parse().unwrap()),
             (
                 "https://93.184.216.34/",
                 SocketAddr::new(IpAddr::V4(Ipv4Addr::new(93, 184, 216, 34)), 443),
@@ -295,7 +271,6 @@ mod tests {
                 PROVIDER_ID,
                 &endpoint,
                 &resolver,
-                &ProviderNetworkPolicy::default(),
                 Instant::now() + Duration::from_secs(30),
             )
             .await;
@@ -329,7 +304,6 @@ mod tests {
                 PROVIDER_ID,
                 &endpoint,
                 resolver.as_ref(),
-                &ProviderNetworkPolicy::default(),
                 Instant::now() + Duration::from_secs(30),
             )
             .await
@@ -361,7 +335,6 @@ mod tests {
                 PROVIDER_ID,
                 &endpoint,
                 resolver.as_ref(),
-                &ProviderNetworkPolicy::default(),
                 Instant::now() + Duration::from_secs(2),
             )
             .await
@@ -390,7 +363,6 @@ mod tests {
             PROVIDER_ID,
             &endpoint,
             &ErrorResolver,
-            &ProviderNetworkPolicy::default(),
             Instant::now() + Duration::from_secs(30),
         )
         .await

@@ -19,9 +19,9 @@ use crate::{
     auth::{CsrfGuard, CurrentUser},
     content::provider::{
         CreateProvider, ModelLimits, ProviderCapabilities, ProviderCoreError,
-        ProviderCoreErrorKind, ProviderEndpoint, ProviderKind, ProviderMetadata,
-        ProviderNetworkPolicy, ProviderPolicy, ProviderRepository, ProviderScope, UpdateProvider,
-        cached_model_catalog, catalog_model_limits, model_catalog, service_model_limits,
+        ProviderCoreErrorKind, ProviderEndpoint, ProviderKind, ProviderMetadata, ProviderPolicy,
+        ProviderRepository, ProviderScope, UpdateProvider, cached_model_catalog,
+        catalog_model_limits, model_catalog, service_model_limits,
     },
 };
 
@@ -452,7 +452,7 @@ async fn discover_models(
     credential.set_sensitive(true);
     let mut models = tokio::time::timeout(
         MODEL_DISCOVERY_TIMEOUT,
-        fetch_discovered_models(kind, &endpoint, credential, &state.provider_network_policy),
+        fetch_discovered_models(kind, &endpoint, credential),
     )
     .await
     .map_err(|_| model_discovery_timeout())??;
@@ -473,7 +473,6 @@ async fn fetch_discovered_models(
     kind: ProviderKind,
     endpoint: &ProviderEndpoint,
     credential: HeaderValue,
-    network_policy: &ProviderNetworkPolicy,
 ) -> Result<Vec<DiscoveredModel>, ApiError> {
     let path = match kind {
         ProviderKind::GoogleGemini => "/v1beta/models",
@@ -482,17 +481,16 @@ async fn fetch_discovered_models(
     let url = endpoint
         .join_adapter_path(path)
         .map_err(|_| ApiError::validation().with_field("endpoint", "Endpoint is invalid"))?;
-    let approved = tokio::net::lookup_host((endpoint.canonical_host(), endpoint.effective_port()))
-        .await
-        .map_err(|_| model_discovery_error())?
-        .take(MAX_MODEL_DISCOVERY_ADDRESSES + 1)
-        .collect::<Vec<SocketAddr>>();
-    if approved.is_empty()
-        || approved.len() > MAX_MODEL_DISCOVERY_ADDRESSES
-        || approved
-            .iter()
-            .any(|address| !network_policy.allows(endpoint, address.ip()))
-    {
+    let approved = if let Some(ip) = endpoint.ip_address() {
+        vec![SocketAddr::new(ip, endpoint.effective_port())]
+    } else {
+        tokio::net::lookup_host((endpoint.canonical_host(), endpoint.effective_port()))
+            .await
+            .map_err(|_| model_discovery_error())?
+            .take(MAX_MODEL_DISCOVERY_ADDRESSES + 1)
+            .collect::<Vec<SocketAddr>>()
+    };
+    if approved.is_empty() || approved.len() > MAX_MODEL_DISCOVERY_ADDRESSES {
         return Err(model_discovery_error());
     }
     let client = reqwest::Client::builder()

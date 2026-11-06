@@ -3,7 +3,6 @@ mod catalog;
 mod client;
 mod gemini;
 mod model;
-mod network;
 mod openai_chat;
 mod openai_responses;
 mod repository;
@@ -21,7 +20,6 @@ pub use model::{
     ProviderCoreErrorKind, ProviderEndpoint, ProviderMetadata, ProviderPolicy, ProviderScope,
     UpdateProvider,
 };
-pub use network::ProviderNetworkPolicy;
 pub use repository::ProviderRepository;
 pub use secret::{ProviderSecretError, ProviderSecretErrorKind, ProviderSecretKeyring};
 pub use transport::{

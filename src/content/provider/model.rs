@@ -5,8 +5,6 @@ use time::OffsetDateTime;
 use url::{Host, Url};
 use uuid::Uuid;
 
-use crate::feeds::{AddressDecision, AddressPolicy};
-
 use super::ProviderKind;
 
 const MAX_ENDPOINT_BYTES: usize = 2_048;
@@ -87,17 +85,12 @@ impl ProviderEndpoint {
         let raw = raw.unwrap_or_else(|| kind.default_endpoint());
         validate_endpoint_source(raw)?;
         let mut url = Url::parse(raw).map_err(|_| invalid_endpoint())?;
-        if url.scheme() != "https"
+        if !matches!(url.scheme(), "http" | "https")
             || url.host().is_none()
             || !url.username().is_empty()
             || url.password().is_some()
             || url.query().is_some()
             || url.fragment().is_some()
-        {
-            return Err(invalid_endpoint());
-        }
-        if let Some(address) = literal_address(&url)
-            && AddressPolicy::public_only().classify(address) != AddressDecision::Allowed
         {
             return Err(invalid_endpoint());
         }
@@ -164,7 +157,7 @@ impl ProviderEndpoint {
     }
 
     #[must_use]
-    pub(super) fn ip_address(&self) -> Option<IpAddr> {
+    pub(crate) fn ip_address(&self) -> Option<IpAddr> {
         literal_address(&self.url)
     }
 
@@ -178,7 +171,7 @@ impl fmt::Debug for ProviderEndpoint {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("ProviderEndpoint")
-            .field("scheme", &"https")
+            .field("scheme", &self.url.scheme())
             .field("canonical_host", &self.canonical_host)
             .field("effective_port", &self.effective_port)
             .field("path_segment_count", &self.path_segment_count)
