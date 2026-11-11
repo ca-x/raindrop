@@ -10,6 +10,7 @@ import { setTestViewport } from "../../test/setup"
 import { fakePreferencesController } from "../preferences/model/testFixtures"
 import type { ReaderController } from "./model/useReaderController"
 import { initialReaderState } from "./model/reducer"
+import { makeSubscription } from "./model/testFixtures"
 import type { ReaderState } from "./model/types"
 import { ReaderRoutes as ProductionReaderRoutes } from "./routes/ReaderRoutes"
 import "./reader.css"
@@ -252,14 +253,15 @@ describe("Reader workspace", () => {
       </Providers>,
     )
 
-    await user.click(screen.getByRole("button", { name: "Refresh Planet Rust" }))
+    await user.click(screen.getByRole("button", { name: "Queue menu" }))
+    await user.click(screen.getByRole("menuitem", { name: "Refresh Planet Rust", hidden: true }))
     await user.click(screen.getByRole("button", { name: "Reload stored entries" }))
 
     expect(controller.refreshSubscription).toHaveBeenCalledWith("subscription")
     expect(controller.reloadEntries).toHaveBeenCalledOnce()
   })
 
-  it("keeps adding and editing a selected feed as separate source-toolbar actions", async () => {
+  it("keeps adding in sources and returns focus to the queue menu after editing", async () => {
     const user = userEvent.setup()
     const controller = fakeController({
       selectedSource: { kind: "feed", feedId: "feed-rust" },
@@ -307,10 +309,9 @@ describe("Reader workspace", () => {
     ).not.toBeInTheDocument()
     await user.click(within(managementDialog).getByRole("button", { name: "Close" }))
 
-    const editTrigger = screen.getByRole("button", {
-      name: "Edit current subscription",
-    })
+    const editTrigger = screen.getByRole("button", { name: "Queue menu" })
     await user.click(editTrigger)
+    await user.click(screen.getByRole("menuitem", { name: "Edit current subscription", hidden: true }))
     const editDialog = screen.getByRole("dialog", {
       name: "Edit current subscription",
     })
@@ -514,7 +515,7 @@ describe("Reader workspace", () => {
     await waitFor(() => expect(restoredTrigger).toHaveFocus())
   })
 
-  it("reopens mobile sources and restores focus after editing the selected feed", async () => {
+  it("restores focus to the compact queue menu without reopening sources after editing", async () => {
     activateLocale("en")
     const user = userEvent.setup()
     const controller = fakeController({
@@ -549,24 +550,61 @@ describe("Reader workspace", () => {
       </Providers>,
     )
 
-    await user.click(await screen.findByRole("button", { name: "Open sources" }))
-    const sources = await screen.findByRole("dialog", { name: "Sources" })
-    await user.click(within(sources).getByRole("button", {
-      name: "Edit current subscription",
-    }))
+    const menuTrigger = screen.getByRole("button", { name: "Queue menu" })
+    await user.click(menuTrigger)
+    await user.click(screen.getByRole("menuitem", { name: "Edit current subscription", hidden: true }))
     const editDialog = await screen.findByRole("dialog", {
       name: "Edit current subscription",
     })
     await user.click(within(editDialog).getByRole("button", { name: "Close" }))
 
-    const reopenedSources = await screen.findByRole("dialog", { name: "Sources" })
-    const restoredTrigger = within(reopenedSources).getByRole("button", {
-      name: "Edit current subscription",
+    await waitFor(() => expect(menuTrigger).toHaveFocus())
+    expect(screen.queryByRole("dialog", { name: "Sources" })).not.toBeInTheDocument()
+  })
+
+  it.each(["QUEUED", "RUNNING"] as const)("disables current-subscription refresh while %s", async (pendingState) => {
+    activateLocale("en")
+    const user = userEvent.setup()
+    const subscription = makeSubscription({
+      refresh: {
+        operationId: "00000000-0000-4000-8000-000000000401",
+        state: "PENDING",
+        pendingState,
+        newCount: 0,
+        updatedCount: 0,
+        droppedCount: 0,
+        entryIssues: [],
+        generation: null,
+        errorCode: null,
+        retryAt: null,
+        lastSuccessAt: null,
+        queuedAt: "2026-07-18T02:00:00.000000Z",
+        startedAt: null,
+        completedAt: null,
+      },
     })
-    await waitFor(() => expect(restoredTrigger).toHaveFocus())
+    const controller = fakeController({
+      selectedSource: { kind: "feed", feedId: subscription.feedId },
+      subscriptionsById: { [subscription.subscriptionId]: subscription },
+      subscriptionOrder: [subscription.subscriptionId],
+      paneStatus: { subscriptions: "ready", queue: "ready", detail: "idle" },
+    })
+    window.history.replaceState(null, "", `/reader/feed/${subscription.feedId}`)
+    render(
+      <Providers>
+        <ReaderRoutes controller={controller} username="reader" onLogout={vi.fn()} viewportMode="wide" />
+      </Providers>,
+    )
+
+    await user.click(screen.getByRole("button", { name: "Queue menu" }))
+    const refresh = screen.getByRole("menuitem", { name: "Refresh Example Feed", hidden: true })
+    expect(refresh).toHaveAttribute("aria-disabled", "true")
+    await user.click(refresh)
+    expect(controller.refreshSubscription).not.toHaveBeenCalled()
   })
 
   it("does not expose subscription editing from a partial cached subscription", async () => {
+    const user = userEvent.setup()
     const controller = fakeController({
       selectedSource: { kind: "feed", feedId: "feed-rust" },
       subscriptionsAuthoritative: false,
@@ -598,10 +636,12 @@ describe("Reader workspace", () => {
       </Providers>,
     )
 
-    expect(screen.queryByRole("button", {
+    await user.click(screen.getByRole("button", { name: "Queue menu" }))
+    expect(screen.queryByRole("menuitem", {
       name: "Edit current subscription",
+      hidden: true,
     })).not.toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Refresh Planet Rust" })).toBeVisible()
+    expect(screen.getByRole("menuitem", { name: "Refresh Planet Rust", hidden: true })).toBeInTheDocument()
   })
 
   it("reopens mobile sources and restores MoreMenu focus after settings", async () => {

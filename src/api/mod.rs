@@ -6,6 +6,7 @@ mod entries;
 mod error;
 mod events;
 mod json;
+mod mcp;
 mod media;
 mod preferences;
 mod profile;

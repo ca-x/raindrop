@@ -16,12 +16,12 @@ import {
   entryQueueDensityStyle,
 } from "./entryDensity"
 import { FeedSearchInput } from "./FeedSearchInput"
-import { QueueToolbar, type MarkReadAvailability } from "./QueueToolbar"
+import { QueueToolbar, type MarkReadAvailability, type QueueSubscriptionActions } from "./QueueToolbar"
 import { RelativeEntryTime } from "./RelativeEntryTime"
 import { ReaderEmptyIcon } from "./ReaderEmptyIcon"
 import { StarIcon } from "./StarIcon"
 
-interface EntryQueueProps {
+interface EntryQueueProps extends QueueSubscriptionActions {
   state: ReaderState
   sourceLabel: string
   showMenu: boolean
@@ -63,6 +63,9 @@ export function EntryQueue({
   savedScrollOffset,
   onRecordScroll,
   onReload,
+  onEditSubscription,
+  subscriptionMenuRef,
+  subscriptionRefresh,
   onRetry = async () => false,
   onLoadMore = async () => false,
   onSearchFeed,
@@ -127,6 +130,9 @@ export function EntryQueue({
     >
       <div className="reader-pane-progress" aria-hidden="true" />
       <QueueToolbar
+        onEditSubscription={onEditSubscription}
+        subscriptionMenuRef={subscriptionMenuRef}
+        subscriptionRefresh={subscriptionRefresh}
         sourceLabel={sourceLabel}
         entryCount={queue.length}
         showMenu={showMenu}

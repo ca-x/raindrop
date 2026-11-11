@@ -4,12 +4,18 @@ import { Kbd } from "@astryxdesign/core/Kbd"
 import { MoreMenu } from "@astryxdesign/core/MoreMenu"
 import { Toolbar } from "@astryxdesign/core/Toolbar"
 import { useLingui } from "@lingui/react"
-import { useState } from "react"
+import { useState, type Ref } from "react"
 import { RefreshIcon } from "./ReaderToolbar"
 
 export type MarkReadAvailability = "hidden" | "disabled" | "enabled"
 
-interface QueueToolbarProps {
+export interface QueueSubscriptionActions {
+  onEditSubscription?: () => void
+  subscriptionMenuRef?: Ref<HTMLButtonElement>
+  subscriptionRefresh?: { label: string; onRefresh: () => Promise<void>; isDisabled: boolean }
+}
+
+interface QueueToolbarProps extends QueueSubscriptionActions {
   sourceLabel: string
   entryCount: number
   showMenu: boolean
@@ -65,9 +71,25 @@ export function QueueToolbar(props: QueueToolbarProps) {
       endContent={
         <>
           <MoreMenu
+            className="reader-queue-menu"
+            ref={props.subscriptionMenuRef}
             label={i18n._("reader.queueMenu")}
             size="lg"
             items={[
+              ...(props.subscriptionRefresh ? [{
+                label: props.subscriptionRefresh.label,
+                onClick: () => void props.subscriptionRefresh?.onRefresh(),
+                isDisabled: props.subscriptionRefresh.isDisabled,
+                icon: <RefreshIcon />,
+              }] : []),
+              ...(props.onEditSubscription ? [{
+                label: i18n._("reader.editSubscription"),
+                onClick: props.onEditSubscription,
+                icon: <Icon icon="wrench" />,
+              }] : []),
+              ...(props.subscriptionRefresh || props.onEditSubscription
+                ? [{ type: "divider" as const }]
+                : []),
               {
                 label: i18n._("reader.nextUnreadSource"),
                 onClick: () => void props.onNextUnreadSource(),

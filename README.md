@@ -2,6 +2,13 @@
 
 Raindrop 是使用 Rust、Axum、SeaORM 和 React 构建的自托管 RSS 阅读器。它提供安全的 Feed 抓取与正文清洗、分类管理、未读与收藏状态、Feed 内搜索、批量已读、键盘导航、响应式阅读界面，以及 SQLite、PostgreSQL、MySQL 三种数据库支持。生产 Web 界面会嵌入单个 Rust 可执行文件。
 
+## v0.7.0
+
+- 当前订阅的刷新与编辑统一放到文章列表标题栏的「…」菜单，左侧只保留添加与全局设置；添加按钮在鼠标静止时更克制，悬停、键盘聚焦与触摸端保持清晰可见。
+- 新增「插件 → MCP 接入」，外部 AI 可通过 Streamable HTTP 只读访问当前账户的订阅、文章列表和正文，无需配置 AI Provider。
+- 支持命名 token、30/90/365 天有效期、最近使用时间与撤销确认；明文仅创建时显示一次，服务端只保存摘要。无有效 token 时不开放访问。
+- 详见 [MCP 接入与安全边界](docs/mcp.md)。升级会自动添加 token 表，不改变已有订阅、阅读状态或插件配置。
+
 ## v0.6.6
 
 - AI Provider 默认支持 HTTP/HTTPS、公网、局域网、内部域名、localhost 与 IPv4/IPv6，无需配置网络白名单。
@@ -273,6 +280,22 @@ Raindrop 是使用 Rust、Axum、SeaORM 和 React 构建的自托管 RSS 阅读�
 
 ## 界面预览
 
+### v0.7.0：订阅操作与 MCP 接入
+
+当前订阅操作收进文章列表「…」菜单；以下为新版生产构建的自动化测试场景，使用演示订阅数据。
+
+![当前订阅的刷新和编辑位于文章列表菜单](docs/assets/screenshots/reader-subscription-actions.png)
+
+MCP 插件支持独立命名凭据、有效期、最近使用与撤销。截图使用临时测试账户，明文 token 已隐藏，测试结束后凭据撤销。
+
+![MCP 接入：只读权限与 token 管理](docs/assets/screenshots/mcp-desktop.png)
+
+<p align="center">
+  <img src="docs/assets/screenshots/mcp-mobile.png" width="390" alt="移动端 MCP 凭据管理，无需悬停即可查看和撤销">
+</p>
+
+### 阅读视图
+
 桌面端同时呈现来源、文章队列和正文；移动端收敛为专注阅读视图。以下截图来自本地 `v0.4.0` 实例实际订阅并刷新 `https://www.ithome.com/rss/` 后的界面。
 
 ![Raindrop 桌面阅读器：来源、文章队列与正文三栏视图](docs/assets/screenshots/reader-desktop.png)
@@ -281,7 +304,7 @@ Raindrop 是使用 Rust、Axum、SeaORM 和 React 构建的自托管 RSS 阅读�
   <img src="docs/assets/screenshots/reader-mobile.png" width="390" alt="Raindrop 移动端文章阅读视图">
 </p>
 
-当前 binary 会随 Cargo 自动构建并静态链接官方 Rust 插件 `raindrop.ai-content@1.0.0`，由 Rutis 管理类型化服务与生命周期，并验签内嵌的构建输入清单。完成设置后，进程会把 installation 幂等同步到数据库；旧 installation 原地更新 ABI 与构建摘要，用户配置、授权、KV 和已有结果不会被删除。插件属于可信原生代码，不是隔离沙箱；不支持第三方动态库加载。SQLite 和交互式设置会在数据目录中创建持久化 `provider-secret.key`；显式配置 `RAINDROP_PROVIDER_SECRET_KEYS` 时始终优先使用配置的可轮换 keyring。用户可以在“设置 > 插件”中管理 Anthropic Messages-compatible、OpenAI Responses、OpenAI Chat Completions-compatible 和 Google Gemini Provider，AI Assistant 负责摘要与归纳，独立翻译插件负责 OpenAI 或 DeepLX 全文翻译与查词。Provider Credential 和 DeepLX API Key 均只写入、按用户加密保存，不会从 API 或界面回读；摘要与译文都不替换原文，关闭、切换或执行失败不会阻塞阅读。自动入队、Feed 生命周期投递、MCP transport 和第三方插件分发仍是后续工作。
+当前 binary 会随 Cargo 自动构建并静态链接官方 Rust 插件 `raindrop.ai-content@1.0.0`，由 Rutis 管理类型化服务与生命周期，并验签内嵌的构建输入清单。完成设置后，进程会把 installation 幂等同步到数据库；旧 installation 原地更新 ABI 与构建摘要，用户配置、授权、KV 和已有结果不会被删除。插件属于可信原生代码，不是隔离沙箱；不支持第三方动态库加载。SQLite 和交互式设置会在数据目录中创建持久化 `provider-secret.key`；显式配置 `RAINDROP_PROVIDER_SECRET_KEYS` 时始终优先使用配置的可轮换 keyring。用户可以在“设置 > 插件”中管理 Anthropic Messages-compatible、OpenAI Responses、OpenAI Chat Completions-compatible 和 Google Gemini Provider，AI Assistant 负责摘要与归纳，独立翻译插件负责 OpenAI 或 DeepLX 全文翻译与查词。Provider Credential 和 DeepLX API Key 均只写入、按用户加密保存，不会从 API 或界面回读；摘要与译文都不替换原文，关闭、切换或执行失败不会阻塞阅读。内置 MCP 接入供外部 AI 只读访问阅读数据，使用独立 token 管理；AI 内容插件调用外部 MCP 的 transport、自动入队、Feed 生命周期投递和第三方插件分发仍是后续工作。
 
 ### 可选 Tambo 交互阅读
 

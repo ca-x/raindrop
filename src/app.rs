@@ -29,6 +29,8 @@ pub struct AppState {
     pub(crate) setup: SetupService,
     pub(crate) database_maintenance: api::DatabaseMaintenance,
     pub(crate) login_limiter: RateLimiter,
+    pub(crate) mcp_user_limiter: UserMutationLimiter,
+    pub(crate) mcp_token_limiter: UserMutationLimiter,
     pub(crate) login_authentication_semaphore: Arc<Semaphore>,
     pub(crate) login_account_throttle: AccountThrottle,
     pub(crate) setup_limiter: RateLimiter,
@@ -92,6 +94,12 @@ impl AppState {
             setup,
             database_maintenance: api::DatabaseMaintenance::default(),
             login_limiter: RateLimiter::new(4_096, std::time::Duration::from_secs(15 * 60)),
+            mcp_user_limiter: UserMutationLimiter::with_limits(
+                120,
+                std::time::Duration::from_secs(60),
+                10_000,
+            ),
+            mcp_token_limiter: UserMutationLimiter::new(),
             login_authentication_semaphore: Arc::new(Semaphore::new(4)),
             login_account_throttle: AccountThrottle::new(
                 std::time::Duration::from_secs(15 * 60),

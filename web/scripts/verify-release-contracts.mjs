@@ -176,6 +176,10 @@ for (const packagedFile of [
   ".env.example",
   "docs/assets/screenshots/reader-desktop.png",
   "docs/assets/screenshots/reader-mobile.png",
+  "docs/assets/screenshots/reader-subscription-actions.png",
+  "docs/assets/screenshots/mcp-desktop.png",
+  "docs/assets/screenshots/mcp-mobile.png",
+  "docs/mcp.md",
   "SHA256SUMS",
 ]) {
   requireMatch(binaryWorkflow, new RegExp(escapeRegExp(packagedFile), "u"), `packaged ${packagedFile}`)
@@ -183,6 +187,9 @@ for (const packagedFile of [
 for (const screenshot of [
   "docs/assets/screenshots/reader-desktop.png",
   "docs/assets/screenshots/reader-mobile.png",
+  "docs/assets/screenshots/reader-subscription-actions.png",
+  "docs/assets/screenshots/mcp-desktop.png",
+  "docs/assets/screenshots/mcp-mobile.png",
 ]) {
   requireMatch(readme, new RegExp(escapeRegExp(screenshot), "u"), `README screenshot ${screenshot}`)
   requireAsset(screenshot)

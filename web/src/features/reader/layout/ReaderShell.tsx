@@ -31,6 +31,7 @@ import {
   type ReaderSource,
 } from "../model/types"
 import { selectedSourceLabel } from "../model/sourcePresentation"
+import { refreshPresentation } from "../refresh/refreshPresentation"
 import type { ReaderController } from "../model/useReaderController"
 import { pathForEntry, type ReaderRouteMatch } from "../routes/readerRoute"
 import { ReaderWorkspacePanels } from "./ReaderWorkspacePanels"
@@ -120,12 +121,11 @@ export function ReaderShell(props: ReaderShellProps) {
   const lastPointerPosition = useRef<{ x: number; y: number } | null>(null)
   const suppressedAtPointerPosition = useRef<{ x: number; y: number } | null>(null)
   const managementButtonRef = useRef<HTMLButtonElement>(null)
-  const editSubscriptionButtonRef = useRef<HTMLButtonElement>(null)
+  const subscriptionMenuRef = useRef<HTMLButtonElement>(null)
   const preferencesButtonRef = useRef<HTMLButtonElement>(null)
   const articlePanelRef = useRef<HTMLDivElement>(null)
   const preferencesOpenedFromArticle = useRef(false)
   const reopenSourcesAfterManagement = useRef(false)
-  const reopenSourcesAfterSubscriptionEdit = useRef(false)
   const reopenSourcesAfterPreferences = useRef(false)
   const reopenSourcesAfterMarkRead = useRef(false)
   const sources = useResizable({ defaultSize: 240, minSizePx: 200, maxSizePx: 340, autoSaveId: "reader-sources" })
@@ -349,15 +349,6 @@ export function ReaderShell(props: ReaderShellProps) {
         }
         setIsManagementOpen(true)
       }}
-      onEditSubscription={() => {
-        if (!editableSubscription) return
-        reopenSourcesAfterSubscriptionEdit.current = shouldReopenMobileSources
-        if (reopenSourcesAfterSubscriptionEdit.current) {
-          mobileNavRef.current?.close()
-          setIsNavOpen(false)
-        }
-        setIsSubscriptionEditOpen(true)
-      }}
       onPreferences={() => {
         setPreferencesInitialTab("personal")
         reopenSourcesAfterPreferences.current = shouldReopenMobileSources
@@ -367,7 +358,6 @@ export function ReaderShell(props: ReaderShellProps) {
         }
         setIsPreferencesOpen(true)
       }}
-      onRefresh={props.controller.refreshSubscription}
       onRetrySubscriptions={props.controller.reloadSubscriptions}
       onLogout={async () => {
         mobileNavRef.current?.close()
@@ -375,7 +365,6 @@ export function ReaderShell(props: ReaderShellProps) {
         await props.onLogout()
       }}
       manageButtonRef={managementButtonRef}
-      editSubscriptionButtonRef={editSubscriptionButtonRef}
       preferencesButtonRef={preferencesButtonRef}
       density={toAstryxDensity(
         props.preferencesController.preferences.layoutDensity,
@@ -384,6 +373,13 @@ export function ReaderShell(props: ReaderShellProps) {
   )
   const queuePane = (
     <EntryQueue
+      subscriptionMenuRef={subscriptionMenuRef}
+      onEditSubscription={editableSubscription ? () => setIsSubscriptionEditOpen(true) : undefined}
+      subscriptionRefresh={selectedSubscription ? {
+        label: i18n._("reader.refreshFeed", { title: selectedSubscription.title }),
+        onRefresh: () => props.controller.refreshSubscription(selectedSubscription.subscriptionId),
+        isDisabled: refreshPresentation(selectedSubscription.refresh).isPending,
+      } : undefined}
       state={props.controller.state}
       sourceLabel={sourceLabel}
       showMenu={props.viewportMode !== "wide"}
@@ -588,15 +584,7 @@ export function ReaderShell(props: ReaderShellProps) {
         onOpenChange={(open) => {
           setIsSubscriptionEditOpen(open)
           if (open) return
-          if (reopenSourcesAfterSubscriptionEdit.current) {
-            reopenSourcesAfterSubscriptionEdit.current = false
-            setIsNavOpen(true)
-            requestAnimationFrame(() =>
-              requestAnimationFrame(() => editSubscriptionButtonRef.current?.focus()),
-            )
-            return
-          }
-          requestAnimationFrame(() => editSubscriptionButtonRef.current?.focus())
+          requestAnimationFrame(() => subscriptionMenuRef.current?.focus())
         }}
       />
       {isPreferencesOpen ? <Suspense fallback={

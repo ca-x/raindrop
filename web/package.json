@@ -1,6 +1,6 @@
 {
   "name": "raindrop-web",
-  "version": "0.6.6",
+  "version": "0.7.0",
   "private": true,
   "type": "module",
   "packageManager": "npm@12.0.1",

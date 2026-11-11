@@ -603,12 +603,24 @@ test("Reader refresh observability", async ({ page }, testInfo) => {
     }
     await completeSetup(page, refreshServer, createCredentials())
     const sources = await selectQuietWebAndShowSources(page, refreshServer.baseURL)
-    const refreshButton = sources.getByRole("button", { name: "Refresh Quiet Web" })
+    const sourceOverlay = page.getByRole("dialog", { name: "Sources" })
+    const isSourceOverlay = await sourceOverlay.isVisible()
+    if (isSourceOverlay) {
+      await page.keyboard.press("Escape")
+      await expect(sourceOverlay).not.toBeVisible()
+    }
+    const queueMenu = page.getByRole("button", { name: "Queue menu" })
+    await expectTouchTarget(queueMenu)
+    await queueMenu.click()
+    const refreshItem = page.getByRole("menuitem", { name: "Refresh Quiet Web" })
+    await expect(refreshItem).toBeVisible()
+    if (testInfo.project.use.hasTouch) await expectTouchTarget(refreshItem)
+    if (testInfo.project.name === "reader-1280x800") await refreshItem.click()
+    else await page.keyboard.press("Escape")
+    if (isSourceOverlay) await page.getByRole("button", { name: "Open sources" }).click()
     const refresh = sources.locator(".reader-refresh-ready")
     const refreshStatus = refresh.getByRole("status")
     const refreshSummary = refresh.locator("summary")
-    await expectTouchTarget(refreshButton)
-    if (testInfo.project.name === "reader-1280x800") await refreshButton.click()
     await expect(refresh).toHaveJSProperty("open", false)
     const initialSummaryBounds = await refreshSummary.boundingBox()
 
@@ -616,7 +628,9 @@ test("Reader refresh observability", async ({ page }, testInfo) => {
       case "reader-1280x800":
         await expect(refreshStatus).toHaveText("Queued for refresh")
         await expect(refresh.getByText("Waiting for a refresh worker.")).toBeHidden()
-        await expect(refreshButton).toHaveAttribute("aria-disabled", "true")
+        await queueMenu.click()
+        await expect(refreshItem).toHaveAttribute("aria-disabled", "true")
+        await page.keyboard.press("Escape")
         await refreshSummary.click()
         await expect(refresh.getByText("Waiting for a refresh worker.")).toBeVisible()
         await expect(refresh.getByText("Fetching and processing feed updates.")).toBeVisible({
@@ -894,9 +908,8 @@ async function selectQuietWebAndShowSources(page: Page, baseURL: string) {
 }
 
 async function expectTouchTarget(locator: ReturnType<Page["getByRole"]>): Promise<void> {
-  const box = await locator.boundingBox()
-  expect(box?.width ?? 0).toBeGreaterThanOrEqual(44)
-  expect(box?.height ?? 0).toBeGreaterThanOrEqual(44)
+  await expect.poll(async () => (await locator.boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(44)
+  await expect.poll(async () => (await locator.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44)
 }
 
 async function installSelectionTranslationFixture(page: Page): Promise<{

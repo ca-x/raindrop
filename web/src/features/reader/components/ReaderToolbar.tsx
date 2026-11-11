@@ -29,24 +29,18 @@ import { StarIcon } from "./StarIcon"
 
 interface SourceToolbarProps {
   onManage: () => void
-  onEditSubscription?: () => void
   onPreferences: () => void
   onLogout: () => Promise<void>
   manageButtonRef?: Ref<HTMLButtonElement>
-  editSubscriptionButtonRef?: Ref<HTMLButtonElement>
   preferencesButtonRef?: Ref<HTMLButtonElement>
-  refresh?: { label: string; onRefresh: () => Promise<void>; isDisabled: boolean }
 }
 
 export function SourceToolbar({
   onManage,
-  onEditSubscription,
   onPreferences,
   onLogout,
   manageButtonRef,
-  editSubscriptionButtonRef,
   preferencesButtonRef,
-  refresh,
 }: SourceToolbarProps) {
   const { i18n } = useLingui()
   return (
@@ -58,6 +52,7 @@ export function SourceToolbar({
       endContent={
         <>
           <Button
+            className="reader-source-add"
             ref={manageButtonRef}
             label={i18n._("reader.manageSubscriptions")}
             icon={<PlusIcon />}
@@ -66,28 +61,6 @@ export function SourceToolbar({
             onClick={onManage}
             variant="ghost"
           />
-          {refresh ? (
-            <Button
-              label={refresh.label}
-              icon={<RefreshIcon />}
-              isIconOnly
-              tooltip={refresh.label}
-              onClick={() => void refresh.onRefresh()}
-              isDisabled={refresh.isDisabled}
-              variant="ghost"
-            />
-          ) : null}
-          {onEditSubscription ? (
-            <Button
-              ref={editSubscriptionButtonRef}
-              label={i18n._("reader.editSubscription")}
-              icon={<Icon icon="wrench" />}
-              isIconOnly
-              tooltip={i18n._("reader.editSubscription")}
-              onClick={onEditSubscription}
-              variant="ghost"
-            />
-          ) : null}
           <MoreMenu
             ref={preferencesButtonRef}
             label={i18n._("common.menu")}

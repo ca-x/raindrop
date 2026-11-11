@@ -159,7 +159,7 @@ fn single_header<'a>(headers: &'a HeaderMap, name: &str) -> Result<Option<&'a st
         .map_err(|_| AuthRejection::Forbidden)
 }
 
-fn verify_origin(headers: &HeaderMap) -> Result<(), AuthRejection> {
+pub(crate) fn verify_origin(headers: &HeaderMap) -> Result<(), AuthRejection> {
     let Some(origin) = single_header(headers, ORIGIN.as_str())? else {
         return Ok(());
     };

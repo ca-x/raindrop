@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { createRef } from "react"
 
 import { Providers } from "../../app/Providers"
 import { activateLocale } from "../../shared/i18n/i18n"
@@ -19,6 +20,48 @@ it("bounds and normalizes publisher summaries for queue rows", () => {
 })
 
 describe("Reader queue actions", () => {
+  it("dispatches subscription actions from the queue menu and exposes its stable trigger ref", async () => {
+    activateLocale("en")
+    const user = userEvent.setup()
+    const onRefresh = vi.fn().mockResolvedValue(undefined)
+    const onEditSubscription = vi.fn()
+    const subscriptionMenuRef = createRef<HTMLButtonElement>()
+    renderQueue(feedState(), {
+      subscriptionMenuRef,
+      onEditSubscription,
+      subscriptionRefresh: { label: "Refresh Planet Rust", onRefresh, isDisabled: false },
+    })
+
+    const trigger = screen.getByRole("button", { name: "Queue menu" })
+    expect(subscriptionMenuRef.current).toBe(trigger)
+    expect(screen.queryByRole("button", { name: "Refresh Planet Rust" })).not.toBeInTheDocument()
+    trigger.focus()
+    await user.keyboard("{ArrowDown}")
+    const refresh = screen.getByRole("menuitem", { name: "Refresh Planet Rust", hidden: true })
+    await waitFor(() => expect(refresh).toHaveFocus())
+    await user.keyboard("{Enter}")
+    expect(onRefresh).toHaveBeenCalledOnce()
+    await waitFor(() => expect(trigger).toHaveFocus())
+
+    await user.click(trigger)
+    await user.click(screen.getByRole("menuitem", { name: "Edit current subscription", hidden: true }))
+    expect(onEditSubscription).toHaveBeenCalledOnce()
+    expect(subscriptionMenuRef.current).toBe(trigger)
+  })
+
+  it("omits subscription actions for smart sources and preserves reload", async () => {
+    activateLocale("en")
+    const user = userEvent.setup()
+    const onReload = vi.fn().mockResolvedValue(undefined)
+    renderQueue(smartState("UNREAD"), { onReload })
+
+    await user.click(screen.getByRole("button", { name: "Reload stored entries" }))
+    expect(onReload).toHaveBeenCalledOnce()
+    await user.click(screen.getByRole("button", { name: "Queue menu" }))
+    expect(screen.queryByRole("menuitem", { name: /^Refresh /, hidden: true })).not.toBeInTheDocument()
+    expect(screen.queryByRole("menuitem", { name: "Edit current subscription", hidden: true })).not.toBeInTheDocument()
+  })
+
   it("keeps the active source and visible entry count in the queue heading", () => {
     activateLocale("en")
     const state = feedState({

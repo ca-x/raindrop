@@ -22,9 +22,7 @@ it("offers the primary subscription action from the empty state", async () => {
         onSelect={vi.fn()}
         onMoveSubscription={vi.fn(async () => true)}
         onManage={onManage}
-        onEditSubscription={vi.fn()}
         onPreferences={vi.fn()}
-        onRefresh={vi.fn()}
         onLogout={vi.fn()}
         density="balanced"
       />
@@ -35,7 +33,7 @@ it("offers the primary subscription action from the empty state", async () => {
   expect(onManage).toHaveBeenCalledOnce()
 })
 
-it("disables redundant refresh while the selected feed is queued", () => {
+it("keeps selected-feed status in sources without subscription toolbar actions", () => {
   activateLocale("en")
   const subscription = makeSubscription({
     refresh: {
@@ -67,19 +65,15 @@ it("disables redundant refresh while the selected feed is queued", () => {
         onSelect={vi.fn()}
         onMoveSubscription={vi.fn(async () => true)}
         onManage={vi.fn()}
-        onEditSubscription={vi.fn()}
         onPreferences={vi.fn()}
-        onRefresh={vi.fn()}
         onLogout={vi.fn()}
         density="balanced"
       />
     </Providers>,
   )
 
-  expect(screen.getByRole("button", { name: "Refresh Example Feed" })).toHaveAttribute(
-    "aria-disabled",
-    "true",
-  )
+  expect(screen.queryByRole("button", { name: "Refresh Example Feed" })).not.toBeInTheDocument()
+  expect(screen.queryByRole("button", { name: "Edit current subscription" })).not.toBeInTheDocument()
   expect(screen.getByText("Queued for refresh")).toBeVisible()
   fireEvent.click(screen.getByText("Queued for refresh"))
   expect(screen.getByText("Waiting for a refresh worker.")).toBeVisible()

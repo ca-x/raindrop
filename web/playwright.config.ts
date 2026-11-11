@@ -24,6 +24,15 @@ export default defineConfig({
       { width: 390, height: 844 },
       { width: 360, height: 800 },
     ].map((viewport) => ({
+      name: `mcp-${viewport.width}x${viewport.height}`,
+      testMatch: /mcp-settings\.spec\.ts/,
+      use: { viewport, ...(viewport.width < 720 ? { hasTouch: true, isMobile: true } : {}) },
+    })),
+    ...[
+      { width: 1280, height: 800 },
+      { width: 390, height: 844 },
+      { width: 360, height: 800 },
+    ].map((viewport) => ({
       name: `settings-${viewport.width}x${viewport.height}`,
       testMatch: /(?:progressive|appearance|interface)-settings\.spec\.ts/,
       use: { viewport, ...(viewport.width < 720 ? { hasTouch: true, isMobile: true } : {}) },

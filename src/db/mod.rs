@@ -1,6 +1,7 @@
 mod connect;
 pub mod entities;
 pub mod maintenance;
+pub(crate) mod mcp;
 mod migration;
 
 pub use connect::{DatabaseConfig, DbError, connect, connect_reader};

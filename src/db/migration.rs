@@ -9,6 +9,7 @@ mod article_retention;
 mod backups;
 mod bootstrap_state;
 mod content_jobs;
+mod mcp;
 mod organization;
 mod plugins;
 mod preferences;
@@ -72,6 +73,7 @@ impl MigratorTrait for Migrator {
             Box::new(backups::CreateSubscriptionBackups),
             Box::new(article_retention::CreateArticleRetention),
             Box::new(appearance_preferences::AddAppearancePreferences),
+            Box::new(mcp::CreateMcpTokens),
         ]
     }
 }

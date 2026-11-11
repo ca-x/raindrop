@@ -9,7 +9,6 @@ import { useState, type Ref } from "react"
 
 import { CategoryList } from "../categories/CategoryList"
 import {
-  isAuthoritativeSubscription,
   type ReaderSource,
   type ReaderState,
 } from "../model/types"
@@ -29,13 +28,10 @@ interface SourceTreeProps {
   ) => Promise<boolean>
   isMarkingRead?: boolean
   onManage: () => void
-  onEditSubscription: () => void
   onPreferences: () => void
-  onRefresh: (subscriptionId: string) => Promise<void>
   onRetrySubscriptions?: () => Promise<boolean>
   onLogout: () => Promise<void>
   manageButtonRef?: Ref<HTMLButtonElement>
-  editSubscriptionButtonRef?: Ref<HTMLButtonElement>
   preferencesButtonRef?: Ref<HTMLButtonElement>
   density: TreeListDensity
 }
@@ -47,13 +43,10 @@ export function SourceTree({
   onMoveSubscription,
   isMarkingRead = false,
   onManage,
-  onEditSubscription,
   onPreferences,
-  onRefresh,
   onRetrySubscriptions = async () => false,
   onLogout,
   manageButtonRef,
-  editSubscriptionButtonRef,
   preferencesButtonRef,
   density,
 }: SourceTreeProps) {
@@ -83,23 +76,10 @@ export function SourceTree({
       </span>
       <SourceToolbar
         onManage={onManage}
-        onEditSubscription={
-          state.subscriptionsAuthoritative &&
-          selectedSubscription &&
-          isAuthoritativeSubscription(selectedSubscription)
-            ? onEditSubscription
-            : undefined
-        }
         onPreferences={onPreferences}
         onLogout={onLogout}
         manageButtonRef={manageButtonRef}
-        editSubscriptionButtonRef={editSubscriptionButtonRef}
         preferencesButtonRef={preferencesButtonRef}
-        refresh={selectedSubscription ? {
-          label: i18n._("reader.refreshFeed", { title: selectedSubscription.title }),
-          onRefresh: () => onRefresh(selectedSubscription.subscriptionId),
-          isDisabled: selectedRefresh?.isPending ?? false,
-        } : undefined}
       />
       {state.subscriptionOrder.length > 6 ? (
         <div className="reader-source-search">

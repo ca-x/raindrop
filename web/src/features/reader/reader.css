@@ -663,6 +663,10 @@
 }
 
 @media (hover: hover) and (pointer: fine) {
+  .reader-source-add:not(:hover):not(:focus):not(:active) {
+    opacity: 0.55;
+  }
+
   .reader-source-mark-read {
     position: absolute;
     inset-block-start: 50%;
@@ -3310,6 +3314,10 @@ html[lang^="zh"] .ai-artifact-view {
 }
 
 @media (hover: none), (pointer: coarse) {
+  .reader-queue-menu [role="menuitem"] {
+    min-block-size: 44px;
+  }
+
   .reader-source-tree .reader-source-list [role="treeitem"],
   .reader-source-tree
     .reader-source-list

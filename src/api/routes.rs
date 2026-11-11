@@ -55,6 +55,7 @@ pub fn router() -> Router<AppState> {
         .merge(super::events::router())
         .merge(super::preferences::router())
         .merge(super::profile::router())
+        .merge(super::mcp::router())
         .merge(super::subscriptions::router())
         .merge(super::subscriptions::media_router())
         .merge(super::translation::router())

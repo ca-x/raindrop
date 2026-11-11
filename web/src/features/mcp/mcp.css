@@ -1,0 +1,100 @@
+.reader-mcp-settings {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
+  min-inline-size: 0;
+}
+
+.reader-mcp-settings h4,
+.reader-mcp-settings p {
+  margin: 0;
+}
+
+.reader-mcp-boundary,
+.reader-mcp-secret,
+.reader-mcp-create,
+.reader-mcp-connection[open] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+.reader-mcp-secret {
+  border-inline-start: 2px solid var(--color-accent);
+  padding-inline-start: 16px;
+}
+
+.reader-mcp-secret textarea {
+  box-sizing: border-box;
+  inline-size: 100%;
+  resize: vertical;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 12px;
+  background: var(--color-background-muted);
+  color: var(--color-text-primary);
+  font: inherit;
+  font-family: monospace;
+  overflow-wrap: anywhere;
+}
+
+.reader-mcp-secret textarea:focus-visible,
+.reader-mcp-connection summary:focus-visible,
+.reader-mcp-connection pre:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.reader-mcp-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.reader-mcp-create > button {
+  justify-self: start;
+}
+
+.reader-mcp-tokens {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.reader-mcp-tokens li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-block: 16px;
+  border-block-end: 1px solid var(--color-border);
+}
+
+.reader-mcp-token-info {
+  display: grid;
+  gap: 4px;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
+.reader-mcp-connection summary {
+  cursor: pointer;
+  min-block-size: 44px;
+  align-content: center;
+}
+
+.reader-mcp-connection pre {
+  box-sizing: border-box;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  overflow-x: auto;
+  padding: 12px;
+  margin: 0;
+  border-radius: 6px;
+  background: var(--color-background-muted);
+  font-size: 12px;
+}
+
+.reader-mcp-endpoint {
+  overflow-wrap: anywhere;
+}

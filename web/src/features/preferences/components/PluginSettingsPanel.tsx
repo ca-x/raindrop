@@ -11,19 +11,24 @@ import { AiAssistantSettingsPanel } from "../../ai/settings/AiAssistantSettingsP
 import { ProviderSettingsPanel } from "../../ai/settings/ProviderSettingsPanel"
 import type { TranslationSettingsController } from "../../translation/model/useTranslationSettingsController"
 import { TranslationSettingsPanel } from "../../translation/settings/TranslationSettingsPanel"
+import { McpSettingsPanel } from "../../mcp/McpSettingsPanel"
 
 interface PluginSettingsPanelProps {
+  csrfToken?: string
+  onUnauthenticated?: () => void
   aiController: AiSettingsController
   translationController: TranslationSettingsController
   userId?: string
 }
 
-type PluginKey = "provider" | "assistant" | "translation"
+type PluginKey = "provider" | "assistant" | "translation" | "mcp"
 
 export function PluginSettingsPanel({
   aiController,
   translationController,
   userId,
+  csrfToken,
+  onUnauthenticated,
 }: PluginSettingsPanelProps) {
   const { i18n } = useLingui()
   const [activePlugin, setActivePlugin] = useState<PluginKey | null>(null)
@@ -55,6 +60,8 @@ export function PluginSettingsPanel({
             <ProviderSettingsPanel controller={aiController} onContinue={() => setActivePlugin(null)} />
           ) : activePlugin === "assistant" ? (
             <AiAssistantSettingsPanel controller={aiController} userId={userId} onOpenProviders={() => setActivePlugin("provider")} />
+          ) : activePlugin === "mcp" ? (
+            <McpSettingsPanel key={userId} csrfToken={csrfToken} onUnauthenticated={onUnauthenticated} />
           ) : (
             <TranslationSettingsPanel
               controller={translationController}
@@ -70,6 +77,7 @@ export function PluginSettingsPanel({
     key: PluginKey
     status: { variant: StatusDotVariant; label: string }
   }> = [
+    { key: "mcp", status: status("neutral", i18n._("mcp.readOnly")) },
     { key: "provider", status: providerStatus(aiController, (id) => i18n._(id)) },
     { key: "assistant", status: assistantStatus(aiController, (id) => i18n._(id)) },
     {

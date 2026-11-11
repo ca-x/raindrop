@@ -163,7 +163,7 @@ impl UserMutationLimiter {
         )
     }
 
-    fn with_limits(limit: u32, window: Duration, max_keys: usize) -> Self {
+    pub(crate) fn with_limits(limit: u32, window: Duration, max_keys: usize) -> Self {
         Self {
             inner: Arc::new(Mutex::new(UserMutationLimiterState {
                 users: HashMap::new(),

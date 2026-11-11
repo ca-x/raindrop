@@ -20,6 +20,12 @@ use crate::{
 #[derive(Clone, Default)]
 pub(crate) struct DatabaseMaintenance(pub Arc<Mutex<MaintenanceStatus>>);
 
+impl DatabaseMaintenance {
+    pub(crate) async fn is_running(&self) -> bool {
+        self.0.lock().await.running
+    }
+}
+
 #[derive(Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct MaintenanceStatus {
