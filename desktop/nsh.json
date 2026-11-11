@@ -1,0 +1,9 @@
+{
+  "name": "Raindrop Desktop",
+  "id": "io.github.ca-x.raindrop-desktop",
+  "version": "0.1.0",
+  "rust": ".",
+  "root": "App",
+  "appearance": "system",
+  "theme": "theme.json"
+}

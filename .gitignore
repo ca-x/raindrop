@@ -36,5 +36,8 @@ web/*.tsbuildinfo
 web/playwright-report/
 web/test-results/
 
+# Desktop release archives
+/dist/
+
 # OS metadata
 .DS_Store

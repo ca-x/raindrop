@@ -7,12 +7,22 @@ use secrecy::{ExposeSecret, SecretString};
 #[derive(Debug)]
 pub struct DatabaseConfig {
     url: SecretString,
+    sqlite_full_durability: bool,
 }
 
 impl DatabaseConfig {
     #[must_use]
     pub fn new(url: SecretString) -> Self {
-        Self { url }
+        Self {
+            url,
+            sqlite_full_durability: false,
+        }
+    }
+
+    #[must_use]
+    pub fn with_sqlite_full_durability(mut self) -> Self {
+        self.sqlite_full_durability = true;
+        self
     }
 }
 
@@ -52,11 +62,16 @@ pub async fn connect(config: &DatabaseConfig) -> Result<DatabaseConnection, DbEr
         .sqlx_logging(false);
 
     if is_sqlite {
+        let synchronous = if config.sqlite_full_durability {
+            SqliteSynchronous::Full
+        } else {
+            SqliteSynchronous::Normal
+        };
         options.map_sqlx_sqlite_opts(move |options| {
             let options = options
                 .foreign_keys(true)
                 .busy_timeout(Duration::from_secs(5))
-                .synchronous(SqliteSynchronous::Normal);
+                .synchronous(synchronous);
             if is_file_sqlite {
                 options.journal_mode(SqliteJournalMode::Wal)
             } else {
@@ -161,6 +176,40 @@ fn decode_hex(value: u8) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use super::sqlite_is_connection_local;
+
+    #[tokio::test]
+    async fn sqlite_full_durability_is_opt_in() {
+        use sea_orm::{ConnectionTrait, DbBackend, Statement};
+        use secrecy::SecretString;
+
+        for (config, expected) in [
+            (
+                super::DatabaseConfig::new(SecretString::from("sqlite::memory:")),
+                1,
+            ),
+            (
+                super::DatabaseConfig::new(SecretString::from("sqlite::memory:"))
+                    .with_sqlite_full_durability(),
+                2,
+            ),
+        ] {
+            let database = super::connect(&config).await.expect("database opens");
+            let row = database
+                .query_one(Statement::from_string(
+                    DbBackend::Sqlite,
+                    "PRAGMA synchronous",
+                ))
+                .await
+                .expect("durability query succeeds")
+                .expect("durability row");
+            assert_eq!(
+                row.try_get::<i32>("", "synchronous")
+                    .expect("durability value"),
+                expected
+            );
+            database.close().await.expect("database closes");
+        }
+    }
 
     #[test]
     fn sqlite_memory_detection_matches_connection_url_fields() {

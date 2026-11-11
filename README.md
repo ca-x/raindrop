@@ -2,6 +2,8 @@
 
 Raindrop 是使用 Rust、Axum、SeaORM 和 React 构建的自托管 RSS 阅读器。它提供安全的 Feed 抓取与正文清洗、分类管理、未读与收藏状态、Feed 内搜索、批量已读、键盘导航、响应式阅读界面，以及 SQLite、PostgreSQL、MySQL 三种数据库支持。生产 Web 界面会嵌入单个 Rust 可执行文件。
 
+另有独立的 [Raindrop Desktop 原生桌面开发预览](desktop/README.md)：Rust NSH 渲染，本地阅读无需外部服务或 Docker；支持中英文与浅色、深色、跟随系统主题。桌面版本独立使用 `raindrop-desktop-v*` tag，当前不等同于 Web 全功能版。
+
 ## v0.7.0
 
 - 当前订阅的刷新与编辑统一放到文章列表标题栏的「…」菜单，左侧只保留添加与全局设置；添加按钮在鼠标静止时更克制，悬停、键盘聚焦与触摸端保持清晰可见。
@@ -280,6 +282,24 @@ Raindrop 是使用 Rust、Axum、SeaORM 和 React 构建的自托管 RSS 阅读�
 
 ## 界面预览
 
+### 原生桌面开发预览（Linux）
+
+以下是 2026-11-11 运行 Rust NSH 桌面程序的真实窗口截图，使用隔离的本地资料库订阅 Rust Blog；不是 Web 页面或设计稿。窗口为 1200 × 800。macOS、Windows 尚待对应平台验证，不能以 Linux 截图代替验收。
+
+中文 · 浅色：原生三栏阅读、独立滚动与可调整面板。
+
+![Raindrop Desktop 原生桌面端：中文浅色阅读界面](docs/assets/screenshots/native-desktop-light-zh.png)
+
+English · Dark：语言与主题即时切换，不重置搜索或当前阅读位置。
+
+![Raindrop Desktop native reader in English with dark theme](docs/assets/screenshots/native-desktop-dark-en.png)
+
+外观设置在本机自动保存，支持简体中文 / English、跟随系统 / 浅色 / 深色；无需配置远端即可使用。
+
+![Raindrop Desktop 原生外观与语言设置](docs/assets/screenshots/native-desktop-settings.png)
+
+本地资料库独立运行；可选远端仅支持显式导入订阅、AI 配置参考和明确选中的新增订阅推送，**不宣称完整双向同步或远端 AI 执行**。详见 [桌面能力与限制](desktop/README.md) 和 [数据库与恢复设计](docs/desktop-storage.md)。
+
 ### v0.7.0：订阅操作与 MCP 接入
 
 当前订阅操作收进文章列表「…」菜单；以下为新版生产构建的自动化测试场景，使用演示订阅数据。
@@ -294,7 +314,7 @@ MCP 插件支持独立命名凭据、有效期、最近使用与撤销。截图�
   <img src="docs/assets/screenshots/mcp-mobile.png" width="390" alt="移动端 MCP 凭据管理，无需悬停即可查看和撤销">
 </p>
 
-### 阅读视图
+### Web 阅读视图
 
 桌面端同时呈现来源、文章队列和正文；移动端收敛为专注阅读视图。以下截图来自本地 `v0.4.0` 实例实际订阅并刷新 `https://www.ithome.com/rss/` 后的界面。
 

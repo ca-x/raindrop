@@ -1,0 +1,54 @@
+[package]
+name = "raindrop-desktop"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99.1"
+publish = false
+license = "MIT"
+description = "Local-first native Raindrop reader with optional remote synchronization"
+repository = "https://github.com/ca-x/raindrop"
+
+[workspace]
+
+[dependencies]
+nsh-core = "=0.4.0"
+nsh-base = "=0.4.0"
+env_logger = "0.11"
+futures-channel = "0.3"
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "cookies", "json", "rustls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+url = "2"
+zeroize = "1"
+raindrop = { path = ".." }
+axum = "0.8"
+directories = "6"
+sea-orm = { version = "1.1", default-features = false, features = ["runtime-tokio-rustls", "sqlx-sqlite"] }
+secrecy = "0.10"
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
+tower = { version = "0.5", features = ["util"] }
+uuid = { version = "1", features = ["v4"] }
+blake3 = "1.8"
+quick-xml = "=0.41.0"
+
+[patch.crates-io]
+hyper-util = { git = "https://github.com/apify/hyper-util", rev = "9b7795dfd7158fc55e7c84b65bf1dae1d2dea67d" }
+rustls = { path = "../vendor/rustls" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+nsh-platform-linux = { version = "=0.4.0", default-features = false }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+nsh-platform-macos = { version = "=0.4.0", default-features = false }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+nsh-platform-windows = { version = "=0.4.0", default-features = false }
+
+[dev-dependencies]
+nsh-engine = { version = "=0.4.0", default-features = false }
+nsh-testing = { version = "=0.4.0", default-features = false }
+tempfile = "3"
+
+[profile.release]
+lto = "thin"
+strip = "symbols"
