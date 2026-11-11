@@ -1,7 +1,7 @@
 {
   "name": "Raindrop Desktop",
   "id": "io.github.ca-x.raindrop-desktop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "rust": ".",
   "root": "App",
   "appearance": "system",

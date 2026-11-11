@@ -18,6 +18,8 @@ defaults:
 
 env:
   CARGO_TERM_COLOR: always
+  NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
+  NPM_CONFIG_REPLACE_REGISTRY_HOST: always
   RUSTUP_TOOLCHAIN: 1.99.1
   MACOSX_DEPLOYMENT_TARGET: "14.0"
 
