@@ -62,7 +62,10 @@ def package(target):
         for screenshot in (root / "docs/assets/screenshots").glob("native-desktop-*.png"):
             shutil.copy2(screenshot, staging / "docs/assets/screenshots" / screenshot.name)
         shutil.copy2(root / "LICENSE", staging / "LICENSE")
-        shutil.copy2(root / "vendor/THIRD_PARTY_NOTICES", staging / "THIRD_PARTY_NOTICES")
+        notices = (root / "vendor/THIRD_PARTY_NOTICES").read_text(encoding="utf-8")
+        notices += "\n\n" + (root / "desktop/THIRD_PARTY_NOTICES").read_text(encoding="utf-8")
+        (staging / "THIRD_PARTY_NOTICES").write_text(notices, encoding="utf-8")
+        shutil.copy2(root / "desktop/NSH-LICENSE-APACHE", staging / "NSH-LICENSE-APACHE")
         with zipfile.ZipFile(output / f"{name}.zip", "w", zipfile.ZIP_DEFLATED) as archive:
             for path in sorted(staging.rglob("*")):
                 archive.write(path, path.relative_to(staging.parent))

@@ -1,0 +1,7 @@
+Native Shell (NSH) 0.4.0
+
+The native desktop application uses the nsh-* crates, licensed under Apache-2.0.
+The Apache License is included in NSH-LICENSE-APACHE alongside this notice.
+Upstream repository: https://github.com/longbridge/nsh
+
+This notice supplements the shared-core vendor notices in vendor/THIRD_PARTY_NOTICES.
