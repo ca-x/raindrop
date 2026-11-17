@@ -7,7 +7,7 @@ use raindrop::app::{AppState, build_router};
 use tower::ServiceExt;
 
 #[cfg(not(debug_assertions))]
-const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'";
+const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; media-src blob:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'";
 
 #[tokio::test]
 #[cfg(not(debug_assertions))]

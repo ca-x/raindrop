@@ -1,9 +1,11 @@
 import { expect, test } from "@playwright/test"
+import { readFileSync } from "node:fs"
 
 import { createCredentials, expectReaderReady } from "./support/app"
 import { startProductionServer, type ProductionServer } from "./support/productionServer"
 
 let server: ProductionServer
+const buildVersion = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version as string
 
 test.beforeAll(async () => {
   server = await startProductionServer({ managedDatabase: true })
@@ -35,6 +37,6 @@ test("managed empty database exposes only first-administrator setup", async ({ p
   const bootstrap = await page.request.get(`${server.baseURL}/api/v1/bootstrap`)
   await expect(bootstrap.json()).resolves.toEqual({
     status: "READY",
-    version: "0.7.0",
+    version: buildVersion,
   })
 })

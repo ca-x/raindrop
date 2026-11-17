@@ -12,6 +12,7 @@ import { ProviderSettingsPanel } from "../../ai/settings/ProviderSettingsPanel"
 import type { TranslationSettingsController } from "../../translation/model/useTranslationSettingsController"
 import { TranslationSettingsPanel } from "../../translation/settings/TranslationSettingsPanel"
 import { McpSettingsPanel } from "../../mcp/McpSettingsPanel"
+import { SpeechSettingsPanel } from "../../speech/SpeechSettingsPanel"
 
 interface PluginSettingsPanelProps {
   csrfToken?: string
@@ -21,7 +22,7 @@ interface PluginSettingsPanelProps {
   userId?: string
 }
 
-type PluginKey = "provider" | "assistant" | "translation" | "mcp"
+type PluginKey = "provider" | "assistant" | "translation" | "mcp" | "tts"
 
 export function PluginSettingsPanel({
   aiController,
@@ -60,6 +61,8 @@ export function PluginSettingsPanel({
             <ProviderSettingsPanel controller={aiController} onContinue={() => setActivePlugin(null)} />
           ) : activePlugin === "assistant" ? (
             <AiAssistantSettingsPanel controller={aiController} userId={userId} onOpenProviders={() => setActivePlugin("provider")} />
+          ) : activePlugin === "tts" ? (
+            <SpeechSettingsPanel key={userId} csrfToken={csrfToken} />
           ) : activePlugin === "mcp" ? (
             <McpSettingsPanel key={userId} csrfToken={csrfToken} onUnauthenticated={onUnauthenticated} />
           ) : (
@@ -77,6 +80,7 @@ export function PluginSettingsPanel({
     key: PluginKey
     status: { variant: StatusDotVariant; label: string }
   }> = [
+    { key: "tts", status: status("neutral", i18n._("speech.independent")) },
     { key: "mcp", status: status("neutral", i18n._("mcp.readOnly")) },
     { key: "provider", status: providerStatus(aiController, (id) => i18n._(id)) },
     { key: "assistant", status: assistantStatus(aiController, (id) => i18n._(id)) },

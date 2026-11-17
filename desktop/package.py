@@ -58,14 +58,16 @@ def package(target):
         readme = readme.replace("../docs/", "docs/").replace("../README.md#界面预览", "https://github.com/ca-x/raindrop#界面预览")
         (staging / "README.md").write_text(readme, encoding="utf-8")
         (staging / "docs/assets/screenshots").mkdir(parents=True)
-        shutil.copy2(root / "docs/desktop-storage.md", staging / "docs/desktop-storage.md")
+        for guide in ["desktop-storage.md", "tts.md"]:
+            shutil.copy2(root / "docs" / guide, staging / "docs" / guide)
         for screenshot in (root / "docs/assets/screenshots").glob("native-desktop-*.png"):
             shutil.copy2(screenshot, staging / "docs/assets/screenshots" / screenshot.name)
         shutil.copy2(root / "LICENSE", staging / "LICENSE")
         notices = (root / "vendor/THIRD_PARTY_NOTICES").read_text(encoding="utf-8")
         notices += "\n\n" + (root / "desktop/THIRD_PARTY_NOTICES").read_text(encoding="utf-8")
         (staging / "THIRD_PARTY_NOTICES").write_text(notices, encoding="utf-8")
-        shutil.copy2(root / "desktop/NSH-LICENSE-APACHE", staging / "NSH-LICENSE-APACHE")
+        for license_name in ["NSH-LICENSE-APACHE", "AUDIO-LICENSE-MPL-2.0"]:
+            shutil.copy2(root / "desktop" / license_name, staging / license_name)
         with zipfile.ZipFile(output / f"{name}.zip", "w", zipfile.ZIP_DEFLATED) as archive:
             for path in sorted(staging.rglob("*")):
                 archive.write(path, path.relative_to(staging.parent))

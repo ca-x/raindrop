@@ -15,6 +15,7 @@ import { useEntryTranslationController } from "../../translation/model/useEntryT
 import type { TranslationSettingsController } from "../../translation/model/useTranslationSettingsController"
 import { ArticleSelectionPopover } from "../../translation/reader/ArticleSelectionPopover"
 import { TranslationReaderControls } from "../../translation/reader/TranslationReaderControls"
+import { SpeechControls } from "../../speech/SpeechControls"
 import type { ReaderState } from "../model/types"
 import type { UserPreferencesLinkOpenMode } from "../../preferences/api/preferences.generated"
 import type {
@@ -239,6 +240,7 @@ export function ArticleReader(props: ArticleReaderProps) {
         isImmersive={props.isImmersive ?? false}
         onToggleImmersive={props.canToggleImmersive ? props.onToggleImmersive : undefined}
       />
+      {props.csrfToken && detailMatchesRoute ? <SpeechControls key={`speech:${props.userId}:${detail.entryId}`} entryId={detail.entryId} csrfToken={props.csrfToken} /> : null}
       {tamboOpen && tambo?.enabled && tambo.configured && tambo.origin && props.csrfToken ? <TamboReaderPanel
         key={`${props.userId}:${detail.entryId}`}
         csrfToken={props.csrfToken}

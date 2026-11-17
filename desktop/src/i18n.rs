@@ -177,6 +177,60 @@ pub(crate) fn translate(language: Language, message: &str) -> &str {
         "结果未知 · 需核对" => "Unknown outcome · Needs checking",
         "已推送" => "Confirmed",
         "已取消" => "Canceled",
+        "Edge 云扬" => "Edge Yunyang",
+        "Edge 晓晓" => "Edge Xiaoxiao",
+        "语音朗读" => "Text to speech",
+        "暂停朗读" => "Pause reading",
+        "继续朗读" => "Resume reading",
+        "朗读文章" => "Read article aloud",
+        "停止朗读" => "Stop reading",
+        "正在生成语音…" => "Generating speech…",
+        "配置保存到所选资料库；试听使用未保存的配置，可能产生服务费用。" => {
+            "Settings are saved to the selected library. Preview uses your unsaved settings and may incur provider charges."
+        }
+        "请先载入语音配置。" => "Load speech settings first.",
+        "语速应在 0.25 到 4 之间。" => "Speed must be between 0.25 and 4.",
+        "请填写服务地址、模型和声音 ID。" => {
+            "Enter the service URL, model and voice ID."
+        }
+        "启用语音朗读" => "Enable text to speech",
+        "语音服务地址" => "Speech service URL",
+        "API 密钥（可选）" => "API key (optional)",
+        "已保存密钥；留空保留。" => "A key is saved. Leave blank to keep it.",
+        "未保存密钥；支持免密钥服务。" => {
+            "No key saved. Keyless services are supported."
+        }
+        "密钥存储不可用，可使用免密钥服务。" => {
+            "Key storage is unavailable. Keyless services can still be used."
+        }
+        "清除已保存的密钥" => "Clear saved API key",
+        "语音模型" => "Speech model",
+        "声音" => "Voice",
+        "自定义声音" => "Custom voice",
+        "声音 ID" => "Voice ID",
+        "语速（0.25–4）" => "Speed (0.25–4)",
+        "试听文本" => "Preview text",
+        "保存语音配置" => "Save speech settings",
+        "试听" => "Preview",
+        "停止试听" => "Stop preview",
+        "语音配置已保存。" => "Speech settings saved.",
+        "重新载入语音配置" => "Reload speech settings",
+        "试听文本应为 1 到 200 个字符。" => {
+            "Preview text must contain 1 to 200 characters."
+        }
+        "无法启动音频播放。" => "Could not start audio playback.",
+        "无法打开音频设备，请检查系统声音设置。" => {
+            "Could not open an audio device. Check your system sound settings."
+        }
+        "无法解码语音音频，请检查服务配置。" => {
+            "Could not decode speech audio. Check the service settings."
+        }
+        "远端尚不支持朗读，请升级服务端。" => {
+            "This server does not support speech yet. Upgrade the server."
+        }
+        "正在编辑远端配置；本机文章朗读使用本地配置。" => {
+            "Editing remote settings. Articles on this device use the local speech settings."
+        }
         _ => message,
     }
 }
@@ -191,6 +245,8 @@ mod tests {
             include_str!("lib.rs"),
             include_str!("reader.rs"),
             include_str!("settings.rs"),
+            include_str!("speech.rs"),
+            include_str!("speech_ui.rs"),
             include_str!("store.rs"),
             include_str!("api.rs"),
             include_str!("sync.rs"),

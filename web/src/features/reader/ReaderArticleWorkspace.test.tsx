@@ -286,8 +286,11 @@ describe("Reader article workspace", () => {
     window.history.replaceState(null, "", "/reader/unread/entry/entry")
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        jsonResponse({
+      vi.fn().mockImplementation((path: string) => Promise.resolve(
+        path === "/api/v1/plugins/tts" ? jsonResponse({
+          isEnabled: false, baseUrl: "https://speech.example/v1", model: "tts-1",
+          voice: "alloy", speed: 1, hasApiKey: false, keyringAvailable: true, revision: 0,
+        }) : jsonResponse({
           availability: "READY",
           mcpState: "CONTRACT_READY_TRANSPORT_UNAVAILABLE",
           summary: {
@@ -322,7 +325,7 @@ describe("Reader article workspace", () => {
             },
           },
         }),
-      ),
+      )),
     )
 
     render(

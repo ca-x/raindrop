@@ -21,6 +21,7 @@ env:
   NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
   NPM_CONFIG_REPLACE_REGISTRY_HOST: always
   RUSTUP_TOOLCHAIN: 1.99.1
+  RUST_TEST_THREADS: "2"
   MACOSX_DEPLOYMENT_TARGET: "14.0"
 
 jobs:
@@ -72,7 +73,7 @@ jobs:
           targets: ${{ matrix.target }}
           components: clippy,rustfmt
       - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev pkg-config clang cmake perl
+        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev libasound2-dev pkg-config clang cmake perl
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: desktop-core-resources

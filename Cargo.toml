@@ -1,6 +1,6 @@
 [package]
 name = "raindrop"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2024"
 rust-version = "1.94"
 license = "MIT"
@@ -8,7 +8,7 @@ description = "A self-hosted, multi-user RSS reader"
 repository = "https://github.com/ca-x/raindrop"
 
 [workspace]
-members = ["plugins/official/raindrop-ai-content"]
+members = ["plugins/official/raindrop-ai-content", "plugins/official/raindrop-tts"]
 exclude = ["vendor/dlx", "vendor/rustls", "desktop"]
 resolver = "3"
 
@@ -24,7 +24,7 @@ dbg_macro = "warn"
 workspace = true
 
 [dependencies]
-ammonia = "=4.1.8"
+ammonia = "=4.1.9"
 anyhow = "1.0.103"
 argon2 = { version = "0.5.3", features = ["std"] }
 async-compression = { version = "0.4.48", default-features = false, features = ["tokio", "gzip", "zlib", "brotli"] }
@@ -69,6 +69,7 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
 url = { version = "2.5.7", features = ["serde"] }
 uuid = { version = "1.24.0", features = ["v4"] }
 raindrop-ai-content = { path = "plugins/official/raindrop-ai-content" }
+raindrop-tts = { path = "plugins/official/raindrop-tts" }
 rutis = "=0.13.0"
 wuff = { version = "0.2.8", default-features = false }
 zeroize = "1.8.2"

@@ -1,5 +1,5 @@
 use nsh_base::{ButtonElement, MenuItemElement, button, input, menu_item, theme};
-use nsh_core::element::{Text, View};
+use nsh_core::element::{ImageSrc, Text, View};
 use nsh_core::prelude::*;
 
 fn localized(label: impl IntoReactive<SharedString>) -> Reactive<SharedString> {
@@ -15,11 +15,16 @@ pub(crate) fn command(
     label: impl IntoReactive<SharedString> + 'static,
     action: impl Fn() + 'static,
 ) -> ButtonElement {
+    command_surface(action)
+        .px_3()
+        .py_1()
+        .child(text(localized(label)).text_sm())
+}
+
+fn command_surface(action: impl Fn() + 'static) -> ButtonElement {
     button()
         .on_press(action)
         .min_h_8()
-        .px_3()
-        .py_1()
         .items_center()
         .justify_center()
         .rounded(move || theme().radius)
@@ -28,7 +33,24 @@ pub(crate) fn command(
         .active(|style| style.bg(move || theme().accent))
         .focus(|style| style.outline(px(2.0)).outline_color(move || theme().ring))
         .disabled_style(|style| style.opacity(0.45))
-        .child(text(localized(label)).text_sm())
+}
+
+pub(crate) fn icon_command(
+    title: impl IntoReactive<SharedString> + 'static,
+    source: impl IntoReactive<ImageSrc> + 'static,
+    action: impl Fn() + 'static,
+) -> ButtonElement {
+    let title = localized(title);
+    command_surface(action)
+        .min_w_8()
+        .p_2()
+        .accessibility_label(move || title.get())
+        .child(
+            svg(source)
+                .w_4()
+                .h_4()
+                .text_color(move || theme().foreground),
+        )
 }
 
 pub(crate) fn primary(

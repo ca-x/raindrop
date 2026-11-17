@@ -31,6 +31,7 @@ const INITIALIZATION_PROVIDER_ID: &str = "transport-initialization";
 pub struct HttpsProviderTransport {
     resolver: Arc<dyn DnsResolver>,
     executor: Arc<dyn HttpExecutor>,
+    public_only: bool,
 }
 
 impl HttpsProviderTransport {
@@ -50,12 +51,23 @@ impl HttpsProviderTransport {
         Ok(Self {
             resolver: Arc::new(resolver),
             executor: Arc::new(ReqwestExecutor::production()),
+            public_only: false,
         })
+    }
+
+    pub fn public_only() -> Result<Self, ProviderTransportError> {
+        let mut transport = Self::new()?;
+        transport.public_only = true;
+        Ok(transport)
     }
 
     #[cfg(test)]
     fn with_parts(resolver: Arc<dyn DnsResolver>, executor: Arc<dyn HttpExecutor>) -> Self {
-        Self { resolver, executor }
+        Self {
+            resolver,
+            executor,
+            public_only: false,
+        }
     }
 }
 
@@ -90,6 +102,17 @@ impl ProviderTransport for HttpsProviderTransport {
             total_deadline,
         )
         .await?;
+        if self.public_only
+            && approved.iter().any(|peer| {
+                crate::feeds::AddressPolicy::public_only().classify(peer.ip())
+                    != crate::feeds::AddressDecision::Allowed
+            })
+        {
+            return Err(ProviderTransportError::new(
+                provider_id,
+                ProviderTransportErrorKind::AddressDenied,
+            ));
+        }
         let headers = convert_headers(provider_id, request.headers())?;
         let request_timeout = remaining_timeout(provider_id, total_deadline)?;
         let execute_request = HttpExecuteRequest {
@@ -334,6 +357,31 @@ mod tests {
                 .pop_front()
                 .unwrap_or(None))
         }
+    }
+
+    #[tokio::test]
+    async fn public_only_speech_transport_rejects_private_addresses_before_http() {
+        let executor = fake_executor(
+            StatusCode::OK,
+            HeaderMap::new(),
+            PeerMode::Approved,
+            vec![None],
+        );
+        let observed = executor.observed();
+        let mut transport =
+            HttpsProviderTransport::with_parts(Arc::new(FakeResolver), Arc::new(executor));
+        transport.public_only = true;
+        let endpoint = ProviderEndpoint::new(
+            ProviderKind::OpenAiChatCompletions,
+            Some("https://127.0.0.1/v1"),
+        )
+        .unwrap();
+        let error = transport
+            .execute(PROVIDER_ID, &endpoint, encoded_request())
+            .await
+            .unwrap_err();
+        assert_eq!(error.kind(), ProviderTransportErrorKind::AddressDenied);
+        assert_eq!(observed.calls.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]

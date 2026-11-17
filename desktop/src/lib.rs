@@ -6,6 +6,8 @@ mod local;
 mod preferences;
 mod reader;
 mod settings;
+mod speech;
+mod speech_ui;
 mod store;
 mod sync;
 mod ui;

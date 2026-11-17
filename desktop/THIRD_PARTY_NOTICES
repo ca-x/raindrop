@@ -5,3 +5,36 @@ The Apache License is included in NSH-LICENSE-APACHE alongside this notice.
 Upstream repository: https://github.com/longbridge/nsh
 
 This notice supplements the shared-core vendor notices in vendor/THIRD_PARTY_NOTICES.
+
+
+Native audio playback
+
+Rodio 0.23.0
+Upstream: https://github.com/RustAudio/rodio
+Published source revision: c93a661fd667a755a251caf3c4060173d86b3e9b
+Source: https://crates.io/api/v1/crates/rodio/0.23.0/download
+License: MIT OR Apache-2.0; distributed here under the Apache-2.0 option.
+The Apache-2.0 text is included in NSH-LICENSE-APACHE.
+Only playback and MP3 decoding features are enabled.
+
+CPAL 0.18.2
+Upstream: https://github.com/RustAudio/cpal
+Published source revision: e1612d5d98152f8dc2a62e1b51ef7cbf4f7f26b7
+Source: https://crates.io/api/v1/crates/cpal/0.18.2/download
+License: Apache-2.0, included in NSH-LICENSE-APACHE.
+
+Symphonia 0.5.5
+Copyright (c) 2019-2022 The Project Symphonia Developers.
+Upstream: https://github.com/pdeljanov/Symphonia
+Published source revision: 6d533f26150953a882a6a111ebd13f0abf7129d5
+Crates: symphonia, symphonia-core, symphonia-bundle-mp3, symphonia-metadata.
+License: Mozilla Public License 2.0 (MPL-2.0), included in AUDIO-LICENSE-MPL-2.0.
+These crates are used unmodified. Their corresponding Source Code Form is
+available under MPL-2.0 at the exact published source archives below, with the
+original file-level copyright and license notices:
+https://crates.io/api/v1/crates/symphonia/0.5.5/download
+https://crates.io/api/v1/crates/symphonia-core/0.5.5/download
+https://crates.io/api/v1/crates/symphonia-bundle-mp3/0.5.5/download
+https://crates.io/api/v1/crates/symphonia-metadata/0.5.5/download
+These source archives can be obtained free of charge through the above links.
+MPL-2.0 covers these components; it does not relicense the larger application.

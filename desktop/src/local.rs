@@ -34,7 +34,7 @@ use tokio::{runtime::Handle, sync::oneshot};
 use tower::ServiceExt;
 use zeroize::Zeroizing;
 
-use crate::api::ApiError;
+use crate::api::{ApiError, Cancellation};
 
 pub(crate) struct Local {
     pub(crate) user_id: String,
@@ -90,6 +90,16 @@ impl Local {
         path: PathBuf,
         run_background: bool,
     ) -> Result<Self, ApiError> {
+        Self::start_with_transport(path, run_background, None)
+    }
+
+    pub(crate) fn start_with_transport(
+        path: PathBuf,
+        run_background: bool,
+        speech_transport: Option<
+            std::sync::Arc<dyn raindrop::content::provider::ProviderTransport>,
+        >,
+    ) -> Result<Self, ApiError> {
         let lock = private_directory(&path)?;
         let (sender, receiver) = mpsc::sync_channel(1);
         std::thread::Builder::new()
@@ -127,15 +137,17 @@ impl Local {
                         let _ = sender.send(Err(ApiError::LocalData));
                         return;
                     };
-                    let router = build_router(
-                        AppState::with_runtime_services(
-                            setup,
-                            background_handle.feed(),
-                            background_handle.content(),
-                            Some(keyring),
-                        )
-                        .with_backup_runtime(backup_handle.clone()),
-                    );
+                    let mut state = AppState::with_runtime_services(
+                        setup,
+                        background_handle.feed(),
+                        background_handle.content(),
+                        Some(keyring),
+                    )
+                    .with_backup_runtime(backup_handle.clone());
+                    if let Some(transport) = speech_transport {
+                        state = state.with_tts_transport(transport);
+                    }
+                    let router = build_router(state);
                     let background_task = run_background.then(|| tokio::spawn(background.run()));
                     let backup_task = run_background.then(|| tokio::spawn(backup.run()));
                     let (shutdown, mut stopped) = oneshot::channel();
@@ -185,6 +197,23 @@ impl Local {
         path: &str,
         body: Option<&str>,
     ) -> Result<(u16, Vec<u8>), ApiError> {
+        self.request_cancellable(
+            method,
+            path,
+            body,
+            &Cancellation::default(),
+            Duration::from_secs(105),
+        )
+    }
+
+    pub(crate) fn request_cancellable(
+        &self,
+        method: Method,
+        path: &str,
+        body: Option<&str>,
+        cancellation: &Cancellation,
+        timeout: Duration,
+    ) -> Result<(u16, Vec<u8>), ApiError> {
         let mut request = Request::builder()
             .method(method)
             .uri(path)
@@ -193,23 +222,22 @@ impl Local {
             .header("cookie", self.cookie.as_str())
             .header("x-csrf-token", self.csrf.as_str());
         if body.is_some() {
-            request = request.header("accept", "application/json");
+            request = request.header("accept", "application/json, audio/mpeg");
         }
         let request = request
             .body(Body::from(body.unwrap_or_default().to_owned()))
             .map_err(|_| ApiError::Response)?;
         self.handle.block_on(async {
-            let response = self
-                .router
-                .clone()
-                .oneshot(request)
-                .await
-                .map_err(|_| ApiError::LocalData)?;
-            let status = response.status().as_u16();
-            let bytes = to_bytes(response.into_body(), 8 * 1024 * 1024)
-                .await
-                .map_err(|_| ApiError::Response)?;
-            Ok((status, bytes.to_vec()))
+            tokio::select! {
+                biased;
+                _ = cancellation.cancelled() => Err(ApiError::Cancelled),
+                response = tokio::time::timeout(timeout, async {
+                    let response = self.router.clone().oneshot(request).await.map_err(|_| ApiError::LocalData)?;
+                    let status = response.status().as_u16();
+                    let bytes = to_bytes(response.into_body(), 8 * 1024 * 1024).await.map_err(|_| ApiError::Response)?;
+                    Ok((status, bytes.to_vec()))
+                }) => response.map_err(|_| ApiError::Transport)?,
+            }
         })
     }
 

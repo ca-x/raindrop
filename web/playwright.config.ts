@@ -22,6 +22,17 @@ export default defineConfig({
     ...[
       { width: 1280, height: 800 },
       { width: 390, height: 844 },
+    ].map((viewport) => ({
+      name: `speech-${viewport.width}x${viewport.height}`,
+      testMatch: /speech-playback\.spec\.ts/,
+      use: {
+        viewport,
+        ...(viewport.width < 720 ? { hasTouch: true, isMobile: true } : {}),
+      },
+    })),
+    ...[
+      { width: 1280, height: 800 },
+      { width: 390, height: 844 },
       { width: 360, height: 800 },
     ].map((viewport) => ({
       name: `mcp-${viewport.width}x${viewport.height}`,

@@ -1,0 +1,16 @@
+.speech-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  flex-wrap: wrap;
+}
+.speech-controls button {
+  min-width: 44px;
+  min-height: 44px;
+}
+.speech-feedback {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}

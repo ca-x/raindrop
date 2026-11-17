@@ -79,6 +79,7 @@ pub(crate) fn Settings() -> impl IntoElement {
                     .disabled(move || store.read(|state| state.connecting || state.sync_busy || state.sync_unavailable)))))
             .child(scroll().flex_1().min_w_0().min_h_0().child(view().p_6().gap_5()
                 .child(appearance_settings(store))
+                .child(crate::speech_ui::speech_settings())
                 .child(when(form, move || {
                     view().gap_4()
                         .child(text(move || crate::i18n::tr("连接远端 Raindrop")).text_xl().font_weight(FontWeight::SEMIBOLD))

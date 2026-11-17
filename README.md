@@ -4,6 +4,12 @@ Raindrop 是使用 Rust、Axum、SeaORM 和 React 构建的自托管 RSS 阅读�
 
 另有独立的 [Raindrop Desktop 原生桌面开发预览](desktop/README.md)：Rust NSH 渲染，本地阅读无需外部服务或 Docker；支持中英文与浅色、深色、跟随系统主题。桌面版本独立使用 `raindrop-desktop-v*` tag，当前不等同于 Web 全功能版。
 
+## v0.8.0
+
+- 新增文章朗读插件，Web 与原生桌面端均可使用 OpenAI 兼容的语音 API；文章工具栏提供朗读、暂停/继续和停止图标。
+- 支持独立配置 API 地址、加密密钥、模型、音色和语速，可用尚未保存的配置真实试听；音色由用户选择，包含 Edge 音色示例及自定义语音 ID。
+- 长文章逐段朗读，停止或切换文章会取消后续请求；新增用户隔离、配置修订校验、并发与音频大小限制。详见[文章朗读配置](docs/tts.md)。
+
 ## v0.7.0
 
 - 当前订阅的刷新与编辑统一放到文章列表标题栏的「…」菜单，左侧只保留添加与全局设置；添加按钮在鼠标静止时更克制，悬停、键盘聚焦与触摸端保持清晰可见。
@@ -281,6 +287,14 @@ Raindrop 是使用 Rust、Axum、SeaORM 和 React 构建的自托管 RSS 阅读�
 - bootstrap 管理员配置与 Web 设置统一为密码只要求非空；生产部署仍建议使用密码管理器生成强密码。
 
 ## 界面预览
+
+### 文章朗读（Web）
+
+以下是新朗读设置在桌面与手机浏览器中的实际界面，使用演示数据。音色由用户手动选择，也可填写自定义语音 ID；不是原生桌面程序截图。
+
+![Web 朗读设置：独立 API 配置与云扬音色选择](docs/assets/screenshots/speech-settings-web-light.png)
+
+![手机深色模式：手动选择 Edge 或 OpenAI 音色](docs/assets/screenshots/speech-voices-mobile-dark.png)
 
 ### 原生桌面开发预览（Linux）
 

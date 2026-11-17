@@ -9,7 +9,7 @@ use axum::{
 
 use crate::api::ApiError;
 
-const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'";
+const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; media-src blob:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'";
 const HTML_CACHE_CONTROL: &str = "no-cache, no-store, must-revalidate";
 #[cfg(raindrop_embedded_web)]
 const IMMUTABLE_CACHE_CONTROL: &str = "public, max-age=31536000, immutable";

@@ -491,6 +491,7 @@ fn article(store: Store) -> impl IntoElement {
                     )
                     .disabled(move || store.read(|state| state.detail.is_none() || state.writing)),
                 )
+                .child(crate::speech_ui::controls(store))
                 .child(view().flex_1())
                 .child(
                     ui::command("打开原文", move || {
@@ -517,6 +518,7 @@ fn article(store: Store) -> impl IntoElement {
                     }),
                 ),
         )
+        .child(crate::speech_ui::article_feedback(store))
         .child(
             when(
                 move || store.read(|state| state.detail.is_none()),

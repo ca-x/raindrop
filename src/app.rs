@@ -44,6 +44,10 @@ pub struct AppState {
     pub backup_runtime: BackupRuntimeHandle,
     pub(crate) backup_transport: Option<Arc<dyn BackupTransport>>,
     pub(crate) provider_keyring: Option<Arc<ProviderSecretKeyring>>,
+    pub(crate) tts_transport: Option<Arc<dyn crate::content::provider::ProviderTransport>>,
+    pub(crate) tts_limiter: UserMutationLimiter,
+    pub(crate) tts_semaphore: Arc<Semaphore>,
+    pub(crate) tts_user_concurrency: UserConcurrencyLimiter,
     pub(crate) tambo: Option<Arc<crate::tambo::TamboClient>>,
     pub(crate) tambo_mutation_limiter: UserMutationLimiter,
     pub(crate) translation_deeplx_transport: Arc<dyn DeepLxTransport>,
@@ -118,6 +122,10 @@ impl AppState {
             backup_runtime: BackupRuntimeHandle::inert(),
             backup_transport: None,
             provider_keyring,
+            tts_transport: None,
+            tts_limiter: UserMutationLimiter::with_limits(512, Duration::from_secs(3600), 10_000),
+            tts_semaphore: Arc::new(Semaphore::new(4)),
+            tts_user_concurrency: UserConcurrencyLimiter::new(1),
             tambo: None,
             tambo_mutation_limiter: UserMutationLimiter::new(),
             translation_deeplx_transport: Arc::new(ProductionDeepLxTransport),
@@ -181,6 +189,15 @@ impl AppState {
     #[must_use]
     pub fn with_media_transport(mut self, media_transport: Arc<dyn FeedTransport>) -> Self {
         self.media_transport = Some(media_transport);
+        self
+    }
+
+    #[must_use]
+    pub fn with_tts_transport(
+        mut self,
+        transport: Arc<dyn crate::content::provider::ProviderTransport>,
+    ) -> Self {
+        self.tts_transport = Some(transport);
         self
     }
 

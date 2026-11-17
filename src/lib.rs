@@ -14,4 +14,5 @@ pub mod realtime;
 pub mod setup;
 pub mod tambo;
 pub mod translation;
+pub mod tts;
 pub mod web;

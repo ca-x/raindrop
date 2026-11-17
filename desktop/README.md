@@ -1,6 +1,6 @@
 # Raindrop Desktop
 
-Rust NSH 原生阅读器，独立于 Web 服务端发布。当前为 `0.1.1` 开发预览，
+Rust NSH 原生阅读器，独立于 Web 服务端发布。当前为 `0.2.0` 开发预览，
 不是 Web 功能完全对等版，也不承诺旧服务端的可靠双向同步。
 
 ## 运行
@@ -92,3 +92,29 @@ cargo clippy --all-targets --locked -- -D warnings
 独立版本在 `desktop/Cargo.toml` 和 `desktop/nsh.json`；只使用
 `raindrop-desktop-v*` tag。不要修改服务端版本、删除既有服务端 tag 或触发 Docker 发布。
 在平台验证、独立审核和发布签名通过前，不创建正式桌面 release。
+
+### Native speech playback
+
+Local reading needs no Raindrop server, but speech still needs your configured TTS
+API. Starting playback sends the selected article's plain text to that service in
+chunks and may incur provider charges; other articles are not synthesized automatically.
+
+See the [speech configuration guide](../docs/tts.md) for compatible endpoints,
+voice IDs, credentials, and troubleshooting.
+
+Settings & sync includes text-to-speech configuration for the local library or an
+explicitly selected, signed-in remote connection. Selecting a remote edits that
+account's settings and previews its service. Article controls always use the local
+library's speech configuration; remote settings do not delegate local article
+playback or copy API keys to this device. Choose an OpenAI voice, Edge
+Yunyang/Xiaoxiao, or a custom voice ID; the selection is saved without language
+inference. Preview uses the unsaved draft and may incur provider charges. A blank
+API key preserves the saved key; Clear saved API key removes it when saved.
+Article controls read, pause/resume and stop sequential MP3 chunks. Changing the
+article or closing the workspace stops playback and discards pending results.
+Playback uses Rodio and the OS audio device, with no external player or server
+required for a local library. An unavailable audio device produces an inline error.
+
+Linux builds additionally require ALSA development headers (`libasound2-dev` on
+Ubuntu/Debian; `alsa-lib` on Arch). Native playback and visual appearance on each
+OS still need checking on that OS; headless tests do not verify speakers.

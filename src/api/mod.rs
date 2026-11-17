@@ -14,6 +14,7 @@ mod rate_limit;
 mod routes;
 mod subscriptions;
 mod translation;
+mod tts;
 
 pub(crate) use database::DatabaseMaintenance;
 pub use error::{ApiError, ApiErrorBody, ApiErrorEnvelope};

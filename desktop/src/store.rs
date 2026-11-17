@@ -12,6 +12,7 @@ pub(crate) struct Remote {
 #[derive(Clone, Default)]
 pub(crate) struct State {
     pub(crate) preferences: crate::preferences::Preferences,
+    pub(crate) speech: crate::speech::Playback,
     pub(crate) preferences_busy: bool,
     pub(crate) preferences_unavailable: bool,
     pub(crate) api: Option<Api>,
@@ -414,6 +415,7 @@ impl Store {
     }
 
     pub(crate) fn disconnect(self, id: String) {
+        self.peek(|state| state.speech.clone()).stop();
         let remote = self.peek(|state| {
             state
                 .remotes
@@ -564,6 +566,7 @@ impl Store {
     }
 
     fn query_changed(self) {
+        self.peek(|state| state.speech.clone()).stop();
         self.0.update(|state| {
             state.entries.clear();
             state.next_cursor = None;
@@ -576,6 +579,7 @@ impl Store {
     }
 
     pub(crate) fn select(self, id: String) {
+        self.peek(|state| state.speech.clone()).stop();
         let Some(api) = self.peek(|state| state.api.clone()) else {
             return;
         };
@@ -701,6 +705,7 @@ impl Store {
     }
 
     pub(crate) fn clear_selection(self) {
+        self.peek(|state| state.speech.clone()).stop();
         self.0.update(|state| {
             state.selected = None;
             state.detail = None;
@@ -710,6 +715,7 @@ impl Store {
     }
 
     fn reset(self) {
+        self.peek(|state| state.speech.clone()).stop();
         self.0.update(|state| {
             *state = State {
                 session_generation: state.session_generation + 1,

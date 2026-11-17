@@ -59,6 +59,7 @@ pub fn router() -> Router<AppState> {
         .merge(super::subscriptions::router())
         .merge(super::subscriptions::media_router())
         .merge(super::translation::router())
+        .merge(super::tts::router())
         .layer(DefaultBodyLimit::max(64 * 1024))
 }
 

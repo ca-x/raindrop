@@ -1,6 +1,6 @@
 [package]
 name = "raindrop-desktop"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.99.1"
 publish = false
@@ -25,11 +25,12 @@ axum = "0.8"
 directories = "6"
 sea-orm = { version = "1.1", default-features = false, features = ["runtime-tokio-rustls", "sqlx-sqlite"] }
 secrecy = "0.10"
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"] }
 tower = { version = "0.5", features = ["util"] }
 uuid = { version = "1", features = ["v4"] }
 blake3 = "1.8"
 quick-xml = "=0.41.0"
+rodio = { version = "0.23", default-features = false, features = ["playback", "mp3"] }
 
 [patch.crates-io]
 hyper-util = { git = "https://github.com/apify/hyper-util", rev = "9b7795dfd7158fc55e7c84b65bf1dae1d2dea67d" }
@@ -45,6 +46,7 @@ nsh-platform-macos = { version = "=0.4.0", default-features = false }
 nsh-platform-windows = { version = "=0.4.0", default-features = false }
 
 [dev-dependencies]
+async-trait = "0.1"
 nsh-engine = { version = "=0.4.0", default-features = false }
 nsh-testing = { version = "=0.4.0", default-features = false }
 tempfile = "3"

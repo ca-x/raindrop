@@ -18,6 +18,7 @@ mod reader_preferences;
 mod rss;
 mod translation;
 mod translation_progressive;
+mod tts;
 mod user_fonts;
 
 pub async fn migrate(database: &DatabaseConnection) -> Result<(), DbError> {
@@ -74,6 +75,7 @@ impl MigratorTrait for Migrator {
             Box::new(article_retention::CreateArticleRetention),
             Box::new(appearance_preferences::AddAppearancePreferences),
             Box::new(mcp::CreateMcpTokens),
+            Box::new(tts::CreateTtsConfigs),
         ]
     }
 }

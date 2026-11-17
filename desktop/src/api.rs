@@ -2,7 +2,7 @@ use std::{
     collections::HashSet,
     fmt,
     io::Read,
-    sync::Arc,
+    sync::{Arc, OnceLock},
     time::{Duration, Instant},
 };
 
@@ -10,6 +10,8 @@ use reqwest::{Method, blocking::Client, redirect::Policy};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use url::{Host, Url};
 use zeroize::Zeroizing;
+
+pub(crate) const SPEECH_TIMEOUT: Duration = Duration::from_secs(105);
 
 const MAX_RESPONSE_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_SUBSCRIPTION_PAGES: usize = 256;
@@ -19,6 +21,8 @@ const SUBSCRIPTION_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ApiError {
+    Cancelled,
+    SpeechUnsupported,
     Address,
     Transport,
     Unauthorized,
@@ -34,6 +38,8 @@ pub(crate) enum ApiError {
 impl ApiError {
     pub(crate) fn message(self) -> &'static str {
         match self {
+            Self::Cancelled => "",
+            Self::SpeechUnsupported => "远端尚不支持朗读，请升级服务端。",
             Self::Address => "请输入 HTTPS 服务地址；本机调试可使用 http://127.0.0.1:端口。",
             Self::Transport => "无法连接服务器。请检查网络和服务地址后重试。",
             Self::Unauthorized => "登录信息无效或会话已过期，请重新登录。",
@@ -89,6 +95,28 @@ pub(crate) fn external_url(address: &str) -> Option<String> {
 }
 
 #[derive(Clone)]
+pub(crate) struct Cancellation(tokio::sync::watch::Sender<bool>);
+
+impl Default for Cancellation {
+    fn default() -> Self {
+        Self(tokio::sync::watch::channel(false).0)
+    }
+}
+
+impl Cancellation {
+    pub(crate) fn cancel(&self) {
+        self.0.send_replace(true);
+    }
+    pub(crate) fn is_cancelled(&self) -> bool {
+        *self.0.borrow()
+    }
+    pub(crate) async fn cancelled(&self) {
+        let mut receiver = self.0.subscribe();
+        let _ = receiver.wait_for(|cancelled| *cancelled).await;
+    }
+}
+
+#[derive(Clone)]
 pub(crate) struct Api {
     transport: Transport,
     server: Url,
@@ -98,7 +126,10 @@ pub(crate) struct Api {
 
 #[derive(Clone)]
 enum Transport {
-    Remote(Client),
+    Remote {
+        client: Client,
+        speech: reqwest::Client,
+    },
     Local(Arc<crate::local::Local>),
 }
 
@@ -235,6 +266,18 @@ impl Api {
         )?))
     }
 
+    #[cfg(test)]
+    pub(crate) fn isolated_speech(
+        path: std::path::PathBuf,
+        transport: Arc<dyn raindrop::content::provider::ProviderTransport>,
+    ) -> Result<Self, ApiError> {
+        Self::from_local(Arc::new(crate::local::Local::start_with_transport(
+            path,
+            false,
+            Some(transport),
+        )?))
+    }
+
     fn from_local(local: Arc<crate::local::Local>) -> Result<Self, ApiError> {
         Ok(Self {
             server: Url::parse("http://localhost/").map_err(|_| ApiError::LocalData)?,
@@ -247,7 +290,7 @@ impl Api {
     pub(crate) fn local_core(&self) -> Option<Arc<crate::local::Local>> {
         match &self.transport {
             Transport::Local(local) => Some(local.clone()),
-            Transport::Remote(_) => None,
+            Transport::Remote { .. } => None,
         }
     }
 
@@ -260,17 +303,26 @@ impl Api {
         login: &str,
         password: Zeroizing<String>,
     ) -> Result<(Self, String), ApiError> {
+        let cookies = Arc::new(reqwest::cookie::Jar::default());
+        let client = Client::builder()
+            .cookie_provider(cookies.clone())
+            .redirect(Policy::none())
+            .timeout(Duration::from_secs(25))
+            .connect_timeout(Duration::from_secs(8))
+            .user_agent(concat!("raindrop-desktop/", env!("CARGO_PKG_VERSION")))
+            .build()
+            .map_err(|_| ApiError::Transport)?;
+        let speech = reqwest::Client::builder()
+            .cookie_provider(cookies)
+            .redirect(Policy::none())
+            .retry(reqwest::retry::never())
+            .timeout(SPEECH_TIMEOUT)
+            .connect_timeout(Duration::from_secs(8))
+            .user_agent(concat!("raindrop-desktop/", env!("CARGO_PKG_VERSION")))
+            .build()
+            .map_err(|_| ApiError::Transport)?;
         let mut api = Self {
-            transport: Transport::Remote(
-                Client::builder()
-                    .cookie_store(true)
-                    .redirect(Policy::none())
-                    .timeout(Duration::from_secs(25))
-                    .connect_timeout(Duration::from_secs(8))
-                    .user_agent(concat!("raindrop-desktop/", env!("CARGO_PKG_VERSION")))
-                    .build()
-                    .map_err(|_| ApiError::Transport)?,
-            ),
+            transport: Transport::Remote { client, speech },
             server: server_url(address)?,
             csrf: Zeroizing::new(String::new()),
             user_id: String::new(),
@@ -483,35 +535,169 @@ impl Api {
         max_bytes: u64,
         timeout: Duration,
     ) -> Result<(T, usize), ApiError> {
+        let (status, bytes) = self.request_bytes(method, url, body, max_bytes, timeout)?;
+        if status == 204 {
+            return serde_json::from_str("null")
+                .map(|value| (value, bytes.len()))
+                .map_err(|_| ApiError::Response);
+        }
+        serde_json::from_slice(&bytes)
+            .map(|value| (value, bytes.len()))
+            .map_err(|_| ApiError::Response)
+    }
+
+    pub(crate) fn binary(
+        &self,
+        path: &str,
+        body: &serde_json::Value,
+        cancellation: &Cancellation,
+    ) -> Result<Vec<u8>, ApiError> {
+        let (_, bytes) = self.speech_bytes(path, body, cancellation)?;
+        if bytes.is_empty() {
+            Err(ApiError::Response)
+        } else {
+            Ok(bytes)
+        }
+    }
+
+    pub(crate) fn speech_json<T: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: &serde_json::Value,
+        cancellation: &Cancellation,
+    ) -> Result<T, ApiError> {
+        let (_, bytes) = self.speech_bytes(path, body, cancellation)?;
+        serde_json::from_slice(&bytes).map_err(|_| ApiError::Response)
+    }
+
+    fn speech_bytes(
+        &self,
+        path: &str,
+        body: &serde_json::Value,
+        cancellation: &Cancellation,
+    ) -> Result<(u16, Vec<u8>), ApiError> {
+        if cancellation.is_cancelled() {
+            return Err(ApiError::Cancelled);
+        }
+        let url = self.server.join(path).map_err(|_| ApiError::Address)?;
+        let body = body.to_string();
+        let response = match &self.transport {
+            Transport::Local(local) => local.request_cancellable(
+                Method::POST,
+                &url[url::Position::BeforePath..url::Position::AfterQuery],
+                Some(&body),
+                cancellation,
+                SPEECH_TIMEOUT,
+            )?,
+            Transport::Remote { speech, .. } => {
+                static RUNTIME: OnceLock<Result<tokio::runtime::Runtime, ApiError>> =
+                    OnceLock::new();
+                let runtime = RUNTIME
+                    .get_or_init(|| {
+                        tokio::runtime::Builder::new_multi_thread()
+                            .worker_threads(2)
+                            .enable_all()
+                            .build()
+                            .map_err(|_| ApiError::Transport)
+                    })
+                    .as_ref()
+                    .map_err(|error| *error)?;
+                runtime.block_on(async {
+                    tokio::select! {
+                        biased;
+                        _ = cancellation.cancelled() => Err(ApiError::Cancelled),
+                        response = self.remote_speech(speech, url, body) => response,
+                    }
+                })?
+            }
+        };
+        Self::check_status(response.0)?;
+        Ok(response)
+    }
+
+    fn speech_request(
+        &self,
+        client: &reqwest::Client,
+        url: Url,
+        body: String,
+    ) -> Result<reqwest::Request, ApiError> {
+        client
+            .post(url)
+            .timeout(SPEECH_TIMEOUT)
+            .header("accept", "application/json, audio/mpeg")
+            .header("content-type", "application/json")
+            .header("x-csrf-token", self.csrf.as_str())
+            .body(body)
+            .build()
+            .map_err(|_| ApiError::Transport)
+    }
+
+    async fn remote_speech(
+        &self,
+        client: &reqwest::Client,
+        url: Url,
+        body: String,
+    ) -> Result<(u16, Vec<u8>), ApiError> {
+        let request = self.speech_request(client, url, body)?;
+        let mut response = client
+            .execute(request)
+            .await
+            .map_err(|_| ApiError::Transport)?;
+        let status = response.status().as_u16();
+        if response
+            .content_length()
+            .is_some_and(|length| length > MAX_RESPONSE_BYTES)
+        {
+            return Err(ApiError::Response);
+        }
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response.chunk().await.map_err(|_| ApiError::Transport)? {
+            if chunk.len() as u64 > MAX_RESPONSE_BYTES - bytes.len() as u64 {
+                return Err(ApiError::Response);
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        Ok((status, bytes))
+    }
+
+    fn check_status(status: u16) -> Result<(), ApiError> {
+        match status {
+            200..=299 => Ok(()),
+            401 => Err(ApiError::Unauthorized),
+            403 => Err(ApiError::Forbidden),
+            409 | 412 => Err(ApiError::Conflict),
+            429 => Err(ApiError::RateLimited),
+            500..=599 => Err(ApiError::Server),
+            _ => Err(ApiError::Response),
+        }
+    }
+
+    fn request_bytes(
+        &self,
+        method: Method,
+        url: Url,
+        body: Option<&str>,
+        max_bytes: u64,
+        timeout: Duration,
+    ) -> Result<(u16, Vec<u8>), ApiError> {
+        let speech_config = method == Method::GET && url.path().ends_with("/api/v1/plugins/tts");
         let (status, bytes) = match &self.transport {
             Transport::Local(local) => {
                 let path = &url[url::Position::BeforePath..url::Position::AfterQuery];
                 local.request(method, path, body)?
             }
-            Transport::Remote(client) => {
+            Transport::Remote { client, .. } => {
                 Self::remote_request(client, &self.csrf, method, url, body, max_bytes, timeout)?
             }
         };
-        match status {
-            204 => {
-                return serde_json::from_str("null")
-                    .map(|value| (value, bytes.len()))
-                    .map_err(|_| ApiError::Response);
-            }
-            200..=299 => {}
-            401 => return Err(ApiError::Unauthorized),
-            403 => return Err(ApiError::Forbidden),
-            409 | 412 => return Err(ApiError::Conflict),
-            429 => return Err(ApiError::RateLimited),
-            500..=599 => return Err(ApiError::Server),
-            _ => return Err(ApiError::Response),
+        if speech_config && status == 404 {
+            return Err(ApiError::SpeechUnsupported);
         }
+        Self::check_status(status)?;
         if bytes.len() as u64 > max_bytes {
             return Err(ApiError::Response);
         }
-        serde_json::from_slice(&bytes)
-            .map(|value| (value, bytes.len()))
-            .map_err(|_| ApiError::Response)
+        Ok((status, bytes))
     }
 
     fn remote_request(
@@ -526,7 +712,7 @@ impl Api {
         let mut request = client
             .request(method.clone(), url)
             .timeout(timeout)
-            .header("accept", "application/json");
+            .header("accept", "application/json, audio/mpeg");
         if method != Method::GET && !csrf.is_empty() {
             request = request.header("x-csrf-token", csrf);
         }
@@ -621,5 +807,227 @@ mod tests {
             serde_json::to_value(patch).unwrap(),
             serde_json::json!({"isStarred": true})
         );
+    }
+}
+
+#[cfg(test)]
+mod speech_tests {
+    use super::*;
+    use std::{io::Write, net::TcpListener};
+
+    fn fixture(response: Vec<u8>) -> (Api, std::thread::JoinHandle<String>) {
+        fixture_with_ready(response, None)
+    }
+
+    fn fixture_with_ready(
+        response: Vec<u8>,
+        ready: Option<std::sync::mpsc::Sender<()>>,
+    ) -> (Api, std::thread::JoinHandle<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = format!("http://{}/", listener.local_addr().unwrap());
+        let thread = std::thread::spawn(move || {
+            let mut captured = String::new();
+            for index in 0..2 {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                let mut bytes = Vec::new();
+                let header_end = loop {
+                    let mut byte = [0];
+                    stream.read_exact(&mut byte).unwrap();
+                    bytes.push(byte[0]);
+                    if bytes.ends_with(b"\r\n\r\n") {
+                        break bytes.len();
+                    }
+                };
+                let headers = String::from_utf8(bytes.clone()).unwrap();
+                let length = headers
+                    .lines()
+                    .find_map(|line| {
+                        line.to_ascii_lowercase()
+                            .strip_prefix("content-length:")
+                            .and_then(|value| value.trim().parse::<usize>().ok())
+                    })
+                    .unwrap_or(0);
+                bytes.resize(header_end + length, 0);
+                stream.read_exact(&mut bytes[header_end..]).unwrap();
+                if index == 0 {
+                    let body =
+                        r#"{"csrfToken":"speech-csrf","user":{"id":"reader","username":"reader"}}"#;
+                    write!(stream, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nSet-Cookie: session=speech-session; Path=/; HttpOnly\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+                } else {
+                    captured = String::from_utf8(bytes).unwrap();
+                    if let Some(ready) = &ready {
+                        ready.send(()).unwrap();
+                    }
+                    if response.is_empty() {
+                        let mut byte = [0];
+                        assert_eq!(
+                            stream.read(&mut byte).unwrap(),
+                            0,
+                            "cancellation must close the in-flight HTTP request"
+                        );
+                    } else {
+                        let _ = stream.write_all(&response);
+                    }
+                }
+            }
+            captured
+        });
+        let api = Api::login(&address, "reader", Zeroizing::new("password".into()))
+            .unwrap()
+            .0;
+        (api, thread)
+    }
+
+    #[test]
+    fn old_remote_reports_speech_specific_upgrade_guidance() {
+        let response =
+            b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec();
+        let (api, server) = fixture(response);
+        assert_eq!(
+            api.read::<serde_json::Value>("api/v1/plugins/tts"),
+            Err(ApiError::SpeechUnsupported)
+        );
+        let request = server.join().unwrap();
+        assert!(request.starts_with("GET /api/v1/plugins/tts "));
+    }
+
+    #[test]
+    fn remote_speech_uses_a_budget_longer_than_the_provider_deadline() {
+        let response =
+            b"HTTP/1.1 200 OK\r\nContent-Length: 3\r\nConnection: close\r\n\r\nID3".to_vec();
+        let (api, server) = fixture(response);
+        let Transport::Remote { speech, .. } = &api.transport else {
+            panic!("expected remote client");
+        };
+        let request = api
+            .speech_request(
+                speech,
+                api.server.join("api/v1/plugins/tts/test").unwrap(),
+                "{}".into(),
+            )
+            .unwrap();
+        assert!(
+            request
+                .timeout()
+                .is_some_and(|timeout| *timeout >= Duration::from_secs(100))
+        );
+        assert_eq!(
+            api.binary(
+                "api/v1/plugins/tts/test",
+                &serde_json::json!({}),
+                &Cancellation::default()
+            )
+            .unwrap(),
+            b"ID3"
+        );
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn cancelling_remote_speech_closes_the_pending_request() {
+        let (ready, requested) = std::sync::mpsc::channel();
+        let (api, server) = fixture_with_ready(Vec::new(), Some(ready));
+        let cancellation = Cancellation::default();
+        let token = cancellation.clone();
+        let (done, completed) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let result = api.binary("api/v1/plugins/tts/test", &serde_json::json!({}), &token);
+            done.send(result).unwrap();
+        });
+        requested.recv_timeout(Duration::from_secs(3)).unwrap();
+        cancellation.cancel();
+        assert_eq!(
+            completed.recv_timeout(Duration::from_secs(3)).unwrap(),
+            Err(ApiError::Cancelled)
+        );
+        worker.join().unwrap();
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn speech_config_round_trips_through_authenticated_in_process_router() {
+        let directory = tempfile::tempdir().unwrap();
+        let api = Api::isolated(directory.path().to_path_buf()).unwrap();
+        let mut config: crate::speech::Config = api.read("api/v1/plugins/tts").unwrap();
+        assert!(!config.is_enabled);
+        assert_eq!(config.revision, 0);
+        config.base_url = "https://api.openai.com/v1".into();
+        config.model = "tts-1".into();
+        config.voice = "zh-CN-YunyangNeural".into();
+        config.speed = 1.0;
+        let saved: crate::speech::Config = api
+            .write(Method::PUT, "api/v1/plugins/tts", &config.draft("", false))
+            .unwrap();
+        assert_eq!(saved.voice, "zh-CN-YunyangNeural");
+        assert_eq!(saved.revision, 1);
+        assert!(
+            !saved.is_enabled,
+            "a disabled configuration can be saved and previewed explicitly"
+        );
+        let loaded: crate::speech::Config = api.read("api/v1/plugins/tts").unwrap();
+        assert_eq!(loaded, saved);
+    }
+
+    #[test]
+    fn speech_binary_preserves_mp3_and_authenticated_transport() {
+        let mp3 = b"ID3\x00\xff\x80";
+        let mut response = format!("HTTP/1.1 200 OK\r\nContent-Type: audio/mpeg\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", mp3.len()).into_bytes();
+        response.extend(mp3);
+        let (api, server) = fixture(response);
+        let body = serde_json::json!({"voice":"zh-CN-YunyangNeural", "text":"preview"});
+        assert_eq!(
+            api.binary("api/v1/plugins/tts/test", &body, &Cancellation::default())
+                .unwrap(),
+            mp3
+        );
+        let request = server.join().unwrap();
+        let lower = request.to_ascii_lowercase();
+        assert!(request.starts_with("POST /api/v1/plugins/tts/test "));
+        assert!(lower.contains("x-csrf-token: speech-csrf"));
+        assert!(lower.contains("cookie: session=speech-session"));
+        assert!(lower.contains("content-type: application/json"));
+        assert!(request.ends_with(&body.to_string()));
+        assert!(!request.lines().next().unwrap().contains("speech-csrf"));
+    }
+
+    #[test]
+    fn speech_binary_rejects_empty_oversize_and_http_errors() {
+        for (response, expected) in [
+            (
+                b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec(),
+                ApiError::Response,
+            ),
+            (
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    MAX_RESPONSE_BYTES + 1
+                )
+                .into_bytes(),
+                ApiError::Response,
+            ),
+            (
+                b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    .to_vec(),
+                ApiError::Unauthorized,
+            ),
+            (
+                b"HTTP/1.1 409 Conflict\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec(),
+                ApiError::Conflict,
+            ),
+        ] {
+            let (api, server) = fixture(response);
+            assert_eq!(
+                api.binary(
+                    "api/v1/plugins/tts/test",
+                    &serde_json::json!({}),
+                    &Cancellation::default()
+                ),
+                Err(expected)
+            );
+            server.join().unwrap();
+        }
     }
 }
