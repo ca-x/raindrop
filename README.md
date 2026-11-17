@@ -4,7 +4,7 @@ Raindrop 是使用 Rust、Axum、SeaORM 和 React 构建的自托管 RSS 阅读�
 
 另有独立的 [Raindrop Desktop 原生桌面开发预览](desktop/README.md)：Rust NSH 渲染，本地阅读无需外部服务或 Docker；支持中英文与浅色、深色、跟随系统主题。桌面版本独立使用 `raindrop-desktop-v*` tag，当前不等同于 Web 全功能版。
 
-## v0.8.0
+## v0.8.1
 
 - 新增文章朗读插件，Web 与原生桌面端均可使用 OpenAI 兼容的语音 API；文章工具栏提供朗读、暂停/继续和停止图标。
 - 支持独立配置 API 地址、加密密钥、模型、音色和语速，可用尚未保存的配置真实试听；音色由用户选择，包含 Edge 音色示例及自定义语音 ID。

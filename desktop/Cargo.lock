@@ -4495,7 +4495,7 @@ checksum = "dc33ff2d4973d518d823d61aa239014831e521c75da58e3df4840d3f47749d09"
 
 [[package]]
 name = "raindrop"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "ammonia",
  "anyhow",
@@ -4562,7 +4562,7 @@ dependencies = [
 
 [[package]]
 name = "raindrop-desktop"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "axum",

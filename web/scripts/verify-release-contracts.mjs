@@ -17,6 +17,7 @@ const adminOnlySetupE2e = read("web/e2e/admin-only-setup.spec.ts")
 const preferencesDialogTest = read(
   "web/src/features/preferences/components/PreferencesDialog.test.tsx",
 )
+const viteConfig = read("web/vite.config.ts")
 const cargoPackageSection = cargoManifest.slice(0, cargoManifest.indexOf("\n[workspace]"))
 const cargoVersion = requireCapture(
   cargoPackageSection,
@@ -29,14 +30,25 @@ requireEqual(webPackageLock.packages?.[""]?.version, cargoVersion, "Web root loc
 requireMatch(readme, new RegExp(`^## v${escapeRegExp(cargoVersion)}$`, "mu"), "README current version")
 requireMatch(
   adminOnlySetupE2e,
-  new RegExp(`version: "${escapeRegExp(cargoVersion)}"`, "u"),
+  new RegExp(String.raw`const\s+buildVersion\s*=\s*${manifestVersionExpression("../package.json")}\.version\b`, "u"),
+  "admin setup reads current package version",
+)
+requireMatch(
+  adminOnlySetupE2e,
+  /version:\s*buildVersion\b/u,
   "admin setup bootstrap version",
 )
 requireMatch(
   preferencesDialogTest,
-  new RegExp(`getByText\\("v${escapeRegExp(cargoVersion)}"\\)`, "u"),
+  /getByText\(`v\$\{__RAINDROP_VERSION__\}`\)/u,
   "About panel version assertion",
 )
+requireMatch(
+  viteConfig,
+  new RegExp(String.raw`const\s+packageVersion\s*=\s*\(${manifestVersionExpression("./package.json")}\s+as\s+\{\s*version:\s*string\s*\}\)\.version\b`, "u"),
+  "Vite reads current package version",
+)
+requireMatch(viteConfig, /__RAINDROP_VERSION__:\s*JSON\.stringify\(packageVersion\)/u, "Vite exposes current package version")
 requireMatch(
   cargoBuildScript,
   /RAINDROP_WEB_BUNDLE_DIGEST/u,
@@ -366,6 +378,10 @@ function read(relativePath) {
 
 function requireMatch(source, pattern, message) {
   if (!pattern.test(source)) fail(message)
+}
+
+function manifestVersionExpression(relativePath) {
+  return String.raw`JSON\.parse\(\s*readFileSync\(\s*new URL\(\s*["']${escapeRegExp(relativePath)}["']\s*,\s*import\.meta\.url\s*\)\s*,\s*["']utf8["']\s*\)\s*,?\s*\)`
 }
 
 function requireNoMatch(source, pattern, message) {
