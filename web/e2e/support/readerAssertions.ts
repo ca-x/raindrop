@@ -5,7 +5,7 @@ export function readerRow(page: Page, entryId: string): Locator {
 }
 
 export function readerRowButton(page: Page, entryId: string): Locator {
-  return readerRow(page, entryId).locator("button")
+  return readerRow(page, entryId).locator(":scope > button")
 }
 
 export async function expectNoHorizontalOverflow(page: Page): Promise<void> {

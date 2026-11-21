@@ -21,6 +21,7 @@ describe("Reader scroll anchors", () => {
     render(
       <Providers>
         <EntryQueue
+          onToggleStar={vi.fn().mockResolvedValue(undefined)}
           state={readerState("first")}
           sourceLabel="Unread"
           showMenu={false}
@@ -40,7 +41,7 @@ describe("Reader scroll anchors", () => {
           onRequestMarkRead={vi.fn()}
           isMarkingRead={false}
           onMergePending={vi.fn()}
-          onMergedEntryFocus={vi.fn()}
+          onFocusRow={vi.fn()}
           density="balanced"
         />
       </Providers>,
@@ -58,6 +59,7 @@ describe("Reader scroll anchors", () => {
     render(
       <Providers>
         <EntryQueue
+          onToggleStar={vi.fn().mockResolvedValue(undefined)}
           state={readerState("first")}
           sourceLabel="Unread"
           showMenu={false}
@@ -78,7 +80,7 @@ describe("Reader scroll anchors", () => {
           onRequestMarkRead={vi.fn()}
           isMarkingRead={false}
           onMergePending={vi.fn()}
-          onMergedEntryFocus={vi.fn()}
+          onFocusRow={vi.fn()}
           density="balanced"
         />
       </Providers>,

@@ -71,6 +71,68 @@ test("Reader workspace production contract", async ({ page }, testInfo) => {
   await verifyHostileDeepLink(page, testInfo)
 })
 
+test("Save from the list, keep reading at the end, and return to the same queue", async ({ page }, testInfo) => {
+  const readingServer = await startProductionServer()
+  try {
+    const fixture = await installReaderApiFixture(page)
+    await completeSetup(page, readingServer, createCredentials())
+    const all = `${readingServer.baseURL}/reader/all`
+    await page.goto(all)
+    for (const id of [readerIds.firstEntry, readerIds.secondEntry]) {
+      const row = readerRow(page, id)
+      const star = row.getByRole("button", { name: "Save for later" })
+      if (testInfo.project.use.hasTouch) await star.tap()
+      else {
+        await row.hover()
+        await star.click()
+      }
+      await expect(star).toHaveAttribute("aria-pressed", "true")
+      await expect.poll(() => fixture.entryState(id)).toEqual({ entryId: id, isStarred: true, isRead: false })
+      await expect(page).toHaveURL(all)
+    }
+    await expectNoHorizontalOverflow(page)
+    await page.screenshot({ path: testInfo.outputPath("saved-from-list.png") })
+
+    await readerRowButton(page, readerIds.firstEntry).click()
+    const article = page.getByRole("article")
+    const heading = article.getByRole("heading", { level: 1 })
+    await expect(heading).toHaveText("First quiet article")
+    await heading.focus()
+    await page.keyboard.press("Space")
+    await expect.poll(() => article.evaluate((node) => node.scrollTop)).toBeGreaterThan(0)
+    await setScrollTop(article, Number.MAX_SAFE_INTEGER)
+    const next = article.getByRole("button", { name: "Next article Second quiet article" })
+    await expect(next).toBeInViewport()
+    await page.screenshot({ path: testInfo.outputPath("article-end.png") })
+    await heading.dispatchEvent("keydown", { key: " ", code: "Space", repeat: true, bubbles: true })
+    await expect(page).toHaveURL(`${all}/entry/${readerIds.firstEntry}`)
+    if (testInfo.project.use.hasTouch) await next.tap()
+    else await page.keyboard.press("Space")
+    await expect(heading).toHaveText("Second quiet article")
+    await expect(heading).toBeFocused()
+    await expectScrollTop(article, 0)
+    await page.goBack()
+    await expect(page).toHaveURL(all)
+    await expect(readerRowButton(page, readerIds.secondEntry)).toBeFocused()
+
+    await page.goto(`${readingServer.baseURL}/reader/starred`)
+    for (const id of [readerIds.firstEntry, readerIds.secondEntry]) {
+      const row = readerRow(page, id)
+      const star = row.getByRole("button", { name: "Save for later" })
+      await star.focus()
+      await page.keyboard.press("Space")
+      await expect(row).toHaveCount(0)
+      if (id === readerIds.firstEntry) await expect(readerRowButton(page, readerIds.secondEntry)).toBeFocused()
+    }
+    const viewAll = page.getByRole("button", { name: "View all articles" })
+    await expect(viewAll).toBeFocused()
+    await viewAll.click()
+    await expect(page).toHaveURL(all)
+  } finally {
+    await readingServer.stop()
+  }
+})
+
 test("Reader curved article scrollbar supports themes and direct navigation", async ({ page }, testInfo) => {
   testInfo.setTimeout(60_000)
   const scrollbarServer = await startProductionServer()
@@ -489,7 +551,7 @@ test("Expanded source tree keeps hover distinct and reaches the final feed", asy
     expect(hoverStyle.shadow).not.toBe("none")
 
     const queueRows = page.locator(".reader-entry-item")
-    await queueRows.nth(0).getByRole("button").click()
+    await queueRows.nth(0).locator(":scope > button").click()
     await queueRows.nth(1).hover()
     const [selectedEntryStyle, hoverEntryStyle] = await Promise.all([
       queueRows.nth(0).evaluate((element) => {

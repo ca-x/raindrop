@@ -804,7 +804,7 @@
 
 .reader-entry-title {
   display: inline-grid;
-  grid-template-columns: 8px minmax(0, 1fr) auto;
+  grid-template-columns: 8px minmax(0, 1fr);
   align-items: baseline;
   gap: 6px;
   line-height: 1.35;
@@ -818,16 +818,46 @@
   place-items: center;
 }
 
-.reader-entry-star {
-  display: inline-grid;
-  flex: none;
+.reader-queue-star {
+  position: absolute;
+  inset-inline-end: 0;
+  inset-block-end: 0;
+  z-index: 1;
+  display: grid;
   place-items: center;
+  inline-size: 44px;
+  block-size: 44px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.reader-queue-star svg {
+  inline-size: 16px;
+  block-size: 16px;
+}
+
+.reader-queue-star[aria-pressed="true"] {
   color: var(--color-text-accent);
 }
 
-.reader-entry-star > svg {
-  inline-size: 14px;
-  block-size: 14px;
+.reader-queue-star:focus-visible {
+  outline: 2px solid var(--color-text-accent);
+  outline-offset: -3px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .reader-entry-item:not(:hover, :focus-within) .reader-queue-star[aria-pressed="false"] {
+    opacity: 0;
+  }
+
+  .reader-queue-star:hover {
+    background: var(--surface-chrome);
+    color: var(--color-text-accent);
+  }
 }
 
 .reader-entry-description {
@@ -1789,6 +1819,55 @@ html[lang^="zh"] .ai-artifact-view {
 @media (hover: hover) and (pointer: fine) {
   .reader-article-body a:hover {
     text-decoration-color: currentColor;
+  }
+}
+
+.reader-continuation {
+  margin-block-start: 32px;
+  border-block-start: 1px solid color-mix(in srgb, var(--reader-article-foreground) 18%, transparent);
+  padding-block-start: 12px;
+}
+
+.reader-next-article {
+  display: flex;
+  inline-size: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-block-size: 60px;
+  padding: 8px 4px;
+  background: transparent;
+  border: 0;
+  color: var(--reader-article-link);
+  text-align: start;
+  cursor: pointer;
+}
+
+.reader-next-article > span:first-child {
+  display: grid;
+  gap: 4px;
+  min-inline-size: 0;
+}
+
+.reader-next-label {
+  color: var(--reader-article-muted);
+  font: 0.8rem/1.4 var(--font-family-body);
+}
+
+.reader-next-article strong {
+  font: 600 1.1em/1.45 var(--reader-article-font);
+  overflow-wrap: anywhere;
+}
+
+.reader-next-article:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+@media (hover: hover) {
+  .reader-next-article:hover strong {
+    text-decoration: underline;
+    text-underline-offset: 0.16em;
   }
 }
 

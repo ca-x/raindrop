@@ -35,6 +35,8 @@ Setup and login use a calm two-region composition on desktop: product context be
 
 The reader keeps CommaFeed's efficiency grammar rather than its page shape: an unread-first source tree, a stable entry queue, fast keyboard traversal, snapshot-based bulk read actions, and non-disruptive new-entry notices. Raindrop modernizes this as a three-pane desktop workspace, a two-region medium layout, and single-task mobile routes with deep links and restored scroll anchors. AI summaries, translations, and plugin artifacts are secondary reader sidecars; original feed content remains the default and never waits on them.
 
+Saving from a queue row preserves the article's read state and the reader's place. At the end of an article, show the next title in the current source or search. Space pages through the body and advances on a fresh press at the end. These interactions follow established RSS reading conventions. [FreshRSS main view](https://freshrss.github.io/FreshRSS/en/users/03_Main_view.html) · [NetNewsWire shortcuts](https://netnewswire.com/help/mac/6.1/en/keyboard-shortcuts.html)
+
 ## 6. Depth and elevation
 
 Material roles are explicit: `--surface-navigation` is the warm structural layer, `--surface-chrome` frames controls, and the reading surface remains quiet and opaque. Depth comes from lightness steps, fine edges, and a shared elevation scale. `--surface-control-sheen` is a local material treatment on controls and selected items, never a decorative page gradient.

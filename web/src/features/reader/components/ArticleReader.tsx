@@ -4,7 +4,7 @@ import { Icon } from "@astryxdesign/core/Icon"
 import { EmptyState } from "@astryxdesign/core/EmptyState"
 import { Skeleton } from "@astryxdesign/core/Skeleton"
 import { useLingui } from "@lingui/react"
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
 
 import { AiReaderSidecar } from "../../ai/reader/AiReaderSidecar"
 import { useEntryAiController } from "../../ai/model/useEntryAiController"
@@ -30,6 +30,7 @@ import { ReaderEmptyIcon } from "./ReaderEmptyIcon"
 import { ArticleScrollbar } from "./ArticleScrollbar"
 
 interface ArticleReaderProps {
+  continuation?: ReactNode
   state: ReaderState
   entryRoute: string | null
   routeEntryId: string | null
@@ -332,6 +333,7 @@ export function ArticleReader(props: ArticleReaderProps) {
               <Icon icon="externalLink" />
             </a>
           ) : null}
+          {props.continuation}
         </article>
         <ArticleScrollbar
           articleRef={articleRef}

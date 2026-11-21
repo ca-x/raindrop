@@ -28,6 +28,9 @@ interface EntryQueueProps extends QueueSubscriptionActions {
   isCompact: boolean
   onOpenSources: () => void
   onSelect: (entryId: string) => void
+  onToggleStar: (entryId: string) => Promise<void>
+  onViewAll?: () => void
+  onAddSubscription?: () => void
   isRouteReady: boolean
   cursorEntryId: string | null
   cursorFocusNonce: number
@@ -44,7 +47,7 @@ interface EntryQueueProps extends QueueSubscriptionActions {
   onRequestMarkRead: () => void
   isMarkingRead: boolean
   onMergePending: () => void
-  onMergedEntryFocus: (entryId: string) => void
+  onFocusRow: (entryId: string) => void
   density: ListDensity
 }
 
@@ -55,6 +58,9 @@ export function EntryQueue({
   isCompact,
   onOpenSources,
   onSelect,
+  onToggleStar,
+  onViewAll,
+  onAddSubscription,
   isRouteReady,
   cursorEntryId,
   cursorFocusNonce,
@@ -74,23 +80,38 @@ export function EntryQueue({
   onRequestMarkRead,
   isMarkingRead,
   onMergePending,
-  onMergedEntryFocus,
+  onFocusRow,
   density,
 }: EntryQueueProps) {
   const { i18n } = useLingui()
   const rootRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const smoothScrollCursorRef = useRef<string | null>(null)
+  const focusedSavedRow = useRef<{ target: HTMLElement; index: number } | null>(null)
   const shouldFocusCursorRef = useRef(shouldFocusCursor)
   shouldFocusCursorRef.current = shouldFocusCursor
   const key = sourceKey(state.selectedSource)
   const queue = state.queueBySourceKey[key] ?? []
+  useLayoutEffect(() => {
+    const focused = focusedSavedRow.current
+    if (!focused) return
+    if (key === "smart:STARRED" && focused.target.isConnected) return
+    focusedSavedRow.current = null
+    if (key !== "smart:STARRED" || document.activeElement !== document.body) return
+    const adjacent = queue[Math.min(focused.index, queue.length - 1)]
+    if (adjacent) onFocusRow(adjacent)
+    else rootRef.current?.querySelector<HTMLButtonElement>(".reader-queue-empty button")?.focus()
+  }, [key, queue, onFocusRow])
   const hasQueueSnapshot = Object.prototype.hasOwnProperty.call(
     state.queueBySourceKey,
     key,
   )
   const nextCursor = state.nextCursorBySourceKey[key]
   const pendingCount = state.pendingNewEntryCountBySource[key] ?? 0
+  const isNewLibrary = state.subscriptionsAuthoritative && state.subscriptionOrder.length === 0
+  const smartFilter = state.subscriptionOrder.length && state.selectedSource.kind === "smart" ? state.selectedSource.state : null
+  const emptyMessage = state.feedSearchQuery ? "noSearchResults"
+    : smartFilter === "UNREAD" ? "caughtUp" : smartFilter === "STARRED" ? "noSaved" : "noEntries"
   const queueError = state.errors.queue === GENERIC_READER_ERROR
     ? i18n._("reader.queueRecoveryDescription")
     : state.errors.queue
@@ -112,7 +133,7 @@ export function EntryQueue({
     if (!shouldFocusCursorRef.current || !isRouteReady || !cursorEntryId || cursorFocusNonce === 0) return
     const row = [...(rootRef.current?.querySelectorAll<HTMLElement>("[data-reader-entry-id]") ?? [])]
       .find((item) => item.dataset.readerEntryId === cursorEntryId)
-    const button = row?.querySelector<HTMLButtonElement>("button")
+    const button = row?.querySelector<HTMLButtonElement>(":scope > button")
     button?.focus({ preventScroll: true })
     if (smoothScrollCursorRef.current === cursorEntryId) {
       smoothScrollCursorRef.current = null
@@ -124,6 +145,11 @@ export function EntryQueue({
     <div
       ref={rootRef}
       className="reader-queue"
+      onFocusCapture={(event) => {
+        const id = event.target.closest<HTMLElement>("[data-reader-entry-id]")?.dataset.readerEntryId
+        focusedSavedRow.current = key === "smart:STARRED" && id
+          ? { target: event.target, index: queue.indexOf(id) } : null
+      }}
       aria-busy={state.requestActivity.queue || state.requestActivity.page}
       data-request-active={state.requestActivity.queue ? "true" : undefined}
       style={entryQueueDensityStyle(density)}
@@ -171,7 +197,7 @@ export function EntryQueue({
                     behavior: event.detail === 0 || prefersReducedMotion() ? "auto" : "smooth",
                   })
                   onRecordScroll(sourceRoute, 0)
-                  if (firstPending) onMergedEntryFocus(firstPending)
+                  if (firstPending) onFocusRow(firstPending)
                 }}
                 variant="ghost"
               />
@@ -226,9 +252,12 @@ export function EntryQueue({
           className="reader-queue-empty"
           isCompact
           icon={<ReaderEmptyIcon kind="queue" />}
-          title={i18n._(state.feedSearchQuery ? "reader.noSearchResults" : "reader.noEntries")}
-          description={i18n._(state.feedSearchQuery ? "reader.noSearchResultsDescription" : "reader.noEntriesDescription")}
-          actions={state.feedSearchQuery ? (
+          title={i18n._(`reader.${emptyMessage}`)}
+          description={i18n._(isNewLibrary ? "reader.noSubscriptionsDescription" : `reader.${emptyMessage}Description`)}
+          actions={nextCursor && onLoadMore ? (
+            <Button label={i18n._(state.errors.page ? "common.retry" : "reader.loadMoreEntries")}
+              isLoading={state.requestActivity.page} variant="secondary" onClick={() => { void onLoadMore() }} />
+          ) : state.feedSearchQuery ? (
             <Button
               label={i18n._("reader.clearFeedSearch")}
               variant="secondary"
@@ -237,6 +266,10 @@ export function EntryQueue({
                 void onSearchFeed("")
               }}
             />
+          ) : isNewLibrary && onAddSubscription ? (
+            <Button label={i18n._("reader.addSubscription")} variant="secondary" onClick={onAddSubscription} />
+          ) : (smartFilter === "UNREAD" || smartFilter === "STARRED") && onViewAll ? (
+            <Button label={i18n._("reader.viewAllArticles")} variant="secondary" onClick={onViewAll} />
           ) : undefined}
         />
       ) : (
@@ -283,15 +316,7 @@ export function EntryQueue({
                       <span className="reader-entry-marker">
                         {!entry.isRead ? <StatusDot variant="accent" label={i18n._("reader.unreadEntry")} /> : null}
                       </span>
-                      <span className="reader-entry-headline">{entry.title ?? i18n._("reader.untitled")}</span>
-                      {entry.isStarred ? (
-                        <span
-                          className="reader-entry-star"
-                          aria-label={i18n._("reader.starredEntry")}
-                        >
-                          <StarIcon isFilled />
-                        </span>
-                      ) : null}
+                      <span id={`queue-title-${entryId}`} className="reader-entry-headline">{entry.title ?? i18n._("reader.untitled")}</span>
                     </span>
                   }
                   description={
@@ -308,11 +333,28 @@ export function EntryQueue({
                   labelLines={2}
                   align="start"
                   endContent={(
-                    <RelativeEntryTime
-                      timestampUs={timestampUs}
-                      locale={i18n.locale}
-                      justNowLabel={i18n._("reader.justNow")}
-                    />
+                    <>
+                      <RelativeEntryTime
+                        timestampUs={timestampUs}
+                        locale={i18n.locale}
+                        justNowLabel={i18n._("reader.justNow")}
+                      />
+                      <button
+                        type="button"
+                        className="reader-queue-star"
+                        aria-label={i18n._("reader.saveForLater")}
+                        aria-describedby={`queue-title-${entryId}`}
+                        aria-pressed={entry.isStarred}
+                        title={i18n._(entry.isStarred ? "reader.unstarEntry" : "reader.saveForLater")}
+                        disabled={!isRouteReady}
+                        aria-disabled={state.pendingMutationByEntryId[entryId]?.isStarred ? true : undefined}
+                        onClick={() => {
+                          if (!state.pendingMutationByEntryId[entryId]?.isStarred) void onToggleStar(entryId)
+                        }}
+                      >
+                        <StarIcon isFilled={entry.isStarred} />
+                      </button>
+                    </>
                   )}
                 />
               )
@@ -338,7 +380,7 @@ export function EntryQueue({
                 clickAction={async () => { await onLoadMore() }}
               />
             ) : (
-              <span>{i18n._("reader.noMoreEntries")}</span>
+              <span>{i18n._("reader.endOfList")}</span>
             )}
           </div>
         </div>

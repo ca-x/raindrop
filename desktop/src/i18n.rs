@@ -40,6 +40,17 @@ pub(crate) fn translate(language: Language, message: &str) -> &str {
         "保留" => "Keep",
         "取消订阅" => "Unsubscribe",
         "搜索文章" => "Search articles",
+        "下一篇" => "Next article",
+        "返回列表" => "Return to list",
+        "加载更多文章" => "Load more articles",
+        "收藏以便稍后阅读" => "Save for later",
+        "未读文章已读完" => "You’re all caught up",
+        "还没有收藏文章" => "No saved articles yet",
+        "新文章到达后会出现在这里。" => "New unread articles will appear here.",
+        "在列表中点亮星标，即可留到这里稍后阅读。" => {
+            "Star an article in the list to keep it here for later."
+        }
+        "查看全部文章" => "View all articles",
         "这里还没有文章" => "No articles yet",
         "添加订阅，或调整筛选条件。" => "Add a subscription or adjust your filters.",
         "返回" => "Back",

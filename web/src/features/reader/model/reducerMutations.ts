@@ -352,6 +352,19 @@ export function succeedEntryMutation(
   if (!isLatest || response.entryId !== snapshot.entryId) return next
 
   next = applyAuthoritativeValue(next, snapshot.entryId, snapshot.field, response[snapshot.field])
+  if (snapshot.field === "isStarred" && !response.isStarred) {
+    const key = "smart:STARRED"
+    const rows = next.queueBySourceKey[key]
+    const pending = next.pendingNewEntriesBySource[key]
+    if (rows?.includes(snapshot.entryId)) {
+      next.queueBySourceKey = { ...next.queueBySourceKey, [key]: rows.filter((id) => id !== snapshot.entryId) }
+    }
+    if (pending?.includes(snapshot.entryId)) {
+      const remaining = pending.filter((id) => id !== snapshot.entryId)
+      next.pendingNewEntriesBySource = { ...next.pendingNewEntriesBySource, [key]: remaining }
+      next.pendingNewEntryCountBySource = { ...next.pendingNewEntryCountBySource, [key]: remaining.length }
+    }
+  }
   return next
 }
 

@@ -180,6 +180,8 @@ pub(crate) struct Entry {
     pub(crate) summary: Option<String>,
     pub(crate) canonical_url: Option<String>,
     pub(crate) author: Option<String>,
+    #[serde(default)]
+    pub(crate) sort_at_us: i64,
     pub(crate) is_read: bool,
     pub(crate) is_starred: bool,
     #[serde(default)]

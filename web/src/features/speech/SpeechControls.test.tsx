@@ -3,7 +3,8 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { Providers } from "../../app/Providers"
 import { activateLocale } from "../../shared/i18n/i18n"
 import { SpeechControls } from "./SpeechControls"
-import { stopAllSpeech } from "./api"
+import { configChanged, stopAllSpeech } from "./api"
+let speechEnabled: boolean
 let audios: FakeAudio[]
 class FakeAudio {
   onended: (() => void) | null = null
@@ -20,6 +21,7 @@ let fetchMock: ReturnType<typeof vi.fn>
 let revoke: ReturnType<typeof vi.fn>
 beforeEach(() => {
   activateLocale("en")
+  speechEnabled = true
   audios = []
   vi.stubGlobal("Audio", FakeAudio)
   vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:audio")
@@ -39,7 +41,7 @@ beforeEach(() => {
       )
     return Promise.resolve(
       Response.json({
-        isEnabled: true,
+        isEnabled: speechEnabled,
         baseUrl: "https://speech.example",
         model: "tts",
         voice: "alloy",
@@ -72,6 +74,14 @@ async function start() {
   fireEvent.click(screen.getByRole("button", { name: "Read article aloud" }))
   await screen.findByRole("button", { name: "Pause speech" })
 }
+it("removes the toolbar when speech is turned off while reading", async () => {
+  render(content())
+  await screen.findByRole("button", { name: "Read article aloud" })
+  speechEnabled = false
+  await act(async () => configChanged())
+  expect(screen.queryByRole("button", { name: "Read article aloud" })).toBeNull()
+  expect(document.querySelector(".speech-controls")).toBeNull()
+})
 it("provides accessible icon controls and requests the next chunk only after audio ends", async () => {
   render(content())
   await start()

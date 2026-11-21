@@ -48,6 +48,7 @@ export function SpeechControls({
       speechEvents.removeEventListener("config", load)
     }
   }, [entryId, csrfToken, player])
+  if (!enabled) return null
   const action =
     state === "playing" ? "pause" : state === "paused" ? "resume" : "play"
   return (
@@ -59,12 +60,12 @@ export function SpeechControls({
     >
       <Button
         label={translate(action)}
-        tooltip={translate(enabled ? action : "disabled")}
+        tooltip={translate(action)}
         icon={<Icon icon={state === "playing" ? PauseIcon : PlayIcon} />}
         isIconOnly
         variant="ghost"
         isLoading={state === "loading"}
-        isDisabled={!enabled || !csrfToken || state === "loading"}
+        isDisabled={!csrfToken || state === "loading"}
         onClick={() => {
           if (state === "playing") player.pause()
           else if (state === "paused") void player.resume()
@@ -99,7 +100,7 @@ export function SpeechControls({
           state === "idle" ? "reader-visually-hidden" : "speech-feedback"
         }
       >
-        {translate(state === "error" ? "playbackError" : !enabled ? "disabled" : state)}
+        {translate(state === "error" ? "playbackError" : state)}
       </span>
     </div>
   )

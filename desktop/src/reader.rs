@@ -3,13 +3,16 @@ use nsh_base::{
     TextViewLinkPressEvent, alert_dialog, dialog, h_resizable, menu, resizable_panel, text_view,
     theme,
 };
-use nsh_core::prelude::*;
+use nsh_core::{element::ImageSrc, prelude::*};
 
 use crate::{
     api::{Filter, Query, external_url},
     store::Store,
     ui,
 };
+
+const STAR_OUTLINE: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="m10 2.75 2.2 4.46 4.92.72-3.56 3.47.84 4.9L10 14l-4.4 2.3.84-4.9-3.56-3.47 4.92-.72Z"/></svg>"#;
+const STAR_FILLED: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="m10 2.75 2.2 4.46 4.92.72-3.56 3.47.84 4.9L10 14l-4.4 2.3.84-4.9-3.56-3.47 4.92-.72Z"/></svg>"#;
 
 #[component]
 pub(crate) fn Workspace() -> impl IntoElement {
@@ -23,6 +26,34 @@ pub(crate) fn Workspace() -> impl IntoElement {
     effect(move || search.set(current_query.get().search));
     let search_ref = element_ref();
     let queue_ref = element_ref();
+    let back_to_queue = move || {
+        let index = store.peek(|state| {
+            let id = state.selected.as_ref()?;
+            state
+                .entries
+                .iter()
+                .position(|row| &row.entry_id == id)
+                .or_else(|| {
+                    state
+                        .adjacent_entry(1)
+                        .or_else(|| state.adjacent_entry(-1))
+                        .and_then(|next| {
+                            state
+                                .entries
+                                .iter()
+                                .position(|row| row.entry_id == next.entry_id)
+                        })
+                })
+        });
+        store.clear_selection();
+        if window().width.0 < 760.0
+            && let Some(index) = index
+        {
+            request_animation_frame(move |_| {
+                queue_ref.scroll_to_index(index as u32, percentage(0.5), px(0.0), false)
+            });
+        }
+    };
     let reader_active = move || !adding.get_untracked() && !settings.get_untracked();
     on_key("mod+f", move |_| {
         if reader_active() {
@@ -48,7 +79,7 @@ pub(crate) fn Workspace() -> impl IntoElement {
                 show_sidebar.set(false);
                 pending_search.set(None);
             } else {
-                store.clear_selection();
+                back_to_queue();
             }
         }
     });
@@ -128,7 +159,7 @@ pub(crate) fn Workspace() -> impl IntoElement {
                                 || (!show_sidebar.get()
                                     && store.read(|state| state.selected.is_some()))
                         })
-                        .child(article(store)),
+                        .child(article(store, back_to_queue)),
                 ),
         )
         .child(when(
@@ -416,13 +447,17 @@ fn queue(
                     let entry = computed(move || {
                         store.read(|state| state.entries.get(at.index()).cloned())
                     });
-                    ui::row(move || {
-                        if let Some(entry) = entry.get_untracked() {
-                            store.select(entry.entry_id);
-                        }
+                    let saved = move || entry.with(|row| row.as_ref().is_some_and(|row| row.is_starred));
+                    let label = move || entry.with(|row| row.as_ref().map(|row| {
+                        let action = if row.is_starred { "取消收藏" } else { "收藏以便稍后阅读" };
+                        format!("{} · {}", crate::i18n::tr(action), row.title())
+                    }).unwrap_or_default());
+                    let article = ui::row(move || {
+                        entry.with_untracked(|row| {
+                            if let Some(row) = row { store.select(row.entry_id.clone()); }
+                        });
                     })
-                    .mx_2()
-                    .my_1()
+                    .flex_1().min_w_0()
                     .px_3()
                     .py_3()
                     .gap_2()
@@ -455,12 +490,7 @@ fn queue(
                                     entry
                                         .as_ref()
                                         .map(|entry| {
-                                            match (entry.is_read, entry.is_starred) {
-                                                (false, true) => "●  ★",
-                                                (false, false) => "●",
-                                                (true, true) => "★",
-                                                (true, false) => "",
-                                            }
+                                            if entry.is_read { "" } else { "●" }
                                         })
                                         .unwrap_or_default()
                                 })
@@ -471,7 +501,7 @@ fn queue(
                             entry.with(|entry| {
                                 entry
                                     .as_ref()
-                                    .map(|entry| entry.title().to_owned())
+                                    .map(|entry| entry.title())
                                     .unwrap_or_default()
                             })
                         })
@@ -492,7 +522,19 @@ fn queue(
                             })
                         })
                         .number_of_lines(2u32),
+                    );
+                    let star = ui::icon_command(
+                        label,
+                        move || ImageSrc::svg_markup(if saved() { STAR_FILLED } else { STAR_OUTLINE }),
+                        move || {
+                            entry.with_untracked(|row| {
+                                if let Some(row) = row { store.toggle_entry_star(Some(&row.entry_id)); }
+                            });
+                        },
                     )
+                    .min_w_10().min_h_10().selected(saved)
+                    .disabled(move || store.read(|state| state.writing));
+                    view().flex_row().items_center().mx_2().my_1().child(article).child(star)
                 },
             )
             .keys(move || {
@@ -519,6 +561,10 @@ fn queue(
                                 "正在载入…"
                             } else if !state.query.search.is_empty() {
                                 "没有匹配的文章"
+                            } else if !state.subscriptions.is_empty() && state.query.filter == Filter::Unread {
+                                "未读文章已读完"
+                            } else if !state.subscriptions.is_empty() && state.query.filter == Filter::Starred {
+                                "还没有收藏文章"
                             } else {
                                 "这里还没有文章"
                             })
@@ -530,14 +576,23 @@ fn queue(
                         }).otherwise(move || {
                             when(move || store.read(|state| state.subscriptions.is_empty()), move || {
                                 view().items_start().child(ui::primary("添加第一个订阅", move || adding.set(true)))
-                            }).otherwise(|| ui::caption("添加订阅，或调整筛选条件。"))
+                            }).otherwise(move || {
+                                when(move || store.read(|state| state.query.filter != Filter::All), move || {
+                                    view().items_start().gap_2()
+                                        .child(ui::caption(move || store.read(|state| crate::i18n::tr(
+                                            if state.query.filter == Filter::Unread { "新文章到达后会出现在这里。" }
+                                            else { "在列表中点亮星标，即可留到这里稍后阅读。" }
+                                        ))))
+                                        .child(ui::command("查看全部文章", move || store.filter(Filter::All, None)))
+                                }).otherwise(|| ui::caption("添加订阅，或调整筛选条件。"))
+                            })
                         })
                     })),
             ),
         )
 }
 
-fn article(store: Store) -> impl IntoElement {
+fn article(store: Store, back_to_queue: impl Fn() + Copy + 'static) -> impl IntoElement {
     view()
         .flex_1()
         .min_w_0()
@@ -547,7 +602,7 @@ fn article(store: Store) -> impl IntoElement {
                 .flex_wrap()
                 .child(when(
                     move || window().width.0 < 760.0,
-                    move || ui::command("返回", move || store.clear_selection()),
+                    move || ui::command("返回", back_to_queue),
                 ))
                 .child(
                     ui::command(
@@ -669,7 +724,7 @@ fn article(store: Store) -> impl IntoElement {
                                             state
                                                 .detail
                                                 .as_ref()
-                                                .map(|entry| entry.title().to_owned())
+                                                .map(|entry| entry.title())
                                                 .unwrap_or_default()
                                         })
                                     })
@@ -706,10 +761,62 @@ fn article(store: Store) -> impl IntoElement {
                                                 });
                                             }
                                         }),
-                                ),
+                                )
+                                .child(article_continuation(store, back_to_queue)),
                         )
                     },
                 )
+            }),
+        )
+}
+
+fn article_continuation(store: Store, back: impl Fn() + Copy + 'static) -> impl IntoElement {
+    let next = computed(move || {
+        store.read(|state| {
+            state
+                .adjacent_entry(1)
+                .map(|entry| (entry.entry_id.clone(), entry.title()))
+        })
+    });
+    view()
+        .border_t_1()
+        .border_color(move || theme().border)
+        .pt_3()
+        .mb_5()
+        .child(
+            when(
+                move || next.with(Option::is_some),
+                move || {
+                    ui::row(move || {
+                        if let Some((id, _)) = next.get_untracked() {
+                            store.select(id);
+                        }
+                    })
+                    .items_start()
+                    .child(ui::caption("下一篇"))
+                    .child(
+                        text(move || {
+                            next.with(|entry| {
+                                entry
+                                    .as_ref()
+                                    .map(|(_, title)| title.clone())
+                                    .unwrap_or_default()
+                            })
+                        })
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .number_of_lines(2u32),
+                    )
+                },
+            )
+            .otherwise(move || {
+                when(
+                    move || store.read(|state| state.next_cursor.is_some()),
+                    move || {
+                        ui::command("加载更多文章", move || store.load_more())
+                            .disabled(move || store.read(|state| state.loading))
+                    },
+                )
+                .otherwise(move || ui::command("返回列表", back))
             }),
         )
 }

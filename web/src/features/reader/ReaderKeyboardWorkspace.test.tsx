@@ -128,11 +128,29 @@ describe("Reader keyboard workspace", () => {
     await screen.findByRole("heading", { name: "First article" })
     const article = document.querySelector<HTMLElement>(".reader-article")!
     Object.defineProperty(article, "clientHeight", { configurable: true, value: 600 })
+    Object.defineProperty(article, "scrollHeight", { configurable: true, value: 1800 })
 
     fireEvent.keyDown(window, { key: " " })
     expect(article.scrollTop).toBe(491)
     fireEvent.keyDown(window, { key: " ", shiftKey: true })
     expect(article.scrollTop).toBe(0)
+  })
+
+  it("continues from a removed row using the entry ID when timestamps tie", async () => {
+    activateLocale("en")
+    const controller = keyboardController()
+    const { state } = controller
+    state.selectedEntryId = "second"
+    state.queueBySourceKey["smart:UNREAD"] = ["third", "first"]
+    state.entriesById.first.isRead = false
+    for (const id of ["third", "second", "first"]) {
+      state.entriesById[id].sortAtUs = state.detailsById[id].sortAtUs = 100
+    }
+    window.history.replaceState(null, "", "/reader/unread/entry/second")
+    render(workspace(controller))
+    await screen.findByRole("heading", { name: "Second article" })
+    fireEvent.click(screen.getByRole("button", { name: /^Next article\s*First article$/u }))
+    await waitFor(() => expect(window.location.pathname).toBe("/reader/unread/entry/first"))
   })
 
   it("reveals the responsive source overlay from the immersive keyboard shortcut", async () => {

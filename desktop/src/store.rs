@@ -38,6 +38,34 @@ pub(crate) struct State {
     detail_generation: u64,
 }
 
+impl State {
+    pub(crate) fn adjacent_entry(&self, offset: isize) -> Option<&Entry> {
+        let Some(selected) = self.selected.as_ref() else {
+            return self.entries.first();
+        };
+        if let Some(index) = self
+            .entries
+            .iter()
+            .position(|entry| &entry.entry_id == selected)
+        {
+            return self.entries.get(index.checked_add_signed(offset)?);
+        }
+        // The open row may have just left Unread or Starred. Use the same ordering as the API cursor.
+        let detail = self.detail.as_ref()?;
+        let origin = (detail.sort_at_us, detail.entry_id.as_str());
+        if offset > 0 {
+            self.entries
+                .iter()
+                .find(|row| (row.sort_at_us, row.entry_id.as_str()) < origin)
+        } else {
+            self.entries
+                .iter()
+                .rev()
+                .find(|row| (row.sort_at_us, row.entry_id.as_str()) > origin)
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct Store(Signal<State>, Owner);
 
@@ -613,36 +641,38 @@ impl Store {
     }
 
     pub(crate) fn toggle_read(self) {
-        if let Some(read) = self.peek(|state| state.detail.as_ref().map(|entry| entry.is_read)) {
-            self.patch(EntryPatch {
-                is_read: Some(!read),
-                is_starred: None,
-            });
-        }
+        self.patch(None, |entry| EntryPatch {
+            is_read: Some(!entry.is_read),
+            is_starred: None,
+        });
     }
 
     pub(crate) fn toggle_star(self) {
-        if let Some(starred) =
-            self.peek(|state| state.detail.as_ref().map(|entry| entry.is_starred))
-        {
-            self.patch(EntryPatch {
-                is_read: None,
-                is_starred: Some(!starred),
-            });
-        }
+        self.toggle_entry_star(None);
     }
 
-    fn patch(self, patch: EntryPatch) {
-        let Some((api, entry_id, feed_id, was_read, session)) = self.peek(|state| {
+    pub(crate) fn toggle_entry_star(self, id: Option<&str>) {
+        self.patch(id, |entry| EntryPatch {
+            is_read: None,
+            is_starred: Some(!entry.is_starred),
+        });
+    }
+
+    fn patch(self, id: Option<&str>, change: impl FnOnce(&Entry) -> EntryPatch) {
+        let Some((api, entry_id, feed_id, was_read, patch, session)) = self.peek(|state| {
             if state.writing {
                 return None;
             }
-            let entry = state.detail.as_ref()?;
+            let entry = match id {
+                Some(id) => state.entries.iter().find(|row| row.entry_id == id)?,
+                None => state.detail.as_ref()?,
+            };
             Some((
                 state.api.clone()?,
                 entry.entry_id.clone(),
                 entry.feed_id.clone(),
                 entry.is_read,
+                change(entry),
                 state.session_generation,
             ))
         }) else {
@@ -693,22 +723,11 @@ impl Store {
     }
 
     pub(crate) fn move_selection(self, offset: isize) {
-        let id = self.peek(|state| {
-            let index = state
-                .selected
-                .as_ref()
-                .and_then(|id| state.entries.iter().position(|entry| &entry.entry_id == id));
-            let next = match index {
-                Some(index) => index
-                    .saturating_add_signed(offset)
-                    .min(state.entries.len().saturating_sub(1)),
-                None => 0,
-            };
-            state.entries.get(next).map(|entry| entry.entry_id.clone())
-        });
-        if let Some(id) = id
-            && !self.peek(|state| state.selected.as_ref() == Some(&id))
-        {
+        if let Some(id) = self.peek(|state| {
+            state
+                .adjacent_entry(offset)
+                .map(|entry| entry.entry_id.clone())
+        }) {
             self.select(id);
         }
     }
@@ -738,5 +757,37 @@ impl Store {
             self.reset();
         }
         self.0.update(|state| state.error = error.message().into());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn navigation_keeps_position_after_the_open_row_leaves_a_filter() {
+        let row = |id: &str, sort_at_us| Entry {
+            entry_id: id.to_owned(),
+            sort_at_us,
+            ..Entry::default()
+        };
+        let current = row("c", 20);
+        let mut state = State {
+            entries: vec![row("d", 20), current.clone(), row("b", 20), row("a", 10)],
+            selected: Some(current.entry_id.clone()),
+            detail: Some(current),
+            ..State::default()
+        };
+        for filtered in [false, true] {
+            if filtered {
+                state.entries.retain(|entry| entry.entry_id != "c");
+            }
+            assert_eq!(state.adjacent_entry(1).unwrap().entry_id, "b");
+            assert_eq!(state.adjacent_entry(-1).unwrap().entry_id, "d");
+        }
+        state.selected = Some("a".into());
+        assert!(state.adjacent_entry(1).is_none());
+        state.selected = Some("d".into());
+        assert!(state.adjacent_entry(-1).is_none());
     }
 }

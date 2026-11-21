@@ -2,6 +2,7 @@ import { AppShell } from "@astryxdesign/core/AppShell"
 import { Banner } from "@astryxdesign/core/Banner"
 import { Button } from "@astryxdesign/core/Button"
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog"
+import { Icon } from "@astryxdesign/core/Icon"
 import { MobileNav } from "@astryxdesign/core/MobileNav"
 import { Spinner } from "@astryxdesign/core/Spinner"
 import { useResizable } from "@astryxdesign/core/Resizable"
@@ -150,6 +151,35 @@ export function ReaderShell(props: ReaderShellProps) {
     ? props.controller.state.queueBySourceKey[sourceKey(props.controller.state.selectedSource)] ?? []
     : []
   const selectedSource = props.controller.state.selectedSource
+  const { entriesById, detailsById } = props.controller.state
+  const entryId = props.route.entryId
+  const openEntry = entryId ? detailsById[entryId] ?? entriesById[entryId] : null
+  const nextArticle = useMemo(() => {
+    if (!openEntry) return
+    const index = queueEntryIds.indexOf(openEntry.entryId)
+    for (let position = index + 1; position < queueEntryIds.length; position++) {
+      const row = entriesById[queueEntryIds[position]]
+      if (!row) continue
+      if (selectedSource.kind === "smart" && (
+        (selectedSource.state === "UNREAD" && row.isRead) ||
+        (selectedSource.state === "STARRED" && !row.isStarred)
+      )) continue
+      // Use the server cursor order if the open row has left a filtered queue.
+      if (index >= 0 || row.sortAtUs < openEntry.sortAtUs ||
+        (row.sortAtUs === openEntry.sortAtUs && row.entryId < openEntry.entryId)) return row
+    }
+  }, [entriesById, openEntry, queueEntryIds, selectedSource])
+  const hasMore = Boolean(props.controller.state.nextCursorBySourceKey[sourceKey(selectedSource)])
+  const continuedEntry = useRef<string | null>(null)
+  const detailReady = props.controller.state.selectedEntryId === entryId && props.controller.state.paneStatus.detail === "ready"
+  useEffect(() => {
+    if (detailReady && continuedEntry.current === entryId) continuedEntry.current = null
+  }, [detailReady, entryId])
+  const openNextArticle = () => {
+    if (!nextArticle) return
+    continuedEntry.current = nextArticle.entryId
+    props.onSelectEntry(nextArticle.entryId)
+  }
   const selectedSubscription = useMemo(
     () => selectedSource.kind === "feed"
       ? props.controller.state.subscriptionOrder
@@ -284,9 +314,17 @@ export function ReaderShell(props: ReaderShellProps) {
     })
     focusArticle()
   }
-  const scrollArticle = (direction: 1 | -1) => {
+  const scrollArticle = (direction: 1 | -1, repeat: boolean) => {
     const article = document.querySelector<HTMLElement>(".reader-article")
-    if (!article || !props.route.entryId) return
+    if (!article || !props.route.entryId || !article.clientHeight) return
+    const remaining = article.scrollHeight - article.clientHeight - article.scrollTop
+    if (direction === 1 && remaining <= 2) {
+      if (!repeat && props.isSourceReady && detailReady) {
+        if (nextArticle) openNextArticle()
+        else if (hasMore) void props.controller.loadMoreEntries()
+      }
+      return
+    }
     const distance = Math.max(1, Math.floor(article.clientHeight * 0.82))
     article.scrollTop += distance * direction
   }
@@ -386,6 +424,9 @@ export function ReaderShell(props: ReaderShellProps) {
       isCompact={props.viewportMode === "compact"}
       onOpenSources={() => setIsNavOpen(true)}
       onSelect={props.onSelectEntry}
+      onToggleStar={props.controller.toggleStar}
+      onViewAll={() => props.onSelectSource({ kind: "smart", state: "ALL" })}
+      onAddSubscription={() => setIsManagementOpen(true)}
       isRouteReady={props.isSourceReady}
       cursorEntryId={props.cursorEntryId}
       cursorFocusNonce={props.cursorFocusNonce}
@@ -402,7 +443,7 @@ export function ReaderShell(props: ReaderShellProps) {
       onRequestMarkRead={() => setMarkReadTarget({ kind: "current", label: sourceLabel })}
       isMarkingRead={props.controller.isMarkingRead}
       onMergePending={props.controller.mergePendingEntries}
-      onMergedEntryFocus={props.onCursorChange}
+      onFocusRow={props.onCursorChange}
       density={toAstryxDensity(
         props.preferencesController.preferences.layoutDensity,
       )}
@@ -414,7 +455,26 @@ export function ReaderShell(props: ReaderShellProps) {
       entryRoute={entryRoute}
       routeEntryId={props.route.entryId}
       savedScrollOffset={entryRoute ? props.controller.state.scrollAnchorByRoute[entryRoute] ?? 0 : 0}
-      shouldFocusArticle={props.viewportMode === "compact" || isImmersive}
+      shouldFocusArticle={props.viewportMode === "compact" || isImmersive || Boolean(entryId && continuedEntry.current === entryId)}
+      continuation={props.isSourceReady && entryId && props.controller.state.selectedEntryId === entryId ? (
+        <footer className="reader-continuation">
+          {nextArticle ? (
+            <button type="button" className="reader-next-article" onClick={openNextArticle}>
+              <span>
+                <span className="reader-next-label">{i18n._("reader.nextArticle")}</span>
+                <strong>{nextArticle.title || i18n._("reader.untitled")}</strong>
+              </span>
+              <Icon icon="chevronRight" />
+            </button>
+          ) : hasMore ? (
+            <Button label={i18n._(props.controller.state.errors.page ? "common.retry" : "reader.loadMoreEntries")}
+              isLoading={props.controller.state.requestActivity.page} variant="ghost"
+              onClick={() => { void props.controller.loadMoreEntries() }} />
+          ) : (
+            <Button label={i18n._("reader.returnToList")} variant="ghost" onClick={props.onBack} />
+          )}
+        </footer>
+      ) : undefined}
       onRecordScroll={props.controller.recordScrollAnchor}
       onToggleRead={props.controller.toggleRead}
       onToggleStar={props.controller.toggleStar}

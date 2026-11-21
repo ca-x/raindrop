@@ -21,7 +21,7 @@ export interface UseReaderHotkeysOptions {
   onFocusSources?: () => void
   onFocusQueue?: () => void
   canScrollArticle?: boolean
-  onScrollArticle?: (direction: 1 | -1) => void
+  onScrollArticle?: (direction: 1 | -1, repeat: boolean) => void
   onChangeReadingSize?: (direction: 1 | -1 | 0) => void
 }
 
@@ -138,12 +138,12 @@ export function useReaderHotkeys(options: UseReaderHotkeysOptions): void {
     }, (current) => Boolean(current.onFocusQueue)),
     guardedHotkey(
       "shift+space",
-      () => optionsRef.current.onScrollArticle?.(-1),
+      (event) => optionsRef.current.onScrollArticle?.(-1, event.repeat),
       (current) => Boolean(current.canScrollArticle && current.onScrollArticle),
     ),
     guardedHotkey(
       "space",
-      () => optionsRef.current.onScrollArticle?.(1),
+      (event) => optionsRef.current.onScrollArticle?.(1, event.repeat),
       (current) => Boolean(current.canScrollArticle && current.onScrollArticle),
     ),
   ])

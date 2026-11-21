@@ -156,8 +156,8 @@ describe("useReaderHotkeys", () => {
     expect(options.onToggleImmersive).toHaveBeenCalledOnce()
     expect(options.onFocusSources).toHaveBeenCalledOnce()
     expect(options.onFocusQueue).toHaveBeenCalledOnce()
-    expect(options.onScrollArticle).toHaveBeenNthCalledWith(1, 1)
-    expect(options.onScrollArticle).toHaveBeenNthCalledWith(2, -1)
+    expect(options.onScrollArticle).toHaveBeenNthCalledWith(1, 1, false)
+    expect(options.onScrollArticle).toHaveBeenNthCalledWith(2, -1, false)
     expect(options.onExitImmersive).toHaveBeenCalledOnce()
   })
 
@@ -214,7 +214,7 @@ describe("useReaderHotkeys", () => {
     press(" ")
     press("Escape")
     expect(options.onToggleImmersive).toHaveBeenCalledOnce()
-    expect(options.onScrollArticle).toHaveBeenCalledWith(1)
+    expect(options.onScrollArticle).toHaveBeenCalledWith(1, false)
     expect(options.onExitImmersive).toHaveBeenCalledOnce()
   })
 

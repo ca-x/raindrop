@@ -105,9 +105,15 @@ describe("Reader queue actions", () => {
       },
       queueBySourceKey: { "feed:feed-rust": [entryId] },
     })
-    renderQueue(state)
+    const onSelect = vi.fn()
+    const onToggleStar = vi.fn().mockResolvedValue(undefined)
+    renderQueue(state, { onSelect, onToggleStar })
 
-    const marker = screen.getByLabelText("Starred entry")
+    const marker = screen.getByRole("button", { name: "Save for later", pressed: true })
+    expect(marker).toHaveAccessibleDescription("Saved article")
+    fireEvent.click(marker)
+    expect(onToggleStar).toHaveBeenCalledWith(entryId)
+    expect(onSelect).not.toHaveBeenCalled()
     expect(marker.querySelector("svg")).not.toBeNull()
     expect(marker).not.toHaveTextContent("★")
   })
@@ -246,6 +252,7 @@ function queue(state: ReaderState, overrides: Partial<QueueProps> = {}) {
         isCompact={false}
         onOpenSources={vi.fn()}
         onSelect={vi.fn()}
+        onToggleStar={vi.fn().mockResolvedValue(undefined)}
         isRouteReady
         cursorEntryId={null}
         cursorFocusNonce={0}
@@ -259,7 +266,7 @@ function queue(state: ReaderState, overrides: Partial<QueueProps> = {}) {
         onRequestMarkRead={vi.fn()}
         isMarkingRead={false}
         onMergePending={vi.fn()}
-        onMergedEntryFocus={vi.fn()}
+        onFocusRow={vi.fn()}
         density="balanced"
         {...overrides}
       />
