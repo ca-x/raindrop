@@ -7,11 +7,15 @@ use crate::{
 use nsh_base::theme;
 use nsh_core::{element::ImageSrc, prelude::*};
 use std::time::Duration;
+use zeroize::Zeroizing;
 
 fn playback_status(store: Store) -> Signal<Status> {
+    let playback = store.peek(|state| state.speech.clone());
+    let cleanup_playback = playback.clone();
+    cleanup(move || cleanup_playback.stop());
     let status = signal(Status::Idle);
     set_interval(Duration::from_millis(80), move || {
-        status.set(store.peek(|state| state.speech.status()));
+        status.set(playback.status());
     });
     status
 }
@@ -22,7 +26,6 @@ const STOP_ICON: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" width="24" he
 
 pub(crate) fn controls(store: Store) -> impl IntoElement {
     let status = playback_status(store);
-    cleanup(move || store.peek(|state| state.speech.clone()).stop());
     view()
         .flex_row()
         .gap_2()
@@ -116,7 +119,7 @@ pub(crate) fn SpeechSettings() -> impl IntoElement {
     let custom = signal(false);
     let speed = signal(String::new());
     let enabled = signal(false);
-    let key = signal(String::new());
+    let key = signal(Zeroizing::<String>::default());
     let clear = signal(false);
     let preview_text = signal("Raindrop speech preview.".to_owned());
     let busy = signal(false);
@@ -139,17 +142,7 @@ pub(crate) fn SpeechSettings() -> impl IntoElement {
             }
         })
     };
-    let wipe_key = move || {
-        key.update(|key| {
-            use zeroize::Zeroize;
-            key.zeroize();
-            key.clear();
-        })
-    };
-    cleanup(move || {
-        wipe_key();
-        store.peek(|state| state.speech.clone()).stop();
-    });
+    let wipe_key = move || key.set(Zeroizing::default());
     effect(move || {
         let _ = target.get();
         let _ = reload.get();
@@ -208,7 +201,7 @@ pub(crate) fn SpeechSettings() -> impl IntoElement {
         {
             return Err("请填写服务地址、模型和声音 ID。");
         }
-        Ok(value.draft(&key.get_untracked(), clear.get_untracked()))
+        Ok(key.with_untracked(|secret| value.draft(secret, clear.get_untracked())))
     };
     let submit = move || {
         let body = match draft() {
@@ -306,21 +299,15 @@ pub(crate) fn SpeechSettings() -> impl IntoElement {
                             .child(text(move || crate::i18n::tr("启用语音朗读"))),
                     )
                     .child(labeled("语音服务地址", endpoint, busy))
-                    .child(
-                        view().gap_1().child(ui::caption("API 密钥（可选）")).child(
-                            ui::field("API 密钥（可选）", key)
-                                .masked(true)
-                                .disabled(move || {
-                                    busy.get()
-                                        || clear.get()
-                                        || config.with(|value| {
-                                            value
-                                                .as_ref()
-                                                .is_none_or(|value| !value.keyring_available)
-                                        })
-                                }),
-                        ),
-                    )
+                    .child(view().gap_1().child(ui::caption("API 密钥（可选）")).child(
+                        ui::secret_field("API 密钥（可选）", key).disabled(move || {
+                            busy.get()
+                                || clear.get()
+                                || config.with(|value| {
+                                    value.as_ref().is_none_or(|value| !value.keyring_available)
+                                })
+                        }),
+                    ))
                     .child(ui::caption(move || {
                         crate::i18n::tr(
                             if config

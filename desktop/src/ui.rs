@@ -1,6 +1,7 @@
 use nsh_base::{ButtonElement, MenuItemElement, button, input, menu_item, tab, theme, tooltip};
 use nsh_core::element::{ImageSrc, Text, View};
 use nsh_core::prelude::*;
+use zeroize::Zeroizing;
 
 fn localized(label: impl IntoReactive<SharedString>) -> Reactive<SharedString> {
     match label.into_reactive() {
@@ -104,9 +105,20 @@ pub(crate) fn row(action: impl Fn() + 'static) -> ButtonElement {
 }
 
 pub(crate) fn field(label: &'static str, value: Signal<String>) -> Input {
-    input()
+    text_input(label)
         .value(move || value.get())
         .on_change(move |next: &str| value.set(next.to_owned()))
+}
+
+pub(crate) fn secret_field(label: &'static str, value: Signal<Zeroizing<String>>) -> Input {
+    text_input(label)
+        .masked(true)
+        .value(move || value.with(|secret| secret.as_str().to_owned()))
+        .on_change(move |next: &str| value.set(Zeroizing::new(next.to_owned())))
+}
+
+fn text_input(label: &'static str) -> Input {
+    input()
         .label(move || crate::i18n::tr(label))
         .placeholder(move || crate::i18n::tr(label).to_string())
         .max_length(2048)

@@ -42,6 +42,7 @@ fn native_reader_can_add_local_subscription_and_open_connection_settings() -> Re
     app.press("设置")?;
     app.press("role:tab[语音朗读]")?;
     app.wait_for("label:试听文本")?;
+    app.type_text("label:API 密钥（可选）", "unsaved-key")?;
     app.type_text("label:试听文本", "draft")?;
     let speech_draft = app
         .screen()
@@ -61,6 +62,11 @@ fn native_reader_can_add_local_subscription_and_open_connection_settings() -> Re
         app.screen().input_text("label:试听文本")?,
         Some(speech_draft.as_str())
     );
+    app.press("完成")?;
+    app.press("设置")?;
+    app.press("role:tab[语音朗读]")?;
+    app.wait_for("label:API 密钥（可选）")?;
+    assert_eq!(app.screen().input_text("label:API 密钥（可选）")?, Some(""));
     app.press("完成")?;
     app.wait_for("搜索文章")
 }

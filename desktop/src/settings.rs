@@ -30,7 +30,7 @@ pub(crate) fn Settings() -> impl IntoElement {
     let form = signal(false);
     let address = signal(String::new());
     let login = signal(String::new());
-    let password = signal(String::new());
+    let password = signal(Zeroizing::<String>::default());
     let profile = move || {
         store.read(|state| {
             selected
@@ -51,28 +51,17 @@ pub(crate) fn Settings() -> impl IntoElement {
             })
         })
     };
-    let close = move || {
-        password.update(|password| {
-            use zeroize::Zeroize;
-            password.zeroize();
-            password.clear();
-        });
-        visible.set(false);
-    };
+    let close = move || visible.set(false);
     let submit = move || {
-        let secret = Zeroizing::new(password.get_untracked());
-        password.update(|password| {
-            use zeroize::Zeroize;
-            password.zeroize();
-            password.clear();
-        });
+        let secret = password.get_untracked();
+        password.set(Zeroizing::default());
         store.login(address.get_untracked(), login.get_untracked(), secret);
         form.set(false);
     };
     let can_submit = move || {
         !address.with(|value| value.trim().is_empty())
             && !login.with(|value| value.trim().is_empty())
-            && !password.with(String::is_empty)
+            && !password.with(|value| value.is_empty())
             && !store.read(|state| state.connecting || state.sync_busy)
     };
     dialog().on_cancel(close).flex_1().bg(move || theme().background)
@@ -127,11 +116,11 @@ pub(crate) fn Settings() -> impl IntoElement {
                         .child(ui::caption("登录后导入订阅与可见 AI 配置，不上传本地存量，不复制 API 密钥。"))
                         .child(ui::form_field("HTTPS 服务地址", ui::field("HTTPS 服务地址", address).auto_focus(true)))
                         .child(ui::form_field("用户名或邮箱", ui::field("用户名或邮箱", login)))
-                        .child(ui::form_field("密码", ui::field("密码", password).masked(true).max_length(1024).on_submit(move |_: &str| {
+                        .child(ui::form_field("密码", ui::secret_field("密码", password).max_length(1024).on_submit(move |_: &str| {
                             if can_submit() { submit(); }
                         })))
                         .child(view().flex_row().gap_2().justify_end()
-                            .child(ui::command("取消", move || { password.set(String::new()); form.set(false); }))
+                            .child(ui::command("取消", move || { password.set(Zeroizing::default()); form.set(false); }))
                             .child(ui::primary("连接并导入", submit).disabled(move || !can_submit())))
                 }).otherwise(move || {
                     when(move || profile().is_some(), move || profile_details(store, profile, connected, selected, form, address, login))
