@@ -24,7 +24,7 @@ dbg_macro = "warn"
 workspace = true
 
 [dependencies]
-ammonia = "=4.1.9"
+ammonia = "=4.2.5"
 anyhow = "1.0.103"
 argon2 = { version = "0.5.3", features = ["std"] }
 async-compression = { version = "0.4.48", default-features = false, features = ["tokio", "gzip", "zlib", "brotli"] }
