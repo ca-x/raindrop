@@ -1,4 +1,4 @@
-use nsh_base::{alert_dialog, dialog, theme};
+use nsh_base::{alert_dialog, dialog, tabs, theme};
 use nsh_core::prelude::*;
 use zeroize::Zeroizing;
 
@@ -11,12 +11,21 @@ use crate::{
 #[derive(Clone, Copy)]
 pub(crate) struct Visibility(pub(crate) Signal<bool>);
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Section {
+    Appearance,
+    Speech,
+    Connections,
+}
+
 #[component]
 pub(crate) fn Settings() -> impl IntoElement {
     let store = use_context::<Store>().expect("settings has a store");
     let visible = use_context::<Visibility>()
         .expect("settings has an owner")
         .0;
+    let section = signal(Section::Appearance);
+    let visited_speech = signal(false);
     let selected = signal(None::<String>);
     let form = signal(false);
     let address = signal(String::new());
@@ -60,12 +69,46 @@ pub(crate) fn Settings() -> impl IntoElement {
         store.login(address.get_untracked(), login.get_untracked(), secret);
         form.set(false);
     };
+    let can_submit = move || {
+        !address.with(|value| value.trim().is_empty())
+            && !login.with(|value| value.trim().is_empty())
+            && !password.with(String::is_empty)
+            && !store.read(|state| state.connecting || state.sync_busy)
+    };
     dialog().on_cancel(close).flex_1().bg(move || theme().background)
-        .child(ui::toolbar().child(text(move || crate::i18n::tr("服务器与同步")).text_base().font_weight(FontWeight::SEMIBOLD).flex_1())
+        .child(ui::toolbar().px_5().child(text(move || crate::i18n::tr("设置")).text_base().font_weight(FontWeight::SEMIBOLD).flex_1())
             .child(ui::command("完成", close)))
+        .child(
+            tabs().flex_row().flex_wrap().px_2().py_2().gap_1()
+                .border_b_1().border_color(move || theme().border)
+                .children([
+                    (Section::Appearance, "外观与语言"),
+                    (Section::Speech, "语音朗读"),
+                    (Section::Connections, "服务器连接"),
+                ].map(move |(target, label)| {
+                    ui::section_tab(label, move || section.get() == target, move || {
+                        if target == Section::Speech { visited_speech.set(true); }
+                        section.set(target);
+                    })
+                })),
+        )
+        .child(scroll().flex_1().min_h_0()
+            .style_when(move || section.get() != Section::Appearance, |s| s.hidden())
+            .child(view().w_full().max_w(px(720.0)).p_5().child(appearance_settings(store))))
+        .child(scroll().flex_1().min_h_0()
+            .style_when(move || section.get() != Section::Speech, |s| s.hidden())
+            .child(view().w_full().max_w(px(720.0)).p_5().child(when(visited_speech, crate::speech_ui::speech_settings))))
         .child(view().flex_row().flex_1().min_h_0()
-            .child(view().w_64().min_w_0().bg(move || theme().sidebar).border_r_1().border_color(move || theme().border)
-                .child(view().p_4().gap_2().child(ui::heading("本地资料库")).child(ui::caption("无需服务器 · 数据保存在此设备")))
+            .style_when(move || window().width.0 < 680.0, |s| s.flex_col())
+            .style_when(move || section.get() != Section::Connections, |s| s.hidden())
+            .child(view().w_64().min_w_0().bg(move || theme().sidebar).border_color(move || theme().border)
+                .style_with(move |s| if window().width.0 < 680.0 {
+                    let count = store.read(|state| state.remotes.len().min(2));
+                    s.w_full().h(px(92.0 + 64.0 * count as f32)).border_b_1()
+                } else {
+                    s.border_r_1()
+                })
+                .child(view().px_4().py_2().child(ui::heading("服务器连接")))
                 .child(virtual_list(move || store.read(|state| state.remotes.len()), move |at| {
                     let remote = move || store.read(|state| state.remotes.get(at.index()).cloned());
                     ui::row(move || { if let Some(remote) = remote() { selected.set(Some(remote.profile.id)); form.set(false); } })
@@ -77,21 +120,19 @@ pub(crate) fn Settings() -> impl IntoElement {
                     .estimated_item_size(px(64.0)).flex_1())
                 .child(view().p_3().child(ui::command("添加服务器…", move || { address.set(String::new()); login.set(String::new()); form.set(true); })
                     .disabled(move || store.read(|state| state.connecting || state.sync_busy || state.sync_unavailable)))))
-            .child(scroll().flex_1().min_w_0().min_h_0().child(view().p_6().gap_5()
-                .child(appearance_settings(store))
-                .child(crate::speech_ui::speech_settings())
+            .child(scroll().flex_1().min_w_0().min_h_0().child(view().w_full().max_w(px(720.0)).p_5().gap_5()
                 .child(when(form, move || {
                     view().gap_4()
                         .child(text(move || crate::i18n::tr("连接远端 Raindrop")).text_xl().font_weight(FontWeight::SEMIBOLD))
                         .child(ui::caption("登录后导入订阅与可见 AI 配置，不上传本地存量，不复制 API 密钥。"))
-                        .child(ui::field("HTTPS 服务地址", address))
-                        .child(ui::field("用户名或邮箱", login))
-                        .child(ui::field("密码", password).masked(true).max_length(1024).on_submit(move |_: &str| {
-                            if !password.with_untracked(String::is_empty) && !store.peek(|state| state.connecting || state.sync_busy) { submit(); }
-                        }))
+                        .child(ui::form_field("HTTPS 服务地址", ui::field("HTTPS 服务地址", address).auto_focus(true)))
+                        .child(ui::form_field("用户名或邮箱", ui::field("用户名或邮箱", login)))
+                        .child(ui::form_field("密码", ui::field("密码", password).masked(true).max_length(1024).on_submit(move |_: &str| {
+                            if can_submit() { submit(); }
+                        })))
                         .child(view().flex_row().gap_2().justify_end()
                             .child(ui::command("取消", move || { password.set(String::new()); form.set(false); }))
-                            .child(ui::primary("连接并导入", submit).disabled(move || address.with(String::is_empty) || login.with(String::is_empty) || password.with(String::is_empty) || store.read(|state| state.connecting || state.sync_busy))))
+                            .child(ui::primary("连接并导入", submit).disabled(move || !can_submit())))
                 }).otherwise(move || {
                     when(move || profile().is_some(), move || profile_details(store, profile, connected, selected, form, address, login))
                         .otherwise(|| view().gap_3().child(text(move || crate::i18n::tr("可选的远端连接")).text_xl().font_weight(FontWeight::SEMIBOLD))
@@ -155,9 +196,6 @@ fn appearance_settings(store: Store) -> impl IntoElement {
             move || store.read(|state| state.preferences_unavailable),
             || ui::caption("无法读取外观设置，已使用默认值；原有设置未被覆盖。"),
         ))
-        .pb_5()
-        .border_b_1()
-        .border_color(move || theme().border)
 }
 
 fn profile_details(

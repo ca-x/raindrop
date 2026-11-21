@@ -3,7 +3,7 @@ import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog"
 import { Icon } from "@astryxdesign/core/Icon"
 import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout"
 import { useLingui } from "@lingui/react"
-import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from "react"
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react"
 
 import type { UserFont, UserPreferences } from "../api/preferences.generated"
 import type { PreferencesControllerError } from "../model/usePreferencesController"
@@ -23,6 +23,7 @@ import {
 import { DatabaseSettingsPanel } from "../../database/DatabaseSettingsPanel"
 import { PluginSettingsPanel } from "./PluginSettingsPanel"
 import { InterfacePreferencesForm } from "./InterfacePreferencesForm"
+import { BrandMark } from "../../../shared/brand/BrandMark"
 
 interface PreferencesDialogProps {
   databaseCsrfToken?: string
@@ -181,7 +182,7 @@ export function PreferencesDialog(props: PreferencesDialogProps) {
         content={
           <LayoutContent padding={0} isScrollable={false} className="reader-preferences-content">
             <div className="reader-settings-layout">
-              <nav ref={navigationRef} className="reader-settings-nav" aria-label={i18n._("preferences.sections")}>
+              <nav ref={navigationRef} onKeyDown={focusSettingsSection} className="reader-settings-nav" aria-label={i18n._("preferences.sections")}>
                 <SettingsNavButton
                   isActive={activeTab === "personal"}
                   label={i18n._("preferences.tabPersonal")}
@@ -352,6 +353,24 @@ export function PreferencesDialog(props: PreferencesDialogProps) {
   )
 }
 
+function focusSettingsSection(event: KeyboardEvent<HTMLElement>) {
+  if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+  if (!(event.target instanceof HTMLButtonElement)) return
+  const buttons = Array.from(event.currentTarget.querySelectorAll("button"))
+  const index = buttons.indexOf(event.target)
+  const horizontal = window.matchMedia("(max-width: 719px)").matches
+  const positions: Record<string, number> = {
+    Home: 0,
+    End: buttons.length - 1,
+    [horizontal ? "ArrowRight" : "ArrowDown"]: index + 1,
+    [horizontal ? "ArrowLeft" : "ArrowUp"]: index - 1,
+  }
+  const next = positions[event.key]
+  if (next === undefined) return
+  event.preventDefault()
+  buttons[Math.max(0, Math.min(next, buttons.length - 1))]?.focus()
+}
+
 function SettingsNavButton(props: {
   isActive: boolean
   label: string
@@ -379,7 +398,7 @@ function AboutPanel() {
   const { i18n } = useLingui()
   return (
     <section className="reader-about-panel">
-      <div className="reader-about-mark" aria-hidden="true">R</div>
+      <BrandMark decorative />
       <div>
         <div className="reader-settings-title">Raindrop</div>
         <div className="reader-about-version">v{__RAINDROP_VERSION__}</div>

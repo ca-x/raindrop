@@ -26,11 +26,29 @@ fn start(width: f32) -> Headless {
 fn native_reader_can_add_local_subscription_and_open_connection_settings() -> Result<(), String> {
     let mut app = start(1200.0);
     app.wait_for("这里还没有文章")?;
-    app.press("label:添加订阅")?;
+    app.press("添加第一个订阅")?;
     app.type_text("label:Feed 地址", "https://example.com/feed.xml")?;
-    app.press("role:button[添加]")?;
+    app.submit("label:Feed 地址")?;
     app.wait_for("已添加订阅，正在后台获取文章。")?;
-    app.press("服务器与同步")?;
+    app.press("未读")?;
+    app.type_text("label:搜索文章", "no matches")?;
+    app.submit("label:搜索文章")?;
+    app.wait_for("选择要搜索的订阅")?;
+    app.press("example.com")?;
+    app.wait_for("没有匹配的文章")?;
+    app.press("清除搜索")?;
+    app.wait_for("这里还没有文章")?;
+    assert_eq!(app.screen().input_text("label:搜索文章")?, Some(""));
+    app.press("设置")?;
+    app.press("role:tab[语音朗读]")?;
+    app.wait_for("label:试听文本")?;
+    app.type_text("label:试听文本", "draft")?;
+    let speech_draft = app
+        .screen()
+        .input_text("label:试听文本")?
+        .unwrap()
+        .to_owned();
+    app.press("role:tab[服务器连接]")?;
     app.wait_for("可选的远端连接")?;
     app.press("添加服务器…")?;
     app.wait_for("连接远端 Raindrop")?;
@@ -38,6 +56,11 @@ fn native_reader_can_add_local_subscription_and_open_connection_settings() -> Re
     app.type_text("label:用户名或邮箱", "reader")?;
     app.type_text("label:密码", "secret")?;
     app.press("role:button[取消]")?;
+    app.press("role:tab[语音朗读]")?;
+    assert_eq!(
+        app.screen().input_text("label:试听文本")?,
+        Some(speech_draft.as_str())
+    );
     app.press("完成")?;
     app.wait_for("搜索文章")
 }
@@ -49,7 +72,7 @@ fn narrow_reader_keeps_navigation_and_editing_shortcuts_separate() -> Result<(),
     app.type_text("label:搜索文章", "jksm")?;
     assert_eq!(app.screen().input_text("label:搜索文章")?, Some("jksm"));
     app.submit("label:搜索文章")?;
-    app.press("role:button[订阅]")?;
+    app.wait_for("选择要搜索的订阅")?;
     app.wait_for("label:添加订阅")?;
     app.press("未读")?;
     app.wait_for("未读")?;
@@ -61,11 +84,11 @@ fn language_switch_is_live_and_keeps_search_and_theme_selection() -> Result<(), 
     let mut app = start(1200.0);
     app.wait_for("这里还没有文章")?;
     app.type_text("label:搜索文章", "native reader")?;
-    app.press("服务器与同步")?;
+    app.press("设置")?;
     app.wait_for("外观与语言")?;
     app.press("English")?;
     app.wait_for("Appearance & language")?;
-    app.wait_for("Optional server connections")?;
+    app.wait_for("role:tab[Connections]")?;
     app.press("role:button[Dark]")?;
     app.wait_until(
         "dark theme saved",
@@ -79,7 +102,7 @@ fn language_switch_is_live_and_keeps_search_and_theme_selection() -> Result<(), 
         app.screen().input_text("label:Search articles")?,
         Some("native reader")
     );
-    app.press("Settings & sync")?;
+    app.press("Settings")?;
     assert!(app.screen().selected("role:button[Dark]")?);
     app.press("role:button[System]")?;
     app.wait_until(
@@ -128,7 +151,8 @@ fn broken_sync_journal_does_not_block_local_reading_or_enable_remote_writes() ->
     .unwrap();
     app.wait_for("这里还没有文章")?;
     app.wait_for("同步记录无法读取，已禁用远端操作；本地阅读仍可使用。请保留数据库以便恢复。")?;
-    app.press("服务器与同步")?;
+    app.press("设置")?;
+    app.press("role:tab[服务器连接]")?;
     assert!(!app.screen().enabled("添加服务器…")?);
     Ok(())
 }
@@ -157,9 +181,10 @@ fn damaged_preferences_preserve_local_reader_and_do_not_allow_overwrite() -> Res
     })
     .unwrap();
     app.wait_for("这里还没有文章")?;
-    app.press("服务器与同步")?;
+    app.press("设置")?;
     app.wait_for("无法读取外观设置，已使用默认值；原有设置未被覆盖。")?;
     assert!(!app.screen().enabled("English")?);
+    app.press("role:tab[服务器连接]")?;
     assert!(app.screen().enabled("添加服务器…")?);
     app.press("完成")?;
     app.press("label:添加订阅")?;

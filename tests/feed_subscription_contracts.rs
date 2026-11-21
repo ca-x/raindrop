@@ -7,8 +7,9 @@ use raindrop::db::{
     migrate, rollback,
 };
 use raindrop::feeds::{
-    FeedRepository, FeedUrlPolicy, ListSubscriptionsQuery, PatchValue, QueueSubscriptionRefresh,
-    RefreshRepositoryError, RepositoryError, UpdateSubscription,
+    EntryListState, FeedRepository, FeedUrlPolicy, ListEntriesQuery, ListSubscriptionsQuery,
+    PatchValue, QueueSubscriptionRefresh, RefreshRepositoryError, RepositoryError,
+    UpdateSubscription,
 };
 use raindrop::organization::{CategoryRepository, CreateCategory};
 use sea_orm::{
@@ -1211,6 +1212,57 @@ async fn sqlite_subscription_list_is_user_scoped_and_matches_reader_unread_state
 }
 
 #[tokio::test]
+async fn unread_count_matches_visible_entries_across_frontiers_and_retention_gaps() {
+    let fixture = SubscriptionFixture::new().await;
+    let db = &fixture.database;
+    let fourth_id = Uuid::new_v4().to_string();
+    entry_model(&fourth_id, 7).insert(db).await.unwrap();
+    let mut star = entry_state_model(USER_A_ID, &fourth_id, 7, None);
+    star.is_starred = Set(true);
+    star.insert(db).await.unwrap();
+    entry_state_model(USER_B_ID, ENTRY_3_ID, 3, Some(true))
+        .insert(db)
+        .await
+        .unwrap();
+    entry::Entity::delete_by_id(ENTRY_2_ID)
+        .exec(db)
+        .await
+        .unwrap();
+    for (start, frontier) in [(0, 0), (0, 3), (1, 3), (3, 1), (1, 7), (7, 7)] {
+        db.execute(Statement::from_sql_and_values(
+            DbBackend::Sqlite,
+            "UPDATE subscriptions SET start_sequence=?, read_through_sequence=? WHERE id=?",
+            [start.into(), frontier.into(), SUBSCRIPTION_A_ID.into()],
+        ))
+        .await
+        .unwrap();
+        let page = fixture
+            .repository
+            .list_for_user(
+                USER_A_ID,
+                ListEntriesQuery {
+                    state: EntryListState::Unread,
+                    feed_id: Some(support::database::FEED_ID.to_owned()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        let detail = fixture
+            .repository
+            .get_subscription_for_user(USER_A_ID, SUBSCRIPTION_A_ID)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            detail.unread_count,
+            page.items.len() as i64,
+            "start {start}, frontier {frontier}"
+        );
+    }
+}
+
+#[tokio::test]
 async fn sqlite_subscription_detail_hides_missing_and_cross_tenant() {
     let fixture = SubscriptionFixture::new().await;
     let detail = fixture
@@ -1670,6 +1722,11 @@ async fn sqlite_subscription_projection_bounds_refresh_fanout_to_selected_subscr
         list_plan.contains("idx_refresh_runs_feed")
             && !list_plan.contains("MATERIALIZE latest_runs"),
         "list must seek the latest run through the feed index: {list_plan}"
+    );
+    assert!(
+        list_plan.contains("COVERING INDEX uq_entries_feed_seq")
+            && list_plan.contains("COVERING INDEX idx_states_feed_read"),
+        "unread counts should use covering range scans: {list_plan}"
     );
     let detail_plan = fixture
         .repository

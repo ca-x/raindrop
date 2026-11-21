@@ -502,8 +502,8 @@ fn decode_detail(row: QueryResult) -> Result<EntryDetailDto, RepositoryError> {
         sort_at_us: required(&row, "sort_at_us")?,
         is_read: required(&row, "is_read")?,
         is_starred: required(&row, "is_starred")?,
-        content_html: content.html().to_owned(),
         inert_images: inert_image_dtos(&content),
+        content_html: content.into_html(),
         enclosures,
     })
 }

@@ -93,12 +93,13 @@ describe("Setup flow", () => {
 
     await user.type(await screen.findByLabelText(/设置令牌/), "rd_setup_valid")
     await user.click(screen.getByRole("button", { name: "检查数据库并继续" }))
-    await screen.findByRole("heading", { name: "创建管理员" })
+    expect(await screen.findByRole("heading", { name: "创建管理员" })).toHaveFocus()
     await user.type(screen.getByLabelText(/用户名/), "ab c")
     await user.type(screen.getByLabelText(/邮箱/), "invalid")
     await user.click(screen.getByRole("button", { name: "完成设置" }))
 
     expect(screen.getByText("用户名需要包含 3 到 64 个非空白字符。")).toBeVisible()
+    expect(screen.getByLabelText(/用户名/)).toHaveFocus()
     expect(screen.getByText("请输入有效的邮箱地址。")).toBeVisible()
     expect(screen.getByText("请输入密码。")).toBeVisible()
     expect(fetchMock).toHaveBeenCalledTimes(2)

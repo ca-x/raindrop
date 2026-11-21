@@ -13,6 +13,7 @@ import { useTranslationSettingsController } from "../translation/model/useTransl
 import { useReaderController } from "./model/useReaderController"
 import type { ReaderCache } from "./cache/readerCache"
 import { ReaderRoutes } from "./routes/ReaderRoutes"
+import { ReaderClock } from "./components/RelativeEntryTime"
 import { parseReaderPath } from "./routes/readerRoute"
 
 interface ReadyPageProps {
@@ -124,5 +125,5 @@ export function ReadyPage({ session, onLoggedOut, readerCache }: ReadyPageProps)
     onUnauthenticated: handleUnauthenticated,
     sessionError,
   }
-  return <ReaderRoutes {...workspaceProps} viewportMode={viewportMode} />
+  return <ReaderClock><ReaderRoutes {...workspaceProps} viewportMode={viewportMode} /></ReaderClock>
 }

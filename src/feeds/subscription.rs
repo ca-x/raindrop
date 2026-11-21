@@ -999,6 +999,10 @@ where
 }
 
 fn subscription_projection_sql(selected_subscriptions: &str) -> String {
+    // Count the unread tail, then correct only the sparse exceptions on either side
+    // of the frontier. The composite foreign key keeps overrides tied to live entries.
+    let unread_after = "CASE WHEN s.start_sequence > s.read_through_sequence
+                             THEN s.start_sequence ELSE s.read_through_sequence END";
     format!(
         "WITH selected_subscriptions AS (
             {selected_subscriptions}
@@ -1007,15 +1011,15 @@ fn subscription_projection_sql(selected_subscriptions: &str) -> String {
                 s.category_id AS category_id, s.title_override AS title_override,
                 s.position AS position, f.title AS feed_title,
                 f.site_url AS site_url, f.normalized_url AS normalized_url,
-                (SELECT COUNT(*)
-                 FROM entries e
-                 LEFT JOIN entry_states es ON es.user_id = s.user_id AND es.entry_id = e.id
-                                          AND es.feed_id = e.feed_id
-                                          AND es.feed_sequence = e.feed_sequence
-                 WHERE e.feed_id = s.feed_id AND e.feed_sequence > s.start_sequence
-                   AND (es.read_override = FALSE
-                        OR (es.read_override IS NULL
-                            AND e.feed_sequence > s.read_through_sequence))) AS unread_count,
+                (SELECT COUNT(*) FROM entries e
+                 WHERE e.feed_id = s.feed_id AND e.feed_sequence > {unread_after})
+                - (SELECT COUNT(*) FROM entry_states es
+                   WHERE es.user_id = s.user_id AND es.feed_id = s.feed_id
+                     AND es.read_override = TRUE AND es.feed_sequence > {unread_after})
+                + (SELECT COUNT(*) FROM entry_states es
+                   WHERE es.user_id = s.user_id AND es.feed_id = s.feed_id
+                     AND es.read_override = FALSE AND es.feed_sequence > s.start_sequence
+                     AND es.feed_sequence <= s.read_through_sequence) AS unread_count,
                 r.id AS refresh_id, r.status AS refresh_status,
                 r.http_status AS refresh_http_status, r.new_count AS refresh_new_count,
                 r.updated_count AS refresh_updated_count,

@@ -20,6 +20,23 @@ describe("Local authentication", () => {
 
   afterEach(() => vi.unstubAllGlobals())
 
+  it("focuses missing credentials before sending a login request", async () => {
+    const user = userEvent.setup()
+    mockLoginBootstrap()
+    renderApp()
+    const login = await screen.findByLabelText(/Username or email/)
+    const password = screen.getByLabelText(/Password/)
+    expect(login).toHaveAttribute("autocomplete", "username")
+    expect(password).toHaveAttribute("autocomplete", "current-password")
+    await user.click(screen.getByRole("button", { name: "Sign in" }))
+    expect(login).toHaveFocus()
+    expect(login).toHaveAttribute("aria-invalid", "true")
+    await user.type(login, "reader")
+    await user.keyboard("{Enter}")
+    expect(password).toHaveFocus()
+    expect(fetchMock.mock.calls.some(([url]) => url === "/api/v1/auth/login")).toBe(false)
+  })
+
   it("shows login loading and a stable authentication error", async () => {
     const user = userEvent.setup()
     const loginRequest = deferred<Response>()

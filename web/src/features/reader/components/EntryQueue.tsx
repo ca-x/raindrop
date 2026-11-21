@@ -147,6 +147,7 @@ export function EntryQueue({
       />
       {state.selectedSource.kind === "feed" ? (
         <FeedSearchInput
+          key={key}
           query={state.feedSearchQuery}
           isLoading={state.paneStatus.queue === "loading"}
           onSearch={onSearchFeed}
@@ -225,8 +226,18 @@ export function EntryQueue({
           className="reader-queue-empty"
           isCompact
           icon={<ReaderEmptyIcon kind="queue" />}
-          title={i18n._("reader.noEntries")}
-          description={i18n._("reader.noEntriesDescription")}
+          title={i18n._(state.feedSearchQuery ? "reader.noSearchResults" : "reader.noEntries")}
+          description={i18n._(state.feedSearchQuery ? "reader.noSearchResultsDescription" : "reader.noEntriesDescription")}
+          actions={state.feedSearchQuery ? (
+            <Button
+              label={i18n._("reader.clearFeedSearch")}
+              variant="secondary"
+              onClick={() => {
+                rootRef.current?.querySelector<HTMLInputElement>(".reader-feed-search input")?.focus()
+                void onSearchFeed("")
+              }}
+            />
+          ) : undefined}
         />
       ) : (
         <div
@@ -269,8 +280,10 @@ export function EntryQueue({
                   }}
                   label={
                     <span className="reader-entry-title">
-                      {!entry.isRead ? <StatusDot variant="accent" label={i18n._("reader.unreadEntry")} /> : null}
-                      <span>{entry.title ?? i18n._("reader.untitled")}</span>
+                      <span className="reader-entry-marker">
+                        {!entry.isRead ? <StatusDot variant="accent" label={i18n._("reader.unreadEntry")} /> : null}
+                      </span>
+                      <span className="reader-entry-headline">{entry.title ?? i18n._("reader.untitled")}</span>
                       {entry.isStarred ? (
                         <span
                           className="reader-entry-star"

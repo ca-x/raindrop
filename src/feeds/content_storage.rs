@@ -127,6 +127,10 @@ impl EntryContentDetail {
         &self.html
     }
 
+    pub(super) fn into_html(self) -> String {
+        self.html
+    }
+
     #[must_use]
     pub fn inert_images(&self) -> &[InertImage] {
         &self.inert_images

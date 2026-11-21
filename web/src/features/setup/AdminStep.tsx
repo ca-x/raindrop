@@ -37,7 +37,7 @@ export function AdminStep({
     <form onSubmit={submit} noValidate>
       <Stack gap={4}>
         <Stack gap={1}>
-          <Heading level={2} className="raindrop-reading-heading">
+          <Heading level={2} tabIndex={-1} className="raindrop-reading-heading">
             {i18n._("setup.adminTitle")}
           </Heading>
           <Text as="p" color="secondary" textWrap="pretty">
@@ -52,7 +52,7 @@ export function AdminStep({
               type="password"
               value={values.token}
               onChange={(token) => onChange({ ...values, token })}
-              htmlName="setupToken"
+              {...{ htmlName: "setupToken", autoComplete: "off" }}
               isRequired
               isDisabled={isLoading}
               width="100%"
@@ -64,7 +64,7 @@ export function AdminStep({
             label={i18n._("setup.username")}
             value={values.username}
             onChange={(username) => onChange({ ...values, username })}
-            htmlName="username"
+            {...{ htmlName: "username", autoComplete: "username" }}
             isRequired
             isDisabled={isLoading}
             width="100%"
@@ -76,7 +76,7 @@ export function AdminStep({
             type="email"
             value={values.email}
             onChange={(email) => onChange({ ...values, email })}
-            htmlName="email"
+            {...{ htmlName: "email", autoComplete: "email" }}
             isOptional
             isDisabled={isLoading}
             width="100%"
@@ -89,7 +89,7 @@ export function AdminStep({
             type="password"
             value={values.password}
             onChange={(password) => onChange({ ...values, password })}
-            htmlName="password"
+            {...{ htmlName: "password", autoComplete: "new-password" }}
             isRequired
             isDisabled={isLoading}
             width="100%"

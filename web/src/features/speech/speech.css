@@ -1,16 +1,27 @@
 .speech-controls {
   display: flex;
+  flex: none;
   align-items: center;
-  gap: 8px;
-  padding: 4px 12px;
-  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px 16px;
+  border-block-end: 1px solid var(--color-border);
+  background: var(--surface-chrome);
 }
 .speech-controls button {
-  min-width: 44px;
-  min-height: 44px;
+  flex: none;
+  min-inline-size: 44px;
+  min-block-size: 44px;
+}
+.speech-controls:is([data-state="playing"], [data-state="paused"]) button:first-of-type {
+  color: var(--color-text-accent);
+  background: var(--color-interaction-selected);
+  box-shadow: var(--shadow-selected);
 }
 .speech-feedback {
+  margin-inline-start: 8px;
   color: var(--color-text-secondary);
-  font-size: 12px;
+  font-size: 0.8125rem;
+  line-height: 1.4;
   overflow-wrap: anywhere;
 }
+.speech-feedback[role="alert"] { color: var(--color-error); }

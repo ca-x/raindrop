@@ -63,7 +63,7 @@ Floating menus and dialogs use the existing `--surface-overlay-background` and `
 
 ## 9. Motion and implementation prompt
 
-Pressable controls use the shared 120ms `scale(0.97)` response. Setup steps and mobile detail entrances use an interruptible 180ms opacity/transform transition; frequent desktop article selection and queue updates stay instant. Authentication forms use opacity only so immediately interactive controls keep stable hit targets. Centered dialogs materialize at `scale(0.97)` over 240ms and return along the same path over 180ms, without waiting to accept input. Trigger-anchored menus retain ASTRYX's positioning and focus management.
+Pointer presses on shared buttons scale to 0.97 in 80ms and return to full size in 120ms. Setup steps and mobile detail entrances use an interruptible 180ms opacity/transform transition; frequent desktop article selection and queue updates stay instant. Authentication forms use opacity only so immediately interactive controls keep stable hit targets. Centered dialogs materialize at `scale(0.97)` over 240ms and return along the same path over 180ms, without waiting to accept input. Trigger-anchored menus retain ASTRYX's positioning and focus management.
 
 `InterfaceMotion` records pointer, keyboard, and virtual-click input without React state or a wrapper element. Keyboard-triggered entrances and presses have no animation. Reduced motion removes spatial movement while preserving short opacity feedback. Loading uses a responsive reader silhouette and a single 1000ms opacity-breathing status dot; reduced motion leaves the dot static. Article skeletons follow title, metadata, and paragraph structure instead of showing a solid block. Never add artificial loading or transition delays.
 

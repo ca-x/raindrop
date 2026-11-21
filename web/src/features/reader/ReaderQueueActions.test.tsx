@@ -73,6 +73,16 @@ describe("Reader queue actions", () => {
     expect(screen.getByText("2 in view")).toBeVisible()
   })
 
+  it("returns focus to feed search when clearing an empty result", async () => {
+    activateLocale("en")
+    const onSearchFeed = vi.fn().mockResolvedValue(undefined)
+    renderQueue(feedState({ feedSearchQuery: "absent" }), { onSearchFeed })
+    expect(screen.getByText("No matching articles")).toBeVisible()
+    await userEvent.click(screen.getByRole("button", { name: "Clear search" }))
+    expect(screen.getByRole("textbox", { name: "Search this feed" })).toHaveFocus()
+    expect(onSearchFeed).toHaveBeenCalledWith("")
+  })
+
   it("uses a themed SVG for starred entries", () => {
     activateLocale("en")
     const entryId = "starred-entry"
@@ -109,7 +119,11 @@ describe("Reader queue actions", () => {
     const { rerender } = renderQueue(feedState(), { onSearchFeed: searchFeed })
 
     const search = screen.getByRole("textbox", { name: "Search this feed" })
-    await user.type(search, "Rust storage{Enter}")
+    await user.type(search, "Rust storage")
+    fireEvent.keyDown(search, { key: "Enter", isComposing: true })
+    fireEvent.keyDown(search, { key: "Enter", keyCode: 229 })
+    expect(searchFeed).not.toHaveBeenCalled()
+    await user.keyboard("{Enter}")
     expect(searchFeed).toHaveBeenLastCalledWith("Rust storage")
 
     rerender(queue(feedState({ feedSearchQuery: "Rust storage" }), {

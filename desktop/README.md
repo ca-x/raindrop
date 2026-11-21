@@ -1,6 +1,6 @@
 # Raindrop Desktop
 
-Rust NSH 原生阅读器，独立于 Web 服务端发布。当前为 `0.2.1` 开发预览，
+Rust NSH 原生阅读器，独立于 Web 服务端发布。当前为 `0.2.2` 开发预览，
 不是 Web 功能完全对等版，也不承诺旧服务端的可靠双向同步。
 
 ## 运行
@@ -102,7 +102,7 @@ chunks and may incur provider charges; other articles are not synthesized automa
 See the [speech configuration guide](../docs/tts.md) for compatible endpoints,
 voice IDs, credentials, and troubleshooting.
 
-Settings & sync includes text-to-speech configuration for the local library or an
+The Speech section in Settings configures text-to-speech for the local library or an
 explicitly selected, signed-in remote connection. Selecting a remote edits that
 account's settings and previews its service. Article controls always use the local
 library's speech configuration; remote settings do not delegate local article

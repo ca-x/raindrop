@@ -6,7 +6,7 @@ use nsh_base::{
 use nsh_core::prelude::*;
 
 use crate::{
-    api::{Filter, external_url},
+    api::{Filter, Query, external_url},
     store::Store,
     ui,
 };
@@ -18,12 +18,23 @@ pub(crate) fn Workspace() -> impl IntoElement {
     let settings = signal(false);
     let show_sidebar = signal(false);
     let search = signal(String::new());
+    let pending_search = signal(None::<String>);
+    let current_query = computed(move || store.read(|state| state.query.clone()));
+    effect(move || search.set(current_query.get().search));
     let search_ref = element_ref();
     let queue_ref = element_ref();
     let reader_active = move || !adding.get_untracked() && !settings.get_untracked();
     on_key("mod+f", move |_| {
         if reader_active() {
-            search_ref.focus();
+            if window().width.0 < 760.0 {
+                show_sidebar.set(false);
+                if store.peek(|state| state.selected.is_some()) {
+                    store.clear_selection();
+                }
+                request_animation_frame(move |_| search_ref.focus());
+            } else {
+                search_ref.focus();
+            }
         }
     });
     on_key("mod+r", move |_| {
@@ -33,7 +44,12 @@ pub(crate) fn Workspace() -> impl IntoElement {
     });
     on_key("escape", move |_| {
         if reader_active() {
-            store.clear_selection();
+            if show_sidebar.get_untracked() || pending_search.get_untracked().is_some() {
+                show_sidebar.set(false);
+                pending_search.set(None);
+            } else {
+                store.clear_selection();
+            }
         }
     });
     for (key, offset) in [("j", 1_isize), ("k", -1)] {
@@ -74,25 +90,43 @@ pub(crate) fn Workspace() -> impl IntoElement {
                 .child(
                     resizable_panel()
                         .size(px(224.0))
-                        .size_range(px(176.0)..px(320.0))
+                        .min_size(px(176.0))
+                        .max_size(move || (window().width.0 >= 760.0).then_some(px(320.0)))
                         .visible(move || window().width.0 >= 1000.0 || show_sidebar.get())
-                        .child(sidebar(store, adding, settings, show_sidebar)),
+                        .child(sidebar(
+                            store,
+                            adding,
+                            settings,
+                            show_sidebar,
+                            pending_search,
+                        )),
                 )
                 .child(
                     resizable_panel()
                         .size(px(336.0))
-                        .size_range(px(256.0)..px(480.0))
+                        .min_size(px(256.0))
+                        .max_size(move || (window().width.0 >= 760.0).then_some(px(480.0)))
                         .visible(move || {
                             window().width.0 >= 760.0
-                                || store.read(|state| state.selected.is_none())
+                                || (!show_sidebar.get()
+                                    && store.read(|state| state.selected.is_none()))
                         })
-                        .child(queue(store, search, search_ref, queue_ref, show_sidebar)),
+                        .child(queue(
+                            store,
+                            adding,
+                            search,
+                            search_ref,
+                            queue_ref,
+                            show_sidebar,
+                            pending_search,
+                        )),
                 )
                 .child(
                     resizable_panel()
                         .visible(move || {
                             window().width.0 >= 760.0
-                                || store.read(|state| state.selected.is_some())
+                                || (!show_sidebar.get()
+                                    && store.read(|state| state.selected.is_some()))
                         })
                         .child(article(store)),
                 ),
@@ -144,7 +178,10 @@ pub(crate) fn Workspace() -> impl IntoElement {
                     })
                 }))
                 .child(view().flex_1())
-                .child(ui::caption("J / K 浏览 · M 已读 · S 收藏")),
+                .child(when(
+                    move || window().width.0 >= 760.0,
+                    || ui::caption("J / K 浏览 · M 已读 · S 收藏"),
+                )),
         )
         .child(when(adding, move || add_subscription(store, adding)))
         .child(when(settings, crate::settings::settings))
@@ -155,21 +192,34 @@ fn sidebar(
     adding: Signal<bool>,
     settings: Signal<bool>,
     showing: Signal<bool>,
+    pending_search: Signal<Option<String>>,
 ) -> impl IntoElement {
     view()
         .flex_1()
         .min_h_0()
         .bg(move || theme().sidebar)
         .child(
-            ui::toolbar().child(ui::heading("Raindrop").flex_1()).child(
-                ui::command("+", move || adding.set(true))
-                    .accessibility_label(move || crate::i18n::tr("添加订阅")),
-            ),
+            ui::toolbar()
+                .child(when(
+                    move || window().width.0 < 1000.0,
+                    move || {
+                        ui::command("返回", move || {
+                            showing.set(false);
+                            pending_search.set(None);
+                        })
+                    },
+                ))
+                .child(ui::heading("Raindrop").flex_1())
+                .child(
+                    ui::command("+", move || adding.set(true))
+                        .accessibility_label(move || crate::i18n::tr("添加订阅")),
+                ),
         )
         .child(view().px_2().py_3().gap_1().children(
             [Filter::All, Filter::Unread, Filter::Starred].map(move |filter| {
                 ui::row(move || {
                     store.filter(filter, None);
+                    pending_search.set(None);
                     showing.set(false);
                 })
                 .selected(move || {
@@ -179,7 +229,13 @@ fn sidebar(
                 .child(text(move || crate::i18n::tr(filter.label())).text_sm())
             }),
         ))
-        .child(view().px_5().py_2().child(ui::caption("订阅")))
+        .child(view().px_5().py_2().child(ui::caption(move || {
+            crate::i18n::tr(if pending_search.with(Option::is_some) {
+                "选择要搜索的订阅"
+            } else {
+                "订阅"
+            })
+        })))
         .child(
             virtual_list(
                 move || store.read(|state| state.subscriptions.len()),
@@ -189,7 +245,12 @@ fn sidebar(
                     });
                     ui::row(move || {
                         if let Some(subscription) = subscription.get_untracked() {
-                            store.filter(Filter::All, Some(subscription.feed_id));
+                            store.set_query(Query {
+                                feed_id: Some(subscription.feed_id),
+                                search: pending_search.get_untracked().unwrap_or_default(),
+                                filter: Filter::All,
+                            });
+                            pending_search.set(None);
                             showing.set(false);
                         }
                     })
@@ -251,17 +312,19 @@ fn sidebar(
                 .border_color(move || theme().border)
                 .child(
                     ui::row(move || settings.set(true))
-                        .child(text(move || crate::i18n::tr("服务器与同步")).text_sm()),
+                        .child(text(move || crate::i18n::tr("设置")).text_sm()),
                 ),
         )
 }
 
 fn queue(
     store: Store,
+    adding: Signal<bool>,
     search: Signal<String>,
     search_ref: ElementRef,
     list_ref: ElementRef,
     showing: Signal<bool>,
+    pending_search: Signal<Option<String>>,
 ) -> impl IntoElement {
     view()
         .flex_1()
@@ -271,7 +334,10 @@ fn queue(
             ui::toolbar()
                 .child(when(
                     move || window().width.0 < 1000.0,
-                    move || ui::command("订阅", move || showing.update(|show| *show = !*show)),
+                    move || ui::command("订阅", move || {
+                        pending_search.set(None);
+                        showing.update(|show| *show = !*show);
+                    }),
                 ))
                 .child(
                     ui::heading(move || {
@@ -327,7 +393,20 @@ fn queue(
             view().px_3().py_2().child(
                 ui::field("搜索文章", search)
                     .element_ref(&search_ref)
-                    .on_submit(move |_: &str| store.search(search.get_untracked())),
+                    .on_change(move |value: &str| {
+                        search.set(value.to_owned());
+                        pending_search.set(None);
+                    })
+                    .on_submit(move |value: &str| {
+                        let term = value.trim();
+                        if !term.is_empty() && store.peek(|state| state.query.feed_id.is_none()) {
+                            pending_search.set(Some(term.to_owned()));
+                            showing.set(true);
+                        } else {
+                            pending_search.set(None);
+                            store.search(term.to_owned());
+                        }
+                    }),
             ),
         )
         .child(
@@ -376,12 +455,11 @@ fn queue(
                                     entry
                                         .as_ref()
                                         .map(|entry| {
-                                            if entry.is_starred {
-                                                "★"
-                                            } else if !entry.is_read {
-                                                "●"
-                                            } else {
-                                                ""
+                                            match (entry.is_read, entry.is_starred) {
+                                                (false, true) => "●  ★",
+                                                (false, false) => "●",
+                                                (true, true) => "★",
+                                                (true, false) => "",
                                             }
                                         })
                                         .unwrap_or_default()
@@ -398,7 +476,10 @@ fn queue(
                             })
                         })
                         .text_sm()
-                        .font_weight(FontWeight::MEDIUM)
+                        .style_when(
+                            move || entry.with(|entry| entry.as_ref().is_some_and(|row| !row.is_read)),
+                            |s| s.font_weight(FontWeight::SEMIBOLD),
+                        )
                         .number_of_lines(2u32),
                     )
                     .child(
@@ -436,12 +517,22 @@ fn queue(
                         store.read(|state| {
                             crate::i18n::tr(if state.loading {
                                 "正在载入…"
+                            } else if !state.query.search.is_empty() {
+                                "没有匹配的文章"
                             } else {
                                 "这里还没有文章"
                             })
                         })
                     }))
-                    .child(ui::caption("添加订阅，或调整筛选条件。")),
+                    .child(when(move || store.read(|state| !state.loading), move || {
+                        when(move || store.read(|state| !state.query.search.is_empty()), move || {
+                            ui::command("清除搜索", move || store.search(String::new()))
+                        }).otherwise(move || {
+                            when(move || store.read(|state| state.subscriptions.is_empty()), move || {
+                                view().items_start().child(ui::primary("添加第一个订阅", move || adding.set(true)))
+                            }).otherwise(|| ui::caption("添加订阅，或调整筛选条件。"))
+                        })
+                    })),
             ),
         )
 }
@@ -453,6 +544,7 @@ fn article(store: Store) -> impl IntoElement {
         .min_h_0()
         .child(
             ui::toolbar()
+                .flex_wrap()
                 .child(when(
                     move || window().width.0 < 760.0,
                     move || ui::command("返回", move || store.clear_selection()),
@@ -624,6 +716,13 @@ fn article(store: Store) -> impl IntoElement {
 
 fn add_subscription(store: Store, open: Signal<bool>) -> impl IntoElement {
     let address = signal(String::new());
+    let submit = move || {
+        let url = address.get_untracked();
+        if !url.trim().is_empty() && !store.peek(|state| state.writing) {
+            store.create_subscription(url);
+            open.set(false);
+        }
+    };
     dialog()
         .on_cancel(move || open.set(false))
         .animation(ModalAnimation::None)
@@ -647,9 +746,14 @@ fn add_subscription(store: Store, open: Signal<bool>) -> impl IntoElement {
                         .text_xl()
                         .font_weight(FontWeight::SEMIBOLD),
                 )
-                .child(ui::field("Feed 地址", address).auto_focus(true))
+                .child(ui::form_field(
+                    "Feed 地址",
+                    ui::field("Feed 地址", address)
+                        .auto_focus(true)
+                        .on_submit(move |_: &str| submit()),
+                ))
                 .child(ui::caption(
-                    "默认只保存到本地。添加后可在服务器与同步中选择同步目标。",
+                    "默认只保存到本地。添加后可在设置的服务器连接页选择同步目标。",
                 ))
                 .child(
                     view()
@@ -657,16 +761,10 @@ fn add_subscription(store: Store, open: Signal<bool>) -> impl IntoElement {
                         .gap_2()
                         .justify_end()
                         .child(ui::command("取消", move || open.set(false)))
-                        .child(
-                            ui::primary("添加", move || {
-                                store.create_subscription(address.get_untracked());
-                                open.set(false);
-                            })
-                            .disabled(move || {
-                                address.with(|address| address.trim().is_empty())
-                                    || store.read(|state| state.writing)
-                            }),
-                        ),
+                        .child(ui::primary("添加", submit).disabled(move || {
+                            address.with(|address| address.trim().is_empty())
+                                || store.read(|state| state.writing)
+                        })),
                 ),
         )
 }

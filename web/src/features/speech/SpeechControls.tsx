@@ -53,6 +53,7 @@ export function SpeechControls({
   return (
     <div
       className="speech-controls"
+      data-state={state}
       role="group"
       aria-label={translate("controls")}
     >
@@ -95,12 +96,10 @@ export function SpeechControls({
       <span
         role={state === "error" ? "alert" : "status"}
         className={
-          state === "loading" || state === "error"
-            ? "speech-feedback"
-            : "reader-visually-hidden"
+          state === "idle" ? "reader-visually-hidden" : "speech-feedback"
         }
       >
-        {translate(state === "error" ? "error" : !enabled ? "disabled" : state)}
+        {translate(state === "error" ? "playbackError" : !enabled ? "disabled" : state)}
       </span>
     </div>
   )

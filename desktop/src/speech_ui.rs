@@ -102,10 +102,7 @@ fn feedback(status: Signal<Status>) -> impl IntoElement {
 }
 
 fn labeled(label: &'static str, value: Signal<String>, busy: Signal<bool>) -> impl IntoElement {
-    view()
-        .gap_1()
-        .child(ui::caption(label))
-        .child(ui::field(label, value).disabled(busy))
+    ui::form_field(label, ui::field(label, value).disabled(busy))
 }
 
 #[component]
@@ -251,9 +248,6 @@ pub(crate) fn SpeechSettings() -> impl IntoElement {
     };
     view()
         .gap_3()
-        .pb_5()
-        .border_b_1()
-        .border_color(move || theme().border)
         .child(ui::heading("语音朗读"))
         .child(ui::caption(
             "配置保存到所选资料库；试听使用未保存的配置，可能产生服务费用。",

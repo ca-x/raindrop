@@ -797,13 +797,25 @@
   min-block-size: var(--reader-entry-content-min-block-size, 60px);
 }
 
-.reader-entry-title > span:nth-child(2) {
+.reader-entry-headline {
   min-inline-size: 0;
   overflow-wrap: anywhere;
 }
 
 .reader-entry-title {
+  display: inline-grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 6px;
   line-height: 1.35;
+}
+
+.reader-entry-marker {
+  display: inline-grid;
+  inline-size: 8px;
+  align-self: start;
+  block-size: 1.35em;
+  place-items: center;
 }
 
 .reader-entry-star {
@@ -822,6 +834,7 @@
   display: grid;
   min-inline-size: 0;
   gap: 2px;
+  padding-inline-start: 14px;
 }
 
 .reader-entry-meta,
@@ -2992,19 +3005,6 @@ html[lang^="zh"] .ai-artifact-view {
   margin: 4px 0 0;
 }
 
-.reader-about-mark {
-  display: grid;
-  inline-size: 52px;
-  block-size: 52px;
-  place-items: center;
-  border: 1px solid color-mix(in oklch, var(--color-accent) 35%, var(--color-border));
-  border-radius: 14px;
-  background: color-mix(in oklch, var(--color-accent) 10%, var(--color-background-surface));
-  color: var(--color-accent);
-  font-size: 1.4rem;
-  font-weight: 760;
-}
-
 .reader-about-version {
   margin-block-start: 4px;
   color: var(--color-text-secondary);
@@ -3423,12 +3423,9 @@ html[lang^="zh"] .ai-artifact-view {
     border-inline-end: 0;
     border-block-end: 1px solid var(--color-border);
     background: var(--color-background-surface);
-    scrollbar-width: none;
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
     scroll-padding-inline: 10px;
-  }
-
-  .reader-settings-nav::-webkit-scrollbar {
-    display: none;
   }
 
   .reader-settings-nav-item {

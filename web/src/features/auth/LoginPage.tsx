@@ -26,15 +26,19 @@ export function LoginPage({ onAuthenticated }: LoginPageProps) {
   const [password, setPassword] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [hasError, setHasError] = useState(false)
+  const [submitted, setSubmitted] = useState(false)
 
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (isLoading) return
+    setSubmitted(true)
+    setHasError(false)
     if (!identifier.trim() || !password) {
-      setHasError(true)
+      event.currentTarget.querySelector<HTMLInputElement>(
+        identifier.trim() ? 'input[name="password"]' : 'input[name="login"]',
+      )?.focus()
       return
     }
-    setHasError(false)
     setIsLoading(true)
     try {
       onAuthenticated(await login({ login: identifier, password }))
@@ -90,8 +94,12 @@ export function LoginPage({ onAuthenticated }: LoginPageProps) {
                     <TextInput
                       label={i18n._("login.username")}
                       value={identifier}
-                      onChange={setIdentifier}
-                      htmlName="login"
+                      onChange={(value) => {
+                        setIdentifier(value)
+                        setHasError(false)
+                      }}
+                      {...{ htmlName: "login", autoComplete: "username" }}
+                      status={submitted && !identifier.trim() ? { type: "error", message: i18n._("setup.required") } : undefined}
                       isRequired
                       isDisabled={isLoading}
                       width="100%"
@@ -101,8 +109,12 @@ export function LoginPage({ onAuthenticated }: LoginPageProps) {
                       label={i18n._("login.password")}
                       type="password"
                       value={password}
-                      onChange={setPassword}
-                      htmlName="password"
+                      onChange={(value) => {
+                        setPassword(value)
+                        setHasError(false)
+                      }}
+                      {...{ htmlName: "password", autoComplete: "current-password" }}
+                      status={submitted && !password ? { type: "error", message: i18n._("setup.required") } : undefined}
                       isRequired
                       isDisabled={isLoading}
                       width="100%"

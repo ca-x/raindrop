@@ -23,7 +23,12 @@ pub(crate) fn translate(language: Language, message: &str) -> &str {
         "添加订阅" => "Add subscription",
         "订阅" => "Subscriptions",
         "尚无订阅" => "No subscriptions yet",
-        "服务器与同步" => "Settings & sync",
+        "设置" => "Settings",
+        "添加第一个订阅" => "Add your first subscription",
+        "服务器连接" => "Connections",
+        "选择要搜索的订阅" => "Choose a subscription to search",
+        "清除搜索" => "Clear search",
+        "没有匹配的文章" => "No matching articles",
         "文章列表操作" => "Article list actions",
         "重新载入文章" => "Reload articles",
         "抓取当前订阅" => "Fetch current subscription",
@@ -53,8 +58,8 @@ pub(crate) fn translate(language: Language, message: &str) -> &str {
         "[图片：请打开原文查看]" => "[Image: open the original to view]",
         "[图片：{}]" => "[Image: {}]",
         "Feed 地址" => "Feed URL",
-        "默认只保存到本地。添加后可在服务器与同步中选择同步目标。" => {
-            "Saved locally by default. Choose a sync destination in Settings & sync after adding."
+        "默认只保存到本地。添加后可在设置的服务器连接页选择同步目标。" => {
+            "Saved locally by default. Choose a sync destination in Settings under Connections."
         }
         "取消" => "Cancel",
         "添加" => "Add",

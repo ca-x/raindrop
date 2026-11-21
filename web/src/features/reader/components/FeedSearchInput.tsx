@@ -45,7 +45,12 @@ export function FeedSearchInput({ query, isLoading, onSearch }: FeedSearchInputP
           if (error) setError(null)
           if (value === "" && query !== "") void onSearch("")
         }}
-        onEnter={() => void submit()}
+        {...{ enterKeyHint: "search" }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) {
+            void submit()
+          }
+        }}
         width="100%"
       />
     </div>

@@ -8,7 +8,7 @@ import { Section } from "@astryxdesign/core/Section"
 import { Stack } from "@astryxdesign/core/Stack"
 import { Text } from "@astryxdesign/core/Text"
 import { useLingui } from "@lingui/react"
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import { ApiClientError } from "../../shared/api/client"
 import { BrandMark } from "../../shared/brand/BrandMark"
@@ -43,6 +43,18 @@ export function SetupPage({ mode, onAuthenticated, onLoginRequired }: SetupPageP
   const [fields, setFields] = useState<Record<string, string>>({})
   const [error, setError] = useState<"database" | "complete" | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const frame = useRef<HTMLDivElement>(null)
+  const previousStep = useRef(step)
+
+  useEffect(() => {
+    if (isLoading) return
+    if (previousStep.current !== step) {
+      previousStep.current = step
+      frame.current?.querySelector<HTMLElement>("form h2")?.focus()
+    } else if (Object.keys(fields).length) {
+      frame.current?.querySelector<HTMLInputElement>('input[aria-invalid="true"]')?.focus()
+    }
+  }, [fields, isLoading, step])
 
   const submitDatabase = async () => {
     if (isLoading) return
@@ -88,7 +100,7 @@ export function SetupPage({ mode, onAuthenticated, onLoginRequired }: SetupPageP
 
   return (
     <AppShell contentPadding={0} height="fill" mobileNav={false} variant="wash">
-      <div className="raindrop-auth-frame">
+      <div className="raindrop-auth-frame" ref={frame}>
         <Section variant="transparent" padding={6} className="raindrop-auth-context">
           <Stack gap={4}>
             <Stack direction="horizontal" gap={3} align="center">

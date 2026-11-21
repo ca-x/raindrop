@@ -53,6 +53,8 @@
     --shadow-input: inset 0 1px 2px var(--material-shadow), 0 1px 0 var(--material-highlight);
     --shadow-floating: inset 0 1px 0 var(--material-highlight),
       0 24px 64px -20px var(--shadow-color), 0 4px 12px -4px var(--shadow-color);
+    --shadow-menu: inset 0 1px 0 var(--material-highlight),
+      0 2px 4px -1px var(--shadow-color), 0 8px 20px -6px var(--shadow-color);
     --shadow-auth: inset 0 1px 0 var(--material-highlight),
       0 2px 4px -2px var(--shadow-color), 0 24px 64px -36px var(--shadow-color);
     --shadow-selection: 0 1px 2px var(--shadow-color), 0 6px 18px var(--shadow-color);
@@ -65,6 +67,7 @@
     --scrollbar-thumb-active: color-mix(in oklch, var(--color-text-secondary) 68%, transparent);
     --radius-control: 10px;
     --radius-container: 14px;
+    --duration-press: 80ms;
     --duration-micro: 120ms;
     --duration-fast: 140ms;
     --duration-normal: 180ms;
@@ -104,6 +107,7 @@
     --shadow-control-pressed: none;
     --shadow-input: none;
     --shadow-floating: none;
+    --shadow-menu: none;
     --shadow-auth: none;
     --shadow-selection: none;
     --shadow-drop: 0 0 0 transparent;
@@ -143,6 +147,11 @@
 .astryx-dialog::backdrop,
 .astryx-mobile-nav::backdrop {
   backdrop-filter: var(--surface-backdrop-filter);
+}
+
+.astryx-menu,
+.astryx-popover {
+  box-shadow: var(--shadow-menu);
 }
 
 .astryx-button[data-variant="primary"]:not(:disabled, [aria-disabled="true"]),
@@ -232,10 +241,8 @@ body {
   overscroll-behavior: contain;
 }
 
-@media (hover: hover) and (pointer: fine) {
-  .raindrop-auth-card:hover {
-    box-shadow: var(--shadow-auth);
-  }
+.raindrop-auth-card :where(input, button, h2) {
+  scroll-margin-block: 16px;
 }
 
 @media (max-width: 899px) {

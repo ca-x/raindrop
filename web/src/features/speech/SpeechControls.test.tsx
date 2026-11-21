@@ -79,7 +79,8 @@ it("provides accessible icon controls and requests the next chunk only after aud
     fetchMock.mock.calls.filter(([path]) => path.endsWith("/speak")),
   ).toHaveLength(1)
   fireEvent.click(screen.getByRole("button", { name: "Pause speech" }))
-  expect(screen.getByText("Paused")).toHaveClass("reader-visually-hidden")
+  expect(screen.getByText("Paused")).toHaveAttribute("role", "status")
+  expect(screen.getByText("Paused")).toHaveClass("speech-feedback")
   fireEvent.click(screen.getByRole("button", { name: "Resume speech" }))
   await screen.findByRole("button", { name: "Pause speech" })
   act(() => audios[0]!.onended?.())

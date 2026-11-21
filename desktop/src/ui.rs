@@ -1,4 +1,4 @@
-use nsh_base::{ButtonElement, MenuItemElement, button, input, menu_item, theme};
+use nsh_base::{ButtonElement, MenuItemElement, button, input, menu_item, tab, theme, tooltip};
 use nsh_core::element::{ImageSrc, Text, View};
 use nsh_core::prelude::*;
 
@@ -41,15 +41,34 @@ pub(crate) fn icon_command(
     action: impl Fn() + 'static,
 ) -> ButtonElement {
     let title = localized(title);
+    let hint = title.clone();
     command_surface(action)
         .min_w_8()
-        .p_2()
         .accessibility_label(move || title.get())
         .child(
-            svg(source)
-                .w_4()
-                .h_4()
-                .text_color(move || theme().foreground),
+            view()
+                .p_2()
+                .tooltip(
+                    tooltip()
+                        .px_2()
+                        .py_1()
+                        .rounded_md()
+                        .border_1()
+                        .border_color(move || theme().border)
+                        .bg(move || theme().popover)
+                        .shadow_sm()
+                        .child(
+                            text(move || hint.get())
+                                .text_xs()
+                                .text_color(move || theme().popover_foreground),
+                        ),
+                )
+                .child(
+                    svg(source)
+                        .w_4()
+                        .h_4()
+                        .text_color(move || theme().foreground),
+                ),
         )
 }
 
@@ -106,6 +125,35 @@ pub(crate) fn field(label: &'static str, value: Signal<String>) -> Input {
                 .outline(px(1.0))
                 .outline_color(move || theme().ring)
         })
+}
+
+pub(crate) fn form_field(label: &'static str, input: Input) -> impl IntoElement {
+    view().gap_1().child(caption(label)).child(input)
+}
+
+pub(crate) fn section_tab(
+    label: &'static str,
+    selected: impl Fn() -> bool + 'static,
+    select: impl Fn() + 'static,
+) -> impl IntoElement {
+    tab()
+        .selected(selected)
+        .on_press(select)
+        .min_h_8()
+        .px_3()
+        .py_1()
+        .items_center()
+        .justify_center()
+        .rounded(move || theme().radius)
+        .text_color(move || theme().foreground)
+        .hover(|s| s.bg(move || theme().muted))
+        .active(|s| s.bg(move || theme().accent))
+        .selected_style(|s| {
+            s.bg(move || theme().accent)
+                .text_color(move || theme().accent_foreground)
+        })
+        .focus(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
+        .child(text(localized(label)).text_sm())
 }
 
 pub(crate) fn menu_command(label: &'static str, action: impl Fn() + 'static) -> MenuItemElement {

@@ -41,7 +41,7 @@ export function DatabaseStep({
     <form onSubmit={submit} noValidate>
       <Stack gap={4}>
         <Stack gap={1}>
-          <Heading level={2} className="raindrop-reading-heading">
+          <Heading level={2} tabIndex={-1} className="raindrop-reading-heading">
             {i18n._("setup.databaseTitle")}
           </Heading>
           <Text as="p" color="secondary" textWrap="pretty">
@@ -55,7 +55,7 @@ export function DatabaseStep({
             type="password"
             value={values.token}
             onChange={(token) => onChange({ ...values, token })}
-            htmlName="setupToken"
+            {...{ htmlName: "setupToken", autoComplete: "off" }}
             isRequired
             isDisabled={isLoading}
             width="100%"

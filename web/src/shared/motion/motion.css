@@ -36,6 +36,7 @@
 }
 
 .astryx-button:active:not(:disabled, [aria-disabled="true"], .reader-reading-dock-trigger, .reader-source-mark-read, .reader-selection-action) {
+  transition-duration: var(--duration-press), var(--duration-micro), var(--duration-micro);
   transform: scale(0.97);
 }
 

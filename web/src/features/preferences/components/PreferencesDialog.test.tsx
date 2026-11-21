@@ -177,7 +177,12 @@ it("uses icon-assisted navigation and exposes the current build version", async 
   const navigation = within(dialog).getByRole("navigation", { name: "Settings sections" })
 
   expect(navigation.querySelectorAll("svg").length).toBeGreaterThanOrEqual(3)
-  await user.click(within(navigation).getByRole("button", { name: /^About/ }))
+  const about = within(navigation).getByRole("button", { name: /^About/ })
+  within(navigation).getAllByRole("button")[0].focus()
+  await user.keyboard("{End}")
+  expect(about).toHaveFocus()
+  expect(within(dialog).queryByText(`v${__RAINDROP_VERSION__}`)).not.toBeInTheDocument()
+  await user.keyboard("{Enter}")
   expect(within(dialog).getByText("Raindrop")).toBeVisible()
   expect(within(dialog).getByText(`v${__RAINDROP_VERSION__}`)).toBeVisible()
 })

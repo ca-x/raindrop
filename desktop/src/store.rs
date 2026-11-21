@@ -553,10 +553,15 @@ impl Store {
     }
 
     pub(crate) fn filter(self, filter: Filter, feed_id: Option<String>) {
-        self.0.update(|state| {
-            state.query.filter = filter;
-            state.query.feed_id = feed_id;
+        self.set_query(Query {
+            filter,
+            feed_id,
+            search: String::new(),
         });
+    }
+
+    pub(crate) fn set_query(self, query: Query) {
+        self.0.update(|state| state.query = query);
         self.query_changed();
     }
 
@@ -628,16 +633,18 @@ impl Store {
     }
 
     fn patch(self, patch: EntryPatch) {
-        let Some((api, entry, session)) = self.peek(|state| {
-            (!state.writing)
-                .then(|| {
-                    Some((
-                        state.api.clone()?,
-                        state.detail.clone()?,
-                        state.session_generation,
-                    ))
-                })
-                .flatten()
+        let Some((api, entry_id, feed_id, was_read, session)) = self.peek(|state| {
+            if state.writing {
+                return None;
+            }
+            let entry = state.detail.as_ref()?;
+            Some((
+                state.api.clone()?,
+                entry.entry_id.clone(),
+                entry.feed_id.clone(),
+                entry.is_read,
+                state.session_generation,
+            ))
         }) else {
             return;
         };
@@ -646,17 +653,17 @@ impl Store {
             state.error = "".into();
         });
         self.spawn(async move {
-            let id = entry.entry_id.clone();
+            let id = entry_id.clone();
             let result = background(move || api.patch(&id, patch)).await;
             if self.peek(|state| state.session_generation) != session {
                 return;
             }
             self.0.update(|state| state.writing = false);
             match result {
-                Ok(updated) if updated.entry_id == entry.entry_id => self.0.update(|state| {
-                    let unread_delta = i64::from(entry.is_read) - i64::from(updated.is_read);
+                Ok(updated) if updated.entry_id == entry_id => self.0.update(|state| {
+                    let unread_delta = i64::from(was_read) - i64::from(updated.is_read);
                     for subscription in &mut state.subscriptions {
-                        if subscription.feed_id == entry.feed_id {
+                        if subscription.feed_id == feed_id {
                             subscription.unread_count =
                                 (subscription.unread_count + unread_delta).max(0);
                         }
@@ -699,7 +706,9 @@ impl Store {
             };
             state.entries.get(next).map(|entry| entry.entry_id.clone())
         });
-        if let Some(id) = id {
+        if let Some(id) = id
+            && !self.peek(|state| state.selected.as_ref() == Some(&id))
+        {
             self.select(id);
         }
     }
